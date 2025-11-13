@@ -90,3 +90,53 @@ create table public.sops (
   embedding vector(1536), -- For semantic search
   created_at timestamptz default now()
 );
+4.2 Chat Memory
+SQL
+
+create table public.ops_chat_sessions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users,
+  client_context_id uuid references public.clients, -- Which client is active?
+  summary text, -- "Rolling summary" of the conversation
+  last_active timestamptz
+);
+5. ClickUp Integration Strategy (M1)
+Auth:
+
+We will use a Personal API Token (belonging to the Admin/Owner) stored in Render Environment Variables (CLICKUP_API_TOKEN).
+
+Future: Upgrade to OAuth if we open this tool to non-admins.
+
+Sync Strategy:
+
+Live Fetch: When a user asks for status, we hit the ClickUp API in real-time (cached for 5 mins).
+
+Nightly Sync (Worker): A background job scans ClickUp to map new Spaces/Lists to our clients table so the dropdown selector stays current.
+
+6. API Interface (Internal)
+The backend-core (Python) exposes these endpoints to the frontend-web (Next.js):
+
+Chat & Status
+POST /api/ops/chat: Sends user message, returns agent text response + context_pane_data (JSON for the board).
+
+GET /api/ops/clients: Returns list of clients for the dropdown.
+
+SOP Operations
+POST /api/ops/sops/preview:
+
+Input: { clickup_task_url: string }
+
+Output: { original: json, neutralized: json, diff_summary: string }
+
+POST /api/ops/sops/commit:
+
+Input: { neutralized_data: json, slug: string, aliases: string[] }
+
+Action: Saves to Supabase sops table.
+
+7. Success Criteria (M1)
+Admin Usage: Jeff can log in, select a client, and see a Kanban board of that client's active tasks without opening ClickUp.
+
+Canonization: Jeff can paste a link to a "finished" task, review the AI's proposed template, and save it as a "Canonical SOP."
+
+Search: Asking "Do we have an SOP for X?" retrieves the newly saved SOP.
