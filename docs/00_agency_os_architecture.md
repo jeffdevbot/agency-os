@@ -13,19 +13,35 @@ The goal is to move from "scripts and spreadsheets" to "integrated software" tha
 
 ### The Shift
 * **Current State:** `ngram.ecomlabs.ca` (Hosted on Render).
-* **Future State:** `tools.ecomlabs.ca` (Hosted on Vercel).
-* **Migration Path:**
-    1.  Launch `tools.ecomlabs.ca`.
-    2.  Port the Ngram tool frontend to the new repo.
-    3.  Set up a 301 Redirect on `ngram.ecomlabs.ca` $\to$ `tools.ecomlabs.ca/ngram`.
+* **Future State:** `tools.ecomlabs.ca` (Hosted on Render).
+* **Infrastructure Choice:** We are standardizing on **Render** for all services. This allows us to run long-running background processes (Nightly Syncs) and heavy compute jobs (Ngram processing) without hitting the timeout/size limits typical of Vercel Serverless.
 
-### Tech Stack
-* **Frontend:** Next.js (React) deployed on Vercel.
-* **Backend/Database:** Supabase (PostgreSQL, Auth, Vector DB, Edge Functions).
-* **Authentication:** Supabase Auth (Google OAuth provider).
-* **Compute (Ngram/Python):**
-    * *Option A:* Port Python logic to Vercel Serverless Functions (Python runtime).
-    * *Option B:* Keep the heavy Python processing on Render as a microservice API, but serve the UI from Vercel. (Decision TBD based on legacy code review).
+### The Render Service Architecture
+We will run three distinct services within the same Render Project:
+
+1.  **Frontend Service (`frontend-web`)**
+    * **Type:** Web Service (Node.js).
+    * **Tech:** Next.js (React).
+    * **Role:** Serves the Dashboard UI, handles Supabase Auth redirects, and proxies API requests.
+    * **Domain:** `tools.ecomlabs.ca`.
+
+2.  **Backend Service (`backend-core`)**
+    * **Type:** Web Service (Python).
+    * **Tech:** FastAPI.
+    * **Role:** The heavy lifter. Runs the Ngram processing logic, Chat Orchestrator (LLM routing), and Amazon Composer flat-file generation.
+    * **Domain:** Internal private networking (accessible only by Frontend) OR `api.ecomlabs.ca` (if public access is needed).
+
+3.  **Worker Service (`worker-sync`)**
+    * **Type:** Background Worker.
+    * **Tech:** Python.
+    * **Role:** Runs offline jobs that don't need a UI.
+        * Nightly ClickUp Sync (updates Client/Task DB).
+        * SOP Generalizer (AI batch processing).
+
+### Migration Path
+1.  **Deploy Frontend:** Launch the Next.js shell on Render at `tools.ecomlabs.ca`.
+2.  **Deploy Backend:** Port the existing Ngram logic (`app/main.py`) to the new Python service.
+3.  **Redirect:** Set up a 301 Redirect on `ngram.ecomlabs.ca` $\to$ `tools.ecomlabs.ca/ngram`.
 
 ---
 
@@ -78,11 +94,15 @@ The goal is to move from "scripts and spreadsheets" to "integrated software" tha
 ## 4. Tool Suite Overview
 
 ### 🛠 Tool 1: The Ngram Analyzer (Migration)
-* **Function:** Ingests Search Term Reports, processes n-grams, outputs Excel.
+* **Host:** `backend-core` (Python).
+* **Function:** Ingests Search Term Reports (up to 40MB), processes n-grams using Pandas, streams Excel output.
 * **Access:** Media Buyers (Advertising Specialists).
-* **Key Requirement:** Must maintain the current secure upload/download flow.
+* **Why Render?** Avoids Vercel's 4.5MB body limit and 10s timeout limits for heavy file processing.
 
 ### 🕶 Tool 2: The Operator (New)
+* **Host:**
+    * **API:** `backend-core` (Chat Orchestrator, ClickUp Fetcher).
+    * **Background:** `worker-sync` (Nightly Sync, SOP Generalizer).
 * **Function:** AI-driven interface for ClickUp and SOP management.
 * **Core Features:**
     * **Chat Orchestrator:** Natural language query for project status.
@@ -91,6 +111,7 @@ The goal is to move from "scripts and spreadsheets" to "integrated software" tha
 * **Backend:** Requires OpenAI (GPT-4o/mini) API key + ClickUp API Token.
 
 ### ✍️ Tool 3: Amazon Composer (New)
+* **Host:** `frontend-web` (UI) + `backend-core` (Logic).
 * **Function:** Listing generation and approval workflow.
 * **Core Features:**
     * Input form (SKU data).
@@ -106,7 +127,7 @@ The goal is to move from "scripts and spreadsheets" to "integrated software" tha
 ---
 
 ## 5. Database Schema Strategy (High Level)
-We will use a single Postgres database. The backbone is the link between Supabase Auth and our custom Roles.
+We will use a single Postgres database (Supabase). The backbone is the link between Supabase Auth and our custom Roles.
 
 * **`auth.users`**: Managed by Supabase.
 * **`public.profiles`**: Extends users. Contains `role` (Admin, Brand Manager, etc.) and `clickup_user_id`.
