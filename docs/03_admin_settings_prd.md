@@ -53,21 +53,24 @@ The Python backend provides "Management Endpoints" that write to the Supabase `p
 This tool creates the "Knowledge Graph" that the rest of the OS relies on.
 
 ### 4.1 Extended User Profiles
+
 ```sql
-alter table public.profiles 
+alter table public.profiles
 add column role text check (role in (
-  'Admin', 
-  'Brand Manager', 
-  'Catalog Specialist', 
+  'Admin',
+  'Brand Manager',
+  'Catalog Specialist',
   'Advertising Specialist'
 ));
 
 -- Stores the user's specific ClickUp Member ID for task assignment
-alter table public.profiles 
-add column clickup_user_id text; 
-4.2 Client Registry
-SQL
+alter table public.profiles
+add column clickup_user_id text;
+```
 
+### 4.2 Client Registry
+
+```sql
 create table public.clients (
   id uuid primary key default gen_random_uuid(),
   name text not null,
@@ -76,31 +79,32 @@ create table public.clients (
   clickup_space_name text, -- Cached for UI speed
   status text default 'active' -- active, churned, paused
 );
-4.3 The Assignment Junction
+```
+
+### 4.3 The Assignment Junction
+
 This is the source of truth for "Who works on what."
 
-SQL
-
+```sql
 create table public.client_assignments (
   client_id uuid references public.clients on delete cascade,
   user_id uuid references public.profiles on delete cascade,
   assigned_at timestamptz default now(),
   primary key (client_id, user_id)
 );
-5. Integration Logic (ClickUp)
+```
+
+## 5. Integration Logic (ClickUp)
+
 The Configurator needs to "know" about ClickUp Spaces to let you map them.
 
-Fetch: On page load (or via manual sync button), backend-core hits https://api.clickup.com/api/v2/team/{team_id}/space.
+* **Fetch:** On page load (or via manual sync button), backend-core hits `https://api.clickup.com/api/v2/team/{team_id}/space`.
+* **Display:** The dropdown for "ClickUp Space" in the "Add Client" modal is populated by this live (or cached) list.
+* **User Mapping:** The tool also fetches ClickUp Members so you can map "John Smith (Agency OS)" to "John Smith (ClickUp User ID 998877)".
 
-Display: The dropdown for "ClickUp Space" in the "Add Client" modal is populated by this live (or cached) list.
+## 6. Success Criteria (MVP)
 
-User Mapping: The tool also fetches ClickUp Members so you can map "John Smith (Agency OS)" to "John Smith (ClickUp User ID 998877)".
-
-6. Success Criteria (MVP)
-RBAC Enforcement: Non-admins cannot access /admin.
-
-Client Creation: Admin can create "Client Y" and link it to "ClickUp Space Y".
-
-Team Assignment: Admin can assign "User A" to "Client Y".
-
-Verification: When "User A" logs in, they only see "Client Y" in their dashboard selector (filtering works).
+* **RBAC Enforcement:** Non-admins cannot access `/admin`.
+* **Client Creation:** Admin can create "Client Y" and link it to "ClickUp Space Y".
+* **Team Assignment:** Admin can assign "User A" to "Client Y".
+* **Verification:** When "User A" logs in, they only see "Client Y" in their dashboard selector (filtering works).
