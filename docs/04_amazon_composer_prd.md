@@ -96,17 +96,47 @@ create table public.listing_versions (
   is_approved boolean default false,
   created_by uuid references auth.users
 );
-4.2 The Secret LinkSQLcreate table public.review_links (
+```
+
+### 4.2 The Secret Link
+
+```sql
+create table public.review_links (
   id uuid primary key default gen_random_uuid(), -- The secure token
   version_id uuid references public.listing_versions,
   expires_at timestamptz,
   is_active boolean default true
 );
-5. API InterfaceAgency Endpoints (Private)POST /api/composer/generate: Inputs $\to$ AI Draft (Streaming Text).POST /api/composer/save: Saves current editor state as a Version.POST /api/composer/share: Creates a review_link.GET /api/composer/export/{version_id}: Returns the CSV/Excel Flat File.Client Endpoints (Public)GET /api/public/listing/{token}: Fetches the listing content for the Review Page.POST /api/public/feedback: Client submits comments.POST /api/public/approve: Client marks version as approved.6. AI Prompt Strategy (Specifics)The "Byte Limit" Constraint:Amazon Titles have a hard 200-byte limit. The AI often ignores this.Solution: We ask the AI for 3 variations: Short, Medium, Long. The Frontend validates the byte count. If the AI overshoots, the human editor trims it.Keyword Stuffer:Input: List of 10 "Must Have" keywords.System Prompt: "Ensure the following phrases appear exactly once across the Title and Bullets. Prioritize placing 'Main Keyword' in the first 80 characters of the Title."
+```
 
-7. Success Criteria (MVP)
-End-to-End Flow: Can create a listing, generate AI copy, save it, share it, approve it, and download a valid CSV.
+## 5. API Interface
 
-Client Experience: The "Review Link" loads instantly on mobile/desktop and requires zero friction (no signup).
+### Agency Endpoints (Private)
 
-Flat File Accuracy: The exported CSV can be uploaded to Seller Central without "Header Error."
+* `POST /api/composer/generate`: Inputs $\to$ AI Draft (Streaming Text).
+* `POST /api/composer/save`: Saves current editor state as a Version.
+* `POST /api/composer/share`: Creates a `review_link`.
+* `GET /api/composer/export/{version_id}`: Returns the CSV/Excel Flat File.
+
+### Client Endpoints (Public)
+
+* `GET /api/public/listing/{token}`: Fetches the listing content for the Review Page.
+* `POST /api/public/feedback`: Client submits comments.
+* `POST /api/public/approve`: Client marks version as approved.
+
+## 6. AI Prompt Strategy (Specifics)
+
+**The "Byte Limit" Constraint:** Amazon Titles have a hard 200-byte limit. The AI often ignores this.
+
+* **Solution:** We ask the AI for 3 variations: Short, Medium, Long. The Frontend validates the byte count. If the AI overshoots, the human editor trims it.
+
+**Keyword Stuffer:**
+
+* **Input:** List of 10 "Must Have" keywords.
+* **System Prompt:** "Ensure the following phrases appear exactly once across the Title and Bullets. Prioritize placing 'Main Keyword' in the first 80 characters of the Title."
+
+## 7. Success Criteria (MVP)
+
+* **End-to-End Flow:** Can create a listing, generate AI copy, save it, share it, approve it, and download a valid CSV.
+* **Client Experience:** The "Review Link" loads instantly on mobile/desktop and requires zero friction (no signup).
+* **Flat File Accuracy:** The exported CSV can be uploaded to Seller Central without "Header Error."

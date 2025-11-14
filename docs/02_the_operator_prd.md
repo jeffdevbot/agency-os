@@ -68,6 +68,7 @@ The backend uses a "Router-Solver" pattern to keep costs low and accuracy high.
 ## 4. Data Model (Supabase)
 
 ### 4.1 Core Entities
+
 ```sql
 -- Maps Agency OS Clients to ClickUp
 create table public.clients (
@@ -90,9 +91,11 @@ create table public.sops (
   embedding vector(1536), -- For semantic search
   created_at timestamptz default now()
 );
-4.2 Chat Memory
-SQL
+```
 
+### 4.2 Chat Memory
+
+```sql
 create table public.ops_chat_sessions (
   id uuid primary key default gen_random_uuid(),
   user_id uuid references auth.users,
@@ -100,43 +103,39 @@ create table public.ops_chat_sessions (
   summary text, -- "Rolling summary" of the conversation
   last_active timestamptz
 );
-5. ClickUp Integration Strategy (M1)
-Auth:
+```
 
-We will use a Personal API Token (belonging to the Admin/Owner) stored in Render Environment Variables (CLICKUP_API_TOKEN).
+## 5. ClickUp Integration Strategy (M1)
 
-Future: Upgrade to OAuth if we open this tool to non-admins.
+**Auth:** We will use a Personal API Token (belonging to the Admin/Owner) stored in Render Environment Variables (`CLICKUP_API_TOKEN`).
 
-Sync Strategy:
+**Future:** Upgrade to OAuth if we open this tool to non-admins.
 
-Live Fetch: When a user asks for status, we hit the ClickUp API in real-time (cached for 5 mins).
+**Sync Strategy:**
 
-Nightly Sync (Worker): A background job scans ClickUp to map new Spaces/Lists to our clients table so the dropdown selector stays current.
+* **Live Fetch:** When a user asks for status, we hit the ClickUp API in real-time (cached for 5 mins).
+* **Nightly Sync (Worker):** A background job scans ClickUp to map new Spaces/Lists to our clients table so the dropdown selector stays current.
 
-6. API Interface (Internal)
+## 6. API Interface (Internal)
+
 The backend-core (Python) exposes these endpoints to the frontend-web (Next.js):
 
-Chat & Status
-POST /api/ops/chat: Sends user message, returns agent text response + context_pane_data (JSON for the board).
+### Chat & Status
 
-GET /api/ops/clients: Returns list of clients for the dropdown.
+* `POST /api/ops/chat`: Sends user message, returns agent text response + `context_pane_data` (JSON for the board).
+* `GET /api/ops/clients`: Returns list of clients for the dropdown.
 
-SOP Operations
-POST /api/ops/sops/preview:
+### SOP Operations
 
-Input: { clickup_task_url: string }
+* `POST /api/ops/sops/preview`
+  * **Input:** `{ clickup_task_url: string }`
+  * **Output:** `{ original: json, neutralized: json, diff_summary: string }`
+* `POST /api/ops/sops/commit`
+  * **Input:** `{ neutralized_data: json, slug: string, aliases: string[] }`
+  * **Action:** Saves to Supabase `sops` table.
 
-Output: { original: json, neutralized: json, diff_summary: string }
+## 7. Success Criteria (M1)
 
-POST /api/ops/sops/commit:
-
-Input: { neutralized_data: json, slug: string, aliases: string[] }
-
-Action: Saves to Supabase sops table.
-
-7. Success Criteria (M1)
-Admin Usage: Jeff can log in, select a client, and see a Kanban board of that client's active tasks without opening ClickUp.
-
-Canonization: Jeff can paste a link to a "finished" task, review the AI's proposed template, and save it as a "Canonical SOP."
-
-Search: Asking "Do we have an SOP for X?" retrieves the newly saved SOP.
+* **Admin Usage:** Jeff can log in, select a client, and see a Kanban board of that client's active tasks without opening ClickUp.
+* **Canonization:** Jeff can paste a link to a "finished" task, review the AI's proposed template, and save it as a "Canonical SOP."
+* **Search:** Asking "Do we have an SOP for X?" retrieves the newly saved SOP.

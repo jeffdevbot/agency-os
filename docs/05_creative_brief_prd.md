@@ -92,8 +92,11 @@ create table public.assets (
   file_meta jsonb -- { width: 1024, height: 1024, size: 2mb }
 );
 
+```
+
 ### 4.2 The Storyboard (Slides)
 
+```sql
 create table public.brief_slides (
   id uuid primary key default gen_random_uuid(),
   brief_id uuid references public.briefs,
@@ -107,18 +110,22 @@ create table public.brief_slides (
   reference_image_url text -- Optional external inspiration
 );
 
-5. Integration Strategy
-Integration with Composer (Tool #3)
-The User does not type copy here. They select a listing_version_id from Composer.
+```
+
+## 5. Integration Strategy
+
+### Integration with Composer (Tool #3)
+
+The user does not type copy here. They select a `listing_version_id` from Composer.
 
 If the Composer copy changes after the brief is made, the Brief Tool shows a "Sync Available" warning: "The listing bullet points have changed. Update Brief?"
 
-Integration with ClickUp (Future)
+### Integration with ClickUp (Future)
+
 When the Brief is marked "Ready for Design," the system can trigger a ClickUp Task creation via the ClickUp Fetcher (Tool #2), attaching the Share Link.
 
-6. Success Criteria (MVP)
-Vision Accuracy: The AI correctly identifies "White Background" vs "Lifestyle" 90% of the time.
+## 6. Success Criteria (MVP)
 
-Mapping Logic: The system creates a reasonable "First Draft" brief (7 slides) automatically from the assets + copy.
-
-Asset Delivery: The Designer can download the exact files referenced in the brief without digging through a messy Drive folder.
+* **Vision Accuracy:** The AI correctly identifies "White Background" vs "Lifestyle" 90% of the time.
+* **Mapping Logic:** The system creates a reasonable "First Draft" brief (7 slides) automatically from the assets + copy.
+* **Asset Delivery:** The Designer can download the exact files referenced in the brief without digging through a messy Drive folder.
