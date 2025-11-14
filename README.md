@@ -1,6 +1,6 @@
 # Agency OS
 
-Agency OS is a unified internal platform for EcomLabs that consolidates scattered tooling—ad analytics, SOP ops, content creation, and creative briefing—into a single authenticated dashboard at `tools.ecomlabs.ca`. The current repo is documentation-first: the `docs/` folder captures the architecture, PRDs, and migration plans that guide the upcoming implementation. Start here before writing code so new services land in the correct Render/Supabase topology.
+Agency OS is a unified internal platform for EcomLabs that consolidates scattered tooling—ad analytics, SOP ops, content creation, and creative briefing—into a single authenticated dashboard at `tools.ecomlabs.ca`. The current repo is documentation-first: the `docs/` folder captures the architecture, PRDs, and migration plans that guide the upcoming implementation, plus any open questions. Start here before writing code so new services land in the correct Render/Supabase topology.
 
 ## Documentation map
 
