@@ -22,6 +22,7 @@ Agency OS consolidates internal tools (Ngram, The Operator, Amazon Composer, Cre
 
 ## Recent Accomplishments
 - **2025-11-15** – Migrated the N-Gram Processor into the new stack: FastAPI backend (`backend-core/app/routers/ngram.py` + services) with Supabase usage logging, plus a refreshed `/ngram` Next.js page and home screen shortcut. Local Supabase env + venv instructions captured in this doc for future sessions.
+- **2025-11-15** – Added Supabase-aware Next.js middleware to guard `/ngram`, ensuring logged-out users are redirected to the login screen before hitting protected pages.
 
 ## Next Priorities
 - Deploy backend-core + refreshed frontend to Render, validate env vars (usage logging, Supabase secrets) and ensure `/ngram` works end-to-end in production.
