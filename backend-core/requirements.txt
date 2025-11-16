@@ -1,5 +1,6 @@
 fastapi==0.115.4
 uvicorn[standard]==0.32.0
+gunicorn==23.0.0
 python-multipart==0.0.12
 pandas==2.2.3
 numpy==2.1.3
