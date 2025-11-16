@@ -6,12 +6,22 @@ _Last updated: 2025-11-15_
 - Skim **Quick Recap**, **Recent Accomplishments**, and **Next Priorities** before coding.
 - Update the date and add a brief note under **Recent Accomplishments** when you finish a session.
 - Keep the **Documentation Map** aligned with the contents of `docs/` so we always know where deeper specs live.
+- Whenever we add or modify a service/app, update `docs/10_systems_overview.md` so the systems inventory matches reality.
+- For backend work: activate the FastAPI virtual env via `source backend-core/.venv/bin/activate`; deactivate with `deactivate`. Install deps using `python3 -m venv backend-core/.venv && source backend-core/.venv/bin/activate && python3 -m pip install -r backend-core/requirements.txt`.
+- Export Supabase vars before starting uvicorn (these match Render env group values):
+  ```
+  export SUPABASE_JWT_SECRET="******"
+  export SUPABASE_URL="https://iqkmygvncovwdxagewal.supabase.co"
+  export SUPABASE_SERVICE_ROLE="******"
+  export ENABLE_USAGE_LOGGING=1
+  uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+  ```
 
 ## Quick Recap
 Agency OS consolidates internal tools (Ngram, The Operator, Amazon Composer, Creative Brief) behind a shared Next.js frontend, FastAPI backend, and Supabase auth stack deployed on Render. Supabase handles SSO (Google) plus the shared database, while the worker service manages nightly syncs and other heavy jobs.
 
 ## Recent Accomplishments
-- **2025-11-15** – Fixed the Supabase browser client setup (`frontend-web/src/lib/supabaseClient.ts`) to statically read `NEXT_PUBLIC_*` env vars so Google login works again during local dev.
+- **2025-11-15** – Migrated the N-Gram Processor into the new stack: FastAPI backend (`backend-core/app/routers/ngram.py` + services) with Supabase usage logging, plus a refreshed `/ngram` Next.js page and home screen shortcut. Local Supabase env + venv instructions captured in this doc for future sessions.
 
 ## Next Priorities
 - Harden the authentication flow: verify protected routes, session handling, and middleware align with Supabase helper patterns before building new screens.
@@ -26,6 +36,7 @@ Agency OS consolidates internal tools (Ngram, The Operator, Amazon Composer, Cre
 - `docs/03_admin_settings_prd.md` — Admin Configurator requirements outlining roles/clients mapping UI and the supporting API contract plus schema changes.
 - `docs/04_amazon_composer_prd.md` — Amazon listing generation workflow (input wizard, AI draft, review links, exports) and backend chaining details.
 - `docs/05_creative_brief_prd.md` — Creative Brief tool spec focusing on asset ingestion, AI tagging, storyboard editor, and storage constraints.
+- `docs/10_systems_overview.md` — Running list of every service, its repo path, Render deployment, and shared dependencies. Update this table whenever new tools or env vars are introduced.
 
 ## Render Deployment Map
 - **Services (Render Project: “Ecomlabs Agency OS”)**

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { type Session } from "@supabase/supabase-js";
 import { getBrowserSupabaseClient } from "@/lib/supabaseClient";
@@ -61,87 +62,106 @@ export default function Home() {
     session?.user.user_metadata.full_name ||
     session?.user.user_metadata.name ||
     session?.user.email;
+  const firstName = friendlyName?.split(" ")[0];
 
   return (
-    <main className="flex min-h-screen flex-col items-center px-4 py-10 text-[#0f172a]">
-      <header className="w-full max-w-4xl">
-        <div className="flex items-center justify-between py-4">
-          <div className="brand-logo">
-            Ecom<span>labs</span>
-          </div>
-          <span className="text-sm font-medium text-[#4c576f]">
-            Internal Access
-          </span>
+    <main className="flex min-h-screen flex-col bg-gradient-to-br from-[#eaf2ff] via-[#dce8ff] to-[#cddcf8]">
+      <div className="flex w-full flex-col items-center gap-2 px-6 py-8 text-sm font-semibold text-[#1f2937]">
+        <div className="text-2xl font-bold tracking-tight">
+          <span className="text-[#0f172a]">Ecom</span>
+          <span className="text-[#0a6fd6]">labs</span>
         </div>
-        <div className="mt-6 max-w-2xl">
-          <p className="text-sm font-semibold uppercase tracking-[0.5em] text-[#0a6fd6]">
+        <span className="text-xs uppercase tracking-[0.4em] text-[#4c576f]">
+          Internal Access
+        </span>
+      </div>
+
+      <div className="flex flex-1 items-center justify-center px-4 pb-16">
+        <div className="w-full max-w-md space-y-4 text-center">
+          <p className="text-xs font-semibold uppercase tracking-[0.5em] text-[#4c576f]">
             Agency OS
           </p>
-          <h1 className="mt-4 text-4xl font-semibold leading-tight text-[#0a1f44]">
-            One login for Ngram, Operator, Composer, and Creative Brief.
-          </h1>
-          <p className="mt-3 text-base text-[#4c576f]">
-            Sign in with your Google Workspace account to access every internal
-            workflow in a single Render-hosted console.
-          </p>
-        </div>
-      </header>
-
-      <section className="mt-10 w-full max-w-4xl">
-        <div className="elevation-card mx-auto w-full max-w-lg rounded-3xl p-8">
-          {authLoading ? (
-            <p className="text-center text-sm text-[#4c576f]">
-              Checking session…
-            </p>
-          ) : session ? (
+          <div className="rounded-3xl bg-white/95 p-8 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur">
+            {authLoading ? (
+              <div className="flex min-h-[220px] flex-col items-center justify-center space-y-3 text-sm text-[#4c576f]">
+                <span className="text-base font-semibold text-[#0f172a]">
+                  Checking session…
+                </span>
+                <span className="text-xs">
+                  Hold tight while we verify your Supabase auth token.
+                </span>
+              </div>
+            ) : session ? (
             <div className="space-y-6">
-              <div className="rounded-2xl bg-[#f4f7fc] p-5">
-                <p className="text-xs uppercase tracking-[0.4em] text-[#0a6fd6]">
-                  Signed in as
-                </p>
-                <p className="mt-3 text-2xl font-semibold text-[#0a1f44]">
-                  {friendlyName}
+              <div className="space-y-1">
+                <p className="text-3xl font-semibold text-[#0f172a]">
+                  Hello {firstName ?? "there"} 👋
                 </p>
                 <p className="text-sm text-[#4c576f]">
-                  Your session unlocks the secure dashboard and Supabase-backed
-                  APIs.
+                  You&apos;re signed in to Agency OS as {friendlyName}.
                 </p>
               </div>
+
+              <div className="grid gap-4 rounded-3xl bg-[#f7f8ff] p-5">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.3em] text-[#94a3b8]">
+                    Tools
+                  </p>
+                  <p className="text-base font-semibold text-[#0f172a]">
+                    N-Gram Processor
+                  </p>
+                  <p className="text-sm text-[#4c576f]">
+                    Upload Amazon search term reports to generate Monogram, Bigram, and
+                    Trigram insights.
+                  </p>
+                </div>
+                <Link
+                  href="/ngram"
+                  className="flex items-center justify-between rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-[#0a6fd6] shadow transition hover:-translate-y-0.5 hover:shadow-lg"
+                >
+                  Open tool<span aria-hidden="true">→</span>
+                </Link>
+              </div>
+
               <button
                 onClick={handleSignOut}
-                className="action-muted flex w-full items-center justify-center rounded-2xl py-3 text-base font-semibold"
+                className="w-full rounded-2xl bg-[#e8eefc] px-4 py-3 text-sm font-semibold text-[#0f172a] transition hover:bg-[#d7e1fb]"
                 disabled={buttonLoading}
               >
                 {buttonLoading ? "Signing out…" : "Sign out"}
               </button>
             </div>
-          ) : (
-            <div className="space-y-6">
-              <p className="text-sm text-[#4c576f]">
-                Use the Google SSO button below. OAuth is routed through
-                Supabase, so ensure the new Render URL plus localhost are listed
-                in the Supabase redirect settings.
-              </p>
-              <button
-                onClick={handleSignIn}
-                className="action-primary flex w-full items-center justify-center rounded-2xl py-3 text-base font-semibold"
-                disabled={buttonLoading}
-              >
-                {buttonLoading ? "Redirecting…" : "Continue with Google"}
-              </button>
-              <p className="text-center text-xs text-[#4c576f]">
-                Only Ecomlabs Google Workspace accounts are permitted.
-              </p>
-            </div>
-          )}
+            ) : (
+              <div className="space-y-6 text-left">
+                <div className="space-y-2">
+                  <p className="text-3xl font-semibold text-[#0f172a]">
+                    Welcome
+                  </p>
+                  <p className="text-sm text-[#4c576f]">
+                    Sign in with your Ecomlabs Google account to continue.
+                  </p>
+                </div>
+                <button
+                  onClick={handleSignIn}
+                  className="w-full rounded-2xl bg-[#0a6fd6] px-4 py-3 text-sm font-semibold text-white shadow-[0_15px_30px_rgba(10,111,214,0.35)] transition hover:bg-[#0959ab]"
+                  disabled={buttonLoading}
+                >
+                  {buttonLoading ? "Redirecting…" : "Continue with Google"}
+                </button>
+                <p className="text-xs text-[#94a3b8]">
+                  Ecomlabs Google Workspace accounts only.
+                </p>
+              </div>
+            )}
 
-          {errorMessage && (
-            <p className="mt-6 rounded-2xl border border-[#f87171]/40 bg-[#fee2e2] px-4 py-3 text-sm text-[#991b1b]">
-              {errorMessage}
-            </p>
-          )}
+            {errorMessage && (
+              <p className="mt-6 rounded-2xl border border-[#f87171]/40 bg-[#fee2e2] px-4 py-3 text-sm text-[#991b1b]">
+                {errorMessage}
+              </p>
+            )}
+          </div>
         </div>
-      </section>
+      </div>
     </main>
   );
 }
