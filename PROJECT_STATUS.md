@@ -24,10 +24,9 @@ Agency OS consolidates internal tools (Ngram, The Operator, Amazon Composer, Cre
 - **2025-11-15** – Migrated the N-Gram Processor into the new stack: FastAPI backend (`backend-core/app/routers/ngram.py` + services) with Supabase usage logging, plus a refreshed `/ngram` Next.js page and home screen shortcut. Local Supabase env + venv instructions captured in this doc for future sessions.
 
 ## Next Priorities
-- Harden the authentication flow: verify protected routes, session handling, and middleware align with Supabase helper patterns before building new screens.
-- Begin the Ngram migration outlined in `docs/01_ngram_migration.md`, starting with backend route extraction and setting up the `/ngram` frontend page.
+- Deploy backend-core + refreshed frontend to Render, validate env vars (usage logging, Supabase secrets) and ensure `/ngram` works end-to-end in production.
 - Scope the Operator Milestone 1 UI shell so it can host the chat + context panes described in `docs/02_the_operator_prd.md`, even if data is mocked at first.
-- Capture any backend schema/config needs surfaced by the Admin Configurator or other PRDs so Supabase migrations do not lag behind UI progress.
+- Capture backend schema/config needs surfaced by the Admin Configurator or other PRDs so Supabase migrations do not lag behind UI progress.
 
 ## Documentation Map (Quick Reference)
 - `docs/00_agency_os_architecture.md` — High-level blueprint for the Render services, Supabase auth setup, and domain migration strategy. Start here for infra questions or when onboarding collaborators.
