@@ -168,14 +168,41 @@ Goal: Orchestrate AI for themes, sample copy, and bulk content.
 5.7 **Bulk approval state** — `PATCH /composer/projects/:id` to mark bulk approved (and optional per-SKU approval flags).
 Dependencies: Workstreams 1–4, OpenAI infra (9.x).
 
-6. **Backend Keyword Builder**
-   - Unused keyword selection, byte limit enforcement, banned-word filtering.
-7. **Localization Engine**
-   - Translation vs fresh generation, locale rule validators, approval tracking.
-8. **Client Review + Export APIs**
-   - Signed-token links, comment storage, approval toggles, export generators (CSV/PDF/JSON).
-9. **Infra & Observability**
-   - Secure OpenAI keys, rate limiting, `usage_events` logging, worker job monitoring.
+### 6. Backend Keyword Builder
+Goal: Generate backend search-term strings per SKU using unused keywords.
+6.1 **Backend keyword generation** — `POST /composer/projects/:id/backend-keywords/generate` gathers unused keywords per SKU, filters banned terms, calls LLM to compress into limit, writes `backend_keywords`.
+6.2 **Length enforcement helper** — utilities to compute char/byte limits per locale and trim/compress (LLM or deterministic) when over threshold.
+6.3 **Edit/regenerate endpoints** — `PATCH /composer/variants/:id/backend-keywords` for manual edits and `POST /composer/variants/:id/backend-keywords/regenerate` for targeted reruns.
+6.4 **Approval state** — `PATCH /composer/projects/:id` toggles backend keywords approval per scope.
+Dependencies: Workstreams 4–5 (keyword pools + visible copy), Amazon limit config.
+
+### 7. Localization Engine
+Goal: Translate or freshly generate localized listings with validations + approvals.
+7.1 **Locales config API** — `PATCH /composer/projects/:id/locales` to set desired locales + mode (translate/fresh) stored in `locales`.
+7.2 **Translation generator** — `POST /composer/projects/:id/locales/:locale/generate?mode=translate` uses approved English content and locale instructions for high-quality translations.
+7.3 **Fresh localized generator** — same endpoint with `mode=fresh` to request native copy (future localized keyword inputs optional).
+7.4 **Locale-specific validation** — enforce byte/punctuation rules; store flags in `generated_content.metadata.locale_flags`.
+7.5 **Localized edit/regenerate** — `PATCH /composer/variants/:id/content?locale=xx-YY` and `POST /composer/variants/:id/content/regenerate?locale=xx-YY`.
+7.6 **Locale approval** — `PATCH /composer/projects/:id/locales/:locale` to mark approved.
+Dependencies: Workstreams 5–6 (needs base English copy, backend keywords optional).
+
+### 8. Client Review + Export APIs
+Goal: Shareable client link + export of approved content.
+8.1 **Share link config** — `POST /composer/projects/:id/share-link` creates token (client_reviews row); `PATCH /composer/projects/:id/share-link` enables/disables.
+8.2 **Client view endpoint** — `GET /composer/projects/share/:token` returns read-only content for last approved version (per SKU/locale).
+8.3 **Comments API** — `GET/POST /composer/projects/:id/comments` storing author type, text, optional SKU reference; enforce auth/token rules.
+8.4 **Client approval status** — `PATCH /composer/projects/:id/client-status` with `approved` or `changes_requested` plus optional comment.
+8.5 **Export generators** — `GET /composer/projects/:id/export/flatfile?marketplace=US`, `.../master-csv`, `.../json` building Amazon-ready files.
+8.6 **Export log (optional)** — `POST /composer/projects/:id/export/log` capturing who exported + when.
+Dependencies: Workstreams 1–7 (approved content ready).
+
+### 9. Infra & Observability
+Goal: Secure, monitor, and control costs.
+9.1 **OpenAI key management** — centralized LLM wrapper with env-stored keys, model selection, retries, timeouts.
+9.2 **Rate limiting & queues** — enforce per-user/project quotas on heavy endpoints; queue long-running jobs if needed.
+9.3 **Usage logging** — extend `usage_events` to capture project_id, action, tokens, latency for every LLM call.
+9.4 **Job monitoring** — job table/queue for async tasks with status (`pending/running/success/error`) + `GET /composer/jobs/:id`.
+9.5 **Error handling & alerts** — centralized logger + alerting (Sentry etc.) on repeated failures.
 
 ## Tracking / Tasks
 - [ ] Pillar 1 — Project system & autosave
