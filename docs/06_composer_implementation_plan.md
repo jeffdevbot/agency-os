@@ -225,3 +225,33 @@ Goal: Secure, monitor, and control costs.
 - **Screens:** Keyword Upload, Keyword Cleanup, Grouping Plan / Preview.
 - **Working functionality:** per-scope keyword pools (variation vs distinct), CSV/paste/manual ingest, cleaning (dedupe, banned/brand/competitor, optional color/size) with review + restore, grouping configuration (single/per SKU/per attribute/custom) + AI grouping + approval.
 - **Backend dependencies:** Slice 1 foundations plus Workstream 4 (keyword pool ingest, cleaning metadata, grouping config + GPT worker, groups query). Delivers approved keyword groups ready for downstream content generation.
+
+### 🧩 Slice 3 — Themes → Sample → Bulk (Core Content Engine)
+- **Goal:** “From my keywords and product info, I can define themes, approve a sample, and generate/edit bulk content for all SKUs.”
+- **Screens:** Themes Selector, Sample Editor, Bulk Editor.
+- **Working functionality:** AI-suggested themes per scope with approval; sample generation/edit/regenerate/approve; bulk per-SKU generation with flags (length, banned, duplicate) plus edit/regenerate flows ending in bulk approval.
+- **Backend dependencies:** Slices 1–2 plus Workstream 5 (theme/sampling/bulk orchestrators, validation flags, edit/regenerate endpoints, approval flags). Unlocks an internally usable English content engine.
+
+### 🧩 Slice 4 — Backend Keywords
+- **Goal:** “For each SKU, I can generate backend search terms from leftover keywords and stay within limits.”
+- **Screens:** Backend Keywords.
+- **Working functionality:** Track used keywords, propose backend strings with byte/char counters, allow trim/regenerate/edit, record approvals per scope.
+- **Backend dependencies:** Slices 1–3 plus Workstream 6 (backend keyword generator, length enforcement helpers, edit/regenerate endpoints, approval flags). After this slice, English listings (visible + backend) are export-ready.
+
+### 🧩 Slice 5 — Multilingual Output
+- **Goal:** “Extend approved content into multiple locales via translation or fresh generation and approve each locale.”
+- **Screens:** Multilingual Output.
+- **Working functionality:** Configure locales + modes, generate per-locale titles/bullets/descriptions, validate locale rules, edit/regenerate, approve per locale.
+- **Backend dependencies:** Slices 1–4 plus Workstream 7 (locales config, translation/fresh generators, locale validations, edit/regenerate endpoints, approval flags). Enables multi-country delivery from one project.
+
+### 🧩 Slice 6 — Client Review & Export
+- **Goal:** “Share a client-facing link, gather feedback/approval, and export everything cleanly.”
+- **Screens:** Client Review, Export Hub.
+- **Working functionality:** Client link toggle + tokenized URL, read-only content view per SKU/locale, comment thread, approve/request changes UX; export hub showing latest approved version with downloads (flat file per marketplace, master CSV, JSON, optional history).
+- **Backend dependencies:** Slices 1–5 plus Workstream 8 (share links, client view endpoint, comments API, approval toggle, export generators). Completes the external-facing workflow.
+
+### 🧩 Slice 7 — Infra & Observability (Cross-cutting)
+- **Goal:** “Keep the system stable, cost-aware, and debuggable as load grows.”
+- **Screens:** None (applies platform-wide).
+- **Working functionality:** Centralized LLM wrapper + key management, rate limiting/queues for heavy tasks, `usage_events` logging, job monitoring, error logging/alerts.
+- **Backend dependencies:** Workstream 9. Start minimal observability alongside Slice 2/3 and harden through later slices.
