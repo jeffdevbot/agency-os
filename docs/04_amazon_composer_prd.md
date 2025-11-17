@@ -1,142 +1,563 @@
-# Product Requirement Document: Amazon Composer
+📘 PRD — Composer (Amazon Listing Content Generator)
+Version 1.6 — Updated with Multi-Product Mode
 
-## 1. Executive Summary
-**Amazon Composer** is a specialized content generation and approval tool. It replaces the "Word Doc + Email" workflow with a streamlined web application that:
-1.  **Ingests** product data (SKUs, dimensions, raw features).
-2.  **Generates** optimized Amazon listings (Title, Bullets, Search Terms) using AI.
-3.  **Facilitates** client approval via a secure, public "Secret Link."
-4.  **Exports** the final approved content directly into an Amazon-ready Flat File (CSV).
+Product Area: Agency OS → Tools → Composer
+Status: Ready for Engineering
 
-## 2. User Experience (UX)
+Overview
+Composer is a guided, AI-powered workflow for generating Amazon listing content across any number of SKUs. It produces:
 
-### 2.1 The Internal Workflow (Agency Side)
-**Location:** `tools.ecomlabs.ca/composer`
+Title
 
-* **Step 1: The Input Wizard**
-    * User selects a **Client** (from the Agency OS dropdown).
-    * **Data Entry:** User inputs core product data:
-        * *Identity:* Parent SKU, Child SKUs, Brand Name.
-        * *Specs:* Dims, Weights, Material, Country of Origin.
-        * *Marketing:* Target Keywords (paste from Helium10/Ngram), Key Features, Target Audience.
-    * **Language:** Select Target Language (e.g., "English (US)", "French (CA)", "Spanish (MX)").
+Bullet Points
 
-* **Step 2: The AI Draft**
-    * System generates a "Draft V1" of the listing.
-    * **The Editor:** A rich-text editor that mimics the Amazon PDP (Product Detail Page) layout.
-        * *Validation:* Real-time character counters (e.g., "Title: 185/200 bytes").
-        * *Keyword Highlighting:* Highlights used target keywords in green, missing in red.
+Description
 
-* **Step 3: The Review Request**
-    * User clicks "Generate Review Link."
-    * System creates a unique URL (e.g., `tools.ecomlabs.ca/review/7283-x9z2`).
+Backend Keywords
 
-### 2.2 The External Workflow (Client Side)
-**Location:** `tools.ecomlabs.ca/review/{uuid}` (Public Route)
+Optional multilingual listings
 
-* **The View:** A clean, branded "Read-Only" view of the listing. It looks like a mock Amazon page.
-* **Actions:**
-    * **"Request Changes":** Opens a comment box for specific feedback.
-    * **"Approve Listing":** Locks the version in the database.
-* **Security:** No login required, but the link expires after 30 days (or upon approval).
+It supports:
 
-### 2.3 The Output
-* Once "Approved," the **"Download Flat File"** button unlocks for the Agency Admin.
-* **Formats:**
-    * **Inventory Loader (CSV):** Standard Amazon Flat File.
-    * **PDF:** A pretty version for the client's records.
+Single products
 
----
+Traditional variation families
 
-## 3. Technical Architecture
+Complex listings where distinct products share a parent ASIN
 
-### 3.1 Frontend (`frontend-web`)
-* **Forms:** `react-hook-form` for the massive Input Wizard.
-* **Public Route:** A specific Next.js layout for the `/review` route that strips the Admin Sidebar/Nav (distraction-free).
-* **Editor:** A lightweight rich-text editor (e.g., TipTap) customized with "Byte Counter" logic (since Amazon counts bytes, not just chars).
+Composer automates repetitive tasks but preserves key checkpoints for accuracy, compliance, and approval.
 
-### 3.2 Backend (`backend-core`)
-* **AI Logic:** Chained Prompting.
-    1.  *Analyzer:* Reads inputs, identifies the "Hook."
-    2.  *Writer:* Generates Title (SEO heavy) and Bullets (Benefit heavy).
-    3.  *Translator:* (Optional) If Multi-language is selected.
-* **Flat File Engine:**
-    * Uses `pandas` to map our Database Fields $\to$ Amazon's specific Column Headers (e.g., `item_name`, `bullet_point1`, `generic_keywords`).
-    * *Maintenance:* We store "Template Mappings" in the code so we can update them when Amazon changes their template format.
+Goals
+1.1 Primary Goals
+Replace manual template-building and multi-prompt workflows
 
----
+Support both simple and complex product structures
 
-## 4. Data Model (Supabase)
+Prevent data loss via autosave/versioning
 
-### 4.1 Listings & Versions
-```sql
-create table public.listings (
-  id uuid primary key default gen_random_uuid(),
-  client_id uuid references public.clients,
-  product_name text, -- Internal name
-  parent_sku text,
-  target_keywords text[],
-  status text default 'draft', -- draft, in_review, approved, exported
-  created_at timestamptz default now()
-);
+Produce Amazon-compliant content
 
-create table public.listing_versions (
-  id uuid primary key default gen_random_uuid(),
-  listing_id uuid references public.listings,
-  version_number int,
-  
-  -- The Content
-  title text,
-  bullets text[], -- Array of 5 strings
-  description text,
-  search_terms text,
-  
-  -- The Specs (for flat file)
-  specs jsonb, -- { weight: 1.2, unit: 'lbs', ... }
-  
-  is_approved boolean default false,
-  created_by uuid references auth.users
-);
-```
+Allow multi-language generation
 
-### 4.2 The Secret Link
+Centralize product info, keywords, themes, and outputs in one tool
 
-```sql
-create table public.review_links (
-  id uuid primary key default gen_random_uuid(), -- The secure token
-  version_id uuid references public.listing_versions,
-  expires_at timestamptz,
-  is_active boolean default true
-);
-```
+1.2 Secondary Goals
 
-## 5. API Interface
+Standardize VA workflow
 
-### Agency Endpoints (Private)
+Reduce cognitive load
 
-* `POST /api/composer/generate`: Inputs $\to$ AI Draft (Streaming Text).
-* `POST /api/composer/save`: Saves current editor state as a Version.
-* `POST /api/composer/share`: Creates a `review_link`.
-* `GET /api/composer/export/{version_id}`: Returns the CSV/Excel Flat File.
+Improve accuracy and speed
 
-### Client Endpoints (Public)
+Simplify client review
 
-* `GET /api/public/listing/{token}`: Fetches the listing content for the Review Page.
-* `POST /api/public/feedback`: Client submits comments.
-* `POST /api/public/approve`: Client marks version as approved.
+Non-Goals
+Scraping Amazon URLs
 
-## 6. AI Prompt Strategy (Specifics)
+Competitor research automation
 
-**The "Byte Limit" Constraint:** Amazon Titles have a hard 200-byte limit. The AI often ignores this.
+A+ Content / Brand Store
 
-* **Solution:** We ask the AI for 3 variations: Short, Medium, Long. The Frontend validates the byte count. If the AI overshoots, the human editor trims it.
+Amazon Ads or PackView API integration (manual import for now)
 
-**Keyword Stuffer:**
+AI image generation
 
-* **Input:** List of 10 "Must Have" keywords.
-* **System Prompt:** "Ensure the following phrases appear exactly once across the Title and Bullets. Prioritize placing 'Main Keyword' in the first 80 characters of the Title."
+User Roles
+Team Member / VA – primary operator
 
-## 7. Success Criteria (MVP)
+PM/Editor – reviewer/approver
 
-* **End-to-End Flow:** Can create a listing, generate AI copy, save it, share it, approve it, and download a valid CSV.
-* **Client Experience:** The "Review Link" loads instantly on mobile/desktop and requires zero friction (no signup).
-* **Flat File Accuracy:** The exported CSV can be uploaded to Seller Central without "Header Error."
+Client – optional viewing of finished content
+
+High-Level Workflow
+Create Project
+↓
+Product Info
+↓
+Choose Content Strategy
+↓
+Keyword Upload
+↓
+Keyword Cleaning (Approval)
+↓
+Keyword Grouping Plan (Approval)
+↓
+Themes (5 Topics) per Product/Group (Approval)
+↓
+Sample Generation (Approval)
+↓
+Bulk Generation per SKU
+↓
+Backend Keywords (Approval)
+↓
+Multilingual Output (Optional)
+↓
+Client Review
+↓
+Export → Amazon
+
+Detailed Requirements
+🟦 5.1 PROJECT SYSTEM (Autosave + Versioning)
+Autosave
+
+Every change → debounced 500–1000ms save to DB
+
+LocalStorage backup in case network fails
+
+Persistent across refresh and devices
+
+Versioning
+
+Save versions at major milestones:
+
+Keywords cleaned
+
+Keyword grouping set
+
+Themes chosen
+
+Sample approved
+
+Bulk generated
+
+Backend keywords generated
+
+Project Dashboard
+
+“Resume Project” view showing:
+
+Project Name
+
+Last edited
+
+Current step
+
+Status badges
+
+🟦 5.2 PRODUCT INFO STEP
+Required:
+
+Project Name
+
+Client / Brand
+
+Marketplace(s): US, CA, UK, DE, FR, IT, ES, NL, PL, SE
+
+Product Category (Browse Node) – dropdown
+
+SKU Input
+
+Users can:
+
+Upload CSV
+
+Paste spreadsheet data
+
+Enter manually
+
+CSV Template (columns optional)
+
+sku (required)
+
+asin (required)
+
+parent_sku
+
+color
+
+size
+
+age_range
+
+material
+
+scent
+
+flavor
+
+character
+
+pattern
+
+ingredients
+
+weight
+
+dimensions
+
+pack_size
+
+custom_1 / custom_2 etc.
+
+Composer treats every column beyond sku + asin as a dynamic attribute.
+
+NEW: 🟦 5.3 CONTENT STRATEGY SELECTION (IMPORTANT)
+
+After SKUs are processed, user MUST choose:
+
+Choose Content Strategy:
+( ● ) Treat all SKUs as variations of ONE product
+• Shared keyword pool
+• Shared themes
+• Shared sample
+• Bulk generation per SKU
+• Per-SKU titles, backend keywords
+
+( ○ ) Treat SKUs as DISTINCT products
+• Separate keyword pools per SKU or SKU group
+• Separate theme selection per SKU/group
+• Separate sample per SKU/group
+• Completely independent content workflows
+
+Distinct Products Mode
+
+User can create SKU Groups, e.g.:
+
+[ Group A: Main System ]
+[ Group B: Accessory 1 ]
+[ Group C: Rings ]
+[ Group D: Bundle ]
+
+Each group goes through all subsequent steps independently.
+
+🟦 5.4 OPTIONAL PRODUCT-LEVEL INFO
+Brand-Level
+
+Brand tone / guidelines
+
+Words to highlight
+
+What NOT to say (blacklist words/phrases)
+
+Product-Level
+
+Target audience
+
+Use cases
+
+Differentiators
+
+Safety/compliance notes
+
+Certifications
+
+Supplied Info
+
+Paste product copy
+
+Upload files (PDF/spec)
+
+Notes textarea
+
+Manual FAQ (Rufus questions)
+
+User manually enters common customer questions.
+
+🟦 5.5 KEYWORD INGESTION
+
+Two keyword pools:
+
+Description & Bullets
+Titles
+User can:
+
+Upload CSV
+
+Paste
+
+Manually add terms
+
+Preview raw merged list.
+
+If in Distinct Product Mode, keyword upload appears per SKU group.
+
+🟦 5.6 KEYWORD CLEANING (APPROVAL)
+
+System removes:
+
+Duplicates
+
+Competitor brands
+
+Own brand name
+
+Banned terms
+
+Optional: colors / sizes
+
+Normalizes casing
+
+User can:
+
+Review removed keywords
+
+Restore any
+
+Remove more manually
+
+Approval required.
+
+If in Distinct Product Mode → treat each group independently.
+
+🟦 5.7 KEYWORD GROUPING PLAN (APPROVAL)
+
+System analyzes:
+
+Distinct attribute values
+
+Number of SKUs
+
+Variation structure
+
+Then suggests grouping:
+
+Default:
+
+Description/Bullets → grouped by best attribute (e.g., color) or single group
+
+Titles → per SKU
+
+User can override to:
+
+Single group
+
+Per SKU
+
+Per attribute
+
+Custom # of groups
+
+Preview grouping count + labels.
+
+Approval required.
+
+For Distinct Product Mode, each group has its own grouping plan.
+
+🟦 5.8 THEMES (5 TOPICS)
+
+AI proposes 6–12 themes based on:
+
+Cleaned keywords
+
+Supplied info
+
+FAQ
+
+Category
+
+User selects exactly 5 + edits explanations.
+
+Approval required.
+
+In Distinct Product Mode, each product group selects its own 5 themes.
+
+🟦 5.9 SAMPLE CONTENT (APPROVAL)
+
+AI generates:
+
+Description
+
+Bullets
+
+Title
+
+For:
+
+Variation mode: one representative SKU
+
+Distinct mode: one sample per group
+
+User edits or regenerates → then approves.
+
+🟦 5.10 BULK GENERATION
+
+AI generates content for:
+
+Every SKU in variation mode
+
+Every SKU inside each group in distinct mode
+
+System flags:
+
+Length violations
+
+Duplicate content
+
+Missing important keywords
+
+Banned words
+
+User can:
+
+Edit per SKU
+
+Regenerate per SKU or per group
+
+Approve entire set
+
+🟦 5.11 BACKEND KEYWORDS (APPROVAL)
+
+For each SKU:
+
+Build backend keyword string using unused cleaned keywords
+
+Remove any terms already used in visible copy
+
+Enforce character/byte limits
+
+Remove banned words
+
+Trim/compress intelligently
+
+User can edit/regenerate.
+
+Approval required.
+
+🟦 5.12 MULTILINGUAL OUTPUT (OPTIONAL)
+
+Supported languages:
+EN-UK, DE, FR, IT, ES, NL, PL, SE
+
+Modes:
+
+Translate from English master (default)
+
+Generate fresh local-SEO content (advanced)
+
+System enforces locale rules:
+
+Byte limits
+
+Punctuation restrictions (FR)
+
+Cultural phrasing
+
+Metric vs imperial
+
+User approves per language.
+
+🟦 5.13 CLIENT REVIEW
+
+Generate client-facing page:
+
+Clean design
+
+Variant selector
+
+Title + bullets + description
+
+Backend keywords
+
+Multilingual tabs
+
+Comment thread
+
+Approve/Reject
+
+🟦 5.14 EXPORT
+
+Formats:
+
+Amazon Flat File CSV
+
+Master CSV (all SKUs)
+
+Copy buttons (title/bullets/desc/backend)
+
+PDF export for client
+
+JSON export for internal use
+
+Technical Requirements
+6.1 Data Storage (Supabase)
+Tables:
+
+projects
+
+project_versions
+
+sku_variants
+
+sku_groups
+
+product_attributes
+
+keyword_pools
+
+cleaned_keywords
+
+keyword_groups
+
+topics
+
+generated_content
+
+backend_keywords
+
+locales
+
+client_reviews
+
+6.2 Autosave
+
+Debounced writes
+
+LocalStorage fallback
+
+6.3 AI Models
+
+GPT-5.1 (content)
+
+GPT-4.1-mini-high (keyword grouping)
+
+GPT-5.1 (translations)
+
+6.4 Error Handling
+
+Retry queue
+
+Local backup
+
+Undo/rollback via versioning
+
+Open Issues / Future Enhancements
+Optional SKU attribute autodetection (parsing SKU codes)
+
+EU keyword ingestion
+
+Category-specific compliance templates
+
+Marketplace rulesets (DE byte weirdness, FR phrasing)
+
+A/B test mode
+
+Appendix — Screens to Build
+New Project
+
+Resume Project
+
+Product Info
+
+Content Strategy Selection
+
+Keyword Upload
+
+Keyword Cleanup
+
+Grouping Plan
+
+Grouping Preview
+
+Themes
+
+Sample Editor
+
+Bulk Editor
+
+Backend Keywords
+
+Multilingual Output
+
+Client Review
+
+Export
