@@ -1,6 +1,6 @@
 # Project Status — Agency OS
 
-_Last updated: 2025-11-15_
+_Last updated: 2025-11-16_
 
 ## How to Use This File
 - Skim **Quick Recap**, **Recent Accomplishments**, and **Next Priorities** before coding.
@@ -21,13 +21,14 @@ _Last updated: 2025-11-15_
 Agency OS consolidates internal tools (Ngram, The Operator, Amazon Composer, Creative Brief) behind a shared Next.js frontend, FastAPI backend, and Supabase auth stack deployed on Render. Supabase handles SSO (Google) plus the shared database, while the worker service manages nightly syncs and other heavy jobs.
 
 ## Recent Accomplishments
+- **2025-11-16** – Rebuilt the Composer PRD (v1.6) and captured the corresponding end-to-end implementation plan (`docs/06_composer_implementation_plan.md`) so future work can follow defined slices/workstreams without ambiguity.
 - **2025-11-15** – Migrated the N-Gram Processor into the new stack: FastAPI backend (`backend-core/app/routers/ngram.py` + services) with Supabase usage logging, plus a refreshed `/ngram` Next.js page and home screen shortcut. Local Supabase env + venv instructions captured in this doc for future sessions.
 - **2025-11-15** – Added Supabase-aware Next.js middleware to guard `/ngram`, ensuring logged-out users are redirected to the login screen before hitting protected pages.
 
 ## Next Priorities
+- Kick off Composer Delivery Slice 1 (Project Shell & Intake): stand up the schema, autosave CRUD, SKU intake endpoints, and the Project Dashboard/Product Info/Strategy UI needed to resume work-in-progress projects.
 - Deploy backend-core + refreshed frontend to Render, validate env vars (usage logging, Supabase secrets) and ensure `/ngram` works end-to-end in production.
 - Scope the Operator Milestone 1 UI shell so it can host the chat + context panes described in `docs/02_the_operator_prd.md`, even if data is mocked at first.
-- Capture backend schema/config needs surfaced by the Admin Configurator or other PRDs so Supabase migrations do not lag behind UI progress.
 
 ## Documentation Map (Quick Reference)
 - `docs/00_agency_os_architecture.md` — High-level blueprint for the Render services, Supabase auth setup, and domain migration strategy. Start here for infra questions or when onboarding collaborators.
