@@ -146,10 +146,28 @@ Goal: Intake/normalize SKUs and persist strategy/groups.
 3.4 **Strategy + groups** — `PATCH /composer/projects/:id` for `strategy_type`, plus `POST/PATCH/DELETE /composer/projects/:id/groups` to create/rename/assign SKUs.
 3.5 **Derived metrics helpers** — service to calculate counts (SKUs, groups, attribute distincts) for UI hints.
 Dependencies: Schema 1.x, Project CRUD 2.1.
-4. **Keyword Services**
-   - Upload endpoints, cleaning routines, audit log, GPT-4.1-mini-high grouping suggestion worker.
-5. **Theme/Sample/Bulk Generators**
-   - GPT-5.1 orchestration, retry queue, approval status updates.
+
+### 4. Keyword Services
+Goal: Ingest, clean, group keywords per pool/scope.
+4.1 **Keyword pool ingest** — `POST /composer/projects/:id/keyword-pools` (pool_type, scope, raw keywords via CSV/text) with `PATCH /composer/keyword-pools/:id` for updates.
+4.2 **Keyword cleaning routine** — dedupe, remove banned/brand/competitor terms, optional color/size stripping via `POST /composer/keyword-pools/:id/clean` storing cleaned + removed metadata.
+4.3 **Cleaning audit diff** — persist removed keywords + reason; `GET /composer/keyword-pools/:id` returns raw vs cleaned vs removed.
+4.4 **Grouping plan config** — `POST /composer/keyword-pools/:id/grouping-plan` to store basis/attribute/group_count/phrases_per_group in metadata.
+4.5 **Keyword grouping AI worker** — GPT-4.1-mini-high maps cleaned keywords to groups; saves into `keyword_groups` when triggered from 4.4.
+4.6 **Groups query endpoint** — `GET /composer/keyword-pools/:id/groups` for UI preview.
+Dependencies: Schema 1.x, SKU attributes 3.x, Project CRUD 2.x.
+
+### 5. Theme / Sample / Bulk Generators
+Goal: Orchestrate AI for themes, sample copy, and bulk content.
+5.1 **Theme suggestion orchestrator** — `POST /composer/projects/:id/themes/suggest` (scope-aware) aggregates cleaned keywords, FAQ, supplied info, category, tone; `PATCH /composer/projects/:id/themes` saves final five.
+5.2 **Sample content generator** — `POST /composer/projects/:id/sample/generate` (scope + topics + representative SKU) calling GPT-5.1, storing `generated_content` sample rows.
+5.3 **Sample edit/approval** — `PATCH /composer/projects/:id/sample` to accept manual edits (mark `source="manual"`) and flag sample approved.
+5.4 **Bulk content generator** — `POST /composer/projects/:id/bulk/generate` iterating SKUs with topics, keyword groups, attributes, sample hints; writes per-SKU `generated_content`.
+5.5 **Content validation & flags** — post-process length limits, banned terms, duplicates; add metadata flags.
+5.6 **Bulk edit/regenerate endpoints** — `PATCH /composer/variants/:id/content` for manual edits; `POST /composer/variants/:id/content/regenerate` for targeted reruns.
+5.7 **Bulk approval state** — `PATCH /composer/projects/:id` to mark bulk approved (and optional per-SKU approval flags).
+Dependencies: Workstreams 1–4, OpenAI infra (9.x).
+
 6. **Backend Keyword Builder**
    - Unused keyword selection, byte limit enforcement, banned-word filtering.
 7. **Localization Engine**
