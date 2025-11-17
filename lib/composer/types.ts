@@ -122,7 +122,7 @@ export interface ComposerSkuVariant {
   projectId: ProjectId;
   groupId: SkuGroupId | null;
   sku: string;
-  asin: string;
+  asin: string | null;
   parentSku: string | null;
   attributes: ComposerSkuAttributes;
   notes: string | null;

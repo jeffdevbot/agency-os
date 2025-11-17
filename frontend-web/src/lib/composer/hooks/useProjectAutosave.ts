@@ -6,22 +6,14 @@ import type {
   ComposerProjectStatus,
   StrategyType,
 } from "../../../../../lib/composer/types";
+import type { ProjectMetaPayload } from "@/lib/composer/productInfo/types";
 
 export type AutosaveStatus = "idle" | "saving" | "saved" | "error";
 
-export interface UpdateComposerProjectPayload {
-  projectName?: string;
-  clientName?: string;
-  marketplaces?: string[];
-  category?: string | null;
+export interface UpdateComposerProjectPayload extends Partial<ProjectMetaPayload> {
   strategyType?: StrategyType | null;
   status?: ComposerProjectStatus;
   activeStep?: string | null;
-  brandTone?: string | null;
-  whatNotToSay?: string[] | null;
-  suppliedInfo?: Record<string, unknown>;
-  faq?: Array<{ question: string; answer?: string }> | null;
-  productBrief?: Record<string, unknown>;
 }
 
 interface UseProjectAutosaveOptions {

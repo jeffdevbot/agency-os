@@ -3,6 +3,7 @@
 import { useEffect, useMemo } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
+import { ProductInfoStep } from "../components/product-info/ProductInfoStep";
 import { useComposerProject } from "@/lib/composer/hooks/useComposerProject";
 import { useProjectAutosave } from "@/lib/composer/hooks/useProjectAutosave";
 import {
@@ -84,12 +85,7 @@ export default function ComposerWizardStepPage() {
   const renderStepContent = () => {
     switch (validStep) {
       case "product_info":
-        return (
-          <PlaceholderCard
-            title="Product Info Step"
-            description="Product info form goes here in Slice 1 Surface 3."
-          />
-        );
+        return <ProductInfoStep projectId={project.id} project={project} onSaveMeta={savePartial} />;
       case "content_strategy":
         return (
           <PlaceholderCard

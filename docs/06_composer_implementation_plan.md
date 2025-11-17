@@ -56,6 +56,7 @@ _SKU table w/ CSV import, attribute fields, marketplace selector._
 - **Layout:** Basics form (name, client, marketplaces chips, category dropdown). SKU table with CSV template download, upload zone, paste-from-spreadsheet, editable rows + dynamic columns, add-row CTA. Attribute summary listing detected columns with toggles + custom attribute adder. Brand/compliance section (tone textarea, banned terms tags). Supplied info (URLs list + large textarea). FAQ repeater.
 - **Actions:** Upload/edit SKUs, define attributes, input brand notes/FAQ, proceed to Strategy (autosave).
 - **APIs:** `PATCH /composer/projects/:id` (meta + brand fields), `POST /composer/projects/:id/variants/import`, `PATCH /composer/projects/:id/variants`.
+- **Status:** ✅ **Completed** (Nov 17, 2025) – autosave meta + FAQ + SKU intake (inline editing, CSV merge, conflict handling) live in production wizard. Ready for Surfaces 4+.
 
 ### 4. Content Strategy Selection
 _Variation vs distinct toggle, SKU group builder._
