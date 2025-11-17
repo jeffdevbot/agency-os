@@ -97,11 +97,11 @@ _Source PRD: `docs/04_amazon_composer_prd.md` (v1.6)_
     **Actions:** Select locale mode, edit/regenerate localized copy, approve each locale.  
     **APIs:** `POST /composer/projects/:id/locales/:locale/generate`, `PATCH /composer/variants/:id/content?locale=xx-YY`, `PATCH /composer/projects/:id/locales/:locale` (approval flag).
 13. **Client Review** — share-link management, preview, comment thread.  
-    **Purpose:** Manage public review links, present read-only preview, collect client feedback, and capture approvals.  
-    **State:** Review link tokens, expiration, client comments, approval status, selected variant for preview.  
-    **Layout:** Internal view shows share-link controls (generate/regenerate/revoke), copy link button, status (active/expires). Preview pane mirrors client view (variant selector, title/bullets/description, backend keywords, locale tabs). Comment thread listing client feedback with internal replies. Buttons to mark client-approved/rejected.  
-    **Actions:** Generate/revoke links, review comments, mark approval status.  
-    **APIs:** `POST /composer/projects/:id/review-links`, `DELETE /composer/review-links/:id`, `GET /composer/review-links/:id`, `POST /composer/review-links/:id/feedback`, `PATCH /composer/projects/:id` (client_review status).
+    **Purpose:** Provide a read-only client portal with comments + approve/reject, and let admins manage the link.  
+    **State:** Latest approved content per SKU/locale, share link config (`public_url`, enabled flag), `comments[]`, client approval status.  
+    **Layout:** Internal controls to enable/disable link and copy URL. Client preview pane with header (brand, product family, marketplaces), variant selector, locale tabs, title/bullets/description (backend keywords optionally hidden). Comment thread visible to both sides. Client action buttons for Approve All / Request Changes (with required note).  
+    **Actions:** Internal users toggle link, monitor comments; clients approve/reject with feedback.  
+    **APIs:** `PATCH /composer/projects/:id/share-link`, `GET /composer/projects/share/:token`, `POST /composer/projects/:id/comments`, `PATCH /composer/projects/:id` (client approval status).
 14. **Export Hub** — buttons & copy utilities; surfaces last-approved version info.  
     **Purpose:** Provide final outputs after approvals—flat files, master CSV, PDFs, JSON, copy helpers.  
     **State:** References to latest approved versions per scope/locale, export job status, selected format options.  
