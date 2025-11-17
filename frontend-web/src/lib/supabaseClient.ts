@@ -1,6 +1,6 @@
-import { createBrowserSupabaseClient } from "@supabase/auth-helpers-nextjs";
+import { createPagesBrowserClient } from "@supabase/auth-helpers-nextjs";
 
-type BrowserSupabaseClient = ReturnType<typeof createBrowserSupabaseClient>;
+type BrowserSupabaseClient = ReturnType<typeof createPagesBrowserClient>;
 
 let client: BrowserSupabaseClient | null = null;
 
@@ -16,7 +16,7 @@ if (!supabaseAnonKey) {
 
 export const getBrowserSupabaseClient = (): BrowserSupabaseClient => {
   if (!client) {
-    client = createBrowserSupabaseClient({
+    client = createPagesBrowserClient({
       supabaseUrl,
       supabaseKey: supabaseAnonKey,
     });
