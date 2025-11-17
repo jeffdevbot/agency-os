@@ -103,11 +103,11 @@ _Source PRD: `docs/04_amazon_composer_prd.md` (v1.6)_
     **Actions:** Internal users toggle link, monitor comments; clients approve/reject with feedback.  
     **APIs:** `PATCH /composer/projects/:id/share-link`, `GET /composer/projects/share/:token`, `POST /composer/projects/:id/comments`, `PATCH /composer/projects/:id` (client approval status).
 14. **Export Hub** — buttons & copy utilities; surfaces last-approved version info.  
-    **Purpose:** Provide final outputs after approvals—flat files, master CSV, PDFs, JSON, copy helpers.  
-    **State:** References to latest approved versions per scope/locale, export job status, selected format options.  
-    **Layout:** Summary card showing readiness (“All steps approved”). Buttons for each export (Amazon flat file CSV, master CSV, PDF, JSON, copy title/bullets/backends). Show last-generated timestamp + download link per format. Optional re-run controls for up-to-date exports.  
-    **Actions:** Trigger exports/downloads, copy text blocks.  
-    **APIs:** `GET /composer/projects/:id/export/flat-file`, `GET /composer/projects/:id/export/master-csv`, `GET /composer/projects/:id/export/pdf`, `GET /composer/projects/:id/export/json`, plus copy endpoints if needed.
+    **Purpose:** Export all approved content with clear versioning context.  
+    **State:** Project approval status, latest version timestamp, export options (flat file per marketplace, master CSV, JSON), last export metadata.  
+    **Layout:** Summary section (“Exporting Project X”, approval status, version timestamp). Export cards for each format: Amazon flat file (per marketplace buttons), Master CSV, JSON, optional copy-to-clipboard utilities. Optional export history list for future iteration.  
+    **Actions:** Trigger downloads while referencing latest approved version.  
+    **APIs:** `GET /composer/projects/:id/export/flatfile?marketplace=XX`, `GET /composer/projects/:id/export/master-csv`, `GET /composer/projects/:id/export/json`, optional `POST /composer/projects/:id/export/log`.
 
 ## Backend / API Workstreams
 1. **Schema & Migrations**
