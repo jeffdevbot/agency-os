@@ -212,3 +212,16 @@ Goal: Secure, monitor, and control costs.
 - [ ] Pillar 5 — Backend keywords, multilingual, review & export
 - [ ] Frontend surfaces 1–14
 - [ ] Backend workstreams 1–9
+
+## Delivery Slices
+### 🧩 Slice 1 — Project Shell & Intake (MVP Skeleton)
+- **Goal:** “I can create a Composer project, enter product info, and come back later to resume it.”
+- **Screens:** Project Dashboard, Wizard Frame, Product Info, Content Strategy Selection.
+- **Working functionality:** create/list/resume projects; autosave for meta (name, client, marketplaces, category), SKU table, attributes, brand tone/what-not-to-say, supplied info, FAQ; persist strategy selection; create/manage groups for distinct strategy.
+- **Backend dependencies:** Workstream 1 (schema tables), Workstream 2 (project CRUD/autosave/snapshots), Workstream 3 (CSV import, attributes, strategy/groups). Backend schema + autosave + intake can run in parallel; frontend can stub against mock APIs while backend finishes.
+
+### 🧩 Slice 2 — Keyword Pipeline (Upload → Clean → Group)
+- **Goal:** “Given my SKUs and strategy, I can upload keywords, clean them, and group them in a controllable, auditable way.”
+- **Screens:** Keyword Upload, Keyword Cleanup, Grouping Plan / Preview.
+- **Working functionality:** per-scope keyword pools (variation vs distinct), CSV/paste/manual ingest, cleaning (dedupe, banned/brand/competitor, optional color/size) with review + restore, grouping configuration (single/per SKU/per attribute/custom) + AI grouping + approval.
+- **Backend dependencies:** Slice 1 foundations plus Workstream 4 (keyword pool ingest, cleaning metadata, grouping config + GPT worker, groups query). Delivers approved keyword groups ready for downstream content generation.
