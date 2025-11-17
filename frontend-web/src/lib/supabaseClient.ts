@@ -1,9 +1,8 @@
-import {
-  createBrowserSupabaseClient,
-  type SupabaseClient,
-} from "@supabase/auth-helpers-nextjs";
+import { createBrowserSupabaseClient } from "@supabase/auth-helpers-nextjs";
 
-let client: SupabaseClient | null = null;
+type BrowserSupabaseClient = ReturnType<typeof createBrowserSupabaseClient>;
+
+let client: BrowserSupabaseClient | null = null;
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -15,7 +14,7 @@ if (!supabaseAnonKey) {
   throw new Error("Missing required environment variable: NEXT_PUBLIC_SUPABASE_ANON_KEY");
 }
 
-export const getBrowserSupabaseClient = () => {
+export const getBrowserSupabaseClient = (): BrowserSupabaseClient => {
   if (!client) {
     client = createBrowserSupabaseClient({
       supabaseUrl,
