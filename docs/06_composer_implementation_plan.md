@@ -110,12 +110,42 @@ _Source PRD: `docs/04_amazon_composer_prd.md` (v1.6)_
     **APIs:** `GET /composer/projects/:id/export/flatfile?marketplace=XX`, `GET /composer/projects/:id/export/master-csv`, `GET /composer/projects/:id/export/json`, optional `POST /composer/projects/:id/export/log`.
 
 ## Backend / API Workstreams
-1. **Schema & Migrations**
-   - Tables: `projects`, `project_versions`, `sku_variants`, `sku_groups`, `product_attributes`, `keyword_pools`, `cleaned_keywords`, `keyword_groups`, `topics`, `generated_content`, `backend_keywords`, `locales`, `client_reviews`.
-2. **Project Autosave Service**
-   - CRUD endpoints, debounced patch, version snapshot triggers, LocalStorage replay endpoint.
-3. **SKU Intake Service**
-   - CSV parsing, validation, attribute normalization, strategy + group persistence.
+### Phasing
+- **Phase 1 – Foundations:** Workstreams 1–3 (Schema, Autosave, SKU Intake).
+- **Phase 2 – Keywords & Core Content:** Workstreams 4–6 (Keywords, Theme/Sample/Bulk, Backend Keywords).
+- **Phase 3 – Localization & Client-Facing:** Workstreams 7–8 (Localization, Client Review + Export).
+- **Phase 4 – Infra & Hardening:** Workstream 9 (Infra/Observability + polish).
+
+Within each phase, tickets below can run in parallel once dependencies are met.
+
+### 1. Schema & Migrations
+Goal: Supabase/Postgres ready with Composer entities.
+1.1 **Design ERD** — capture entities/relations (`projects`, `sku_variants`, `sku_groups`, `keyword_pools`, `keyword_groups`, `topics`, `generated_content`, `backend_keywords`, `locales`, `client_reviews`, `project_versions`) and document FKs.
+1.2 **Projects + Versions tables** — create `projects` (id, user_id, client_name, project_name, marketplaces[], category, strategy_type, active_step, status, timestamps) and `project_versions` (project_id, step, snapshot JSON, created_at).
+1.3 **SKU / grouping tables** — `sku_variants` (project_id, group_id nullable, sku, asin, parent_sku, attributes JSONB) + `sku_groups` (project_id, name, description).
+1.4 **Keyword tables** — `keyword_pools` (project_id, group_id nullable, pool_type, raw_keywords JSONB, cleaned_keywords JSONB, metadata) + `keyword_groups` (keyword_pool_id, group_index, label, phrases JSONB).
+1.5 **Topics & generated content** — `topics` (project_id, group_id nullable, title, explanation, order_index) + `generated_content` (project_id, sku_variant_id, locale, content_type, body, source, version, timestamps).
+1.6 **Backend keyword & locale tables** — `backend_keywords` (project_id, sku_variant_id, locale, keywords_string, length, flags) + `locales` (project_id, locale_code, mode, approved_at, settings).
+1.7 **Client review tables** — `client_reviews` (project_id, token, enabled, status, approved_at, created_at) + `comments` (project_id, author_type, body, created_at).
+1.8 **Indexes & constraints** — add FKs, indexes on project_id/sku_variant_id/locale_code, enums/NOT NULLs to enforce integrity.
+Dependencies: none.
+
+### 2. Project Autosave Service
+Goal: CRUD + autosave + version snapshots.
+2.1 **Project CRUD endpoints** — `GET /composer/projects`, `GET /composer/projects/:id`, `POST /composer/projects`, `PATCH /composer/projects/:id` (meta, active_step, status).
+2.2 **Autosave pattern** — support frequent PATCHes of partial payloads (brand tone, banned terms, etc.) with debounced writes from frontend.
+2.3 **Version snapshots** — endpoint/helper to snapshot project state (`POST /composer/projects/:id/versions`) after milestone approvals into `project_versions`.
+2.4 **LocalStorage replay (optional)** — `POST /composer/projects/:id/recover-from-local` to accept client backups and merge.
+Dependencies: Schema 1.x.
+
+### 3. SKU Intake Service
+Goal: Intake/normalize SKUs and persist strategy/groups.
+3.1 **CSV parsing & validation** — `POST /composer/projects/:id/variants/import` to accept CSV/TSV, validate required columns, map rest to attributes.
+3.2 **Attribute normalization** — canonicalize known attributes (color, size, etc.) while supporting arbitrary custom keys (store per variant JSONB).
+3.3 **Manual SKU CRUD** — `PATCH /composer/projects/:id/variants` for inline edits, `POST` to add, `DELETE /composer/variants/:id` to remove.
+3.4 **Strategy + groups** — `PATCH /composer/projects/:id` for `strategy_type`, plus `POST/PATCH/DELETE /composer/projects/:id/groups` to create/rename/assign SKUs.
+3.5 **Derived metrics helpers** — service to calculate counts (SKUs, groups, attribute distincts) for UI hints.
+Dependencies: Schema 1.x, Project CRUD 2.1.
 4. **Keyword Services**
    - Upload endpoints, cleaning routines, audit log, GPT-4.1-mini-high grouping suggestion worker.
 5. **Theme/Sample/Bulk Generators**
