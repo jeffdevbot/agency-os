@@ -255,3 +255,31 @@ Goal: Secure, monitor, and control costs.
 - **Screens:** None (applies platform-wide).
 - **Working functionality:** Centralized LLM wrapper + key management, rate limiting/queues for heavy tasks, `usage_events` logging, job monitoring, error logging/alerts.
 - **Backend dependencies:** Workstream 9. Start minimal observability alongside Slice 2/3 and harden through later slices.
+
+## Technical Spikes
+### Spike 1 — CSV Import & Dynamic Attribute Detection
+- **Goal/Questions:** Validate UX for CSV/paste flows, attribute detection/mapping, storing unknown columns safely.
+- **POC:** Product Info sandbox page that accepts CSV upload + paste, displays parsed rows, infers canonical attributes (color/size/age_range) with rename/toggle controls.
+- **Deliverables:** `parseCsvToVariants` + `inferAttributes` utilities, notes on edge cases/UX, informs Slice 1 (Product Info + Strategy).
+
+### Spike 2 — AI Orchestration Pattern (Grouping + Sample)
+- **Goal/Questions:** Establish reusable LLM orchestration pipeline (prompt building, schema validation, logging) for grouping/themes/sample flows.
+- **POC:** “Composer AI Lab” server module using a mock project to run keyword grouping, theme suggestions, sample generation through a shared `callLLM` wrapper.
+- **Deliverables:** `aiOrchestrator.ts` with wrapper + `groupKeywords/suggestThemes/generateSample`, “AI Contracts” doc for inputs/outputs/models. Supports Slices 2–3.
+
+### Spike 3 — Locale & Amazon Validation Rules
+- **Goal/Questions:** Centralize per-locale content rules (length, banned terms, quirks) for reuse.
+- **POC:** `validateListingField({ locale, contentType, text })` library + unit tests covering over-length, banned words, clean cases; include char vs byte handling.
+- **Deliverables:** Validation module + tests powering flags in Bulk Editor, Backend Keywords, Multilingual Output.
+
+### Spike 4 — CSV Export & Flat File Mapping
+- **Goal/Questions:** Map internal model to Amazon flat files per marketplace, prove exports are ingestible.
+- **POC:** `buildFlatFileCsv(project, marketplace)` producing basic Amazon-like CSV; provide fixture sample.
+- **Deliverables:** `exportFlatFile.ts`, sample CSV, informs Slice 6 Export Hub.
+
+### Spike 5 — Client Review Portal Link + Auth Flow
+- **Goal/Questions:** Design secure share links with token-based read-only access and basic approvals.
+- **POC:** Token-based preview route backed by minimal `client_reviews` data, enable/disable toggle, approve button.
+- **Deliverables:** Token helpers, preview page, notes on additional guardrails; underpins Slice 6 Client Review.
+
+**Suggested order:** Spike 1 → 2 → 3 → 4 → 5 to unlock slices sequentially and reduce rework.
