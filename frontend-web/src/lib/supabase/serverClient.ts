@@ -31,6 +31,8 @@ export const createSupabaseRouteClient = async () => {
   });
 };
 
+export type SupabaseRouteClient = Awaited<ReturnType<typeof createSupabaseRouteClient>>;
+
 export const createSupabaseMiddlewareClient = (request: NextRequest, response: NextResponse) =>
   createServerClient(supabaseUrl, supabaseAnonKey, {
     cookies: {
