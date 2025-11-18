@@ -81,6 +81,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const organizationId = resolveComposerOrgIdFromSession(session);
   const url = new URL(request.url);
   const search = url.searchParams.get("search")?.trim() ?? "";
   const status = url.searchParams.get("status");
@@ -96,6 +97,7 @@ export async function GET(request: NextRequest) {
       "id, project_name, client_name, marketplaces, strategy_type, status, active_step, created_at, last_saved_at",
       { count: "exact" },
     )
+    .eq("organization_id", organizationId)
     .order("last_saved_at", { ascending: false, nullsFirst: false })
     .range(from, to);
 
