@@ -85,10 +85,10 @@ export const SkuTable = ({
     );
   };
 
-  const addRow = () => {
-    const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    onChange((prev) => [
-      ...prev,
+const addRow = () => {
+  const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  onChange((prev) => [
+    ...prev,
       {
         id: tempId,
         organizationId: "temp",
@@ -152,8 +152,8 @@ export const SkuTable = ({
               }
             : {
                 id: `temp-${Date.now()}-${index}`,
-                organizationId: existing?.organizationId ?? "temp",
-                projectId: existing?.projectId ?? projectId,
+                organizationId: projectId ? existing?.organizationId ?? "temp" : "temp",
+                projectId: existing?.projectId ?? projectId ?? "",
                 groupId: existing?.groupId ?? null,
                 sku: variant.sku,
                 asin: variant.asin ?? null,
