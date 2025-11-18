@@ -79,19 +79,19 @@ export interface ComposerProject {
   id: ProjectId;
   organizationId: OrganizationId;
   createdBy: string | null;
-  clientName: string;
+  clientName: string | null;
   projectName: string;
   marketplaces: string[];
   category: string | null;
-  strategyType: StrategyType;
+  strategyType: StrategyType | null;
   activeStep: string | null;
-  status: string;
+  status: string | null;
   brandTone: string | null;
   whatNotToSay: string[] | null;
   suppliedInfo: Record<string, unknown>;
   faq: Array<{ question: string; answer?: string }> | null;
   productBrief: ProductBrief;
-  lastSavedAt: ISODateString;
+  lastSavedAt: ISODateString | null;
   createdAt: ISODateString;
 }
 
