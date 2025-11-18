@@ -83,9 +83,12 @@ export default function ComposerWizardStepPage() {
   const marketplaces = project?.marketplaces ?? [];
 
   const renderStepContent = () => {
+    if (!project) return null;
     switch (validStep) {
       case "product_info":
-        return <ProductInfoStep projectId={project.id} project={project} onSaveMeta={savePartial} />;
+        return (
+          <ProductInfoStep projectId={project.id} project={project} onSaveMeta={savePartial} />
+        );
       case "content_strategy":
         return (
           <PlaceholderCard
