@@ -13,8 +13,8 @@ export default function Home() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
+    supabase.auth.getSession().then((result) => {
+      setSession(result.data.session);
       setAuthLoading(false);
     });
 

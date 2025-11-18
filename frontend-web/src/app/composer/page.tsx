@@ -61,8 +61,8 @@ export default function ComposerDashboardPage() {
   });
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      setIsAuthenticated(!!data.session);
+    supabase.auth.getSession().then((result) => {
+      setIsAuthenticated(!!result.data.session);
       setSessionChecked(true);
     });
   }, [supabase]);
