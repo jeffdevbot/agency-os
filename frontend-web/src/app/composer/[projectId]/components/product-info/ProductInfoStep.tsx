@@ -1,7 +1,7 @@
 "use client";
 
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ComposerProject } from "@agency/lib/composer/types";
+import type { ComposerProject, ComposerSkuVariant } from "@agency/lib/composer/types";
 import type {
   ProjectMetaPayload,
   ProductInfoFormState,
