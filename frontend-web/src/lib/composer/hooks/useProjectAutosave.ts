@@ -22,7 +22,7 @@ interface UseProjectAutosaveOptions {
 }
 
 export const useProjectAutosave = (
-  projectId: string,
+  projectId: string | undefined,
   { onSaved, debounceMs = 800 }: UseProjectAutosaveOptions = {},
 ) => {
   const [status, setStatus] = useState<AutosaveStatus>("idle");
@@ -32,6 +32,7 @@ export const useProjectAutosave = (
   const abortRef = useRef<AbortController | null>(null);
 
   const flush = useCallback(async () => {
+    if (!projectId) return;
     const payload = queuedRef.current;
     if (!payload) return;
     queuedRef.current = null;
@@ -74,6 +75,7 @@ export const useProjectAutosave = (
 
   const savePartial = useCallback(
     (partial: UpdateComposerProjectPayload) => {
+      if (!projectId) return;
       queuedRef.current = {
         ...(queuedRef.current ?? {}),
         ...partial,
@@ -81,7 +83,7 @@ export const useProjectAutosave = (
       setStatus("saving");
       scheduleFlush();
     },
-    [scheduleFlush],
+    [projectId, scheduleFlush],
   );
 
   useEffect(() => {
