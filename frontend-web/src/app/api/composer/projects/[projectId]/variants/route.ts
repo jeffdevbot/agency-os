@@ -99,7 +99,12 @@ const sanitizeVariantInput = (input: SkuVariantInput) => {
   };
 };
 
-const getSupabaseClient = async () => createRouteHandlerClient({ cookies });
+const getSupabaseClient = async () => {
+  const cookieStore = await cookies();
+  return createRouteHandlerClient({
+    cookies: () => cookieStore,
+  });
+};
 
 const fetchVariantsForProject = async (supabase: ReturnType<typeof createRouteHandlerClient>, projectId: string, organizationId: string) => {
   const { data, error } = await supabase
