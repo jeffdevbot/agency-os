@@ -69,7 +69,7 @@ const resolveComposerOrgIdFromSession = (session: Session | null): string => {
 };
 
 export async function GET(request: NextRequest) {
-  const cookieStore = await cookies();
+  const cookieStore = cookies();
   const supabase = createRouteHandlerClient({
     cookies: () => cookieStore,
   });
@@ -133,7 +133,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const cookieStore = await cookies();
+  const cookieStore = cookies();
   const supabase = createRouteHandlerClient({
     cookies: () => cookieStore,
   });

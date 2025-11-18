@@ -100,7 +100,7 @@ const sanitizeVariantInput = (input: SkuVariantInput) => {
 };
 
 const getSupabaseClient = async () => {
-  const cookieStore = await cookies();
+  const cookieStore = cookies();
   return createRouteHandlerClient({
     cookies: () => cookieStore,
   });
