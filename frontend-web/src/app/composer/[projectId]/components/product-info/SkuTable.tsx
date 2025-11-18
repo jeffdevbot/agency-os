@@ -152,15 +152,15 @@ const addRow = () => {
               }
             : {
                 id: `temp-${Date.now()}-${index}`,
-                organizationId: projectId ? existing?.organizationId ?? "temp" : "temp",
-                projectId: existing?.projectId ?? projectId ?? "",
-                groupId: existing?.groupId ?? null,
+                organizationId: "temp",
+                projectId,
+                groupId: null,
                 sku: variant.sku,
                 asin: variant.asin ?? null,
                 parentSku: variant.parentSku ?? null,
                 attributes: variant.attributes ?? {},
                 notes: variant.notes ?? null,
-                createdAt: existing?.createdAt ?? new Date().toISOString(),
+                createdAt: new Date().toISOString(),
               };
           map.set(key, merged);
         });
