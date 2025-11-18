@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getBrowserSupabaseClient } from "@/lib/supabaseClient";
+import type { Session } from "@supabase/supabase-js";
 import type {
   ProjectListResponse,
   ProjectSummary,
@@ -61,8 +62,8 @@ export default function ComposerDashboardPage() {
   });
 
   useEffect(() => {
-    supabase.auth.getSession().then((result) => {
-      setIsAuthenticated(!!result.data.session);
+    supabase.auth.getSession().then(({ data }: { data: { session: Session | null } }) => {
+      setIsAuthenticated(!!data.session);
       setSessionChecked(true);
     });
   }, [supabase]);
