@@ -48,7 +48,7 @@ export default function ComposerWizardStepPage() {
   const projectId = Array.isArray(params.projectId)
     ? params.projectId[0]
     : params.projectId ?? undefined;
-  const requestedStep = params.stepId;
+  const requestedStep = Array.isArray(params.stepId) ? params.stepId[0] : params.stepId;
   const { project, setProject, isLoading, isError, errorMessage } = useComposerProject(projectId);
   const validStep: ComposerStepId = useMemo(() => {
     if (isComposerStepId(requestedStep)) {
