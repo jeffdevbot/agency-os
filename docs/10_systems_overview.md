@@ -15,6 +15,7 @@ This document tracks every application, service, and long-running worker in Agen
 - **Supabase** — Auth, Postgres (clients, profiles, SOPs), storage buckets, pgvector.
 - **Render Env Group `agency-os-env-var`** — Houses Supabase secrets, Google OAuth credentials, ClickUp token, OpenAI keys, etc. Keep this group the single source of truth; replicate locally only what you need in `.env.local`.
 - **External APIs** — ClickUp, OpenAI (primary + fallback models), Google OAuth.
+- **Composer Org Fallback** — Composer’s RLS uses a single default org (`DEFAULT_COMPOSER_ORG_ID = e9368435-9a8b-4b52-b610-7b3531b30412`). Make sure Supabase user metadata (`org_id`) and any seed data stay aligned with this ID so dashboard queries surface the expected projects.
 
 ## Update Checklist
 
