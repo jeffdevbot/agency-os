@@ -313,6 +313,7 @@ Key indexes (non-exhaustive):
 - `composer_projects` is the primary pivot for business logic, but child tables are **org-aware** for performant RLS and analytics.
 - `composer_generated_content` and `composer_backend_keywords` store **current truth only**; history lives in `composer_project_versions`.
 - All LLM calls **must** be logged to `composer_usage_events` via a centralized LLM wrapper.
+- Supabase auth must always surface the user’s `org_id` claim. When it is missing (e.g., local development) the frontend/backend fall back to the shared Composer org `e9368435-9a8b-4b52-b610-7b3531b30412` (`DEFAULT_COMPOSER_ORG_ID`). Keep legacy data aligned with this ID or update user metadata accordingly so filters remain consistent.
 
 ---
 

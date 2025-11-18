@@ -1,6 +1,6 @@
 # Project Status — Agency OS
 
-_Last updated: 2025-11-17_
+_Last updated: 2025-11-18_
 
 ## How to Use This File
 - Skim **Quick Recap**, **Recent Accomplishments**, and **Next Priorities** before coding.
@@ -21,6 +21,7 @@ _Last updated: 2025-11-17_
 Agency OS consolidates internal tools (Ngram, The Operator, Amazon Composer, Creative Brief) behind a shared Next.js frontend, FastAPI backend, and Supabase auth stack deployed on Render. Supabase handles SSO (Google) plus the shared database, while the worker service manages nightly syncs and other heavy jobs.
 
 ## Recent Accomplishments
+- **2025-11-18** – Migrated the frontend to `@supabase/ssr`, fixed the async cookies regression, and aligned the Composer fallback org (`DEFAULT_COMPOSER_ORG_ID = e9368435-…`). Documented the rule that Supabase users must carry the same `org_id` metadata; legacy Composer rows were updated so existing projects resurface in the dashboard.
 - **2025-11-17** – Finished Composer Slice 1 Surface 3 (Product Info): full autosave meta forms, FAQ editor, SKU intake (inline edits, CSV import/merge, org-scoped APIs), CSV parser, and SKU validation/persistence so projects can resume from the wizard.
 - **2025-11-16** – Brought Composer Slice 1 Surface 1+2 online: dashboard list/create, wizard frame with autosave shell, GET/PATCH detail API, Supabase default org fallback, and new Supabase client helper (`createPagesBrowserClient`). Ready to plug Product Info & Strategy UIs into the shell.
 - **2025-11-15** – Landed Composer schema + tenancy work: created all `composer_*` tables in Supabase, enforced RLS with org-scoped policies (`docs/composer/01_schema_tenancy.md`), and published the canonical TypeScript types (`docs/composer/02_types_canonical.md` + `/lib/composer/types.ts`) so the frontend/backed/AI layers share the same model.
