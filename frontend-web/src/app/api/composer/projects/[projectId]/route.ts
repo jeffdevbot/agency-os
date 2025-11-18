@@ -90,10 +90,7 @@ export async function GET(
       { status: 400 },
     );
   }
-  const cookieStore = await cookies();
-  const supabase = createRouteHandlerClient({
-    cookies: () => cookieStore,
-  });
+  const supabase = createRouteHandlerClient({ cookies: () => cookies() });
   const {
     data: { session },
   } = await supabase.auth.getSession();
@@ -167,10 +164,7 @@ export async function PATCH(
 
   updates.last_saved_at = new Date().toISOString();
 
-  const cookieStore = await cookies();
-  const supabase = createRouteHandlerClient({
-    cookies: () => cookieStore,
-  });
+  const supabase = createRouteHandlerClient({ cookies: () => cookies() });
   const {
     data: { session },
   } = await supabase.auth.getSession();
