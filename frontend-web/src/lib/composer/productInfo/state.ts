@@ -1,4 +1,4 @@
-import type { ComposerProject, ProductBrief } from "../../../../../lib/composer/types";
+import type { ComposerProject, ProductBrief } from "@agency/lib/composer/types";
 import type {
   FaqFormItem,
   FaqItem,

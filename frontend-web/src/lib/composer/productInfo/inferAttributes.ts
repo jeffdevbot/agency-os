@@ -1,4 +1,4 @@
-import type { ComposerSkuVariant } from "../../../../../lib/composer/types";
+import type { ComposerSkuVariant } from "@agency/lib/composer/types";
 
 export interface AttributeSummary {
   key: string;

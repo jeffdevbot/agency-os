@@ -5,7 +5,7 @@ import type {
   ComposerProject,
   ComposerProjectStatus,
   StrategyType,
-} from "../../../../../lib/composer/types";
+} from "@agency/lib/composer/types";
 import type { ProjectMetaPayload } from "@/lib/composer/productInfo/types";
 
 export type AutosaveStatus = "idle" | "saving" | "saved" | "error";

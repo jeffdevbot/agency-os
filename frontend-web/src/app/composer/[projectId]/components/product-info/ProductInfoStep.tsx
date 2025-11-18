@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ComposerProject } from "../../../../../../../lib/composer/types";
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ComposerProject } from "@agency/lib/composer/types";
 import type {
   ProjectMetaPayload,
   ProductInfoFormState,
@@ -106,32 +106,48 @@ export const ProductInfoStep = ({ project, projectId, onSaveMeta }: ProductInfoS
   const variantInitialSyncRef = useRef(true);
   const lastVariantSentSignatureRef = useRef<string | null>(null);
 
-  useEffect(() => {
+  const syncIncomingProjectState = useCallback(() => {
     const signature = `${project.id}:${project.lastSavedAt ?? ""}`;
     const serverPayload = JSON.stringify(buildProjectMetaPayloadFromProject(project));
-    if (project.id !== lastProjectSignatureRef.current?.split(":")[0]) {
+    const previousProjectId = lastProjectSignatureRef.current?.split(":")[0];
+
+    const applySnapshot = () => {
+      const nextState = buildFormStateFromProject(project);
+      const validation = validateProductInfoMeta(nextState);
+      return { nextState, validation };
+    };
+
+    if (project.id !== previousProjectId) {
       skipSaveRef.current = true;
       lastProjectSignatureRef.current = signature;
       lastPayloadRef.current = serverPayload;
       lastSavedPayloadRef.current = serverPayload;
-      const nextState = buildFormStateFromProject(project);
-      setFormState(nextState);
-      setErrors(validateProductInfoMeta(nextState));
-      return;
+      return applySnapshot();
     }
+
     if (lastProjectSignatureRef.current === signature) {
-      return;
+      return null;
     }
+
     lastProjectSignatureRef.current = signature;
+
     if (lastSavedPayloadRef.current && lastSavedPayloadRef.current === serverPayload) {
-      return;
+      return null;
     }
+
     skipSaveRef.current = true;
     lastPayloadRef.current = serverPayload;
-    const nextState = buildFormStateFromProject(project);
-    setFormState(nextState);
-    setErrors(validateProductInfoMeta(nextState));
+    return applySnapshot();
   }, [project]);
+
+  useEffect(() => {
+    const syncResult = syncIncomingProjectState();
+    if (!syncResult) return;
+    startTransition(() => {
+      setFormState(syncResult.nextState);
+      setErrors(syncResult.validation);
+    });
+  }, [syncIncomingProjectState]);
 
   useEffect(() => {
     const payload = buildProjectMetaPayload(formState);

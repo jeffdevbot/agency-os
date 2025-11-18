@@ -1,8 +1,4 @@
-import type {
-  ISODateString,
-  ProjectId,
-  StrategyType,
-} from "../../../../lib/composer/types";
+import type { ISODateString, ProjectId, StrategyType } from "@agency/lib/composer/types";
 
 export interface ProjectSummary {
   id: ProjectId;

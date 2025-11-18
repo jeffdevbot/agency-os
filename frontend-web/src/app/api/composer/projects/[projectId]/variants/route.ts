@@ -2,7 +2,7 @@ import { cookies } from "next/headers";
 import { NextResponse, type NextRequest } from "next/server";
 import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
 import type { Session } from "@supabase/supabase-js";
-import type { ComposerSkuVariant } from "../../../../../../../lib/composer/types";
+import type { ComposerSkuVariant } from "@agency/lib/composer/types";
 import { DEFAULT_COMPOSER_ORG_ID } from "@/lib/composer/constants";
 
 const VARIANT_COLUMNS =

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ComposerSkuVariant } from "../../../../../lib/composer/types";
+import type { ComposerSkuVariant } from "@agency/lib/composer/types";
 
 export interface SkuVariantInput {
   id?: string;

@@ -38,6 +38,12 @@ Implementation lives in:
 3. DTOs for API requests/responses should reuse domain types directly or extend/pick/omit from them—never ad-hoc shapes.
 4. All AI orchestration functions must use these types as inputs and outputs (especially `ComposerGeneratedContent`, `ComposerBackendKeywords`, `ComposerUsageEvent`).
 
+### Import Convention
+
+- Frontend packages (e.g., `frontend-web`) must import canonical composer types via the shared alias `@agency/lib/composer/*` defined in `tsconfig.json`.
+- Avoid relative paths like `../../../../lib/composer/types`; they are brittle and will break as files move deeper in the tree.
+- If a new package needs these types, add/extend the alias rather than introducing a new copy of the domain model.
+
 ---
 
 ## Base Aliases

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { ComposerProject } from "../../../../../lib/composer/types";
+import type { ComposerProject } from "@agency/lib/composer/types";
 
 interface UseComposerProjectResult {
   project: ComposerProject | null;

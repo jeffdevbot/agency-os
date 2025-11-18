@@ -1,6 +1,6 @@
 "use client";
 
-import type { ProductBrief } from "../../../../../../../lib/composer/types";
+import type { ProductBrief } from "@agency/lib/composer/types";
 
 interface ProductBriefFormProps {
   productBrief: ProductBrief;

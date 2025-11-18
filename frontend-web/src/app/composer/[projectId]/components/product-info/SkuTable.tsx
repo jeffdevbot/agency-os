@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState, type ChangeEvent } from "react";
-import type { ComposerSkuVariant } from "../../../../../../../lib/composer/types";
+import type { ComposerSkuVariant } from "@agency/lib/composer/types";
 import { useSkuCsvImport } from "@/lib/composer/hooks/useSkuCsvImport";
 
 interface SkuTableProps {

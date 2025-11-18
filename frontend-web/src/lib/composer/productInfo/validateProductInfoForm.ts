@@ -1,4 +1,4 @@
-import type { ComposerProject, ComposerSkuVariant } from "../../../../../lib/composer/types";
+import type { ComposerProject, ComposerSkuVariant } from "@agency/lib/composer/types";
 
 export interface ProductInfoValidationErrors {
   projectName?: string;

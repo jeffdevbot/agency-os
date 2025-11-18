@@ -3,10 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
 import type { Session } from "@supabase/supabase-js";
 import { DEFAULT_COMPOSER_ORG_ID } from "@/lib/composer/constants";
-import type {
-  ISODateString,
-  StrategyType,
-} from "../../../../../lib/composer/types";
+import type { ISODateString, StrategyType } from "@agency/lib/composer/types";
 import { PROJECTS_PAGE_SIZE } from "@/lib/composer/projectUtils";
 import type {
   CreateProjectPayload,
