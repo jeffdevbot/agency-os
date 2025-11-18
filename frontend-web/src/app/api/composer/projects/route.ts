@@ -3,7 +3,11 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
 import type { Session } from "@supabase/supabase-js";
 import { DEFAULT_COMPOSER_ORG_ID } from "@/lib/composer/constants";
-import type { ISODateString, StrategyType } from "@agency/lib/composer/types";
+import type {
+  ComposerProjectStatus,
+  ISODateString,
+  StrategyType,
+} from "@agency/lib/composer/types";
 import { PROJECTS_PAGE_SIZE } from "@/lib/composer/projectUtils";
 import type {
   CreateProjectPayload,
@@ -16,20 +20,26 @@ interface ProjectRow {
   project_name: string;
   client_name: string | null;
   marketplaces: string[] | null;
-  strategy_type: StrategyType | null;
+  strategy_type: string | null;
   status: string | null;
   active_step: string | null;
   created_at: ISODateString;
   last_saved_at: ISODateString | null;
 }
 
+const isStrategyType = (value: string | null): value is StrategyType =>
+  value === "variations" || value === "distinct";
+
+const isComposerProjectStatus = (value: string | null): value is ComposerProjectStatus =>
+  value === "draft" || value === "active" || value === "completed" || value === "archived";
+
 const mapProjectRowToSummary = (row: ProjectRow): ProjectSummary => ({
   id: row.id,
   projectName: row.project_name,
   clientName: row.client_name,
   marketplaces: row.marketplaces ?? [],
-  strategyType: row.strategy_type,
-  status: row.status,
+  strategyType: isStrategyType(row.strategy_type) ? row.strategy_type : null,
+  status: isComposerProjectStatus(row.status) ? row.status : null,
   activeStep: row.active_step,
   createdAt: row.created_at,
   lastEditedAt: row.last_saved_at,

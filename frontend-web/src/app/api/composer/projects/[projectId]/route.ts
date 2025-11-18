@@ -2,7 +2,11 @@ import { cookies } from "next/headers";
 import { NextResponse, type NextRequest } from "next/server";
 import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
 import type { Session } from "@supabase/supabase-js";
-import type { ComposerProject } from "@agency/lib/composer/types";
+import type {
+  ComposerProject,
+  ComposerProjectStatus,
+  StrategyType,
+} from "@agency/lib/composer/types";
 import { DEFAULT_COMPOSER_ORG_ID } from "@/lib/composer/constants";
 
 const PROJECT_COLUMNS =
@@ -28,6 +32,12 @@ interface ProjectRow {
   created_at: string;
 }
 
+const isStrategyType = (value: string | null): value is StrategyType =>
+  value === "variations" || value === "distinct";
+
+const isComposerProjectStatus = (value: string | null): value is ComposerProjectStatus =>
+  value === "draft" || value === "active" || value === "completed" || value === "archived";
+
 const mapRowToComposerProject = (row: ProjectRow): ComposerProject => ({
   id: row.id,
   organizationId: row.organization_id,
@@ -36,9 +46,9 @@ const mapRowToComposerProject = (row: ProjectRow): ComposerProject => ({
   projectName: row.project_name,
   marketplaces: row.marketplaces ?? [],
   category: row.category,
-  strategyType: row.strategy_type,
+  strategyType: isStrategyType(row.strategy_type) ? row.strategy_type : null,
   activeStep: row.active_step,
-  status: row.status,
+  status: isComposerProjectStatus(row.status) ? row.status : null,
   brandTone: row.brand_tone,
   whatNotToSay: row.what_not_to_say,
   suppliedInfo: row.supplied_info ?? {},
