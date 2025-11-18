@@ -1,9 +1,8 @@
-import { cookies } from "next/headers";
 import { NextResponse, type NextRequest } from "next/server";
-import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
 import type { Session } from "@supabase/supabase-js";
 import type { ComposerSkuVariant } from "@agency/lib/composer/types";
 import { DEFAULT_COMPOSER_ORG_ID } from "@/lib/composer/constants";
+import { createSupabaseRouteClient } from "@/lib/supabase/serverClient";
 
 const VARIANT_COLUMNS =
   "id, organization_id, project_id, group_id, sku, asin, parent_sku, attributes, notes, created_at";
@@ -99,7 +98,7 @@ const sanitizeVariantInput = (input: SkuVariantInput) => {
   };
 };
 
-const getSupabaseClient = async () => createRouteHandlerClient({ cookies: () => cookies() });
+const getSupabaseClient = async () => createSupabaseRouteClient();
 
 const fetchVariantsForProject = async (supabase: ReturnType<typeof createRouteHandlerClient>, projectId: string, organizationId: string) => {
   const { data, error } = await supabase

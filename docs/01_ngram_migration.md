@@ -17,7 +17,7 @@
 ### Future State (Agency OS)
 * **Frontend Host:** `frontend-web` Service (Next.js).
 * **Backend Host:** `backend-core` Service (FastAPI).
-* **Auth:** Standardized `@supabase/auth-helpers-nextjs` (Frontend) passes JWT to Backend via `Authorization: Bearer`.
+* **Auth:** Standardized `@supabase/ssr` helpers (Frontend) pass JWT to Backend via `Authorization: Bearer`.
 
 ---
 

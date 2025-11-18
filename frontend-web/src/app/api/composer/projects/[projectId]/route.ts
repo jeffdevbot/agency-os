@@ -1,6 +1,4 @@
-import { cookies } from "next/headers";
 import { NextResponse, type NextRequest } from "next/server";
-import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
 import type { Session } from "@supabase/supabase-js";
 import type {
   ComposerProject,
@@ -8,6 +6,7 @@ import type {
   StrategyType,
 } from "@agency/lib/composer/types";
 import { DEFAULT_COMPOSER_ORG_ID } from "@/lib/composer/constants";
+import { createSupabaseRouteClient } from "@/lib/supabase/serverClient";
 
 const PROJECT_COLUMNS =
   "id, organization_id, created_by, client_name, project_name, marketplaces, category, strategy_type, active_step, status, brand_tone, what_not_to_say, supplied_info, faq, product_brief, last_saved_at, created_at";
@@ -90,7 +89,7 @@ export async function GET(
       { status: 400 },
     );
   }
-  const supabase = createRouteHandlerClient({ cookies: () => cookies() });
+  const supabase = await createSupabaseRouteClient();
   const {
     data: { session },
   } = await supabase.auth.getSession();
@@ -164,7 +163,7 @@ export async function PATCH(
 
   updates.last_saved_at = new Date().toISOString();
 
-  const supabase = createRouteHandlerClient({ cookies: () => cookies() });
+  const supabase = await createSupabaseRouteClient();
   const {
     data: { session },
   } = await supabase.auth.getSession();

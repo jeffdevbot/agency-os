@@ -1,12 +1,16 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { createMiddlewareClient } from "@supabase/auth-helpers-nextjs";
+import { createSupabaseMiddlewareClient } from "@/lib/supabase/serverClient";
 
 const PROTECTED_PATHS = ["/ngram"];
 
 export async function middleware(request: NextRequest) {
-  const response = NextResponse.next();
+  const response = NextResponse.next({
+    request: {
+      headers: request.headers,
+    },
+  });
 
-  const supabase = createMiddlewareClient({ req: request, res: response });
+  const supabase = createSupabaseMiddlewareClient(request, response);
   const {
     data: { session },
   } = await supabase.auth.getSession();

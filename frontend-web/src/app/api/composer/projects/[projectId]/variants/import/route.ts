@@ -1,6 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { cookies } from "next/headers";
-import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
+import { createSupabaseRouteClient } from "@/lib/supabase/serverClient";
 
 interface ImportPayload {
   source: "csv" | "paste";
@@ -102,7 +101,7 @@ export async function POST(
   context: { params: Promise<{ projectId?: string }> },
 ) {
   await context.params;
-  const supabase = createRouteHandlerClient({ cookies: () => cookies() });
+  const supabase = await createSupabaseRouteClient();
   const {
     data: { session },
   } = await supabase.auth.getSession();

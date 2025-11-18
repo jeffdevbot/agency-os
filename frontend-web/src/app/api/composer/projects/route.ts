@@ -1,6 +1,4 @@
-import { cookies } from "next/headers";
 import { NextResponse, type NextRequest } from "next/server";
-import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
 import type { Session } from "@supabase/supabase-js";
 import { DEFAULT_COMPOSER_ORG_ID } from "@/lib/composer/constants";
 import type {
@@ -14,6 +12,7 @@ import type {
   ProjectListResponse,
   ProjectSummary,
 } from "@/lib/composer/projectSummary";
+import { createSupabaseRouteClient } from "@/lib/supabase/serverClient";
 
 interface ProjectRow {
   id: string;
@@ -69,7 +68,7 @@ const resolveComposerOrgIdFromSession = (session: Session | null): string => {
 };
 
 export async function GET(request: NextRequest) {
-  const supabase = createRouteHandlerClient({ cookies: () => cookies() });
+  const supabase = await createSupabaseRouteClient();
   const {
     data: { session },
   } = await supabase.auth.getSession();
@@ -132,7 +131,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const supabase = createRouteHandlerClient({ cookies: () => cookies() });
+  const supabase = await createSupabaseRouteClient();
   const {
     data: { session },
   } = await supabase.auth.getSession();

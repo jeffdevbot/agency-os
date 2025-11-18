@@ -1,8 +1,7 @@
-import { cookies } from "next/headers";
 import { NextResponse, type NextRequest } from "next/server";
-import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
 import type { Session } from "@supabase/supabase-js";
 import { DEFAULT_COMPOSER_ORG_ID } from "@/lib/composer/constants";
+import { createSupabaseRouteClient } from "@/lib/supabase/serverClient";
 
 const isUuid = (value: string | undefined): value is string => {
   return typeof value === "string" && /^[0-9a-fA-F-]{36}$/.test(value);
@@ -34,7 +33,7 @@ export async function DELETE(
     return NextResponse.json({ error: "invalid_id" }, { status: 400 });
   }
 
-  const supabase = createRouteHandlerClient({ cookies: () => cookies() });
+  const supabase = await createSupabaseRouteClient();
   const {
     data: { session },
   } = await supabase.auth.getSession();
