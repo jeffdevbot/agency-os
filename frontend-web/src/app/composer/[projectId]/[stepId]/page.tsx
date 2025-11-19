@@ -245,7 +245,15 @@ export default function ComposerWizardStepPage() {
                         : "bg-[#eef2ff] text-[#475569] hover:-translate-y-0.5 hover:bg-white"
                     }`}
                   >
-                    <span className="mr-2 text-xs text-white/70">{index + 1}</span>
+                    <span
+                      className={`mr-2 inline-flex h-5 w-5 items-center justify-center rounded-full text-xs font-semibold ${
+                        isActive
+                          ? "bg-white/25 text-white"
+                          : "bg-white text-[#0f172a]"
+                      }`}
+                    >
+                      {index + 1}
+                    </span>
                     {step.label}
                   </button>
                 </li>
