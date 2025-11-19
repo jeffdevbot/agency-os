@@ -2,6 +2,18 @@ import { describe, it, expect } from "vitest";
 import { inferAttributes } from "./inferAttributes";
 import type { ComposerSkuVariant } from "@agency/lib/composer/types";
 
+const createVariant = (overrides: Partial<ComposerSkuVariant> & { id: string; sku: string }): ComposerSkuVariant => ({
+  organizationId: "org-1",
+  projectId: "proj-1",
+  groupId: null,
+  asin: null,
+  parentSku: null,
+  attributes: {},
+  notes: null,
+  createdAt: new Date().toISOString(),
+  ...overrides,
+});
+
 describe("inferAttributes", () => {
   it("returns empty array when no variants provided", () => {
     const result = inferAttributes([]);
@@ -10,17 +22,7 @@ describe("inferAttributes", () => {
 
   it("returns empty array when variants have no attributes", () => {
     const variants: ComposerSkuVariant[] = [
-      {
-        id: "1",
-        projectId: "proj-1",
-        sku: "SKU-001",
-        asin: null,
-        parentSku: null,
-        attributes: {},
-        notes: null,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
+      createVariant({ id: "1", sku: "SKU-001" }),
     ];
     const result = inferAttributes(variants);
     expect(result).toEqual([]);
@@ -28,20 +30,14 @@ describe("inferAttributes", () => {
 
   it("counts filled attributes correctly for single variant", () => {
     const variants: ComposerSkuVariant[] = [
-      {
+      createVariant({
         id: "1",
-        projectId: "proj-1",
         sku: "SKU-001",
-        asin: null,
-        parentSku: null,
         attributes: {
           color: "Red",
           size: "Large",
         },
-        notes: null,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
+      }),
     ];
     const result = inferAttributes(variants);
     expect(result).toHaveLength(2);
@@ -51,39 +47,21 @@ describe("inferAttributes", () => {
 
   it("counts filled attributes across multiple variants", () => {
     const variants: ComposerSkuVariant[] = [
-      {
+      createVariant({
         id: "1",
-        projectId: "proj-1",
         sku: "SKU-001",
-        asin: null,
-        parentSku: null,
         attributes: { color: "Red", size: "Large" },
-        notes: null,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
-      {
+      }),
+      createVariant({
         id: "2",
-        projectId: "proj-1",
         sku: "SKU-002",
-        asin: null,
-        parentSku: null,
         attributes: { color: "Blue", size: "" },
-        notes: null,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
-      {
+      }),
+      createVariant({
         id: "3",
-        projectId: "proj-1",
         sku: "SKU-003",
-        asin: null,
-        parentSku: null,
         attributes: { color: "", size: "Medium" },
-        notes: null,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
+      }),
     ];
     const result = inferAttributes(variants);
     expect(result).toHaveLength(2);
@@ -93,17 +71,11 @@ describe("inferAttributes", () => {
 
   it("handles null attribute values as unfilled", () => {
     const variants: ComposerSkuVariant[] = [
-      {
+      createVariant({
         id: "1",
-        projectId: "proj-1",
         sku: "SKU-001",
-        asin: null,
-        parentSku: null,
         attributes: { color: null },
-        notes: null,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
+      }),
     ];
     const result = inferAttributes(variants);
     expect(result).toEqual([{ key: "color", filledCount: 0, totalCount: 1 }]);
@@ -111,28 +83,16 @@ describe("inferAttributes", () => {
 
   it("collects unique keys from all variants", () => {
     const variants: ComposerSkuVariant[] = [
-      {
+      createVariant({
         id: "1",
-        projectId: "proj-1",
         sku: "SKU-001",
-        asin: null,
-        parentSku: null,
         attributes: { color: "Red" },
-        notes: null,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
-      {
+      }),
+      createVariant({
         id: "2",
-        projectId: "proj-1",
         sku: "SKU-002",
-        asin: null,
-        parentSku: null,
         attributes: { size: "Large" },
-        notes: null,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
+      }),
     ];
     const result = inferAttributes(variants);
     expect(result).toHaveLength(2);
@@ -144,65 +104,39 @@ describe("inferAttributes", () => {
 
   it("sorts results alphabetically by key", () => {
     const variants: ComposerSkuVariant[] = [
-      {
+      createVariant({
         id: "1",
-        projectId: "proj-1",
         sku: "SKU-001",
-        asin: null,
-        parentSku: null,
         attributes: { zebra: "yes", apple: "red", mango: "yellow" },
-        notes: null,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
+      }),
     ];
     const result = inferAttributes(variants);
     expect(result.map((r) => r.key)).toEqual(["apple", "mango", "zebra"]);
   });
 
   it("handles variants with undefined attributes", () => {
-    const variants: ComposerSkuVariant[] = [
+    const variants = [
       {
-        id: "1",
-        projectId: "proj-1",
-        sku: "SKU-001",
-        asin: null,
-        parentSku: null,
+        ...createVariant({ id: "1", sku: "SKU-001" }),
         attributes: undefined,
-        notes: null,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
       },
-    ];
+    ] as unknown as ComposerSkuVariant[];
     const result = inferAttributes(variants);
     expect(result).toEqual([]);
   });
 
   it("handles mixed variants with and without attributes", () => {
-    const variants: ComposerSkuVariant[] = [
-      {
+    const variants = [
+      createVariant({
         id: "1",
-        projectId: "proj-1",
         sku: "SKU-001",
-        asin: null,
-        parentSku: null,
         attributes: { color: "Red" },
-        notes: null,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
+      }),
       {
-        id: "2",
-        projectId: "proj-1",
-        sku: "SKU-002",
-        asin: null,
-        parentSku: null,
+        ...createVariant({ id: "2", sku: "SKU-002" }),
         attributes: undefined,
-        notes: null,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
       },
-    ];
+    ] as unknown as ComposerSkuVariant[];
     const result = inferAttributes(variants);
     // color exists in first variant, totalCount includes all variants
     expect(result).toEqual([{ key: "color", filledCount: 1, totalCount: 2 }]);

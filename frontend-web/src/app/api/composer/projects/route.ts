@@ -1,11 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
-import type { Session } from "@supabase/supabase-js";
-import { DEFAULT_COMPOSER_ORG_ID } from "@/lib/composer/constants";
 import type {
   ComposerProjectStatus,
   ISODateString,
   StrategyType,
 } from "@agency/lib/composer/types";
+import { DEFAULT_COMPOSER_ORG_ID } from "@/lib/composer/constants";
 import { PROJECTS_PAGE_SIZE } from "@/lib/composer/projectUtils";
 import type {
   CreateProjectPayload,
@@ -13,6 +12,7 @@ import type {
   ProjectSummary,
 } from "@/lib/composer/projectSummary";
 import { createSupabaseRouteClient } from "@/lib/supabase/serverClient";
+import { resolveComposerOrgIdFromSession } from "@/lib/composer/serverUtils";
 
 interface ProjectRow {
   id: string;
@@ -50,23 +50,6 @@ const parseNumber = (value: string | null, fallback: number): number => {
   return Number.isNaN(parsed) ? fallback : parsed;
 };
 
-const resolveComposerOrgIdFromSession = (session: Session | null): string => {
-  const userRecord = session?.user as Record<string, unknown> | undefined;
-  const directField = userRecord?.org_id;
-  if (typeof directField === "string" && directField.length > 0) {
-    return directField;
-  }
-  const metadataOrgId =
-    (session?.user?.app_metadata?.org_id as string | undefined) ??
-    (session?.user?.user_metadata?.org_id as string | undefined) ??
-    (session?.user?.app_metadata?.organization_id as string | undefined) ??
-    (session?.user?.user_metadata?.organization_id as string | undefined);
-  if (metadataOrgId && metadataOrgId.length > 0) {
-    return metadataOrgId;
-  }
-  return DEFAULT_COMPOSER_ORG_ID;
-};
-
 export async function GET(request: NextRequest) {
   const supabase = await createSupabaseRouteClient();
   const {
@@ -77,7 +60,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const organizationId = resolveComposerOrgIdFromSession(session);
+  const organizationId =
+    resolveComposerOrgIdFromSession(session, { fallbackToDefault: true }) ??
+    DEFAULT_COMPOSER_ORG_ID;
   const url = new URL(request.url);
   const search = url.searchParams.get("search")?.trim() ?? "";
   const status = url.searchParams.get("status");
@@ -147,7 +132,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "projectName is required" }, { status: 400 });
   }
 
-  const organizationId = resolveComposerOrgIdFromSession(session);
+  const organizationId =
+    resolveComposerOrgIdFromSession(session, { fallbackToDefault: true }) ??
+    DEFAULT_COMPOSER_ORG_ID;
 
   const now = new Date().toISOString();
   const insertResult = await supabase

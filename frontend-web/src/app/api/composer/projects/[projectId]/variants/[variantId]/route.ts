@@ -1,28 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
-import type { Session } from "@supabase/supabase-js";
 import { DEFAULT_COMPOSER_ORG_ID } from "@/lib/composer/constants";
 import { createSupabaseRouteClient } from "@/lib/supabase/serverClient";
-
-const isUuid = (value: string | undefined): value is string => {
-  return typeof value === "string" && /^[0-9a-fA-F-]{36}$/.test(value);
-};
-
-const resolveComposerOrgIdFromSession = (session: Session | null): string => {
-  const userRecord = session?.user as Record<string, unknown> | undefined;
-  const directField = userRecord?.org_id;
-  if (typeof directField === "string" && directField.length > 0) {
-    return directField;
-  }
-  const metadataOrgId =
-    (session?.user?.app_metadata?.org_id as string | undefined) ??
-    (session?.user?.user_metadata?.org_id as string | undefined) ??
-    (session?.user?.app_metadata?.organization_id as string | undefined) ??
-    (session?.user?.user_metadata?.organization_id as string | undefined);
-  if (metadataOrgId && metadataOrgId.length > 0) {
-    return metadataOrgId;
-  }
-  return DEFAULT_COMPOSER_ORG_ID;
-};
+import { isUuid, resolveComposerOrgIdFromSession } from "@/lib/composer/serverUtils";
 
 export async function DELETE(
   _request: NextRequest,
@@ -41,7 +20,9 @@ export async function DELETE(
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const organizationId = resolveComposerOrgIdFromSession(session);
+  const organizationId =
+    resolveComposerOrgIdFromSession(session, { fallbackToDefault: true }) ??
+    DEFAULT_COMPOSER_ORG_ID;
 
   const { error } = await supabase
     .from("composer_sku_variants")

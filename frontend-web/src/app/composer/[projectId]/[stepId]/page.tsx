@@ -4,10 +4,12 @@ import { useEffect, useMemo } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { ProductInfoStep } from "../components/product-info/ProductInfoStep";
+import { ContentStrategyStep } from "../components/content-strategy/ContentStrategyStep";
 import { useComposerProject } from "@/lib/composer/hooks/useComposerProject";
 import { useProjectAutosave } from "@/lib/composer/hooks/useProjectAutosave";
 import { useSkuVariants } from "@/lib/composer/hooks/useSkuVariants";
 import { validateProductInfoForm } from "@/lib/composer/productInfo/validateProductInfoForm";
+import type { StrategyType } from "@agency/lib/composer/types";
 import {
   COMPOSER_STEPS,
   DEFAULT_STEP_ID,
@@ -57,6 +59,7 @@ export default function ComposerWizardStepPage() {
     setVariants,
     isLoading: variantsLoading,
     error: variantsError,
+    refresh: refreshVariants,
     saveVariants,
     deleteVariant,
     isSaving: variantsSaving,
@@ -99,14 +102,29 @@ export default function ComposerWizardStepPage() {
     return validateProductInfoForm(project, variants);
   }, [validStep, project, variants]);
 
+  // Validate content strategy step
+  const contentStrategyValidation = useMemo(() => {
+    if (validStep !== "content_strategy") {
+      return { isValid: true };
+    }
+    // Strategy must be selected
+    if (!project?.strategyType) {
+      return { isValid: false };
+    }
+    return { isValid: true };
+  }, [validStep, project?.strategyType]);
+
   // Determine if Next button should be disabled
   const isNextDisabled = useMemo(() => {
     if (!nextStepId) return true;
     if (validStep === "product_info" && !productInfoValidation.isValid) {
       return true;
     }
+    if (validStep === "content_strategy" && !contentStrategyValidation.isValid) {
+      return true;
+    }
     return false;
-  }, [nextStepId, validStep, productInfoValidation.isValid]);
+  }, [nextStepId, validStep, productInfoValidation.isValid, contentStrategyValidation.isValid]);
 
   const statusLabel = project?.status ?? "Draft";
   const marketplaces = project?.marketplaces ?? [];
@@ -131,9 +149,17 @@ export default function ComposerWizardStepPage() {
         );
       case "content_strategy":
         return (
-          <PlaceholderCard
-            title="Content Strategy Step"
-            description="Strategy selection UI arrives in Slice 1 Surface 4."
+          <ContentStrategyStep
+            project={project}
+            variants={variants}
+            onSaveStrategy={(strategyType: StrategyType) => {
+              setProject({ ...project, strategyType });
+              savePartial({ strategyType });
+            }}
+            onVariantsChange={() => {
+              // Refresh variants to get updated groupId assignments
+              void refreshVariants();
+            }}
           />
         );
       default:

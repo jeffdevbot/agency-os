@@ -1,6 +1,6 @@
 # Project Status — Agency OS
 
-_Last updated: 2025-11-18_
+_Last updated: 2025-11-19_
 
 ## How to Use This File
 - Skim **Quick Recap**, **Recent Accomplishments**, and **Next Priorities** before coding.
@@ -21,6 +21,8 @@ _Last updated: 2025-11-18_
 Agency OS consolidates internal tools (Ngram, The Operator, Amazon Composer, Creative Brief) behind a shared Next.js frontend, FastAPI backend, and Supabase auth stack deployed on Render. Supabase handles SSO (Google) plus the shared database, while the worker service manages nightly syncs and other heavy jobs.
 
 ## Recent Accomplishments
+- **2025-11-19** – Hardened Composer Slice 1 Surface 4 with shared `serverUtils` helpers, Supabase route-client mocks, and full Vitest coverage for the groups/assign/unassign APIs plus the `useSkuGroups` hook (82 tests passing locally via `npm run test:run`).
+- **2025-11-19** – Completed Composer Slice 1 Surface 4 (Content Strategy): StrategyToggle, SkuGroupsBuilder, GroupCard, UnassignedSkuList, and ContentStrategyStep components; full SKU groups API (GET/POST groups, PATCH/DELETE group, assign/unassign variants); `useSkuGroups` hook with optimistic updates. Slice 1 is now feature-complete.
 - **2025-11-18** – Migrated the frontend to `@supabase/ssr`, fixed the async cookies regression, and aligned the Composer fallback org (`DEFAULT_COMPOSER_ORG_ID = e9368435-…`). Documented the rule that Supabase users must carry the same `org_id` metadata; legacy Composer rows were updated so existing projects resurface in the dashboard.
 - **2025-11-17** – Finished Composer Slice 1 Surface 3 (Product Info): full autosave meta forms, FAQ editor, SKU intake (inline edits, CSV import/merge, org-scoped APIs), CSV parser, and SKU validation/persistence so projects can resume from the wizard.
 - **2025-11-16** – Brought Composer Slice 1 Surface 1+2 online: dashboard list/create, wizard frame with autosave shell, GET/PATCH detail API, Supabase default org fallback, and new Supabase client helper (`createPagesBrowserClient`). Ready to plug Product Info & Strategy UIs into the shell.
@@ -30,9 +32,7 @@ Agency OS consolidates internal tools (Ngram, The Operator, Amazon Composer, Cre
 - **2025-11-13** – Added Supabase-aware Next.js middleware to guard `/ngram`, ensuring logged-out users are redirected to the login screen before hitting protected pages.
 
 ## Next Priorities
-- Finish Composer Slice 1 delivery: polish Product Info as needed and implement the remaining surfaces (Content Strategy + any wizard navigation/routing gaps) so Slice 1 is feature-complete.
-- Deploy backend-core + refreshed frontend to Render, validate env vars (usage logging, Supabase secrets) and ensure `/ngram` works end-to-end in production.
-- Scope the Operator Milestone 1 UI shell so it can host the chat + context panes described in `docs/02_the_operator_prd.md`, even if data is mocked at first.
+- Begin Composer Slice 2 (Keyword Pipeline): implement Keyword Upload, Keyword Cleanup, and Grouping Plan surfaces with associated APIs and hooks.
 - Deploy backend-core + refreshed frontend to Render, validate env vars (usage logging, Supabase secrets) and ensure `/ngram` works end-to-end in production.
 - Scope the Operator Milestone 1 UI shell so it can host the chat + context panes described in `docs/02_the_operator_prd.md`, even if data is mocked at first.
 

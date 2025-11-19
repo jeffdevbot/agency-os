@@ -216,6 +216,13 @@ describe("functionUnderTest", () => {
 });
 ```
 
+### Composer-Specific Utilities
+
+- **Shared server helpers:** `frontend-web/src/lib/composer/serverUtils.ts` contains UUID/org-id logic. Keep its unit tests (`serverUtils.test.ts`) up to date so route tests can focus on request handling instead of revalidating these helpers.
+- **Supabase route mocks:** `frontend-web/src/lib/composer/testSupabaseClient.ts` exports `createSupabaseClientMock()`. Use it in API route tests (see the groups/assign/unassign suites) to stub `auth.getSession()` and chained `from().select().eq().single()` calls with predictable responses.
+- **Hook harness:** `frontend-web/src/lib/composer/hooks/useSkuGroups.test.tsx` demonstrates jsdom-based hook testing. Include `/// <reference types="vitest/globals" />` if needed, add `@vitest-environment jsdom`, set `globalThis.IS_REACT_ACT_ENVIRONMENT = true` in `beforeAll`, and wrap asynchronous operations in `act()` to avoid warnings.
+- **API test locations:** Route tests live next to their handlers (e.g., `src/app/api/composer/projects/[projectId]/groups/route.test.ts`). Follow those patterns for new endpoints: check invalid IDs (400), missing session (401), missing org metadata (403), org-scoped project lookups (404), and Supabase error branches (500).
+
 ### Path Aliases
 
 Tests can use the same path aliases as source code:
@@ -228,6 +235,11 @@ Tests can use the same path aliases as source code:
 **Composer Product Info:**
 - `inferAttributes` - 9 tests (attribute counting, sorting, edge cases)
 - `validateProductInfoForm` - 16 tests (project/variant validation, error aggregation)
+
+**Composer Content Strategy & Groups:**
+- `serverUtils.test.ts` (UUID/org helpers)
+- Route suites under `src/app/api/composer/projects/[projectId]/groups/*` and `variants/unassign`
+- `useSkuGroups.test.tsx` (hook state + optimistic updates)
 
 ### Priority Testing Targets
 

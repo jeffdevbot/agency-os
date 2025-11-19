@@ -1,8 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
-import type { Session } from "@supabase/supabase-js";
 import type { ComposerSkuVariant } from "@agency/lib/composer/types";
 import { DEFAULT_COMPOSER_ORG_ID } from "@/lib/composer/constants";
 import { createSupabaseRouteClient, type SupabaseRouteClient } from "@/lib/supabase/serverClient";
+import { isUuid, resolveComposerOrgIdFromSession } from "@/lib/composer/serverUtils";
 
 const VARIANT_COLUMNS =
   "id, organization_id, project_id, group_id, sku, asin, parent_sku, attributes, notes, created_at";
@@ -41,27 +41,6 @@ const mapRowToComposerVariant = (row: VariantRow): ComposerSkuVariant => ({
   notes: row.notes,
   createdAt: row.created_at,
 });
-
-const isUuid = (value: string | undefined): value is string => {
-  return typeof value === "string" && /^[0-9a-fA-F-]{36}$/.test(value);
-};
-
-const resolveComposerOrgIdFromSession = (session: Session | null): string => {
-  const userRecord = session?.user as Record<string, unknown> | undefined;
-  const directField = userRecord?.org_id;
-  if (typeof directField === "string" && directField.length > 0) {
-    return directField;
-  }
-  const metadataOrgId =
-    (session?.user?.app_metadata?.org_id as string | undefined) ??
-    (session?.user?.user_metadata?.org_id as string | undefined) ??
-    (session?.user?.app_metadata?.organization_id as string | undefined) ??
-    (session?.user?.user_metadata?.organization_id as string | undefined);
-  if (metadataOrgId && metadataOrgId.length > 0) {
-    return metadataOrgId;
-  }
-  return DEFAULT_COMPOSER_ORG_ID;
-};
 
 const sanitizeVariantInput = (input: SkuVariantInput) => {
   const sku = input.sku?.trim();
@@ -135,7 +114,9 @@ export async function GET(
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const organizationId = resolveComposerOrgIdFromSession(session);
+  const organizationId =
+    resolveComposerOrgIdFromSession(session, { fallbackToDefault: true }) ??
+    DEFAULT_COMPOSER_ORG_ID;
 
   try {
     const variants = await fetchVariantsForProject(supabase, projectId, organizationId);
@@ -198,7 +179,9 @@ export async function PATCH(
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const organizationId = resolveComposerOrgIdFromSession(session);
+  const organizationId =
+    resolveComposerOrgIdFromSession(session, { fallbackToDefault: true }) ??
+    DEFAULT_COMPOSER_ORG_ID;
 
   if (sanitized.length === 0) {
     const { error: deleteError } = await supabase

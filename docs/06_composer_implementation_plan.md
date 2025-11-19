@@ -1,6 +1,7 @@
 # Composer Implementation Plan
 
 _Source PRD: `docs/04_amazon_composer_prd.md` (v1.6)_
+_Last updated: 2025-11-19_
 
 ## Pillars
 
@@ -65,7 +66,8 @@ _Variation vs distinct toggle, SKU group builder._
 - **State:** `strategy_type`, `skuGroups[]`, `variants[]` with group assignments.
 - **Layout:** Strategy radio options with explanatory copy. Distinct-mode group builder (unassigned SKUs list + group panels with drag/drop assignment, rename/delete, Add Group). Scope summary callout showing SKU counts/groups.
 - **Actions:** Choose strategy, manage groups, assign SKUs, continue.
-- **APIs:** `PATCH /composer/projects/:id` (strategy_type), `POST/PATCH/DELETE /composer/projects/:id/groups`.
+- **APIs:** `GET/POST /composer/projects/:id/groups`, `PATCH/DELETE /composer/projects/:id/groups/:groupId`, `POST /composer/projects/:id/groups/:groupId/assign`, `POST /composer/projects/:id/variants/unassign`.
+- **Status:** **Completed** (Nov 19, 2025) – StrategyToggle, SkuGroupsBuilder, GroupCard, UnassignedSkuList, ContentStrategyStep components implemented; full SKU groups API with useSkuGroups hook. Slice 1 is now feature-complete.
 
 ### 5. Keyword Upload
 _Per-pool inputs, group tabs, raw preview._
@@ -253,20 +255,22 @@ Goal: Secure, monitor, and control costs.
 9.5 **Error handling & alerts** — centralized logger + alerting (Sentry etc.) on repeated failures.
 
 ## Tracking / Tasks
-- [ ] Pillar 1 — Project system & autosave
-- [ ] Pillar 2 — SKU intake & strategy
+- [x] Pillar 1 — Project system & autosave (Slice 1 complete)
+- [x] Pillar 2 — SKU intake & strategy (Slice 1 complete)
 - [ ] Pillar 3 — Keyword pipeline
 - [ ] Pillar 4 — Themes → Sample → Bulk
 - [ ] Pillar 5 — Backend keywords, multilingual, review & export
-- [ ] Frontend surfaces 1–14
-- [ ] Backend workstreams 1–9
+- [x] Frontend surfaces 1–4 (Slice 1 complete)
+- [ ] Frontend surfaces 5–14
+- [x] Backend workstreams 1–3 (Slice 1 complete)
+- [ ] Backend workstreams 4–9
 
 ## Delivery Slices
-### 🧩 Slice 1 — Project Shell & Intake (MVP Skeleton)
-- **Goal:** “I can create a Composer project, enter product info, and come back later to resume it.”
+### 🧩 Slice 1 — Project Shell & Intake (MVP Skeleton) — **COMPLETED (Nov 19, 2025)**
+- **Goal:** "I can create a Composer project, enter product info, and come back later to resume it."
 - **Screens:** Project Dashboard, Wizard Frame, Product Info, Content Strategy Selection.
 - **Working functionality:** create/list/resume projects; autosave for meta (name, client, marketplaces, category), SKU table, attributes, brand tone/what-not-to-say, supplied info, FAQ; persist strategy selection; create/manage groups for distinct strategy.
-- **Backend dependencies:** Workstream 1 (schema tables), Workstream 2 (project CRUD/autosave/snapshots), Workstream 3 (CSV import, attributes, strategy/groups). Backend schema + autosave + intake can run in parallel; frontend can stub against mock APIs while backend finishes.
+- **Implementation:** All four surfaces delivered. See `docs/composer/slice_01_implementation_plan.md` for detailed API routes, components, and hooks.
 
 ### 🧩 Slice 2 — Keyword Pipeline (Upload → Clean → Group)
 - **Goal:** “Given my SKUs and strategy, I can upload keywords, clean them, and group them in a controllable, auditable way.”
