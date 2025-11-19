@@ -6,6 +6,8 @@ import { useParams, useRouter } from "next/navigation";
 import { ProductInfoStep } from "../components/product-info/ProductInfoStep";
 import { useComposerProject } from "@/lib/composer/hooks/useComposerProject";
 import { useProjectAutosave } from "@/lib/composer/hooks/useProjectAutosave";
+import { useSkuVariants } from "@/lib/composer/hooks/useSkuVariants";
+import { validateProductInfoForm } from "@/lib/composer/productInfo/validateProductInfoForm";
 import {
   COMPOSER_STEPS,
   DEFAULT_STEP_ID,
@@ -50,6 +52,16 @@ export default function ComposerWizardStepPage() {
     : params.projectId ?? undefined;
   const requestedStep = Array.isArray(params.stepId) ? params.stepId[0] : params.stepId;
   const { project, setProject, isLoading, isError, errorMessage } = useComposerProject(projectId);
+  const {
+    variants,
+    setVariants,
+    isLoading: variantsLoading,
+    error: variantsError,
+    saveVariants,
+    deleteVariant,
+    isSaving: variantsSaving,
+  } = useSkuVariants(projectId);
+
   const validStep: ComposerStepId = useMemo(() => {
     if (isComposerStepId(requestedStep)) {
       return requestedStep;
@@ -79,6 +91,23 @@ export default function ComposerWizardStepPage() {
   const previousStepId = getPreviousStepId(validStep);
   const nextStepId = getNextStepId(validStep);
 
+  // Validate product info step
+  const productInfoValidation = useMemo(() => {
+    if (validStep !== "product_info") {
+      return { isValid: true, errors: {} };
+    }
+    return validateProductInfoForm(project, variants);
+  }, [validStep, project, variants]);
+
+  // Determine if Next button should be disabled
+  const isNextDisabled = useMemo(() => {
+    if (!nextStepId) return true;
+    if (validStep === "product_info" && !productInfoValidation.isValid) {
+      return true;
+    }
+    return false;
+  }, [nextStepId, validStep, productInfoValidation.isValid]);
+
   const statusLabel = project?.status ?? "Draft";
   const marketplaces = project?.marketplaces ?? [];
 
@@ -87,7 +116,18 @@ export default function ComposerWizardStepPage() {
     switch (validStep) {
       case "product_info":
         return (
-          <ProductInfoStep projectId={project.id} project={project} onSaveMeta={savePartial} />
+          <ProductInfoStep
+            projectId={project.id}
+            project={project}
+            onSaveMeta={savePartial}
+            variants={variants}
+            setVariants={setVariants}
+            variantsLoading={variantsLoading}
+            variantsError={variantsError}
+            variantsSaving={variantsSaving}
+            saveVariants={saveVariants}
+            deleteVariant={deleteVariant}
+          />
         );
       case "content_strategy":
         return (
@@ -200,8 +240,13 @@ export default function ComposerWizardStepPage() {
             </button>
             <button
               onClick={() => nextStepId && navigateToStep(nextStepId)}
-              disabled={!nextStepId}
+              disabled={isNextDisabled}
               className="rounded-full bg-[#0a6fd6] px-5 py-2 text-sm font-semibold text-white shadow disabled:opacity-40"
+              title={
+                validStep === "product_info" && !productInfoValidation.isValid
+                  ? "Complete required fields to continue"
+                  : undefined
+              }
             >
               Next
             </button>

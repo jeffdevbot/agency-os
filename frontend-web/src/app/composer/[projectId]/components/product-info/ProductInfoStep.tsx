@@ -1,6 +1,6 @@
 "use client";
 
-import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import type { ComposerProject, ComposerSkuVariant } from "@agency/lib/composer/types";
 import type {
   ProjectMetaPayload,
@@ -14,7 +14,6 @@ import {
   buildProjectMetaPayloadFromProject,
   validateProductInfoMeta,
 } from "@/lib/composer/productInfo/state";
-import { useSkuVariants } from "@/lib/composer/hooks/useSkuVariants";
 import type { SkuVariantInput } from "@/lib/composer/hooks/useSkuVariants";
 import { inferAttributes } from "@/lib/composer/productInfo/inferAttributes";
 import { ProjectMetaForm } from "./ProjectMetaForm";
@@ -28,6 +27,13 @@ interface ProductInfoStepProps {
   project: ComposerProject;
   projectId: string;
   onSaveMeta: (payload: ProjectMetaPayload) => void;
+  variants: ComposerSkuVariant[];
+  setVariants: Dispatch<SetStateAction<ComposerSkuVariant[]>>;
+  variantsLoading: boolean;
+  variantsError: string | null;
+  variantsSaving: boolean;
+  saveVariants: (payload: SkuVariantInput[], signature?: string) => Promise<void>;
+  deleteVariant: (variantId: string) => Promise<void>;
 }
 
 const prepareVariantPayloads = (variants: ComposerSkuVariant[]) => {
@@ -82,7 +88,18 @@ const prepareVariantPayloads = (variants: ComposerSkuVariant[]) => {
   return { payload, comparisonSignature, hasInvalidRow };
 };
 
-export const ProductInfoStep = ({ project, projectId, onSaveMeta }: ProductInfoStepProps) => {
+export const ProductInfoStep = ({
+  project,
+  projectId,
+  onSaveMeta,
+  variants,
+  setVariants,
+  variantsLoading,
+  variantsError,
+  variantsSaving,
+  saveVariants,
+  deleteVariant,
+}: ProductInfoStepProps) => {
   const [formState, setFormState] = useState<ProductInfoFormState>(() =>
     buildFormStateFromProject(project),
   );
@@ -93,15 +110,6 @@ export const ProductInfoStep = ({ project, projectId, onSaveMeta }: ProductInfoS
   const lastSavedPayloadRef = useRef<string | null>(null);
   const lastPayloadRef = useRef<string | null>(null);
   const lastProjectSignatureRef = useRef<string | null>(null);
-  const {
-    variants,
-    setVariants,
-    isLoading: variantsLoading,
-    error: variantsError,
-    saveVariants,
-    deleteVariant,
-    isSaving: variantsSaving,
-  } = useSkuVariants(projectId);
   const attributeSummary = useMemo(() => inferAttributes(variants), [variants]);
   const variantInitialSyncRef = useRef(true);
   const lastVariantSentSignatureRef = useRef<string | null>(null);

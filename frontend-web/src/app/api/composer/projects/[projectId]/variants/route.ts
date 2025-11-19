@@ -224,25 +224,44 @@ export async function PATCH(
     return NextResponse.json({ error: existingError.message }, { status: 500 });
   }
 
-  const conflicts =
-    existingRows?.filter((row) => {
-      const incoming = sanitized.find((variant) => variant.sku === row.sku);
-      if (!incoming) return false;
-      if (!incoming.id) return true;
-      return incoming.id !== row.id;
-    }) ?? [];
+  // Build a map of existing SKU -> id for matching
+  const existingSkuToId = new Map<string, string>();
+  for (const row of existingRows ?? []) {
+    existingSkuToId.set(row.sku, row.id);
+  }
+
+  // Match incoming variants without IDs to existing rows by SKU (upsert behavior)
+  // and detect true conflicts (different IDs trying to use same SKU)
+  const conflicts: string[] = [];
+  const matchedVariants = sanitized.map((variant) => {
+    if (variant.id) {
+      // Variant has an ID - check if another row already has this SKU
+      const existingId = existingSkuToId.get(variant.sku);
+      if (existingId && existingId !== variant.id) {
+        conflicts.push(variant.sku);
+      }
+      return variant;
+    } else {
+      // Variant has no ID - match to existing row by SKU if it exists
+      const existingId = existingSkuToId.get(variant.sku);
+      if (existingId) {
+        return { ...variant, id: existingId };
+      }
+      return variant;
+    }
+  });
 
   if (conflicts.length > 0) {
     return NextResponse.json(
       {
-        error: `SKU already exists: ${conflicts.map((row) => row.sku).join(", ")}`,
+        error: `SKU already exists: ${conflicts.join(", ")}`,
       },
       { status: 409 },
     );
   }
 
-  const toUpdate = sanitized.filter((variant) => variant.id);
-  const toInsert = sanitized.filter((variant) => !variant.id);
+  const toUpdate = matchedVariants.filter((variant) => variant.id);
+  const toInsert = matchedVariants.filter((variant) => !variant.id);
 
   if (toUpdate.length > 0) {
     const updatePayload = toUpdate.map((variant) => ({
