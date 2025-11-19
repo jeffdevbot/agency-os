@@ -155,3 +155,85 @@ You do not assume tests passed unless results are provided.
 Red Team may use your test results as input when reviewing high-risk changes, but they focus on risks that tests won't catch (RLS leaks, breaking API changes, schema mismatches).
 
 **You are the project's testing brain and regression shield.**
+
+---
+
+## Testing Infrastructure
+
+### Framework
+
+The project uses **Vitest** for unit and integration testing.
+
+- Config: `frontend-web/vitest.config.ts`
+- Test location: `frontend-web/src/**/*.test.ts`
+
+### Commands
+
+```bash
+# Run tests in watch mode
+npm test
+
+# Run tests once (CI mode)
+npm run test:run
+
+# Run tests with coverage report
+npm run test:coverage
+```
+
+### Test File Patterns
+
+Tests are colocated with source files:
+
+```
+src/lib/composer/productInfo/
+├── inferAttributes.ts
+├── inferAttributes.test.ts
+├── validateProductInfoForm.ts
+└── validateProductInfoForm.test.ts
+```
+
+### Test Structure Example
+
+```typescript
+import { describe, it, expect } from "vitest";
+import { functionUnderTest } from "./functionUnderTest";
+
+describe("functionUnderTest", () => {
+  it("handles happy path", () => {
+    const result = functionUnderTest(validInput);
+    expect(result).toEqual(expectedOutput);
+  });
+
+  it("handles edge case", () => {
+    const result = functionUnderTest(edgeInput);
+    expect(result).toEqual(edgeOutput);
+  });
+
+  it("handles error case", () => {
+    const result = functionUnderTest(invalidInput);
+    expect(result.isValid).toBe(false);
+  });
+});
+```
+
+### Path Aliases
+
+Tests can use the same path aliases as source code:
+
+- `@/*` → `frontend-web/src/*`
+- `@agency/lib/*` → `lib/*`
+
+### Current Test Coverage
+
+**Composer Product Info:**
+- `inferAttributes` - 9 tests (attribute counting, sorting, edge cases)
+- `validateProductInfoForm` - 16 tests (project/variant validation, error aggregation)
+
+### Priority Testing Targets
+
+When adding tests, prioritize:
+
+1. **Pure functions** - Utility functions with no side effects
+2. **Validation logic** - Form validators, schema validators
+3. **API route handlers** - Request/response contracts
+4. **State transformations** - Hooks and state builders
