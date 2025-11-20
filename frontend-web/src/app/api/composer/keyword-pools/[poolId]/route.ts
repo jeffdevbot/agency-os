@@ -1,5 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
-import type { ComposerKeywordPool } from "@agency/lib/composer/types";
+import type {
+  ComposerKeywordPool,
+  GroupingConfig,
+} from "@agency/lib/composer/types";
 import { createSupabaseRouteClient } from "@/lib/supabase/serverClient";
 import { isUuid, resolveComposerOrgIdFromSession } from "@/lib/composer/serverUtils";
 
@@ -32,6 +35,21 @@ export interface KeywordPoolRow {
   created_at: string;
 }
 
+const normalizeGroupingConfig = (grouping: KeywordPoolRow["grouping_config"]): GroupingConfig => {
+  if (!grouping) return {};
+  const basis = grouping.basis;
+  const allowed: Array<GroupingConfig["basis"]> = ["single", "per_sku", "attribute", "custom"];
+  const normalizedBasis = allowed.includes(basis as GroupingConfig["basis"])
+    ? (basis as GroupingConfig["basis"])
+    : undefined;
+  return {
+    basis: normalizedBasis,
+    attributeName: grouping.attributeName,
+    groupCount: grouping.groupCount,
+    phrasesPerGroup: grouping.phrasesPerGroup,
+  };
+};
+
 export const mapRowToPool = (row: KeywordPoolRow): ComposerKeywordPool => ({
   id: row.id,
   organizationId: row.organization_id,
@@ -44,7 +62,7 @@ export const mapRowToPool = (row: KeywordPoolRow): ComposerKeywordPool => ({
   cleanedKeywords: row.cleaned_keywords,
   removedKeywords: row.removed_keywords,
   cleanSettings: row.clean_settings,
-  groupingConfig: row.grouping_config,
+  groupingConfig: normalizeGroupingConfig(row.grouping_config),
   cleanedAt: row.cleaned_at,
   groupedAt: row.grouped_at,
   approvedAt: row.approved_at,
