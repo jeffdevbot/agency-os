@@ -6,6 +6,7 @@ import { useParams, useRouter } from "next/navigation";
 import { ProductInfoStep } from "../components/product-info/ProductInfoStep";
 import { ContentStrategyStep } from "../components/content-strategy/ContentStrategyStep";
 import { KeywordUploadStep } from "../components/keyword-upload/KeywordUploadStep";
+import { KeywordCleanupStep } from "../components/keyword-cleanup/KeywordCleanupStep";
 import { useComposerProject } from "@/lib/composer/hooks/useComposerProject";
 import { useProjectAutosave } from "@/lib/composer/hooks/useProjectAutosave";
 import { useSkuVariants } from "@/lib/composer/hooks/useSkuVariants";
@@ -56,6 +57,7 @@ export default function ComposerWizardStepPage() {
   const requestedStep = Array.isArray(params.stepId) ? params.stepId[0] : params.stepId;
   const { project, setProject, isLoading, isError, errorMessage } = useComposerProject(projectId);
   const [keywordUploadReady, setKeywordUploadReady] = useState(false);
+  const [keywordCleanupReady, setKeywordCleanupReady] = useState(false);
   const {
     variants,
     setVariants,
@@ -128,6 +130,9 @@ export default function ComposerWizardStepPage() {
     if (validStep === "keyword_upload" && !keywordUploadReady) {
       return true;
     }
+    if (validStep === "keyword_cleanup" && !keywordCleanupReady) {
+      return true;
+    }
     return false;
   }, [
     nextStepId,
@@ -135,6 +140,7 @@ export default function ComposerWizardStepPage() {
     productInfoValidation.isValid,
     contentStrategyValidation.isValid,
     keywordUploadReady,
+    keywordCleanupReady,
   ]);
 
   const statusLabel = project?.status ?? "Draft";
@@ -182,6 +188,13 @@ export default function ComposerWizardStepPage() {
           <KeywordUploadStep
             project={project}
             onValidityChange={(ready) => setKeywordUploadReady(ready)}
+          />
+        );
+      case "keyword_cleanup":
+        return (
+          <KeywordCleanupStep
+            project={project}
+            onValidityChange={(ready) => setKeywordCleanupReady(ready)}
           />
         );
       default:

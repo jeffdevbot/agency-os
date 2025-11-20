@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { ComposerKeywordPool, KeywordCleanSettings } from "@agency/lib/composer/types";
+import type {
+  ComposerKeywordPool,
+  KeywordCleanSettings,
+  RemovedKeywordEntry,
+} from "@agency/lib/composer/types";
 import { dedupeKeywords, mergeKeywords } from "@agency/lib/composer/keywords/utils";
 
 interface UseKeywordPoolsResult {
@@ -13,6 +17,8 @@ interface UseKeywordPoolsResult {
     groupId?: string | null,
   ) => Promise<{ pool: ComposerKeywordPool | null; warning?: string }>;
   cleanPool: (poolId: string, config: KeywordCleanSettings) => Promise<ComposerKeywordPool | null>;
+  manualRemove: (poolId: string, keyword: string) => Promise<ComposerKeywordPool | null>;
+  manualRestore: (poolId: string, keyword: string) => Promise<ComposerKeywordPool | null>;
   approveClean: (poolId: string) => Promise<ComposerKeywordPool | null>;
 }
 
@@ -170,6 +176,87 @@ export const useKeywordPools = (
     }
   }, []);
 
+  const manualRemove = useCallback<UseKeywordPoolsResult["manualRemove"]>(
+    async (poolId, keyword) => {
+      const targetPool = pools.find((p) => p.id === poolId);
+      if (!targetPool) return null;
+      const cleaned = targetPool.cleanedKeywords ?? [];
+      const filteredCleaned = cleaned.filter((k) => k.toLowerCase() !== keyword.toLowerCase());
+      const removed: RemovedKeywordEntry[] = [
+        ...(targetPool.removedKeywords ?? []),
+        { term: keyword, reason: "manual" },
+      ];
+      setPools((prev) =>
+        prev.map((p) =>
+          p.id === poolId ? { ...p, cleanedKeywords: filteredCleaned, removedKeywords: removed } : p,
+        ),
+      );
+      setError(null);
+      try {
+        const response = await fetch(`/api/composer/keyword-pools/${poolId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            cleanedKeywords: filteredCleaned,
+            removedKeywords: removed,
+          }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(data.error || "Unable to remove keyword");
+        }
+        const updatedPool = data.pool as ComposerKeywordPool;
+        setPools((prev) => prev.map((p) => (p.id === poolId ? updatedPool : p)));
+        return updatedPool;
+      } catch (removeError) {
+        setError(removeError instanceof Error ? removeError.message : "Unable to remove keyword");
+        setPools((prev) => prev.map((p) => (p.id === poolId ? targetPool : p)));
+        return null;
+      }
+    },
+    [pools],
+  );
+
+  const manualRestore = useCallback<UseKeywordPoolsResult["manualRestore"]>(
+    async (poolId, keyword) => {
+      const targetPool = pools.find((p) => p.id === poolId);
+      if (!targetPool) return null;
+      const removedList = targetPool.removedKeywords ?? [];
+      const remainingRemoved = removedList.filter(
+        (entry) => entry.term.toLowerCase() !== keyword.toLowerCase(),
+      );
+      const cleaned = [...(targetPool.cleanedKeywords ?? []), keyword];
+      setPools((prev) =>
+        prev.map((p) =>
+          p.id === poolId ? { ...p, cleanedKeywords: cleaned, removedKeywords: remainingRemoved } : p,
+        ),
+      );
+      setError(null);
+      try {
+        const response = await fetch(`/api/composer/keyword-pools/${poolId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            cleanedKeywords: cleaned,
+            removedKeywords: remainingRemoved,
+          }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(data.error || "Unable to restore keyword");
+        }
+        const updatedPool = data.pool as ComposerKeywordPool;
+        setPools((prev) => prev.map((p) => (p.id === poolId ? updatedPool : p)));
+        return updatedPool;
+      } catch (restoreError) {
+        setError(restoreError instanceof Error ? restoreError.message : "Unable to restore keyword");
+        setPools((prev) => prev.map((p) => (p.id === poolId ? targetPool : p)));
+        return null;
+      }
+    },
+    [pools],
+  );
+
   // Derived helpers for panels (optional)
   useMemo(() => pools.filter(byPoolType("body")), [pools]);
 
@@ -180,6 +267,8 @@ export const useKeywordPools = (
     refresh,
     uploadKeywords,
     cleanPool,
+    manualRemove,
+    manualRestore,
     approveClean,
   };
 };

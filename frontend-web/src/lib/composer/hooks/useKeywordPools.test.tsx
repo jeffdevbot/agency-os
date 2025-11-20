@@ -196,4 +196,35 @@ describe("useKeywordPools", () => {
     expect(hook.result.pools[0].rawKeywords).toEqual(["blue", "red"]);
     await hook.unmount();
   });
+
+  it("supports manual remove and restore", async () => {
+    getFetchMock().mockResolvedValueOnce(mockFetchResponse({ pools: [basePool] }));
+    const hook = await renderHook("proj-1");
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    getFetchMock().mockResolvedValueOnce(
+      mockFetchResponse({
+        pool: { ...basePool, cleanedKeywords: ["blue"], removedKeywords: [{ term: "red", reason: "manual" }] },
+      }),
+    );
+    await act(async () => {
+      await hook.result.manualRemove("pool-1", "red");
+      await flushMicrotasks();
+    });
+    expect(hook.result.pools[0].removedKeywords).toHaveLength(1);
+
+    getFetchMock().mockResolvedValueOnce(
+      mockFetchResponse({
+        pool: { ...basePool, cleanedKeywords: ["blue", "red"], removedKeywords: [] },
+      }),
+    );
+    await act(async () => {
+      await hook.result.manualRestore("pool-1", "red");
+      await flushMicrotasks();
+    });
+    expect(hook.result.pools[0].cleanedKeywords).toContain("red");
+    await hook.unmount();
+  });
 });
