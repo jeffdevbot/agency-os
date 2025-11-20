@@ -29,6 +29,7 @@ export const KeywordPoolPanel = ({
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
 
   const rawKeywords = pool?.rawKeywords ?? [];
 
@@ -119,9 +120,40 @@ export const KeywordPoolPanel = ({
       </dl>
 
       <div className="mt-4 grid gap-4 md:grid-cols-3">
-        <div className="rounded-xl border border-dashed border-[#cbd5f5] bg-white p-4">
-          <p className="text-sm font-semibold text-[#0f172a]">Upload CSV</p>
-          <p className="text-xs text-[#64748b]">{acceptText} (max 5MB)</p>
+        <div
+          className={`rounded-xl border border-dashed bg-white p-4 transition ${
+            isDragging ? "border-[#0a6fd6] bg-[#eef2ff]" : "border-[#cbd5f5]"
+          }`}
+          onDragOver={(event) => {
+            event.preventDefault();
+            setIsDragging(true);
+          }}
+          onDragLeave={(event) => {
+            event.preventDefault();
+            setIsDragging(false);
+          }}
+          onDrop={async (event) => {
+            event.preventDefault();
+            setIsDragging(false);
+            const file = event.dataTransfer.files?.[0];
+            if (file) {
+              await handleFileUpload(file);
+            }
+          }}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <p className="text-sm font-semibold text-[#0f172a]">Upload CSV</p>
+              <p className="text-xs text-[#64748b]">{acceptText} (max 5MB)</p>
+            </div>
+            <a
+              href="/composer/keyword_template.csv"
+              download
+              className="text-xs font-semibold text-[#0a6fd6] hover:underline"
+            >
+              Download Template
+            </a>
+          </div>
           <input
             type="file"
             accept=".csv,text/csv,text/plain"
