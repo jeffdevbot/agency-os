@@ -14,6 +14,7 @@ const createQueryBuilder = () => {
   const builder: Record<string, any> = {
     select: vi.fn().mockReturnThis(),
     eq: vi.fn().mockReturnThis(),
+    is: vi.fn().mockReturnThis(),
     order: vi.fn().mockReturnThis(),
     limit: vi.fn().mockReturnThis(),
     insert: vi.fn().mockReturnThis(),

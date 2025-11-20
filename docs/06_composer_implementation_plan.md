@@ -1,7 +1,7 @@
 # Composer Implementation Plan
 
 _Source PRD: `docs/04_amazon_composer_prd.md` (v1.6)_
-_Last updated: 2025-11-19_
+_Last updated: 2025-11-20_
 
 ## Pillars
 
@@ -77,6 +77,7 @@ _Per-pool inputs, group tabs, raw preview._
 - **Layout:** Scope selector (distinct mode) to switch groups. For each pool (Description/Bullets, Titles): CSV upload (template link), paste textarea, manual add input, raw preview list (dedupe preview). Info banner that cleaning happens next.
 - **Actions:** Upload/paste/add keywords, continue to Cleanup.
 - **APIs:** `POST /composer/projects/:id/keyword-pools`, `PATCH /composer/keyword-pools/:id`.
+- **Status:** Backend pool CRUD/upload APIs delivered (Nov 20, 2025) with case-insensitive merge/dedupe, CSV parsing, state reset on upload, and validation (min 5, max 5000). Frontend upload UI still pending.
 
 ### 6. Keyword Cleanup
 _Removal diff, restore controls, approval button._

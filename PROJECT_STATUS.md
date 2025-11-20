@@ -21,6 +21,7 @@ _Last updated: 2025-11-20_
 Agency OS consolidates internal tools (Ngram, The Operator, Amazon Composer, Creative Brief) behind a shared Next.js frontend, FastAPI backend, and Supabase auth stack deployed on Render. Supabase handles SSO (Google) plus the shared database, while the worker service manages nightly syncs and other heavy jobs.
 
 ## Recent Accomplishments
+- **2025-11-20** – Completed Composer Slice 2 Stage 2 (Keyword Pool APIs): shipped keyword upload/merge endpoints for projects and groups (GET/POST list, GET/PATCH single), added CSV parsing + dedupe helpers, enforced state-reset rules on uploads, and expanded org-scoped tests. Utility + route coverage brought the suite to 148 passing tests (up from 82).
 - **2025-11-20** – Completed Composer Slice 2 Stage 1 (Schema & Backend Foundation): created 3 keyword pipeline tables (`composer_keyword_pools`, `composer_keyword_groups`, `composer_keyword_group_overrides`) with full RLS policies, CASCADE foreign keys, and indexes. All TypeScript types already up-to-date in `/lib/composer/types.ts`. Ready for Stage 2 API implementation.
 - **2025-11-19** – Drafted and documented Composer Slice 2 (Keyword Pipeline) implementation plan: aligned schema/types with keyword pool state machine, manual overrides, and new API surface so we can begin Slice 2 build-out. Included explicit keyword upload validation (minimum 5 terms, recommended 50+) in both PRD and implementation plan so UX clarifies expectations.
 - **2025-11-19** – Wrapped Composer Slice 1 polish: added key-attribute highlight grid, persisted `highlight_attributes` JSON (schema + types), introduced keyword grouping override spec, and documented/testing updates (82 passing Vitest suites). Ready to start Slice 2 planning.
@@ -35,7 +36,7 @@ Agency OS consolidates internal tools (Ngram, The Operator, Amazon Composer, Cre
 - **2025-11-13** – Added Supabase-aware Next.js middleware to guard `/ngram`, ensuring logged-out users are redirected to the login screen before hitting protected pages.
 
 ## Next Priorities
-- Continue Composer Slice 2 Stage 2 (Keyword Pool APIs): implement API routes for keyword pool CRUD, upload/merge logic, CSV parsing utilities, and validation. Target 4 routes + helper functions + tests.
+- Kick off Composer Slice 2 Stage 3 (Keyword Cleanup APIs & Logic): add cleaning service + blacklists, manual restore/remove handling, approval workflow, and deterministic test coverage.
 - Deploy backend-core + refreshed frontend to Render, validate env vars (usage logging, Supabase secrets) and ensure `/ngram` works end-to-end in production.
 - Scope the Operator Milestone 1 UI shell so it can host the chat + context panes described in `docs/02_the_operator_prd.md`, even if data is mocked at first.
 

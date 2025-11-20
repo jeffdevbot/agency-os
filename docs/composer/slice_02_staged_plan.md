@@ -57,7 +57,10 @@ This document breaks Slice 2 (Keyword Pipeline) into 8 manageable stages to avoi
 
 ---
 
-## Stage 2: Keyword Pool APIs (Upload & Basic CRUD)
+## Stage 2: Keyword Pool APIs (Upload & Basic CRUD) ✅ COMPLETED
+
+**Status:** Completed 2025-11-20
+**Notes:** Implemented keyword pool list/create routes (project + group scopes), single pool fetch/update routes, CSV parsing/merge/dedupe utilities, and state-reset logic on uploads. Added RLS-aware Supabase client mock enhancements and expanded coverage (+66 tests; suite now 148 passing).
 
 **Goal:** Implement API routes for keyword pool management. Focus on upload/ingest flow (Surface 5) without cleaning logic.
 
@@ -67,37 +70,35 @@ This document breaks Slice 2 (Keyword Pipeline) into 8 manageable stages to avoi
 - `qa` — API testing
 
 **Deliverables:**
-- [ ] `GET /api/composer/projects/:id/keyword-pools` route
+- [x] `GET /api/composer/projects/:id/keyword-pools` route
   - Returns all pools for a project (body + titles, scoped by group_id if distinct mode)
   - Map DB rows to `ComposerKeywordPool` type
   - Include org verification + RLS
-- [ ] `POST /api/composer/projects/:id/keyword-pools` route
+- [x] `POST /api/composer/projects/:id/keyword-pools` route
   - Body: `{ poolType, groupId?, keywords: string[] }`
   - Logic: merge with existing `raw_keywords`, dedupe case-insensitive, trim whitespace
   - Reset `status='uploaded'`, clear `cleaned_at`, `grouped_at`, `approved_at`
   - Enforce min 5 keywords, max 5000 keywords validation
-- [ ] `GET /api/composer/keyword-pools/:id` route
+- [x] `GET /api/composer/keyword-pools/:id` route
   - Return single pool by ID with org verification
-- [ ] `PATCH /api/composer/keyword-pools/:id` route
+- [x] `PATCH /api/composer/keyword-pools/:id` route
   - Support updating `raw_keywords`, `status`, approval flags
   - Implement state transition logic (uploading resets approvals)
-- [ ] Create helper utilities in `/lib/composer/keywords/utils.ts`:
+- [x] Create helper utilities in `/lib/composer/keywords/utils.ts`:
   - `dedupeKeywords(keywords: string[]): string[]`
   - `mergeKeywords(existing: string[], incoming: string[]): string[]`
   - `parseKeywordsCsv(csv: string): string[]`
   - `validateKeywordCount(keywords: string[]): { valid: boolean; error?: string }`
-- [ ] Vitest unit tests for utilities
-- [ ] Vitest integration tests for all API routes
+- [x] Vitest unit tests for utilities
+- [x] Vitest integration tests for all API routes
 
 **Dependencies:** Stage 1 complete
 
 **Testing/Verification:**
-- All route tests pass
-- Can create pools for both pool types
-- Can append keywords without duplicating
-- Validation errors work for min/max
-- State transitions work (uploading resets approvals)
-- Test both variation mode (project-level) and distinct mode (group-level pools)
+- All route + utility tests passing (66 new tests; total suite 148)
+- Verified project-level and group-level pools
+- Append/merge deduped case-insensitive; validation enforced for min 5 / max 5000 with warnings under 20
+- State transitions confirmed (upload resets cleaned/grouped/approved flags)
 
 ---
 
