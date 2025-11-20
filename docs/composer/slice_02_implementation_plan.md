@@ -46,6 +46,7 @@ The pipeline enforces a strict approval flow to prevent "garbage in, garbage out
 *   **Inputs:** CSV Upload (Drag & Drop), Paste Textarea, Manual Add Input.
 *   **Preview:** Read-only list of "Raw Keywords" (deduped on ingest).
 *   **CSV Contract:** Single column (`keyword`) header required; max 5k terms per upload; UTF-8; reject files >5 MB with friendly error.
+*   **Validation:** Each pool must contain **at least 5 keywords** before enabling the Cleanup step. Banner copy recommends **50–100+ keywords** for best grouping/theme results and warns when counts fall below 20.
 
 ### Data Model
 *   `composer_keyword_pools`

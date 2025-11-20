@@ -182,6 +182,7 @@ After SKUs are processed, user MUST choose:
   - Manually add terms
   - Preview raw merged list.
 - If in Distinct Product Mode, keyword upload appears per SKU group.
+- Validation: each pool must have **≥5 keywords** before proceeding; UI recommends **50–100+** for best grouping and flags low counts.
 
 ### 🟦 5.6 KEYWORD CLEANING (APPROVAL)
 **System removes:**
