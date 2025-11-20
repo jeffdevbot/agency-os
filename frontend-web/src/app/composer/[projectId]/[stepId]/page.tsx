@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { ProductInfoStep } from "../components/product-info/ProductInfoStep";
 import { ContentStrategyStep } from "../components/content-strategy/ContentStrategyStep";
+import { KeywordUploadStep } from "../components/keyword-upload/KeywordUploadStep";
 import { useComposerProject } from "@/lib/composer/hooks/useComposerProject";
 import { useProjectAutosave } from "@/lib/composer/hooks/useProjectAutosave";
 import { useSkuVariants } from "@/lib/composer/hooks/useSkuVariants";
@@ -54,6 +55,7 @@ export default function ComposerWizardStepPage() {
     : params.projectId ?? undefined;
   const requestedStep = Array.isArray(params.stepId) ? params.stepId[0] : params.stepId;
   const { project, setProject, isLoading, isError, errorMessage } = useComposerProject(projectId);
+  const [keywordUploadReady, setKeywordUploadReady] = useState(false);
   const {
     variants,
     setVariants,
@@ -123,8 +125,17 @@ export default function ComposerWizardStepPage() {
     if (validStep === "content_strategy" && !contentStrategyValidation.isValid) {
       return true;
     }
+    if (validStep === "keyword_upload" && !keywordUploadReady) {
+      return true;
+    }
     return false;
-  }, [nextStepId, validStep, productInfoValidation.isValid, contentStrategyValidation.isValid]);
+  }, [
+    nextStepId,
+    validStep,
+    productInfoValidation.isValid,
+    contentStrategyValidation.isValid,
+    keywordUploadReady,
+  ]);
 
   const statusLabel = project?.status ?? "Draft";
   const marketplaces = project?.marketplaces ?? [];
@@ -164,6 +175,13 @@ export default function ComposerWizardStepPage() {
               setProject({ ...project, highlightAttributes: attributes });
               savePartial({ highlightAttributes: attributes });
             }}
+          />
+        );
+      case "keyword_upload":
+        return (
+          <KeywordUploadStep
+            project={project}
+            onValidityChange={(ready) => setKeywordUploadReady(ready)}
           />
         );
       default:

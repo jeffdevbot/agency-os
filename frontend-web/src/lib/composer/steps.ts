@@ -1,6 +1,7 @@
 export const COMPOSER_STEPS = [
   { id: "product_info", label: "Product Info" },
   { id: "content_strategy", label: "Content Strategy" },
+  { id: "keyword_upload", label: "Keyword Upload" },
 ] as const;
 
 export type ComposerStepId = (typeof COMPOSER_STEPS)[number]["id"];
