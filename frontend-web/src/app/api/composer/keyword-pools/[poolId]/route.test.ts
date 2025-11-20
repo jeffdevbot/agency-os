@@ -338,26 +338,27 @@ describe("keyword-pools API - single pool routes", () => {
       expect(json.pool.approvedAt).toBeNull();
     });
 
-    it("updates status", async () => {
+    it("approves cleaning when cleaned keywords exist", async () => {
       const session = buildSession();
       supabaseMock.supabase.auth.getSession.mockResolvedValue({
         data: { session },
       });
 
-      const fetchBuilder = supabaseMock.getBuilder("composer_keyword_pools");
-      fetchBuilder.single.mockResolvedValue({
+      const poolBuilder = supabaseMock.getBuilder("composer_keyword_pools");
+      poolBuilder.__pushResponse({
         data: {
           ...mockPool,
           status: "uploaded",
+          cleaned_keywords: ["blue shirt", "red shoes"],
         },
         error: null,
       });
-
-      const updateBuilder = supabaseMock.getBuilder("composer_keyword_pools");
-      updateBuilder.single.mockResolvedValue({
+      poolBuilder.__pushResponse({
         data: {
           ...mockPool,
           status: "cleaned",
+          cleaned_keywords: ["blue shirt", "red shoes"],
+          cleaned_at: "2025-11-20T12:00:00Z",
         },
         error: null,
       });
@@ -373,6 +374,7 @@ describe("keyword-pools API - single pool routes", () => {
 
       expect(response.status).toBe(200);
       expect(json.pool.status).toBe("cleaned");
+      expect(json.pool.cleanedKeywords).toEqual(["blue shirt", "red shoes"]);
     });
 
     it("updates timestamps", async () => {
@@ -462,7 +464,7 @@ describe("keyword-pools API - single pool routes", () => {
       expect(json.error).toBe("invalid_pool_id");
     });
 
-    it("handles multiple field updates in one request", async () => {
+    it("rejects approval when cleaned keywords are missing", async () => {
       const session = buildSession();
       supabaseMock.supabase.auth.getSession.mockResolvedValue({
         data: { session },
@@ -470,12 +472,66 @@ describe("keyword-pools API - single pool routes", () => {
 
       const fetchBuilder = supabaseMock.getBuilder("composer_keyword_pools");
       fetchBuilder.single.mockResolvedValue({
-        data: mockPool,
+        data: {
+          ...mockPool,
+          status: "uploaded",
+          cleaned_keywords: [],
+        },
         error: null,
       });
 
-      const updateBuilder = supabaseMock.getBuilder("composer_keyword_pools");
-      updateBuilder.single.mockResolvedValue({
+      const response = await PATCH(
+        mockRequest({
+          status: "cleaned",
+        }),
+        mockParams({ poolId: "223e4567-e89b-12d3-a456-426614174000" }),
+      );
+
+      expect(response.status).toBe(400);
+      const json = await response.json();
+      expect(json.error).toBe("cannot_approve_without_cleaned_keywords");
+    });
+
+    it("rejects approval when pool is not in uploaded state", async () => {
+      const session = buildSession();
+      supabaseMock.supabase.auth.getSession.mockResolvedValue({
+        data: { session },
+      });
+
+      const fetchBuilder = supabaseMock.getBuilder("composer_keyword_pools");
+      fetchBuilder.single.mockResolvedValue({
+        data: {
+          ...mockPool,
+          status: "cleaned",
+          cleaned_keywords: ["blue shirt"],
+        },
+        error: null,
+      });
+
+      const response = await PATCH(
+        mockRequest({
+          status: "cleaned",
+        }),
+        mockParams({ poolId: "223e4567-e89b-12d3-a456-426614174000" }),
+      );
+
+      expect(response.status).toBe(400);
+      const json = await response.json();
+      expect(json.error).toBe("approval_not_allowed_from_state");
+    });
+
+    it("handles multiple field updates in one request", async () => {
+      const session = buildSession();
+      supabaseMock.supabase.auth.getSession.mockResolvedValue({
+        data: { session },
+      });
+
+      const poolBuilder = supabaseMock.getBuilder("composer_keyword_pools");
+      poolBuilder.__pushResponse({
+        data: mockPool,
+        error: null,
+      });
+      poolBuilder.__pushResponse({
         data: {
           ...mockPool,
           cleaned_keywords: ["blue shirt"],

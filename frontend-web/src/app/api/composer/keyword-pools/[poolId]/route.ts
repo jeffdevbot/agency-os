@@ -3,7 +3,7 @@ import type { ComposerKeywordPool } from "@agency/lib/composer/types";
 import { createSupabaseRouteClient } from "@/lib/supabase/serverClient";
 import { isUuid, resolveComposerOrgIdFromSession } from "@/lib/composer/serverUtils";
 
-interface KeywordPoolRow {
+export interface KeywordPoolRow {
   id: string;
   organization_id: string;
   project_id: string;
@@ -32,7 +32,7 @@ interface KeywordPoolRow {
   created_at: string;
 }
 
-const mapRowToPool = (row: KeywordPoolRow): ComposerKeywordPool => ({
+export const mapRowToPool = (row: KeywordPoolRow): ComposerKeywordPool => ({
   id: row.id,
   organizationId: row.organization_id,
   projectId: row.project_id,
@@ -122,6 +122,7 @@ interface UpdateKeywordPoolPayload {
   cleanedAt?: string | null;
   groupedAt?: string | null;
   approvedAt?: string | null;
+  approved?: boolean;
 }
 
 /**
@@ -214,9 +215,7 @@ export async function PATCH(
   }
 
   // Handle status transitions
-  if (payload.status !== undefined) {
-    updates.status = payload.status;
-  }
+  const targetStatus = payload.status;
 
   // Handle timestamp updates
   if (payload.cleanedAt !== undefined) {
@@ -229,6 +228,37 @@ export async function PATCH(
 
   if (payload.approvedAt !== undefined) {
     updates.approved_at = payload.approvedAt;
+  }
+
+  // Approval gating: require cleaned keywords and correct state
+  const wantsApproval =
+    payload.approved === true || targetStatus === "cleaned";
+  if (wantsApproval) {
+    const effectiveCleaned =
+      updates.cleaned_keywords ??
+      (existingPool.cleaned_keywords as string[] | null) ??
+      [];
+
+    if (!effectiveCleaned || effectiveCleaned.length === 0) {
+      return NextResponse.json(
+        { error: "cannot_approve_without_cleaned_keywords" },
+        { status: 400 },
+      );
+    }
+
+    if (existingPool.status !== "uploaded") {
+      return NextResponse.json(
+        { error: "approval_not_allowed_from_state", status: existingPool.status },
+        { status: 400 },
+      );
+    }
+
+    updates.status = "cleaned";
+    if (updates.cleaned_at === undefined || updates.cleaned_at === null) {
+      updates.cleaned_at = new Date().toISOString();
+    }
+  } else if (targetStatus !== undefined) {
+    updates.status = targetStatus;
   }
 
   // Perform the update
