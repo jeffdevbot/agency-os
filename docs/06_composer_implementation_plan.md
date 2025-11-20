@@ -83,10 +83,12 @@ _Per-pool inputs, group tabs, raw preview._
 _Removal diff, restore controls, approval button._
 
 - **Purpose:** Run dedupe/ban filters, surface diffs, and require approval for each keyword pool.
-- **State:** per pool: `rawKeywords[]`, `cleanedKeywords[]`, `removedKeywords[]` w/ reason, `whatNotToSay[]`, approval flag, cleaning options (remove colors/sizes).
+- **State:** per pool: `rawKeywords[]`, `cleanedKeywords[]`, `removedKeywords[]` w/ reason, `whatNotToSay[]` (includes competitor names), approval flag, cleaning options (remove colors/sizes).
 - **Layout:** Two panels (Description/Bullets + Titles). Each shows stats (raw vs cleaned counts, removal breakdown), cleaned list with inline remove/edit, removable keywords drawer (with reasons + restore). Config toggles to include/exclude color/size terms; re-run cleaning when toggled. Approval checkbox + “Approve & Continue.”
 - **Actions:** Review cleaned keywords, restore/remove entries, approve pool(s).
-- **APIs:** `POST /composer/keyword-pools/:id/clean`, `PATCH /composer/keyword-pools/:id` (cleaned/removed), `PATCH /composer/projects/:id` (mark keyword_cleaned milestone).
+- **APIs:** `POST /composer/keyword-pools/:id/clean` (synchronous: returns `{cleaned, removed, config}`), `PATCH /composer/keyword-pools/:id` (cleaned/removed + approvals with 400 if approving without cleaned results), `PATCH /composer/projects/:id` (mark keyword_cleaned milestone).
+- **Filtering rules:** duplicates (case-insensitive), brand/competitor removal from `client_name` + `what_not_to_say`, small built-in junk list (e.g., "n/a", "tbd"), optional color/size removal sourced from SKU attributes with lexicon/regex fallback.
+- **Approval guards:** Uploading new raw keywords resets approval; approval requires non-empty `cleanedKeywords` and the pool in `uploaded` state.
 
 ### 7. Grouping Plan / Preview
 _Suggested grouping view, overrides, approval._

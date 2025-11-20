@@ -121,21 +121,19 @@ This document breaks Slice 2 (Keyword Pipeline) into 8 manageable stages to avoi
   - `CleaningResult`: `{ cleaned: string[], removed: RemovedKeywordEntry[] }`
   - Filter logic:
     - Duplicates (case-insensitive, keep first, reason: "duplicate")
-    - Banned terms (global blacklist, reason: "banned")
-    - Brand/competitor (project `client_name` + `what_not_to_say`, reason: "brand"/"competitor")
-    - Stop words (e.g., "n/a", "tbd", reason: "stopword")
-    - Colors (optional, reason: "color")
-    - Sizes (optional, reason: "size")
+    - Brand/competitor (project `client_name` + `what_not_to_say`, which includes competitor names, reason: "brand"/"competitor")
+    - Stop/junk terms (small built-in list: e.g., "n/a", "tbd", reason: "stopword")
+    - Colors (optional, data-driven from SKU attributes with lexicon fallback, reason: "color")
+    - Sizes (optional, data-driven from SKU attributes with regex fallback, reason: "size")
 - [ ] Create `/lib/composer/keywords/blacklists.ts`:
-  - `BANNED_TERMS: string[]`
-  - `STOP_WORDS: string[]`
-  - `COLOR_LEXICON: string[]`
-  - `SIZE_PATTERNS: RegExp[]`
+  - `STOP_WORDS: string[]` (small junk list only)
+  - `COLOR_LEXICON: string[]` (fallback for attribute-derived colors)
+  - `SIZE_PATTERNS: RegExp[]` (fallback for attribute-derived sizes/dimensions)
 - [ ] `PATCH /api/composer/keyword-pools/:id` enhancements:
   - Accept `{ cleanedKeywords?, removedKeywords?, approved: boolean }`
   - Handle manual moves (restore from removed, remove from cleaned)
   - When `approved=true`, set `status='cleaned'` and `cleaned_at`
-  - Validate can't approve without cleaning
+  - Validate can't approve without cleaning results (400 if `cleaned_keywords` missing/empty; also reject if status not `uploaded`)
 - [ ] Vitest unit tests for cleaning logic
 - [ ] Vitest integration tests for clean API
 
@@ -145,8 +143,9 @@ This document breaks Slice 2 (Keyword Pipeline) into 8 manageable stages to avoi
 - Cleaning determinism: same input + config = same output
 - All removal reasons accurately tracked
 - Manual restore/remove operations work
-- Approval workflow enforces cleaning prerequisite
+- Approval workflow enforces cleaning prerequisite (400 when approving without cleaned results)
 - State machine: `uploaded` → `cleaned`
+- Clean endpoint is synchronous (no queue/stream); last write wins, returns persisted `{cleaned, removed, config}`
 
 ---
 

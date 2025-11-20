@@ -75,9 +75,9 @@ The pipeline enforces a strict approval flow to prevent "garbage in, garbage out
     *   *Action:* "Remove" (moves to Removed with reason "manual").
     *   *Action:* Inline Edit (fix typos).
 *   **Filters (Toggles):**
-    *   "Remove Competitors" (uses global blacklist).
-    *   "Remove Brand Name" (uses project client name).
-    *   "Remove Colors/Sizes" (optional, uses attribute detection).
+    *   "Remove Competitors" (uses project `what_not_to_say` list, which carries competitor names).
+    *   "Remove Brand Name" (uses project `client_name`).
+    *   "Remove Colors/Sizes" (optional, uses SKU attribute-derived values with heuristics fallback).
 *   **Primary Action:** "Approve Cleaning" (locks state).
 
 ### Data Model & Rules
@@ -87,17 +87,17 @@ The pipeline enforces a strict approval flow to prevent "garbage in, garbage out
     *   `cleaned_at` timestamp and `status='cleaned'` when approved.
 *   Cleaning logic (deterministic):
     *   **Duplicates:** case-insensitive exact match after trimming; keep first occurrence.
-    *   **Banned/Brand/Competitor:** compare against global lists + project `client_name`/`what_not_to_say`.
-    *   **Stop/junk terms:** maintain curated blacklist (e.g., “n/a”, “tbd”).
-    *   **Color/Size filters:** optional toggles using attribute detection heuristics (color lexicon, size regex).
+    *   **Brand/Competitor:** compare against project `client_name` and `what_not_to_say` (competitor names live there).
+    *   **Stop/junk terms:** small built-in list (e.g., “n/a”, “tbd”).
+    *   **Color/Size filters:** optional toggles that use SKU attribute-derived values first (color/size/dimensions/pack_size), with lexicon/regex fallback.
 
 ### API Endpoints
 *   `POST /api/composer/keyword-pools/:id/clean`
     *   Body: `{ config: CleaningConfig }`.
-    *   Logic: Runs deterministic filters. Updates `cleaned_keywords` / `removed_keywords`.
+    *   Logic: Runs deterministic filters synchronously and returns `{ cleaned, removed, config }` (no queue/stream). Updates `cleaned_keywords` / `removed_keywords`.
 *   `PATCH /api/composer/keyword-pools/:id`
     *   Body: `{ cleanedKeywords?, removedKeywords?, approved: boolean }`.
-    *   Logic: Handles manual moves/edits and final approval.
+    *   Logic: Handles manual moves/edits and final approval; 400 when approving without cleaned results or when status is not `uploaded`.
 
 ---
 
