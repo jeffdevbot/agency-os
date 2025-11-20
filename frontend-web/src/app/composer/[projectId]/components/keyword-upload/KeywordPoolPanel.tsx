@@ -72,21 +72,46 @@ export const KeywordPoolPanel = ({
 
   const decodeFileText = async (file: File): Promise<string> => {
     const buffer = await file.arrayBuffer();
-    // Try UTF-8 first
-    const utf8Decoder = new TextDecoder("utf-8", { fatal: false });
-    let text = utf8Decoder.decode(buffer);
-    const replacementCount = (text.match(/\uFFFD/g) ?? []).length;
+    const view = new Uint8Array(buffer);
 
-    // If we see replacement chars, try latin1 as a fallback (common for legacy CSVs)
-    if (replacementCount > 0) {
-      const latin1Decoder = new TextDecoder("latin1");
-      const latinText = latin1Decoder.decode(buffer);
-      const latinReplacement = (latinText.match(/\uFFFD/g) ?? []).length;
-      if (latinReplacement < replacementCount) {
-        text = latinText;
-      }
+    // Detect BOM for UTF-16/UTF-8
+    const hasUtf8Bom = view[0] === 0xef && view[1] === 0xbb && view[2] === 0xbf;
+    const hasUtf16LeBom = view[0] === 0xff && view[1] === 0xfe;
+    const hasUtf16BeBom = view[0] === 0xfe && view[1] === 0xff;
+
+    if (hasUtf16LeBom) {
+      return new TextDecoder("utf-16le").decode(buffer);
     }
-    return text;
+    if (hasUtf16BeBom) {
+      return new TextDecoder("utf-16be").decode(buffer);
+    }
+    if (hasUtf8Bom) {
+      return new TextDecoder("utf-8").decode(buffer);
+    }
+
+    const candidates: Array<{ encoding: string; text: string; replacements: number; nulls: number }> =
+      [];
+    for (const encoding of ["utf-8", "windows-1252", "latin1"]) {
+      const decoder = new TextDecoder(encoding as BufferEncoding, { fatal: false });
+      const text = decoder.decode(buffer);
+      const replacements = (text.match(/\uFFFD/g) ?? []).length;
+      const nulls = (text.match(/\u0000/g) ?? []).length;
+      candidates.push({ encoding, text, replacements, nulls });
+    }
+
+    candidates.sort((a, b) => {
+      if (a.replacements !== b.replacements) return a.replacements - b.replacements;
+      if (a.nulls !== b.nulls) return a.nulls - b.nulls;
+      // Prefer utf-8 if tied
+      if (a.encoding === "utf-8") return -1;
+      if (b.encoding === "utf-8") return 1;
+      if (a.encoding === "windows-1252") return -1;
+      if (b.encoding === "windows-1252") return 1;
+      return 0;
+    });
+
+    const best = candidates[0];
+    return best.text.replace(/\u0000/g, "");
   };
 
   const handleFileUpload = async (file: File) => {
