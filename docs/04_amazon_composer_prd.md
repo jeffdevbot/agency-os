@@ -218,6 +218,7 @@ If in Distinct Product Mode → treat each group independently.
 - Custom # of groups
 
 - Preview grouping count + labels.
+- Optional manual overrides: drag keywords between groups, add/delete groups, or remove phrases entirely. Overrides are logged (with before/after) and can be reset to the AI suggestion.
 - Approval required.
 - For Distinct Product Mode, each group has its own grouping plan.
 

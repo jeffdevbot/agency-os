@@ -104,15 +104,20 @@ This micro-spec defines the **database layer** for Composer:
 
 **`composer_keyword_pools`**
 
-- Raw + cleaned keyword pools per scope.
-- Scope: project or (project + group).
+- Raw → cleaned → grouped pipeline per scope.
+- Scope: `project_id` or (`project_id` + `group_id`).
 - Fields:
-  - `pool_type` (`body` for description/bullets, `titles`)
-  - `raw_keywords[]`, `cleaned_keywords[]`
-  - `removed_keywords` (`[{ term, reason }]`)
-  - `clean_settings` (e.g. remove colors/sizes)
-  - `grouping_config` (basis, attribute_name, group_count, phrases_per_group)
-  - `approved_at`
+  - `pool_type` (`body` for description/bullets, `titles`).
+  - `status` (`empty` | `uploaded` | `cleaned` | `grouped`).
+  - `raw_keywords` (JSONB `text[]`) — deduped ingest snapshot.
+  - `raw_keywords_url` (optional S3 reference when uploads exceed inline limit).
+  - `cleaned_keywords` (JSONB `text[]`).
+  - `removed_keywords` (JSONB `[{ term, reason }]`).
+  - `clean_settings` JSON (removeColors/sizes/brand/competitor flags).
+  - `cleaned_at`, `grouped_at`.
+  - `grouping_config` JSON (basis, attributeName, groupCount, phrasesPerGroup).
+  - `approved_at` (grouping approval timestamp).
+  - `created_at`.
 
 **`composer_keyword_groups`**
 
@@ -122,6 +127,18 @@ This micro-spec defines the **database layer** for Composer:
   - `group_index`, `label`
   - `phrases[]`
   - `metadata` JSON
+- Manual overrides live in `composer_keyword_group_overrides` and are applied when querying final groups.
+
+**`composer_keyword_group_overrides`**
+
+- Captures user adjustments to keyword grouping.
+- Fields:
+  - `keyword_pool_id`
+  - `source_group_id` (AI group being modified) nullable if new group
+  - `phrase`
+  - `action` (`move`, `remove`, `add`)
+  - `target_group_label`, `target_group_index`
+  - `created_at`
 
 ---
 

@@ -95,6 +95,7 @@ _Suggested grouping view, overrides, approval._
 - **Layout:** Scope selector (if distinct). For Description/Bullets and Titles: dropdown to choose basis (single, per SKU, attribute-specific options, custom), group count input (when custom), phrases-per-group setting, helper copy showing resulting group count. Preview panel listing each group label + phrases. Buttons to re-run grouping when config changes and to approve.
 - **Actions:** Adjust grouping settings, run AI grouping, approve plan.
 - **APIs:** `POST /composer/keyword-pools/:id/grouping-plan`, `GET /composer/keyword-pools/:id/keyword-groups`, `PATCH /composer/projects/:id` (grouping approved flag).
+- **Manual Overrides:** After preview, users can drag phrases into different groups, remove them, or add custom groups. Overrides are saved via `POST /composer/keyword-pools/:id/group-overrides`, can be reset, and the preview reflects the merged AI + manual view before approval.
 
 ### 8. Themes Selector
 _AI suggestions, pick 5, per-group context._
@@ -204,7 +205,8 @@ Goal: Ingest, clean, group keywords per pool/scope.
 4.3 **Cleaning audit diff** — persist removed keywords + reason; `GET /composer/keyword-pools/:id` returns raw vs cleaned vs removed.
 4.4 **Grouping plan config** — `POST /composer/keyword-pools/:id/grouping-plan` to store basis/attribute/group_count/phrases_per_group in metadata.
 4.5 **Keyword grouping AI worker** — GPT-4.1-mini-high maps cleaned keywords to groups; saves into `keyword_groups` when triggered from 4.4.
-4.6 **Groups query endpoint** — `GET /composer/keyword-pools/:id/groups` for UI preview.
+4.6 **Manual overrides storage** — `composer_keyword_group_overrides` captures user adjustments (move/add/remove phrases, custom labels) so we can merge AI output + overrides.
+4.7 **Groups query endpoint** — `GET /composer/keyword-pools/:id/groups` returns base groups + overrides + diff metadata for the UI.
 Dependencies: Schema 1.x, SKU attributes 3.x, Project CRUD 2.x.
 
 ### 5. Theme / Sample / Bulk Generators

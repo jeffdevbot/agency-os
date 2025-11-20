@@ -269,6 +269,12 @@ export interface RemovedKeywordEntry {
 }
 ```
 
+### KeywordPoolStatus
+
+```ts
+export type KeywordPoolStatus = 'empty' | 'uploaded' | 'cleaned' | 'grouped';
+```
+
 ### KeywordCleanSettings
 
 ```ts
@@ -300,11 +306,15 @@ export interface ComposerKeywordPool {
   projectId: ProjectId;
   groupId: SkuGroupId | null;
   poolType: KeywordPoolType;
+  status: KeywordPoolStatus;
   rawKeywords: string[];
+  rawKeywordsUrl?: string | null;
   cleanedKeywords: string[];
   removedKeywords: RemovedKeywordEntry[];
   cleanSettings: KeywordCleanSettings;
   groupingConfig: GroupingConfig;
+  cleanedAt: ISODateString | null;
+  groupedAt: ISODateString | null;
   approvedAt: ISODateString | null;
   createdAt: ISODateString;
 }
@@ -321,6 +331,24 @@ export interface ComposerKeywordGroup {
   label: string | null;
   phrases: string[];
   metadata: Record<string, unknown>;
+  createdAt: ISODateString;
+}
+```
+
+### ComposerKeywordGroupOverride
+
+```ts
+export type KeywordGroupOverrideAction = 'move' | 'remove' | 'add';
+
+export interface ComposerKeywordGroupOverride {
+  id: string;
+  organizationId: OrganizationId;
+  keywordPoolId: KeywordPoolId;
+  sourceGroupId: KeywordGroupId | null;
+  phrase: string;
+  action: KeywordGroupOverrideAction;
+  targetGroupLabel: string | null;
+  targetGroupIndex: number | null;
   createdAt: ISODateString;
 }
 ```
