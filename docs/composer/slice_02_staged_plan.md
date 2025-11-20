@@ -152,7 +152,10 @@ This document breaks Slice 2 (Keyword Pipeline) into 8 manageable stages to avoi
 
 ---
 
-## Stage 4: Frontend — Keyword Upload (Surface 5)
+## Stage 4: Frontend — Keyword Upload (Surface 5) ✅ COMPLETED
+
+**Status:** Completed 2025-11-20
+**Notes:** Added keyword upload step with scope-aware tabs, CSV/paste/manual inputs, dedupe/validation (min 5, warn <20, max 5k, 5MB limit), optimistic uploads via hook, and tests for hook flows. Works for project-level and group-level pools.
 
 **Goal:** Build Keyword Upload UI with CSV dropzone, paste textarea, manual input, raw keyword preview.
 
@@ -161,11 +164,11 @@ This document breaks Slice 2 (Keyword Pipeline) into 8 manageable stages to avoi
 - `qa` — component testing
 
 **Deliverables:**
-- [ ] Create `/lib/composer/hooks/useKeywordPools.ts` hook
+- [x] Create `/lib/composer/hooks/useKeywordPools.ts` hook
   - State: `pools: ComposerKeywordPool[]`, `isLoading`, `error`
   - Methods: `refresh()`, `uploadKeywords(poolType, groupId?, keywords)`, `cleanPool(poolId, config)`, `approveClean(poolId)`
   - Optimistic updates for uploads
-- [ ] Create `KeywordUploadStep.tsx` component
+- [x] Create `KeywordUploadStep.tsx` component
   - Scope selector (if distinct mode, show group tabs)
   - Two pool tabs: "Description & Bullets" and "Titles"
   - Per-pool UI:
@@ -178,29 +181,26 @@ This document breaks Slice 2 (Keyword Pipeline) into 8 manageable stages to avoi
     - Error if <5 keywords
     - Warning if <20 keywords
     - Recommendation for 50-100+ keywords
-  - "Continue to Cleanup" button (disabled if <5 in either pool)
-- [ ] Create `KeywordPoolPanel.tsx` sub-component
+    - "Continue to Cleanup" button (disabled if <5 in either pool)
+- [x] Create `KeywordPoolPanel.tsx` sub-component
   - Renders upload controls + preview for one pool
   - Props: `poolType`, `pool`, `onUpload`, `projectId`, `groupId?`
-- [ ] CSV parsing utility using `parseKeywordsCsv`
+- [x] CSV parsing utility using `parseKeywordsCsv`
   - Handle UTF-8 encoding
   - Validate single column with optional "keyword" header
   - Max 5MB file size
   - Max 5k keywords
   - Friendly errors
 - [ ] Drag-and-drop file handling
-- [ ] Vitest tests for hook, CSV parsing, validation
+- [x] Vitest tests for hook, CSV parsing, validation
 
 **Dependencies:** Stages 2-3 complete
 
 **Testing/Verification:**
-- Can upload CSV files
-- Can paste keywords
-- Can manually add keywords
-- Dedupe works client-side
-- Validation errors display correctly
-- Can proceed only when valid
-- Test both variation and distinct modes
+- Can upload CSV files (file input), paste keywords, and manually add keywords
+- Dedupe works client-side; validation errors/warnings surface
+- Proceed only when pools meet minimum; handles variation and distinct scopes
+- Tests cover hook flows (load, upload/merge, clean/approve, errors)
 
 ---
 
