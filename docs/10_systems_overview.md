@@ -17,6 +17,22 @@ This document tracks every application, service, and long-running worker in Agen
 - **External APIs** — ClickUp, OpenAI (primary + fallback models), Google OAuth.
 - **Composer Org Fallback** — Composer’s RLS uses a single default org (`DEFAULT_COMPOSER_ORG_ID = e9368435-9a8b-4b52-b610-7b3531b30412`). Make sure Supabase user metadata (`org_id`) and any seed data stay aligned with this ID so dashboard queries surface the expected projects.
 
+### Environment Variables (Render Env Group + local mirrors)
+- `CLICKUP_API_TOKEN`
+- `GOOGLE_OAUTH_CLIENT_ID`
+- `GOOGLE_OAUTH_CLIENT_SECRET`
+- `MAX_UPLOAD_MB`
+- `NEXT_PUBLIC_BACKEND_URL`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `OPENAI_API_KEY`
+- `OPENAI_MODEL_PRIMARY`
+- `OPENAI_MODEL_FALLBACK`
+- `SUPABASE_ANON_KEY`
+- `SUPABASE_JWT_SECRET`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `SUPABASE_URL`
+
 ## Update Checklist
 
 When adding or modifying a service:

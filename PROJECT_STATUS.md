@@ -22,6 +22,7 @@ Agency OS consolidates internal tools (Ngram, The Operator, Amazon Composer, Cre
 
 ## Recent Accomplishments
 - **2025-11-20**
+  - Completed Composer Slice 2 Stage 5 (Keyword Cleanup UI): polished frontend with approval checkbox, enhanced stats breakdown, loading indicators, success/error messages, grouped removed keywords list with collapsible sections, and color-coded reason badges. All 165 tests passing. Stage 5 is production-ready.
   - Completed Composer Slice 2 Stage 4 (Keyword Upload UI): added keyword upload step with scope-aware tabs, CSV/paste/manual inputs, dedupe/validation (min 5, warn <20), and optimistic hooks/tests. Upload works for both pools and group scopes.
   - Completed Composer Slice 2 Stage 3 (Keyword Cleanup APIs & Logic): added deterministic cleaning service (brand/competitor from project data, attribute-driven color/size filters, stopword list), synchronous clean route with RLS checks, approval gating on PATCH, and full Vitest coverage for cleaning + routes. Render build fixed and passing.
   - Fixed Composer frontend Render build by enabling monorepo imports (`externalDir` + output tracing root) so shared `lib` modules bundle correctly with Turbopack.
@@ -40,7 +41,7 @@ Agency OS consolidates internal tools (Ngram, The Operator, Amazon Composer, Cre
 - **2025-11-13** – Added Supabase-aware Next.js middleware to guard `/ngram`, ensuring logged-out users are redirected to the login screen before hitting protected pages.
 
 ## Next Priorities
-- Start Composer Slice 2 Stage 5 (Frontend Keyword Cleanup UI): dual-pane cleaned/removed view with restore/remove, config toggles, approval flow, and hook extensions.
+- Start Composer Slice 2 Stage 6 (Keyword Grouping APIs & AI Integration): implement AI-powered keyword grouping backend with OpenAI integration, group storage, overrides, and merged view.
 - Deploy backend-core + refreshed frontend to Render, validate env vars (usage logging, Supabase secrets) and ensure `/ngram` works end-to-end in production.
 - Scope the Operator Milestone 1 UI shell so it can host the chat + context panes described in `docs/02_the_operator_prd.md`, even if data is mocked at first.
 
@@ -61,7 +62,7 @@ Agency OS consolidates internal tools (Ngram, The Operator, Amazon Composer, Cre
   - *Note:* Screenshot shows recent deploys failed; verify build logs before the next release so we catch configuration drift early.
 - **Env Group: `agency-os-env-var`**
   - Shared across the services above so every deployment receives consistent secrets.
-  - Contains: `CLICKUP_API_TOKEN`, Google OAuth client ID/secret, `MAX_UPLOAD_MB`, `NEXT_PUBLIC_BACKEND_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, OpenAI keys/model selectors, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, and `SUPABASE_JWT_SECRET`.
+  - Contains: `CLICKUP_API_TOKEN`, `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `MAX_UPLOAD_MB`, `NEXT_PUBLIC_BACKEND_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `OPENAI_API_KEY`, `OPENAI_MODEL_PRIMARY`, `OPENAI_MODEL_FALLBACK`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, and `SUPABASE_JWT_SECRET`.
   - Keep Render as the source of truth; mirror critical values into local `.env.local` files as needed for development.
 
 ---
