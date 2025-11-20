@@ -219,7 +219,7 @@ describe("functionUnderTest", () => {
 ### Composer-Specific Utilities
 
 - **Shared server helpers:** `frontend-web/src/lib/composer/serverUtils.ts` contains UUID/org-id logic. Keep its unit tests (`serverUtils.test.ts`) up to date so route tests can focus on request handling instead of revalidating these helpers.
-- **Supabase route mocks:** `frontend-web/src/lib/composer/testSupabaseClient.ts` exports `createSupabaseClientMock()`. Use it in API route tests (see the groups/assign/unassign suites) to stub `auth.getSession()` and chained `from().select().eq().single()` calls with predictable responses.
+- **Supabase route mocks:** `frontend-web/src/lib/composer/testSupabaseClient.ts` exports `createSupabaseClientMock()`. Use it in API route tests (see the groups/assign/unassign suites) to stub `auth.getSession()` and chained `from().select().eq().single()` calls with predictable responses. Push queued responses with `__pushResponse` when you need multiple sequential reads; `.is()` is available for SQL `IS NULL` checks.
 - **Hook harness:** `frontend-web/src/lib/composer/hooks/useSkuGroups.test.tsx` demonstrates jsdom-based hook testing. Include `/// <reference types="vitest/globals" />` if needed, add `@vitest-environment jsdom`, set `globalThis.IS_REACT_ACT_ENVIRONMENT = true` in `beforeAll`, and wrap asynchronous operations in `act()` to avoid warnings.
 - **API test locations:** Route tests live next to their handlers (e.g., `src/app/api/composer/projects/[projectId]/groups/route.test.ts`). Follow those patterns for new endpoints: check invalid IDs (400), missing session (401), missing org metadata (403), org-scoped project lookups (404), and Supabase error branches (500).
 
@@ -240,6 +240,11 @@ Tests can use the same path aliases as source code:
 - `serverUtils.test.ts` (UUID/org helpers)
 - Route suites under `src/app/api/composer/projects/[projectId]/groups/*` and `variants/unassign`
 - `useSkuGroups.test.tsx` (hook state + optimistic updates)
+
+**Composer Keyword Pipeline (Slice 2):**
+- Utilities: `src/lib/composer/keywords/utils.test.ts` (dedupe, merge, CSV parse, count validation).
+- Keyword pool routes: `src/app/api/composer/projects/[projectId]/keyword-pools/route.test.ts` (list/create/merge, validation, org RLS) and `src/app/api/composer/keyword-pools/[poolId]/route.test.ts` (single pool GET/PATCH with approval gating).
+- Cleaning service + route: `src/lib/composer/keywords/cleaning.test.ts` (deterministic filters, attribute-driven colors/sizes, brand/competitor removal) and `src/app/api/composer/keyword-pools/[poolId]/clean/route.test.ts` (synchronous clean, RLS checks, approval reset).
 
 ### Priority Testing Targets
 
