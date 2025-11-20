@@ -246,6 +246,8 @@ Tests can use the same path aliases as source code:
 - Keyword pool routes: `src/app/api/composer/projects/[projectId]/keyword-pools/route.test.ts` (list/create/merge, validation, org RLS) and `src/app/api/composer/keyword-pools/[poolId]/route.test.ts` (single pool GET/PATCH with approval gating).
 - Cleaning service + route: `src/lib/composer/keywords/cleaning.test.ts` (deterministic filters, attribute-driven colors/sizes, brand/competitor removal) and `src/app/api/composer/keyword-pools/[poolId]/clean/route.test.ts` (synchronous clean, RLS checks, approval reset).
 
+**Suite status (as of 2025-11-20):** `npm run test:run` passes 158 tests across 13 files (Product Info, groups/variants APIs, keyword pools/cleaning, utilities, server utils, hooks). Update this tally when suites are added.
+
 ### Priority Testing Targets
 
 When adding tests, prioritize:
