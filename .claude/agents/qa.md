@@ -245,8 +245,14 @@ Tests can use the same path aliases as source code:
 - Utilities: `src/lib/composer/keywords/utils.test.ts` (dedupe, merge, CSV parse, count validation).
 - Keyword pool routes: `src/app/api/composer/projects/[projectId]/keyword-pools/route.test.ts` (list/create/merge, validation, org RLS) and `src/app/api/composer/keyword-pools/[poolId]/route.test.ts` (single pool GET/PATCH with approval gating).
 - Cleaning service + route: `src/lib/composer/keywords/cleaning.test.ts` (deterministic filters, attribute-driven colors/sizes, brand/competitor removal) and `src/app/api/composer/keyword-pools/[poolId]/clean/route.test.ts` (synchronous clean, RLS checks, approval reset).
+- Hook tests: `src/lib/composer/hooks/useKeywordPools.test.tsx` (upload, clean, manual operations, approval flow).
 
-**Suite status (as of 2025-11-20):** `npm run test:run` passes 163 tests across 14 files (Product Info, groups/variants APIs, keyword pools/cleaning, utilities, server utils, hooks).
+**Stage 5 UI Components (Keyword Cleanup):**
+- **Missing dedicated tests** for KeywordCleanupStep, CleanedKeywordsList, RemovedKeywordsList components (tab navigation, progress indicator, collapsible lists, approval toggle).
+- **Missing test** for `unapproveClean()` function in useKeywordPools hook.
+- Functionality verified manually; recommend adding component tests for: approval toggle behavior, tab switching, collapsible list interactions, and unapprove flow.
+
+**Suite status (as of 2025-11-20):** `npm run test:run` passes 165 tests across 14 files (Product Info, groups/variants APIs, keyword pools/cleaning, utilities, server utils, hooks).
 
 ### Priority Testing Targets
 

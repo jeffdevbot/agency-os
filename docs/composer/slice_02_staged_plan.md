@@ -213,9 +213,9 @@ This document breaks Slice 2 (Keyword Pipeline) into 8 manageable stages to avoi
 - `qa` — interaction testing
 
 **Deliverables:**
-- [ ] Create `KeywordCleanupStep.tsx` component
+- [x] Create `KeywordCleanupStep.tsx` component
   - Scope selector (if distinct mode)
-  - Two pool sections (Description/Bullets + Titles)
+  - Two pool sections (Description/Bullets + Titles) - **implemented as tabs**
   - Per-pool UI:
     - Stats summary (raw/cleaned/removed counts, breakdown by reason)
     - Filter toggles:
@@ -224,25 +224,26 @@ This document breaks Slice 2 (Keyword Pipeline) into 8 manageable stages to avoi
       - Remove Brand Name
       - Remove Competitors
     - "Run Cleaning" button
-    - Dual-pane view:
-      - Cleaned panel (left): keywords list with "Remove" buttons
-      - Removed panel (right): keywords with reason badges + "Restore" buttons
-    - Approval: checkbox + "Approve & Continue" button
-- [ ] Create `CleanedKeywordsList.tsx` component
+    - Dual-pane view: **implemented as collapsible lists (400px scroll)**
+      - Cleaned panel: keywords list with "Remove" buttons
+      - Removed panel: keywords with reason badges + "Restore" buttons
+    - Approval: checkbox + "Approve & Continue" button + **unapprove toggle**
+- [x] Create `CleanedKeywordsList.tsx` component
   - Props: `keywords`, `onRemove`
-  - Virtualized list (use `react-window` if >500 keywords)
-- [ ] Create `RemovedKeywordsList.tsx` component
+  - **Collapsible with 400px max-height scroll** (not virtualized - sufficient for performance)
+- [x] Create `RemovedKeywordsList.tsx` component
   - Props: `removed: RemovedKeywordEntry[]`, `onRestore`
   - Group by reason with collapsible sections
-  - Reason badge colors
-- [ ] Update `useKeywordPools` hook:
+  - Reason badge colors (7 types)
+- [x] Update `useKeywordPools` hook:
   - `cleanPool(poolId, config)` method
   - `manualRemove(poolId, keyword)` method
   - `manualRestore(poolId, keyword)` method
   - `approveClean(poolId)` method
-- [ ] Loading states during cleaning
-- [ ] Optimistic updates for manual operations
-- [ ] Vitest tests for config changes, manual operations, approval
+  - **Added `unapproveClean(poolId)` method**
+- [x] Loading states during cleaning
+- [x] Optimistic updates for manual operations
+- [ ] **MISSING:** Vitest tests for UI components (KeywordCleanupStep, CleanedKeywordsList, RemovedKeywordsList) and `unapproveClean()` function
 
 **Dependencies:** Stages 2-4 complete
 

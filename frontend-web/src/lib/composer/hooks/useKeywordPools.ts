@@ -21,6 +21,7 @@ interface UseKeywordPoolsResult {
   manualRestore: (poolId: string, keyword: string) => Promise<ComposerKeywordPool | null>;
   deleteKeywords: (poolId: string) => Promise<ComposerKeywordPool | null>;
   approveClean: (poolId: string) => Promise<ComposerKeywordPool | null>;
+  unapproveClean: (poolId: string) => Promise<ComposerKeywordPool | null>;
 }
 
 const byPoolType = (poolType: "body" | "titles") => (pool: ComposerKeywordPool) =>
@@ -177,6 +178,29 @@ export const useKeywordPools = (
     }
   }, []);
 
+  const unapproveClean = useCallback<
+    UseKeywordPoolsResult["unapproveClean"]
+  >(async (poolId) => {
+    setError(null);
+    try {
+      const response = await fetch(`/api/composer/keyword-pools/${poolId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "uploaded" }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || "Unable to unapprove keywords");
+      }
+      const updatedPool = data.pool as ComposerKeywordPool;
+      setPools((prev) => prev.map((p) => (p.id === poolId ? updatedPool : p)));
+      return updatedPool;
+    } catch (unapproveError) {
+      setError(unapproveError instanceof Error ? unapproveError.message : "Unable to unapprove keywords");
+      return null;
+    }
+  }, []);
+
   const manualRemove = useCallback<UseKeywordPoolsResult["manualRemove"]>(
     async (poolId, keyword) => {
       const targetPool = pools.find((p) => p.id === poolId);
@@ -310,5 +334,6 @@ export const useKeywordPools = (
     manualRestore,
     deleteKeywords,
     approveClean,
+    unapproveClean,
   };
 };
