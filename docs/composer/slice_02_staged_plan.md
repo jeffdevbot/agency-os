@@ -191,7 +191,7 @@ This document breaks Slice 2 (Keyword Pipeline) into 8 manageable stages to avoi
   - Max 5MB file size
   - Max 5k keywords
   - Friendly errors
-- [ ] Drag-and-drop file handling
+- [x] Drag-and-drop file handling + template download link
 - [x] Vitest tests for hook, CSV parsing, validation
 
 **Dependencies:** Stages 2-3 complete
