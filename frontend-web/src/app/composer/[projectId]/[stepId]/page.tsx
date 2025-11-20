@@ -160,6 +160,10 @@ export default function ComposerWizardStepPage() {
               // Refresh variants to get updated groupId assignments
               void refreshVariants();
             }}
+            onHighlightAttributesChange={(attributes) => {
+              setProject({ ...project, highlightAttributes: attributes });
+              savePartial({ highlightAttributes: attributes });
+            }}
           />
         );
       default:

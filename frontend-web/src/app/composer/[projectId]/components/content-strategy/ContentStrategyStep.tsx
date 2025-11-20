@@ -1,15 +1,24 @@
 "use client";
 
-import type { ComposerProject, ComposerSkuVariant, StrategyType } from "@agency/lib/composer/types";
+import type {
+  ComposerProject,
+  ComposerSkuVariant,
+  HighlightAttributePreference,
+  StrategyType,
+} from "@agency/lib/composer/types";
 import { useSkuGroups } from "@/lib/composer/hooks/useSkuGroups";
 import { StrategyToggle } from "./StrategyToggle";
 import { SkuGroupsBuilder } from "./SkuGroupsBuilder";
+import { KeyAttributeSelector } from "./KeyAttributeSelector";
+import { inferAttributes } from "@/lib/composer/productInfo/inferAttributes";
+import { useMemo } from "react";
 
 interface ContentStrategyStepProps {
   project: ComposerProject;
   variants: ComposerSkuVariant[];
   onSaveStrategy: (strategyType: StrategyType) => void;
   onVariantsChange: () => void;
+  onHighlightAttributesChange: (attributes: HighlightAttributePreference[]) => void;
 }
 
 export const ContentStrategyStep = ({
@@ -17,6 +26,7 @@ export const ContentStrategyStep = ({
   variants,
   onSaveStrategy,
   onVariantsChange,
+  onHighlightAttributesChange,
 }: ContentStrategyStepProps) => {
   const {
     groups,
@@ -55,6 +65,9 @@ export const ContentStrategyStep = ({
     onVariantsChange();
   };
 
+  const attributeSummary = useMemo(() => inferAttributes(variants), [variants]);
+  const selectedAttributes = project.highlightAttributes ?? [];
+
   return (
     <div className="space-y-8">
       <div>
@@ -70,6 +83,12 @@ export const ContentStrategyStep = ({
       <StrategyToggle
         value={project.strategyType}
         onChange={handleStrategyChange}
+      />
+
+      <KeyAttributeSelector
+        attributes={attributeSummary}
+        preferences={selectedAttributes}
+        onChange={onHighlightAttributesChange}
       />
 
       {project.strategyType === "distinct" && (

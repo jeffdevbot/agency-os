@@ -75,6 +75,13 @@ export interface ProductBrief {
   certifications?: string;
 }
 
+export type HighlightSurface = "title" | "bullets" | "description" | "backend_keywords";
+
+export interface HighlightAttributePreference {
+  key: string;
+  surfaces: Record<HighlightSurface, boolean>;
+}
+
 export interface ComposerProject {
   id: ProjectId;
   organizationId: OrganizationId;
@@ -91,6 +98,7 @@ export interface ComposerProject {
   suppliedInfo: Record<string, unknown>;
   faq: Array<{ question: string; answer?: string }> | null;
   productBrief: ProductBrief;
+  highlightAttributes: HighlightAttributePreference[];
   lastSavedAt: ISODateString | null;
   createdAt: ISODateString;
 }

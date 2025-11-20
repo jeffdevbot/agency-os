@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   ComposerProject,
   ComposerProjectStatus,
+  HighlightAttributePreference,
   StrategyType,
 } from "@agency/lib/composer/types";
 import type { ProjectMetaPayload } from "@/lib/composer/productInfo/types";
@@ -14,6 +15,7 @@ export interface UpdateComposerProjectPayload extends Partial<ProjectMetaPayload
   strategyType?: StrategyType | null;
   status?: ComposerProjectStatus;
   activeStep?: string | null;
+  highlightAttributes?: HighlightAttributePreference[];
 }
 
 interface UseProjectAutosaveOptions {

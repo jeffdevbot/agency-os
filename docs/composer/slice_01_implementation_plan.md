@@ -106,6 +106,7 @@ Slice 1 covers the initial Composer experience:
 - `SkuGroupsBuilder` — drag/drop groups and membership.
 - `UnassignedSkuList` — list of ungrouped SKUs.
 - `GroupCard` — group name/description/assigned SKUs.
+- `KeyAttributeSelector` — table of detected attributes with checkboxes for Title, Bullets, Description, Backend Keywords.
 
 ### API endpoints (implemented)
 - `GET /api/composer/projects/[projectId]/groups` — list all groups for a project (sorted by `sort_order`).
@@ -114,6 +115,7 @@ Slice 1 covers the initial Composer experience:
 - `DELETE /api/composer/projects/[projectId]/groups/[groupId]` — delete empty group (fails if SKUs assigned).
 - `POST /api/composer/projects/[projectId]/groups/[groupId]/assign` — assign SKUs with `{ variantIds: string[] }`.
 - `POST /api/composer/projects/[projectId]/variants/unassign` — unassign SKUs with `{ variantIds: string[] }`.
+- `PATCH /api/composer/projects/[projectId]` (existing) — persists `strategyType` and `highlightAttributes`.
 
 ### Types / DTOs
 - `ComposerSkuGroup` — canonical type from `/lib/composer/types.ts`.
@@ -121,6 +123,7 @@ Slice 1 covers the initial Composer experience:
 - `UpdateGroupPayload` — `{ name?: string; description?: string | null; sortOrder?: number }`.
 - `AssignPayload` — `{ variantIds: string[] }`.
 - `UnassignPayload` — `{ variantIds: string[] }`.
+- `HighlightAttributePreference` — `{ key: string; surfaces: { title: boolean; bullets: boolean; description: boolean; backend_keywords: boolean } }[]` stored on `composer_projects.highlight_attributes`.
 
 ### Utilities / hooks
 - `useSkuGroups(projectId)` — `/lib/composer/hooks/useSkuGroups.ts` manages groups with optimistic updates; exposes `groups`, `isLoading`, `error`, `refresh`, `createGroup`, `updateGroup`, `deleteGroup`, `assignToGroup`, `unassignVariants`.

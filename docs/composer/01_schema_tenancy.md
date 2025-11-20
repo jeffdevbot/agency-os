@@ -48,6 +48,7 @@ This micro-spec defines the **database layer** for Composer:
   - `marketplaces[]`, `category`
   - `strategy_type` (`variations` / `distinct`)
   - `active_step`, `status`
+  - `highlight_attributes` JSONB (array of `{ key: string; surfaces: { title, bullets, description, backend_keywords } }` records)
   - Brand/compliance info: `brand_tone`, `what_not_to_say[]`, `supplied_info`, `faq`
   - `product_brief` JSON (target audience, use cases, differentiators, safety, certifications)
   - `last_saved_at`, `created_at`

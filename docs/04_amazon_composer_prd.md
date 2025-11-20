@@ -145,6 +145,12 @@ After SKUs are processed, user MUST choose:
   - [ Group D: Bundle ]
 - Each group goes through all subsequent steps independently.
 
+**Key Attribute Highlights (all strategies)**
+- Composer shows the detected attribute keys (from Product Info) in a table with four columns: Title, Bullets, Description, Backend Keywords.
+- Users tick the surfaces where each attribute must be mentioned (e.g., color in Title + Backend, material only in Bullets).
+- Selections persist on the project (`highlight_attributes` JSON) and flow into downstream generators even in Variation mode so attributes are only forced where requested.
+- UI lives below the strategy toggle so users can make the decision before progressing.
+
 ### 🟦 5.4 OPTIONAL PRODUCT-LEVEL INFO
 **Brand-Level**
 - Brand tone / guidelines

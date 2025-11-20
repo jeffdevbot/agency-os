@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import type {
   ComposerProject,
   ComposerProjectStatus,
+  HighlightAttributePreference,
   StrategyType,
 } from "@agency/lib/composer/types";
 import { DEFAULT_COMPOSER_ORG_ID } from "@/lib/composer/constants";
@@ -9,7 +10,7 @@ import { createSupabaseRouteClient } from "@/lib/supabase/serverClient";
 import { isUuid, resolveComposerOrgIdFromSession } from "@/lib/composer/serverUtils";
 
 const PROJECT_COLUMNS =
-  "id, organization_id, created_by, client_name, project_name, marketplaces, category, strategy_type, active_step, status, brand_tone, what_not_to_say, supplied_info, faq, product_brief, last_saved_at, created_at";
+  "id, organization_id, created_by, client_name, project_name, marketplaces, category, strategy_type, active_step, status, brand_tone, what_not_to_say, supplied_info, faq, product_brief, highlight_attributes, last_saved_at, created_at";
 
 interface ProjectRow {
   id: string;
@@ -27,9 +28,40 @@ interface ProjectRow {
   supplied_info: Record<string, unknown> | null;
   faq: Array<{ question: string; answer?: string }> | null;
   product_brief: Record<string, unknown> | null;
+  highlight_attributes: unknown;
   last_saved_at: string | null;
   created_at: string;
 }
+
+const normalizeHighlightAttributes = (
+  raw: unknown,
+): HighlightAttributePreference[] => {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  return raw
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") return null;
+      const key = typeof (entry as { key?: unknown }).key === "string"
+        ? (entry as { key: string }).key
+        : null;
+      if (!key) return null;
+      const surfacesRecord =
+        (entry as { surfaces?: Record<string, unknown> }).surfaces ?? {};
+      const surfaces = {
+        title: Boolean((surfacesRecord as Record<string, unknown>).title),
+        bullets: Boolean((surfacesRecord as Record<string, unknown>).bullets),
+        description: Boolean(
+          (surfacesRecord as Record<string, unknown>).description,
+        ),
+        backend_keywords: Boolean(
+          (surfacesRecord as Record<string, unknown>).backend_keywords,
+        ),
+      };
+      return { key, surfaces };
+    })
+    .filter((value): value is HighlightAttributePreference => value !== null);
+};
 
 const isStrategyType = (value: string | null): value is StrategyType =>
   value === "variations" || value === "distinct";
@@ -53,6 +85,7 @@ const mapRowToComposerProject = (row: ProjectRow): ComposerProject => ({
   suppliedInfo: row.supplied_info ?? {},
   faq: row.faq,
   productBrief: row.product_brief ?? {},
+  highlightAttributes: normalizeHighlightAttributes(row.highlight_attributes),
   lastSavedAt: row.last_saved_at,
   createdAt: row.created_at,
 });
@@ -108,6 +141,7 @@ interface UpdateComposerProjectPayload {
   suppliedInfo?: Record<string, unknown>;
   faq?: Array<{ question: string; answer?: string }> | null;
   productBrief?: Record<string, unknown>;
+  highlightAttributes?: HighlightAttributePreference[];
 }
 
 export async function PATCH(
@@ -136,6 +170,9 @@ export async function PATCH(
   if (payload.suppliedInfo !== undefined) updates.supplied_info = payload.suppliedInfo;
   if (payload.faq !== undefined) updates.faq = payload.faq;
   if (payload.productBrief !== undefined) updates.product_brief = payload.productBrief;
+  if (payload.highlightAttributes !== undefined) {
+    updates.highlight_attributes = payload.highlightAttributes;
+  }
 
   if (Object.keys(updates).length === 0) {
     return NextResponse.json({ error: "No valid fields provided" }, { status: 400 });
