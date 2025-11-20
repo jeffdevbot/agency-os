@@ -102,7 +102,10 @@ This document breaks Slice 2 (Keyword Pipeline) into 8 manageable stages to avoi
 
 ---
 
-## Stage 3: Keyword Cleanup APIs & Logic
+## Stage 3: Keyword Cleanup APIs & Logic ✅ COMPLETED
+
+**Status:** Completed 2025-11-20
+**Notes:** Backend cleaning service + synchronous clean route delivered with org/RLS checks, attribute-driven color/size detection, brand/competitor removal from project data, stopword list, approval gating on PATCH, and full Vitest coverage.
 
 **Goal:** Implement cleaning engine (Surface 6) with deterministic filtering, removed keywords tracking, approval workflow.
 
@@ -111,12 +114,12 @@ This document breaks Slice 2 (Keyword Pipeline) into 8 manageable stages to avoi
 - `qa` — test coverage
 
 **Deliverables:**
-- [ ] `POST /api/composer/keyword-pools/:id/clean` route
+- [x] `POST /api/composer/keyword-pools/:id/clean` route
   - Body: `{ config: KeywordCleanSettings }`
   - Run cleaning filters, update `cleaned_keywords` and `removed_keywords`
   - Persist `clean_settings`, set `cleaned_at` timestamp
   - Status stays `uploaded` until approved
-- [ ] Create `/lib/composer/keywords/cleaning.ts` service:
+- [x] Create `/lib/composer/keywords/cleaning.ts` service:
   - `cleanKeywords(raw: string[], config: KeywordCleanSettings, project: ComposerProject): CleaningResult`
   - `CleaningResult`: `{ cleaned: string[], removed: RemovedKeywordEntry[] }`
   - Filter logic:
@@ -125,17 +128,17 @@ This document breaks Slice 2 (Keyword Pipeline) into 8 manageable stages to avoi
     - Stop/junk terms (small built-in list: e.g., "n/a", "tbd", reason: "stopword")
     - Colors (optional, data-driven from SKU attributes with lexicon fallback, reason: "color")
     - Sizes (optional, data-driven from SKU attributes with regex fallback, reason: "size")
-- [ ] Create `/lib/composer/keywords/blacklists.ts`:
+- [x] Create `/lib/composer/keywords/blacklists.ts`:
   - `STOP_WORDS: string[]` (small junk list only)
   - `COLOR_LEXICON: string[]` (fallback for attribute-derived colors)
   - `SIZE_PATTERNS: RegExp[]` (fallback for attribute-derived sizes/dimensions)
-- [ ] `PATCH /api/composer/keyword-pools/:id` enhancements:
+- [x] `PATCH /api/composer/keyword-pools/:id` enhancements:
   - Accept `{ cleanedKeywords?, removedKeywords?, approved: boolean }`
   - Handle manual moves (restore from removed, remove from cleaned)
   - When `approved=true`, set `status='cleaned'` and `cleaned_at`
   - Validate can't approve without cleaning results (400 if `cleaned_keywords` missing/empty; also reject if status not `uploaded`)
-- [ ] Vitest unit tests for cleaning logic
-- [ ] Vitest integration tests for clean API
+- [x] Vitest unit tests for cleaning logic
+- [x] Vitest integration tests for clean API
 
 **Dependencies:** Stage 2 complete
 

@@ -89,6 +89,7 @@ _Removal diff, restore controls, approval button._
 - **APIs:** `POST /composer/keyword-pools/:id/clean` (synchronous: returns `{cleaned, removed, config}`), `PATCH /composer/keyword-pools/:id` (cleaned/removed + approvals with 400 if approving without cleaned results), `PATCH /composer/projects/:id` (mark keyword_cleaned milestone).
 - **Filtering rules:** duplicates (case-insensitive), brand/competitor removal from `client_name` + `what_not_to_say`, small built-in junk list (e.g., "n/a", "tbd"), optional color/size removal sourced from SKU attributes with lexicon/regex fallback.
 - **Approval guards:** Uploading new raw keywords resets approval; approval requires non-empty `cleanedKeywords` and the pool in `uploaded` state.
+- **Status:** Backend cleanup API + service delivered (Nov 20, 2025) with attribute-driven color/size filtering, project-aware brand/competitor removal, approval gating, and full route/unit tests. Frontend cleanup UI still pending.
 
 ### 7. Grouping Plan / Preview
 _Suggested grouping view, overrides, approval._
