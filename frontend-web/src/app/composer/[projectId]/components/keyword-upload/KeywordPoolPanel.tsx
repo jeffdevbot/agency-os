@@ -70,6 +70,25 @@ export const KeywordPoolPanel = ({
     setManualValue("");
   };
 
+  const decodeFileText = async (file: File): Promise<string> => {
+    const buffer = await file.arrayBuffer();
+    // Try UTF-8 first
+    const utf8Decoder = new TextDecoder("utf-8", { fatal: false });
+    let text = utf8Decoder.decode(buffer);
+    const replacementCount = (text.match(/\uFFFD/g) ?? []).length;
+
+    // If we see replacement chars, try latin1 as a fallback (common for legacy CSVs)
+    if (replacementCount > 0) {
+      const latin1Decoder = new TextDecoder("latin1");
+      const latinText = latin1Decoder.decode(buffer);
+      const latinReplacement = (latinText.match(/\uFFFD/g) ?? []).length;
+      if (latinReplacement < replacementCount) {
+        text = latinText;
+      }
+    }
+    return text;
+  };
+
   const handleFileUpload = async (file: File) => {
     setFileError(null);
     if (file.size > 5 * 1024 * 1024) {
@@ -77,7 +96,7 @@ export const KeywordPoolPanel = ({
       return;
     }
 
-    const text = await file.text();
+    const text = await decodeFileText(file);
     const parsed = parseKeywordsCsv(text);
     await handleKeywords(parsed);
   };
