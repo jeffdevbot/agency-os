@@ -22,6 +22,7 @@ Agency OS consolidates internal tools (Ngram, The Operator, Amazon Composer, Cre
 
 ## Recent Accomplishments
 - **2025-11-19** – Drafted and documented Composer Slice 2 (Keyword Pipeline) implementation plan: aligned schema/types with keyword pool state machine, manual overrides, and new API surface so we can begin Slice 2 build-out.
+-+- Included explicit keyword upload validation (minimum 5 terms, recommended 50+) in both PRD and implementation plan so UX clarifies expectations.
 - **2025-11-19** – Wrapped Composer Slice 1 polish: added key-attribute highlight grid, persisted `highlight_attributes` JSON (schema + types), introduced keyword grouping override spec, and documented/testing updates (82 passing Vitest suites). Ready to start Slice 2 planning.
 - **2025-11-19** – Hardened Composer Slice 1 Surface 4 with shared `serverUtils` helpers, Supabase route-client mocks, and full Vitest coverage for the groups/assign/unassign APIs plus the `useSkuGroups` hook (82 tests passing locally via `npm run test:run`).
 - **2025-11-19** – Completed Composer Slice 1 Surface 4 (Content Strategy): StrategyToggle, SkuGroupsBuilder, GroupCard, UnassignedSkuList, and ContentStrategyStep components; full SKU groups API (GET/POST groups, PATCH/DELETE group, assign/unassign variants); `useSkuGroups` hook with optimistic updates. Slice 1 is now feature-complete.
