@@ -37,6 +37,7 @@ export const KeywordUploadStep = ({ project, onValidityChange }: KeywordUploadSt
     isLoading: poolsLoading,
     error: poolsError,
     uploadKeywords,
+    deleteKeywords,
   } = useKeywordPools(project.id, activeGroupId ?? undefined);
 
   const bodyPool = useMemo(() => getPoolByType(pools, "body"), [pools]);
@@ -53,6 +54,11 @@ export const KeywordUploadStep = ({ project, onValidityChange }: KeywordUploadSt
   const handleUpload = (poolType: "body" | "titles") => async (keywords: string[]) => {
     const result = await uploadKeywords(poolType, keywords, activeGroupId ?? undefined);
     return { warning: result.warning };
+  };
+
+  const handleDelete = (poolId?: string) => async () => {
+    if (!poolId) return;
+    await deleteKeywords(poolId);
   };
 
   const scopeLabel = isDistinctMode
@@ -117,6 +123,7 @@ export const KeywordUploadStep = ({ project, onValidityChange }: KeywordUploadSt
           pool={bodyPool}
           isLoading={poolsLoading}
           onUpload={handleUpload("body")}
+          onDelete={handleDelete(bodyPool?.id)}
         />
         <KeywordPoolPanel
           poolType="titles"
@@ -125,6 +132,7 @@ export const KeywordUploadStep = ({ project, onValidityChange }: KeywordUploadSt
           pool={titlesPool}
           isLoading={poolsLoading}
           onUpload={handleUpload("titles")}
+          onDelete={handleDelete(titlesPool?.id)}
         />
       </div>
     </div>

@@ -19,6 +19,7 @@ interface UseKeywordPoolsResult {
   cleanPool: (poolId: string, config: KeywordCleanSettings) => Promise<ComposerKeywordPool | null>;
   manualRemove: (poolId: string, keyword: string) => Promise<ComposerKeywordPool | null>;
   manualRestore: (poolId: string, keyword: string) => Promise<ComposerKeywordPool | null>;
+  deleteKeywords: (poolId: string) => Promise<ComposerKeywordPool | null>;
   approveClean: (poolId: string) => Promise<ComposerKeywordPool | null>;
 }
 
@@ -257,6 +258,44 @@ export const useKeywordPools = (
     [pools],
   );
 
+  const deleteKeywords = useCallback<UseKeywordPoolsResult["deleteKeywords"]>(
+    async (poolId) => {
+      const targetPool = pools.find((p) => p.id === poolId);
+      if (!targetPool) return null;
+      const cleared: ComposerKeywordPool = {
+        ...targetPool,
+        rawKeywords: [],
+        cleanedKeywords: [],
+        removedKeywords: [],
+        status: "uploaded",
+        cleanedAt: null,
+        groupedAt: null,
+        approvedAt: null,
+      };
+      setPools((prev) => prev.map((p) => (p.id === poolId ? cleared : p)));
+      setError(null);
+      try {
+        const response = await fetch(`/api/composer/keyword-pools/${poolId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ rawKeywords: [] }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(data.error || "Unable to delete keywords");
+        }
+        const updated = data.pool as ComposerKeywordPool;
+        setPools((prev) => prev.map((p) => (p.id === poolId ? updated : p)));
+        return updated;
+      } catch (deleteError) {
+        setError(deleteError instanceof Error ? deleteError.message : "Unable to delete keywords");
+        setPools((prev) => prev.map((p) => (p.id === poolId ? targetPool : p)));
+        return null;
+      }
+    },
+    [pools],
+  );
+
   // Derived helpers for panels (optional)
   useMemo(() => pools.filter(byPoolType("body")), [pools]);
 
@@ -269,6 +308,7 @@ export const useKeywordPools = (
     cleanPool,
     manualRemove,
     manualRestore,
+    deleteKeywords,
     approveClean,
   };
 };

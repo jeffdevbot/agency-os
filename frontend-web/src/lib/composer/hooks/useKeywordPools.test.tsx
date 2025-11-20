@@ -227,4 +227,27 @@ describe("useKeywordPools", () => {
     expect(hook.result.pools[0].cleanedKeywords).toContain("red");
     await hook.unmount();
   });
+
+  it("deletes all keywords from a pool", async () => {
+    getFetchMock().mockResolvedValueOnce(mockFetchResponse({ pools: [basePool] }));
+    getFetchMock().mockResolvedValueOnce(
+      mockFetchResponse({
+        pool: { ...basePool, rawKeywords: [], cleanedKeywords: [], removedKeywords: [], status: "uploaded" },
+      }),
+    );
+
+    const hook = await renderHook("proj-1");
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    await act(async () => {
+      await hook.result.deleteKeywords("pool-1");
+      await flushMicrotasks();
+    });
+
+    expect(hook.result.pools[0].rawKeywords).toHaveLength(0);
+    expect(hook.result.pools[0].cleanedKeywords).toHaveLength(0);
+    await hook.unmount();
+  });
 });

@@ -11,6 +11,7 @@ interface KeywordPoolPanelProps {
   pool: ComposerKeywordPool | undefined;
   isLoading: boolean;
   onUpload: (keywords: string[]) => Promise<{ warning?: string }>;
+  onDelete: () => Promise<void>;
 }
 
 const formatCountLabel = (count: number) => `${count.toLocaleString()} keyword${count === 1 ? "" : "s"}`;
@@ -22,6 +23,7 @@ export const KeywordPoolPanel = ({
   pool,
   isLoading,
   onUpload,
+  onDelete,
 }: KeywordPoolPanelProps) => {
   const [pasteValue, setPasteValue] = useState("");
   const [manualValue, setManualValue] = useState("");
@@ -277,9 +279,17 @@ export const KeywordPoolPanel = ({
       <div className="mt-4">
         <div className="flex items-center justify-between">
           <p className="text-sm font-semibold text-[#0f172a]">Raw Preview</p>
-          <p className="text-xs text-[#64748b]">
-            Showing {previewKeywords.length} of {rawKeywords.length}
-          </p>
+          <div className="flex items-center gap-3 text-xs text-[#64748b]">
+            <p>Showing {previewKeywords.length} of {rawKeywords.length}</p>
+            <button
+              className="rounded-full bg-[#fef2f2] px-3 py-1 text-xs font-semibold text-[#b91c1c] shadow disabled:opacity-40"
+              onClick={() => void onDelete()}
+              disabled={isSubmitting || isLoading || rawKeywords.length === 0}
+              title="Delete all uploaded keywords for this pool"
+            >
+              Delete Keywords
+            </button>
+          </div>
         </div>
         <div className="mt-2 flex flex-wrap gap-2">
           {previewKeywords.length === 0 ? (
