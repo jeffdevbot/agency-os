@@ -36,6 +36,10 @@ export async function POST(
 
   const organizationId = resolveComposerOrgIdFromSession(session);
 
+  if (!organizationId) {
+    return NextResponse.json({ error: "Organization not found" }, { status: 401 });
+  }
+
   // Parse request body
   let config: GroupingConfig;
   try {

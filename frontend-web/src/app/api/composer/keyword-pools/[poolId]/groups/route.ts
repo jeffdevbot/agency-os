@@ -57,6 +57,10 @@ export async function GET(
 
   const organizationId = resolveComposerOrgIdFromSession(session);
 
+  if (!organizationId) {
+    return NextResponse.json({ error: "Organization not found" }, { status: 401 });
+  }
+
   // Verify pool exists and belongs to org
   const { data: pool, error: poolError } = await supabase
     .from("composer_keyword_pools")
