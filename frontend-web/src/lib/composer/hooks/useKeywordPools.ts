@@ -117,6 +117,7 @@ export const useKeywordPools = (
           groupedAt: null,
           approvedAt: null,
           createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
         };
         return [...prev, optimistic];
       }
