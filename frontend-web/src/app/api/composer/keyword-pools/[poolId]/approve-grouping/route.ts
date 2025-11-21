@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createSupabaseRouteClient } from "@/lib/supabase/serverClient";
 import { isUuid, resolveComposerOrgIdFromSession } from "@/lib/composer/serverUtils";
-import { mapRowToPool, type KeywordPoolRow } from "../../route";
+import { mapRowToPool, type KeywordPoolRow } from "../route";
 
 /**
  * POST /api/composer/keyword-pools/:id/approve-grouping
