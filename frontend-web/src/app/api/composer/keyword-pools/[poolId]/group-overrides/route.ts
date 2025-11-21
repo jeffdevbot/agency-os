@@ -33,6 +33,10 @@ export async function POST(
 
   const organizationId = resolveComposerOrgIdFromSession(session);
 
+  if (!organizationId) {
+    return NextResponse.json({ error: "Organization not found" }, { status: 401 });
+  }
+
   // Parse request body
   let override: {
     phrase: string;
@@ -138,6 +142,10 @@ export async function DELETE(
   }
 
   const organizationId = resolveComposerOrgIdFromSession(session);
+
+  if (!organizationId) {
+    return NextResponse.json({ error: "Organization not found" }, { status: 401 });
+  }
 
   // Verify pool exists
   const { data: pool, error: poolError } = await supabase

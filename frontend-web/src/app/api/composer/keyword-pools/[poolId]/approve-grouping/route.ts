@@ -35,6 +35,10 @@ export async function POST(
 
   const organizationId = resolveComposerOrgIdFromSession(session);
 
+  if (!organizationId) {
+    return NextResponse.json({ error: "Organization not found" }, { status: 401 });
+  }
+
   // Fetch existing pool
   const { data: pool, error: fetchError } = await supabase
     .from("composer_keyword_pools")
@@ -120,6 +124,10 @@ export async function DELETE(
   }
 
   const organizationId = resolveComposerOrgIdFromSession(session);
+
+  if (!organizationId) {
+    return NextResponse.json({ error: "Organization not found" }, { status: 401 });
+  }
 
   // Fetch existing pool
   const { data: pool, error: fetchError } = await supabase
