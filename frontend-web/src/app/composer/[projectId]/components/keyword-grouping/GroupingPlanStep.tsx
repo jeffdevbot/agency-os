@@ -12,9 +12,10 @@ interface GroupingPlanStepProps {
   projectId: string;
   pools: ComposerKeywordPool[];
   onContinue?: () => void;
+  onValidityChange?: (isValid: boolean) => void;
 }
 
-export function GroupingPlanStep({ projectId, pools, onContinue }: GroupingPlanStepProps) {
+export function GroupingPlanStep({ projectId, pools, onContinue, onValidityChange }: GroupingPlanStepProps) {
   const [activeTab, setActiveTab] = useState<'body' | 'titles'>('body');
   const [groups, setGroups] = useState<KeywordGroup[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -33,6 +34,18 @@ export function GroupingPlanStep({ projectId, pools, onContinue }: GroupingPlanS
   const isApproved = currentPool?.status === 'grouped';
   const canApprove =
     currentPool?.status === 'cleaned' && groups.length > 0 && groups.every((g) => g.phrases.length > 0);
+
+  // Check if both pools have grouping approved
+  useEffect(() => {
+    const bodyPool = pools.find((p) => p.poolType === 'body');
+    const titlesPool = pools.find((p) => p.poolType === 'titles');
+
+    const bothApproved =
+      bodyPool?.approvedAt !== null &&
+      titlesPool?.approvedAt !== null;
+
+    onValidityChange?.(bothApproved);
+  }, [pools, onValidityChange]);
 
   useEffect(() => {
     if (currentPool) {
