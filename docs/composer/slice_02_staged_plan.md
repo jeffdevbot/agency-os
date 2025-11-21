@@ -313,6 +313,14 @@ This document breaks Slice 2 (Keyword Pipeline) into 8 manageable stages to avoi
 - Can reset overrides
 - State transitions: `cleaned` → `grouped`
 
+**✅ COMPLETED (2025-11-20):**
+- All deliverables implemented and tested
+- 50 new tests added (235 total tests passing)
+- Enhanced usage logging tests added per QA recommendation to explicitly verify all parameters (organizationId, projectId, tokens, duration, meta) on both success and error paths
+- Files: [lib/composer/ai/groupKeywords.ts](../../lib/composer/ai/groupKeywords.ts), [lib/composer/ai/openai.ts](../../lib/composer/ai/openai.ts), [lib/composer/ai/usageLogger.ts](../../lib/composer/ai/usageLogger.ts), [lib/composer/keywords/mergeGroups.ts](../../lib/composer/keywords/mergeGroups.ts), [frontend-web/src/app/api/composer/keyword-pools/[poolId]/grouping-plan/route.ts](../../frontend-web/src/app/api/composer/keyword-pools/[poolId]/grouping-plan/route.ts), [frontend-web/src/app/api/composer/keyword-pools/[poolId]/groups/route.ts](../../frontend-web/src/app/api/composer/keyword-pools/[poolId]/groups/route.ts), [frontend-web/src/app/api/composer/keyword-pools/[poolId]/group-overrides/route.ts](../../frontend-web/src/app/api/composer/keyword-pools/[poolId]/group-overrides/route.ts)
+- Migration: [supabase/migrations/2025-11-20_composer_usage_events.sql](../../supabase/migrations/2025-11-20_composer_usage_events.sql)
+- Reviewed by: Supabase Consultant, QA Agent, Librarian
+
 ---
 
 ## Stage 7: Frontend — Grouping Plan (Surface 7)
