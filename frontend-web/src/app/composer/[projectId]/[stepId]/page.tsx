@@ -7,6 +7,7 @@ import { ProductInfoStep } from "../components/product-info/ProductInfoStep";
 import { ContentStrategyStep } from "../components/content-strategy/ContentStrategyStep";
 import { KeywordUploadStep } from "../components/keyword-upload/KeywordUploadStep";
 import { KeywordCleanupStep } from "../components/keyword-cleanup/KeywordCleanupStep";
+import { GroupingPlanStep } from "../components/keyword-grouping/GroupingPlanStep";
 import { useComposerProject } from "@/lib/composer/hooks/useComposerProject";
 import { useProjectAutosave } from "@/lib/composer/hooks/useProjectAutosave";
 import { useSkuVariants } from "@/lib/composer/hooks/useSkuVariants";
@@ -58,6 +59,7 @@ export default function ComposerWizardStepPage() {
   const { project, setProject, isLoading, isError, errorMessage } = useComposerProject(projectId);
   const [keywordUploadReady, setKeywordUploadReady] = useState(false);
   const [keywordCleanupReady, setKeywordCleanupReady] = useState(false);
+  const [keywordGroupingReady, setKeywordGroupingReady] = useState(false);
   const {
     variants,
     setVariants,
@@ -133,6 +135,9 @@ export default function ComposerWizardStepPage() {
     if (validStep === "keyword_cleanup" && !keywordCleanupReady) {
       return true;
     }
+    if (validStep === "keyword_grouping" && !keywordGroupingReady) {
+      return true;
+    }
     return false;
   }, [
     nextStepId,
@@ -141,6 +146,7 @@ export default function ComposerWizardStepPage() {
     contentStrategyValidation.isValid,
     keywordUploadReady,
     keywordCleanupReady,
+    keywordGroupingReady,
   ]);
 
   const statusLabel = project?.status ?? "Draft";
@@ -195,6 +201,14 @@ export default function ComposerWizardStepPage() {
           <KeywordCleanupStep
             project={project}
             onValidityChange={(ready) => setKeywordCleanupReady(ready)}
+          />
+        );
+      case "keyword_grouping":
+        return (
+          <GroupingPlanStep
+            projectId={project.id}
+            pools={[]}
+            onValidityChange={(ready) => setKeywordGroupingReady(ready)}
           />
         );
       default:
