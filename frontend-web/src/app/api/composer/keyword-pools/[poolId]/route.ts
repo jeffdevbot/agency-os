@@ -293,3 +293,85 @@ export async function PATCH(
 
   return NextResponse.json({ pool: mapRowToPool(data) });
 }
+
+/**
+ * DELETE /api/composer/keyword-pools/:id?action=unapprove
+ * Unapprove a grouped keyword pool, reverting to cleaned status
+ * Clears both grouped_at and approved_at timestamps for consistency
+ */
+export async function DELETE(
+  request: NextRequest,
+  context: { params: Promise<{ poolId?: string }> },
+) {
+  const { poolId } = await context.params;
+  if (!poolId || !isUuid(poolId)) {
+    return NextResponse.json(
+      { error: "invalid_pool_id", poolId: poolId ?? null },
+      { status: 400 },
+    );
+  }
+
+  const { searchParams } = new URL(request.url);
+  const action = searchParams.get("action");
+
+  if (action !== "unapprove") {
+    return NextResponse.json(
+      { error: "Invalid action. Expected ?action=unapprove" },
+      { status: 400 },
+    );
+  }
+
+  const supabase = await createSupabaseRouteClient();
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  if (!session) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const organizationId = resolveComposerOrgIdFromSession(session);
+
+  if (!organizationId) {
+    return NextResponse.json(
+      { error: "Organization not found in session" },
+      { status: 403 },
+    );
+  }
+
+  // Fetch existing pool to verify ownership
+  const { data: existingPool, error: fetchError } = await supabase
+    .from("composer_keyword_pools")
+    .select("*")
+    .eq("id", poolId)
+    .eq("organization_id", organizationId)
+    .single();
+
+  if (fetchError || !existingPool) {
+    return NextResponse.json(
+      { error: "Keyword pool not found" },
+      { status: 404 },
+    );
+  }
+
+  // Unapprove: revert status and clear both timestamps for consistency
+  const { data, error } = await supabase
+    .from("composer_keyword_pools")
+    .update({
+      status: "cleaned",
+      approved_at: null,
+      grouped_at: null, // Clear both timestamps to maintain consistency
+    })
+    .eq("id", poolId)
+    .select("*")
+    .single();
+
+  if (error) {
+    return NextResponse.json(
+      { error: "Failed to unapprove pool" },
+      { status: 500 },
+    );
+  }
+
+  return NextResponse.json({ pool: mapRowToPool(data) });
+}
