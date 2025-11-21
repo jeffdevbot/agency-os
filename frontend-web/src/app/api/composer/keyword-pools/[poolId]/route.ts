@@ -33,6 +33,7 @@ export interface KeywordPoolRow {
   grouped_at: string | null;
   approved_at: string | null;
   created_at: string;
+  updated_at: string;
 }
 
 const normalizeGroupingConfig = (grouping: KeywordPoolRow["grouping_config"]): GroupingConfig => {
@@ -67,6 +68,7 @@ export const mapRowToPool = (row: KeywordPoolRow): ComposerKeywordPool => ({
   groupedAt: row.grouped_at,
   approvedAt: row.approved_at,
   createdAt: row.created_at,
+  updatedAt: row.updated_at,
 });
 
 /**
