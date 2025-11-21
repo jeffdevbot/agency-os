@@ -156,25 +156,34 @@ export async function POST(
       );
     }
 
-    await logUsageEvent({
-      supabase,
-      organizationId,
-      projectId: pool.project_id,
-      jobId: null,
-      action: "keyword_grouping",
-      model: usage.model,
-      tokensIn: usage.tokensIn,
-      tokensOut: usage.tokensOut,
-      tokensTotal: usage.tokensTotal,
-      durationMs: usage.durationMs || durationMs,
-      meta: {
-        pool_type: pool.pool_type,
-        pool_id: poolId,
-        keyword_count: pool.cleaned_keywords.length,
-        basis: config.basis || "auto",
-        group_count: groups.length,
-      },
-    });
+    // Log usage event (non-blocking - don't fail the request if logging fails)
+    try {
+      await logUsageEvent({
+        supabase,
+        organizationId,
+        projectId: pool.project_id,
+        jobId: null,
+        action: "keyword_grouping",
+        model: usage.model,
+        tokensIn: usage.tokensIn,
+        tokensOut: usage.tokensOut,
+        tokensTotal: usage.tokensTotal,
+        durationMs: usage.durationMs || durationMs,
+        meta: {
+          pool_type: pool.pool_type,
+          pool_id: poolId,
+          keyword_count: pool.cleaned_keywords.length,
+          basis: config.basis || "auto",
+          group_count: groups.length,
+        },
+      });
+    } catch (loggingError) {
+      // Usage logging failed, but don't block the successful grouping response
+      console.error(
+        "Usage logging failed (non-fatal):",
+        loggingError instanceof Error ? loggingError.message : loggingError,
+      );
+    }
 
     return NextResponse.json({
       pool: mapRowToPool(updatedPool as KeywordPoolRow),
@@ -183,25 +192,33 @@ export async function POST(
   } catch (error) {
     const durationMs = Date.now() - startTime;
 
-    await logUsageEvent({
-      supabase,
-      organizationId,
-      projectId: pool.project_id,
-      jobId: null,
-      action: "keyword_grouping",
-      model: process.env.OPENAI_MODEL_PRIMARY || "gpt-5.1-nano",
-      tokensIn: 0,
-      tokensOut: 0,
-      tokensTotal: 0,
-      durationMs,
-      meta: {
-        pool_type: pool.pool_type,
-        pool_id: poolId,
-        keyword_count: pool.cleaned_keywords.length,
-        basis: config.basis || "auto",
-        error: error instanceof Error ? error.message : String(error),
-      },
-    });
+    // Log error event (non-blocking)
+    try {
+      await logUsageEvent({
+        supabase,
+        organizationId,
+        projectId: pool.project_id,
+        jobId: null,
+        action: "keyword_grouping",
+        model: process.env.OPENAI_MODEL_PRIMARY || "gpt-5.1-nano",
+        tokensIn: 0,
+        tokensOut: 0,
+        tokensTotal: 0,
+        durationMs,
+        meta: {
+          pool_type: pool.pool_type,
+          pool_id: poolId,
+          keyword_count: pool.cleaned_keywords.length,
+          basis: config.basis || "auto",
+          error: error instanceof Error ? error.message : String(error),
+        },
+      });
+    } catch (loggingError) {
+      console.error(
+        "Usage logging failed during error handler:",
+        loggingError instanceof Error ? loggingError.message : loggingError,
+      );
+    }
 
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Grouping failed" },

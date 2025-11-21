@@ -321,6 +321,33 @@ This document breaks Slice 2 (Keyword Pipeline) into 8 manageable stages to avoi
 - Migration: [supabase/migrations/2025-11-20_composer_usage_events.sql](../../supabase/migrations/2025-11-20_composer_usage_events.sql)
 - Reviewed by: Supabase Consultant, QA Agent, Librarian
 
+**Technical Notes - Supabase Type Workaround:**
+
+Due to cross-package type resolution issues with `@supabase/supabase-js` in Next.js Turbopack's `externalDir` experimental feature, `usageLogger.ts` uses a loose type workaround for the Supabase client parameter.
+
+**Current Implementation (Option A):**
+- Uses `any` type for `supabase` parameter with runtime validation
+- Validates full response structure (`data`, `error`, `status`)
+- Throws errors instead of silent console logging
+- Provides compile-time validation of insert payload structure
+
+**Future Option (Option B) - Type-Only Import:**
+If Turbopack/build environment resolves cross-package type issues, consider this cleaner approach:
+```typescript
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+export interface LogUsageParams {
+  supabase: Pick<SupabaseClient, "from">;
+  // ... other params
+}
+```
+Benefits: Full compile-time type safety, IDE autocomplete, proper error types
+Tradeoff: Requires build toolchain to properly resolve `@supabase/supabase-js` types across packages
+
+**Related Fixes:**
+- Fixed Render build failure by changing return type from `Promise` to `PromiseLike` (Supabase query builder is thenable but not full Promise)
+- Added `typecheck` script to catch TypeScript errors before deployment
+
 ---
 
 ## Stage 7: Frontend — Grouping Plan (Surface 7)
@@ -359,6 +386,10 @@ This document breaks Slice 2 (Keyword Pipeline) into 8 manageable stages to avoi
   - Inline edit for label
 - [ ] Create `DraggableKeyword.tsx` component
   - Draggable phrase item
+- [ ] Add clear grouping approval call (prefer a dedicated endpoint or guarded PATCH) that:
+  - Verifies pool is `cleaned` and has groups before marking grouped/approved
+  - Sets `grouped_at` and `status='grouped'`, `approved_at` when confirmed
+  - Clears/refreshes overrides as needed
 - [ ] Update `useKeywordPools` hook:
   - `generateGroupingPlan(poolId, config)` method
   - `getGroups(poolId)` method
