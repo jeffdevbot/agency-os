@@ -1,6 +1,6 @@
 # Product Requirement Document: Team Central
 
-**Version:** 1.2 (Archiving strategy & ClickUp Team ID documented)
+**Version:** 1.3 (Shared ClickUp Service architecture documented)
 **Product Area:** Agency OS → Tools → Team Central
 **Status:** Ready for Engineering
 **Route:** `tools.ecomlabs.ca/team-central`
@@ -1046,6 +1046,85 @@ clickup.create_task(
 
 ---
 
+#### 8.1.1 ClickUp Service Architecture
+
+**Design Decision:** Team Central will consume a **shared ClickUp service** rather than calling the ClickUp API directly.
+
+**Rationale:**
+- Multiple tools will need ClickUp integration (Team Central, The Operator, future reporting tools)
+- Centralized service provides single source of truth for API interactions
+- Easier to implement rate limiting, caching, error handling in one place
+- When ClickUp API changes, only one service needs updates
+- Consistent authentication and logging across all ClickUp operations
+
+**Service Location:** `backend-core/services/clickup_service.py` (FastAPI) or `/api/integrations/clickup/*` (Next.js API routes)
+
+**Team Central Requirements (MVP):**
+The ClickUp service must provide these methods for Team Central:
+
+```python
+class ClickUpService:
+    """Shared ClickUp API service for all Agency OS tools"""
+
+    def __init__(self, api_token: str, team_id: str = "42600885"):
+        self.api_token = api_token
+        self.team_id = team_id
+
+    # Team Central uses these for mapping UI
+    def get_spaces(self) -> List[ClickUpSpace]:
+        """Fetch all Spaces for the team
+
+        Returns:
+            List of spaces with id, name, private, multiple_assignees fields
+        API: GET /team/{team_id}/space
+        """
+
+    def get_team_members(self) -> List[ClickUpUser]:
+        """Fetch all Users/Members for the team
+
+        Returns:
+            List of users with id, username, email, initials fields
+        API: GET /team/{team_id}/member
+        """
+```
+
+**The Operator Requirements (Future):**
+When The Operator is built, the service will be extended with task management methods:
+
+```python
+    # The Operator will use these (add in Phase 2)
+    def create_task(self, space_id: str, task_data: dict) -> ClickUpTask:
+        """Create a task in a Space"""
+
+    def update_task(self, task_id: str, updates: dict) -> ClickUpTask:
+        """Update an existing task"""
+
+    def get_tasks(self, space_id: str, filters: dict = None) -> List[ClickUpTask]:
+        """Fetch tasks for a Space with optional filters"""
+```
+
+**Implementation Notes:**
+- Service handles authentication (reads `CLICKUP_API_TOKEN` from env)
+- Service implements exponential backoff retry for rate limits (ClickUp: 100 req/min)
+- Optional: Service can cache `get_spaces()` and `get_team_members()` for 1 hour (refreshed nightly)
+- All ClickUp API calls go through this service (no direct `fetch()` calls from frontend/other services)
+
+**Team Central API Routes:**
+Team Central's API routes will call the ClickUp service:
+
+```typescript
+// /api/team-central/clickup/sync-spaces.ts
+import { ClickUpService } from '@/services/clickup'
+
+export async function POST(req: Request) {
+  const clickup = new ClickUpService(process.env.CLICKUP_API_TOKEN!)
+  const spaces = await clickup.get_spaces()
+  return Response.json({ spaces })
+}
+```
+
+---
+
 ### 8.2 Google Auth Integration
 
 **Current State:**
@@ -1343,18 +1422,25 @@ Based on earlier brainstorming, these could be added later:
 - TypeScript
 
 **Backend:**
-- Next.js API routes (for simple CRUD)
-- FastAPI (`backend-core`) for ClickUp sync (optional, can be Next.js API)
+- Next.js API routes (for Team Central CRUD operations)
 - Supabase Postgres (data layer)
 - RLS policies (enforce org-level access in future multi-tenant mode)
 
+**Shared Services:**
+- **ClickUp Service** (`backend-core/services/clickup_service.py` or `/api/integrations/clickup/*`)
+  - Centralized ClickUp API wrapper used by Team Central, The Operator, and future tools
+  - Handles authentication, rate limiting, caching, error retry logic
+  - MVP methods: `get_spaces()`, `get_team_members()`
+  - Future methods: `create_task()`, `update_task()`, `get_tasks()`
+  - See Section 8.1.1 for detailed architecture
+
 **External APIs:**
-- ClickUp API v2 (`https://api.clickup.com/api/v2/`)
+- ClickUp API v2 (`https://api.clickup.com/api/v2/`) - **accessed exclusively via ClickUp Service**
 - Google OAuth (via Supabase Auth)
 - Slack API (Phase 5+)
 
 **Workers:**
-- Python `worker-sync` service (nightly ClickUp sync)
+- Python `worker-sync` service (nightly ClickUp sync via ClickUp Service)
 
 ---
 
@@ -1421,6 +1507,7 @@ Based on earlier brainstorming, these could be added later:
 7. ✅ **Client Archiving:** Soft delete using `archived_at` column. Archived clients excluded from default views, preserves all historical data and assignments.
 8. ✅ **Team Member Offboarding:** Soft delete using `employment_status = 'inactive'`. Inactive members excluded from "The Bench" and assignment interfaces, preserves assignment history.
 9. ✅ **ClickUp Team ID:** `42600885` (Ecomlabs workspace). Documented in Section 8.1 with "how to find it" instructions.
+10. ✅ **ClickUp Service Architecture:** Team Central will consume a shared ClickUp service (not call API directly). Service will be used by Team Central, The Operator, and future tools. Documented in Section 8.1.1 and Section 13.
 
 **Still Open (Require Product Decision):**
 
