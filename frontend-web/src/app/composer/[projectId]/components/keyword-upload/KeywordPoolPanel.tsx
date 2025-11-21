@@ -26,7 +26,6 @@ export const KeywordPoolPanel = ({
   onDelete,
 }: KeywordPoolPanelProps) => {
   const [pasteValue, setPasteValue] = useState("");
-  const [manualValue, setManualValue] = useState("");
   const [fileError, setFileError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -79,7 +78,6 @@ export const KeywordPoolPanel = ({
     }
 
     setPasteValue("");
-    setManualValue("");
   };
 
   const decodeFileText = async (file: File): Promise<string> => {
@@ -175,7 +173,7 @@ export const KeywordPoolPanel = ({
         </div>
       </dl>
 
-      <div className="mt-4 grid gap-4 md:grid-cols-3">
+      <div className="mt-4 grid gap-4 md:grid-cols-2">
         <div
           className={`rounded-xl border border-dashed bg-white p-4 transition ${
             isDragging ? "border-[#0a6fd6] bg-[#eef2ff]" : "border-[#cbd5f5]"
@@ -248,31 +246,6 @@ export const KeywordPoolPanel = ({
           >
             Import from Paste
           </button>
-        </div>
-
-        <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
-          <p className="text-sm font-semibold text-[#0f172a]">Add manually</p>
-          <div className="mt-2 flex gap-2">
-            <input
-              className="flex-1 rounded-xl border border-[#cbd5f5] px-3 py-2 text-sm text-[#0f172a] focus:border-[#0a6fd6] focus:outline-none"
-              placeholder="Enter a keyword"
-              value={manualValue}
-              onChange={(e) => setManualValue(e.target.value)}
-              disabled={isSubmitting || isLoading}
-            />
-            <button
-              className="rounded-full bg-[#0a6fd6] px-4 py-2 text-sm font-semibold text-white shadow disabled:opacity-40"
-              onClick={async () => {
-                const keyword = manualValue.trim();
-                if (keyword) {
-                  await handleKeywords([keyword]);
-                }
-              }}
-              disabled={isSubmitting || isLoading}
-            >
-              Add
-            </button>
-          </div>
         </div>
       </div>
 
