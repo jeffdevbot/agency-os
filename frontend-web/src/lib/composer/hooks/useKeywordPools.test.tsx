@@ -281,4 +281,375 @@ describe("useKeywordPools", () => {
     expect(hook.result.pools[0].status).toBe("uploaded");
     await hook.unmount();
   });
+
+  // Stage 7: Grouping Plan Tests
+  describe("generateGroupingPlan", () => {
+    it("generates grouping plan successfully", async () => {
+      const cleanedPool = { ...basePool, status: "cleaned" as const, cleanedKeywords: ["blue", "red", "green"] };
+      getFetchMock().mockResolvedValueOnce(mockFetchResponse({ pools: [cleanedPool] }));
+      getFetchMock().mockResolvedValueOnce(
+        mockFetchResponse({
+          pool: {
+            ...cleanedPool,
+            groupingConfig: { basis: "single", groupCount: 1, phrasesPerGroup: 10 },
+          },
+        }),
+      );
+
+      const hook = await renderHook("proj-1");
+      await act(async () => {
+        await flushMicrotasks();
+      });
+
+      await act(async () => {
+        await hook.result.generateGroupingPlan("pool-1", {
+          basis: "single",
+          groupCount: 1,
+          phrasesPerGroup: 10,
+        });
+        await flushMicrotasks();
+      });
+
+      expect(getFetchMock()).toHaveBeenLastCalledWith(
+        "/api/composer/keyword-pools/pool-1/grouping-plan",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            config: { basis: "single", groupCount: 1, phrasesPerGroup: 10 },
+          }),
+        },
+      );
+      expect(hook.result.pools[0].groupingConfig).toEqual({
+        basis: "single",
+        groupCount: 1,
+        phrasesPerGroup: 10,
+      });
+      await hook.unmount();
+    });
+
+    it("handles grouping plan generation errors", async () => {
+      getFetchMock().mockResolvedValueOnce(mockFetchResponse({ pools: [basePool] }));
+      getFetchMock().mockResolvedValueOnce(
+        Promise.resolve({
+          ok: false,
+          status: 500,
+          json: () => Promise.resolve({ error: "AI service unavailable" }),
+        } as Response),
+      );
+
+      const hook = await renderHook("proj-1");
+      await act(async () => {
+        await flushMicrotasks();
+      });
+
+      let result: any;
+      await act(async () => {
+        result = await hook.result.generateGroupingPlan("pool-1", { basis: "custom" });
+        await flushMicrotasks();
+      });
+
+      expect(result).toBeNull();
+      expect(hook.result.error).toBe("AI service unavailable");
+      await hook.unmount();
+    });
+  });
+
+  describe("getGroups", () => {
+    it("fetches groups with overrides successfully", async () => {
+      getFetchMock().mockResolvedValueOnce(mockFetchResponse({ pools: [basePool] }));
+      getFetchMock().mockResolvedValueOnce(
+        mockFetchResponse({
+          groups: [
+            { id: "group-1", label: "Group 1", phrases: ["blue", "red"] },
+            { id: "group-2", label: "Group 2", phrases: ["green"] },
+          ],
+          overrides: [
+            { phrase: "red", action: "move", sourceGroupId: "group-1", targetGroupIndex: 1 },
+          ],
+        }),
+      );
+
+      const hook = await renderHook("proj-1");
+      await act(async () => {
+        await flushMicrotasks();
+      });
+
+      let result: any;
+      await act(async () => {
+        result = await hook.result.getGroups("pool-1");
+        await flushMicrotasks();
+      });
+
+      expect(getFetchMock()).toHaveBeenLastCalledWith("/api/composer/keyword-pools/pool-1/groups");
+      expect(result.groups).toHaveLength(2);
+      expect(result.overrides).toHaveLength(1);
+      expect(result.groups[0].phrases).toContain("blue");
+      await hook.unmount();
+    });
+
+    it("handles getGroups errors", async () => {
+      getFetchMock().mockResolvedValueOnce(mockFetchResponse({ pools: [basePool] }));
+      getFetchMock().mockResolvedValueOnce(
+        Promise.resolve({
+          ok: false,
+          status: 404,
+          json: () => Promise.resolve({ error: "Groups not found" }),
+        } as Response),
+      );
+
+      const hook = await renderHook("proj-1");
+      await act(async () => {
+        await flushMicrotasks();
+      });
+
+      let result: any;
+      await act(async () => {
+        result = await hook.result.getGroups("pool-1");
+        await flushMicrotasks();
+      });
+
+      expect(result).toBeNull();
+      expect(hook.result.error).toBe("Groups not found");
+      await hook.unmount();
+    });
+  });
+
+  describe("addOverride", () => {
+    it("tracks move override successfully", async () => {
+      getFetchMock().mockResolvedValueOnce(mockFetchResponse({ pools: [basePool] }));
+      getFetchMock().mockResolvedValueOnce(mockFetchResponse({ success: true }));
+
+      const hook = await renderHook("proj-1");
+      await act(async () => {
+        await flushMicrotasks();
+      });
+
+      let result: boolean;
+      await act(async () => {
+        result = await hook.result.addOverride("pool-1", {
+          phrase: "blue",
+          action: "move",
+          sourceGroupId: "group-1",
+          targetGroupLabel: "Group 2",
+          targetGroupIndex: 1,
+        });
+        await flushMicrotasks();
+      });
+
+      expect(result).toBe(true);
+      expect(getFetchMock()).toHaveBeenLastCalledWith(
+        "/api/composer/keyword-pools/pool-1/group-overrides",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            phrase: "blue",
+            action: "move",
+            sourceGroupId: "group-1",
+            targetGroupLabel: "Group 2",
+            targetGroupIndex: 1,
+          }),
+        },
+      );
+      await hook.unmount();
+    });
+
+    it("returns true even on override tracking failure (non-blocking)", async () => {
+      getFetchMock().mockResolvedValueOnce(mockFetchResponse({ pools: [basePool] }));
+      getFetchMock().mockResolvedValueOnce(
+        Promise.resolve({
+          ok: false,
+          status: 500,
+          json: () => Promise.resolve({ error: "Database error" }),
+        } as Response),
+      );
+
+      const hook = await renderHook("proj-1");
+      await act(async () => {
+        await flushMicrotasks();
+      });
+
+      let result: boolean;
+      await act(async () => {
+        result = await hook.result.addOverride("pool-1", {
+          phrase: "test",
+          action: "remove",
+        });
+        await flushMicrotasks();
+      });
+
+      // Should still return true - override tracking is non-blocking
+      expect(result).toBe(true);
+      // Error should not be set for non-blocking operations
+      expect(hook.result.error).toBeNull();
+      await hook.unmount();
+    });
+  });
+
+  describe("resetOverrides", () => {
+    it("resets all overrides successfully", async () => {
+      getFetchMock().mockResolvedValueOnce(mockFetchResponse({ pools: [basePool] }));
+      getFetchMock().mockResolvedValueOnce(mockFetchResponse({ success: true }));
+
+      const hook = await renderHook("proj-1");
+      await act(async () => {
+        await flushMicrotasks();
+      });
+
+      let result: boolean;
+      await act(async () => {
+        result = await hook.result.resetOverrides("pool-1");
+        await flushMicrotasks();
+      });
+
+      expect(result).toBe(true);
+      expect(getFetchMock()).toHaveBeenLastCalledWith(
+        "/api/composer/keyword-pools/pool-1/group-overrides",
+        { method: "DELETE" },
+      );
+      await hook.unmount();
+    });
+
+    it("handles reset overrides errors", async () => {
+      getFetchMock().mockResolvedValueOnce(mockFetchResponse({ pools: [basePool] }));
+      getFetchMock().mockResolvedValueOnce(
+        Promise.resolve({
+          ok: false,
+          status: 500,
+          json: () => Promise.resolve({ error: "Failed to reset" }),
+        } as Response),
+      );
+
+      const hook = await renderHook("proj-1");
+      await act(async () => {
+        await flushMicrotasks();
+      });
+
+      let result: boolean;
+      await act(async () => {
+        result = await hook.result.resetOverrides("pool-1");
+        await flushMicrotasks();
+      });
+
+      expect(result).toBe(false);
+      expect(hook.result.error).toBe("Failed to reset");
+      await hook.unmount();
+    });
+  });
+
+  describe("approveGrouping", () => {
+    it("approves grouping and updates pool status", async () => {
+      const cleanedPool = { ...basePool, status: "cleaned" as const, cleanedKeywords: ["blue", "red"] };
+      getFetchMock().mockResolvedValueOnce(mockFetchResponse({ pools: [cleanedPool] }));
+      getFetchMock().mockResolvedValueOnce(
+        mockFetchResponse({
+          pool: { ...cleanedPool, status: "grouped", groupedAt: "2025-01-03T00:00:00.000Z" },
+        }),
+      );
+
+      const hook = await renderHook("proj-1");
+      await act(async () => {
+        await flushMicrotasks();
+      });
+
+      let result: any;
+      await act(async () => {
+        result = await hook.result.approveGrouping("pool-1");
+        await flushMicrotasks();
+      });
+
+      expect(getFetchMock()).toHaveBeenLastCalledWith(
+        "/api/composer/keyword-pools/pool-1/approve-grouping",
+        { method: "POST" },
+      );
+      expect(result.status).toBe("grouped");
+      expect(hook.result.pools[0].status).toBe("grouped");
+      await hook.unmount();
+    });
+
+    it("handles approve grouping errors", async () => {
+      getFetchMock().mockResolvedValueOnce(mockFetchResponse({ pools: [basePool] }));
+      getFetchMock().mockResolvedValueOnce(
+        Promise.resolve({
+          ok: false,
+          status: 400,
+          json: () => Promise.resolve({ error: "No groups to approve" }),
+        } as Response),
+      );
+
+      const hook = await renderHook("proj-1");
+      await act(async () => {
+        await flushMicrotasks();
+      });
+
+      let result: any;
+      await act(async () => {
+        result = await hook.result.approveGrouping("pool-1");
+        await flushMicrotasks();
+      });
+
+      expect(result).toBeNull();
+      expect(hook.result.error).toBe("No groups to approve");
+      await hook.unmount();
+    });
+  });
+
+  describe("unapproveGrouping", () => {
+    it("unapproves grouping and updates pool status", async () => {
+      const groupedPool = { ...basePool, status: "grouped" as const, groupedAt: "2025-01-03T00:00:00.000Z" };
+      getFetchMock().mockResolvedValueOnce(mockFetchResponse({ pools: [groupedPool] }));
+      getFetchMock().mockResolvedValueOnce(
+        mockFetchResponse({
+          pool: { ...groupedPool, status: "cleaned", groupedAt: null },
+        }),
+      );
+
+      const hook = await renderHook("proj-1");
+      await act(async () => {
+        await flushMicrotasks();
+      });
+
+      let result: any;
+      await act(async () => {
+        result = await hook.result.unapproveGrouping("pool-1");
+        await flushMicrotasks();
+      });
+
+      expect(getFetchMock()).toHaveBeenLastCalledWith(
+        "/api/composer/keyword-pools/pool-1?action=unapprove",
+        { method: "DELETE" },
+      );
+      expect(result.status).toBe("cleaned");
+      expect(hook.result.pools[0].status).toBe("cleaned");
+      expect(hook.result.pools[0].groupedAt).toBeNull();
+      await hook.unmount();
+    });
+
+    it("handles unapprove grouping errors", async () => {
+      getFetchMock().mockResolvedValueOnce(mockFetchResponse({ pools: [basePool] }));
+      getFetchMock().mockResolvedValueOnce(
+        Promise.resolve({
+          ok: false,
+          status: 400,
+          json: () => Promise.resolve({ error: "Pool not approved" }),
+        } as Response),
+      );
+
+      const hook = await renderHook("proj-1");
+      await act(async () => {
+        await flushMicrotasks();
+      });
+
+      let result: any;
+      await act(async () => {
+        result = await hook.result.unapproveGrouping("pool-1");
+        await flushMicrotasks();
+      });
+
+      expect(result).toBeNull();
+      expect(hook.result.error).toBe("Pool not approved");
+      await hook.unmount();
+    });
+  });
 });

@@ -29,8 +29,11 @@ export function GroupingConfigForm({ onGenerate, isGenerating }: GroupingConfigF
   return (
     <form onSubmit={handleSubmit} className="space-y-4 p-4 border rounded-lg bg-gray-50">
       <div>
-        <label className="block text-sm font-medium mb-2">Grouping Strategy</label>
+        <label className="block text-sm font-medium mb-2" htmlFor="grouping-strategy">
+          Grouping Strategy
+        </label>
         <select
+          id="grouping-strategy"
           value={basis}
           onChange={(e) => setBasis(e.target.value as GroupingConfig['basis'])}
           className="w-full px-3 py-2 border rounded-md"
@@ -45,8 +48,11 @@ export function GroupingConfigForm({ onGenerate, isGenerating }: GroupingConfigF
 
       {basis === 'attribute' && (
         <div>
-          <label className="block text-sm font-medium mb-2">Attribute Name</label>
+          <label className="block text-sm font-medium mb-2" htmlFor="attribute-name">
+            Attribute Name
+          </label>
           <input
+            id="attribute-name"
             type="text"
             value={attributeName}
             onChange={(e) => setAttributeName(e.target.value)}
@@ -61,8 +67,11 @@ export function GroupingConfigForm({ onGenerate, isGenerating }: GroupingConfigF
       {basis === 'custom' && (
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium mb-2">Number of Groups</label>
+            <label className="block text-sm font-medium mb-2" htmlFor="group-count">
+              Number of Groups
+            </label>
             <input
+              id="group-count"
               type="number"
               value={groupCount}
               onChange={(e) => setGroupCount(parseInt(e.target.value) || 3)}
@@ -73,8 +82,11 @@ export function GroupingConfigForm({ onGenerate, isGenerating }: GroupingConfigF
             />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-2">Keywords Per Group</label>
+            <label className="block text-sm font-medium mb-2" htmlFor="phrases-per-group">
+              Keywords Per Group
+            </label>
             <input
+              id="phrases-per-group"
               type="number"
               value={phrasesPerGroup}
               onChange={(e) => setPhrasesPerGroup(parseInt(e.target.value) || 10)}
