@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createSupabaseRouteClient } from '@/lib/supabase/serverClient';
+import { resolveComposerOrgIdFromSession } from '@/lib/composer/serverUtils';
+import { mapRowToPool } from '../route';
 
 export async function POST(
   request: NextRequest,
@@ -7,23 +9,32 @@ export async function POST(
 ) {
   try {
     const { poolId } = await params;
-    const supabase = await createClient();
+    const supabase = await createSupabaseRouteClient();
 
-    // Get current user
+    // Get current session
     const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
+      data: { session },
+    } = await supabase.auth.getSession();
 
-    if (userError || !user) {
+    if (!session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const organizationId = resolveComposerOrgIdFromSession(session);
+
+    if (!organizationId) {
+      return NextResponse.json(
+        { error: 'Organization not found in session' },
+        { status: 403 },
+      );
     }
 
     // Fetch the pool with its current updated_at timestamp for optimistic locking
     const { data: pool, error: poolError } = await supabase
       .from('composer_keyword_pools')
-      .select('*, keywords:composer_keywords(*), groups:composer_keyword_groups(*)')
+      .select('*')
       .eq('id', poolId)
+      .eq('organization_id', organizationId)
       .single();
 
     if (poolError || !pool) {
@@ -40,31 +51,19 @@ export async function POST(
       );
     }
 
-    // Validate that there are keywords
-    if (!pool.keywords || pool.keywords.length === 0) {
+    // Validate that there are cleaned keywords
+    const cleanedKeywords = (pool.cleaned_keywords as string[]) || [];
+    if (cleanedKeywords.length === 0) {
       return NextResponse.json(
-        { error: 'Cannot approve grouping: No keywords in pool' },
+        { error: 'Cannot approve grouping: No cleaned keywords in pool' },
         { status: 400 }
       );
     }
 
-    // Validate that there are groups
-    if (!pool.groups || pool.groups.length === 0) {
+    // Validate that grouping config exists
+    if (!pool.grouping_config || !pool.grouping_config.basis) {
       return NextResponse.json(
-        { error: 'Cannot approve grouping: No groups created' },
-        { status: 400 }
-      );
-    }
-
-    // Validate that all keywords are assigned to groups
-    const unassignedKeywords = pool.keywords.filter(
-      (k: any) => !k.assigned_group_id
-    );
-    if (unassignedKeywords.length > 0) {
-      return NextResponse.json(
-        {
-          error: `Cannot approve grouping: ${unassignedKeywords.length} keyword(s) not assigned to any group`,
-        },
+        { error: 'Cannot approve grouping: No grouping plan configured' },
         { status: 400 }
       );
     }
@@ -109,8 +108,7 @@ export async function POST(
     }
 
     return NextResponse.json({
-      success: true,
-      pool: updatedPool,
+      pool: mapRowToPool(updatedPool),
     });
   } catch (error) {
     console.error('Error approving grouping:', error);
