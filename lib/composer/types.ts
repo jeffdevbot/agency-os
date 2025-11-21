@@ -184,6 +184,7 @@ export interface ComposerKeywordPool {
   groupedAt: ISODateString | null;
   approvedAt: ISODateString | null;
   createdAt: ISODateString;
+  updatedAt: ISODateString;
 }
 
 export interface ComposerKeywordGroup {
