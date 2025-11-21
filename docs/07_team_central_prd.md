@@ -1,9 +1,11 @@
 # Product Requirement Document: Team Central
 
-**Version:** 1.0
+**Version:** 1.1 (Updated after Red Team & Supabase Consultant review)
 **Product Area:** Agency OS → Tools → Team Central
 **Status:** Ready for Engineering
 **Route:** `tools.ecomlabs.ca/team-central`
+
+**Architecture:** Single-tenant (Ecomlabs internal only)
 
 ---
 
@@ -543,24 +545,33 @@ Report Specialist (supports Brand Manager)
 
 Extends Supabase `auth.users` with agency-specific fields.
 
+**Enhancement Strategy:** Add new columns to existing `profiles` table (non-breaking, additive changes only).
+
 ```sql
-create table public.profiles (
-  id uuid primary key references auth.users on delete cascade,
-  email text unique,
-  display_name text,
-  is_admin boolean default false,
-  clickup_user_id text,
-  slack_user_id text,
-  bench_status text default 'available' check (bench_status in ('available', 'assigned', 'unavailable')),
-  created_at timestamptz default now(),
-  updated_at timestamptz default now()
-);
+-- Existing columns (already in live DB):
+-- id uuid primary key references auth.users on delete cascade
+-- email text unique
+-- full_name text
+-- avatar_url text
+-- created_at timestamptz default now()
+-- updated_at timestamptz default now()
+
+-- NEW columns to add via migration:
+alter table public.profiles
+  add column if not exists display_name text,
+  add column if not exists is_admin boolean default false,
+  add column if not exists clickup_user_id text unique,
+  add column if not exists slack_user_id text unique,
+  add column if not exists bench_status text
+    default 'available'
+    check (bench_status in ('available', 'assigned', 'unavailable'));
 ```
 
-**Notes:**
-- `id` can be NULL initially (for team members added before they log in)
-- When user logs in via Google, Supabase matches by `email` and populates `id`
-- `bench_status` auto-calculated: 'assigned' if has any client assignments, else 'available'
+**Important Notes:**
+- ⚠️ `id` is **non-nullable** (PRIMARY KEY referencing `auth.users`)
+- Users must log in via Google SSO before they can be assigned to clients
+- `bench_status` is derived: 'assigned' if user has any client assignments, else 'available'
+- `is_admin` controls access to Team Central admin features
 
 ---
 
@@ -580,10 +591,65 @@ create type team_role as enum (
 
 ---
 
-#### **`public.clients`**
+#### **`public.team_members_pending` (NEW - Pre-Login Support)**
+
+Stores team members who have been added to the system but haven't logged in yet.
 
 ```sql
-create table public.clients (
+create table public.team_members_pending (
+  id uuid primary key default gen_random_uuid(),
+  email text unique not null,
+  full_name text not null,
+  display_name text,
+  clickup_user_id text,
+  slack_user_id text,
+  invited_by uuid references public.profiles(id),
+  invited_at timestamptz default now(),
+  linked_profile_id uuid unique references public.profiles(id),
+  linked_at timestamptz,
+  expires_at timestamptz default (now() + interval '30 days')
+);
+
+-- Trigger: Auto-link when user signs up with matching email
+create or replace function link_pending_team_member()
+returns trigger as $$
+begin
+  update public.team_members_pending
+  set linked_profile_id = NEW.id,
+      linked_at = now()
+  where email = NEW.email
+    and linked_profile_id is null;
+  return NEW;
+end;
+$$ language plpgsql security definer;
+
+create trigger on_profile_created
+  after insert on public.profiles
+  for each row
+  execute function link_pending_team_member();
+```
+
+**Purpose:**
+- Admins can add team members before they log in (e.g., during onboarding)
+- Once user logs in via Google SSO, system auto-links by email
+- Pending members can be pre-configured with ClickUp/Slack IDs
+- After linking, admin can drag them into client assignments
+
+**Workflow:**
+1. Admin adds "sarah@ecomlabs.ca" with name and IDs
+2. Row created in `team_members_pending`
+3. Sarah logs in via Google SSO → `profiles` row created
+4. Trigger auto-links: `pending.linked_profile_id = sarah's profiles.id`
+5. Admin sees Sarah is now "active" and can assign her to clients
+
+---
+
+#### **`public.agency_clients`** (⚠️ Renamed to avoid conflict with `client_profiles`)
+
+Represents Ecomlabs' client accounts (e.g., Brand X, Brand Y). Distinct from `client_profiles` which represents external users of Composer/Ngram.
+
+```sql
+create table public.agency_clients (
   id uuid primary key default gen_random_uuid(),
   name text not null,
   logo_url text,
@@ -593,10 +659,19 @@ create table public.clients (
   slack_channel_external text,
   status text default 'active' check (status in ('active', 'paused', 'churned')),
   created_at timestamptz default now(),
-  created_by uuid references public.profiles,
+  created_by uuid references public.profiles(id),
   updated_at timestamptz default now()
 );
+
+-- Indexes
+create index idx_agency_clients_status on public.agency_clients(status) where status = 'active';
+create index idx_agency_clients_clickup on public.agency_clients(clickup_space_id) where clickup_space_id is not null;
 ```
+
+**Why "agency_clients"?**
+- Live DB already has `public.client_profiles` for Composer/Ngram end-users
+- This table is for **Ecomlabs' internal client accounts** (the brands you serve)
+- Naming avoids confusion and future conflicts
 
 ---
 
@@ -605,19 +680,22 @@ create table public.clients (
 ```sql
 create table public.client_assignments (
   id uuid primary key default gen_random_uuid(),
-  client_id uuid not null references public.clients on delete cascade,
-  team_member_id uuid not null references public.profiles on delete cascade,
+  client_id uuid not null references public.agency_clients(id) on delete cascade,
+  team_member_id uuid not null references public.profiles(id) on delete cascade,
   role team_role not null,
   assigned_at timestamptz default now(),
-  assigned_by uuid references public.profiles,
+  assigned_by uuid references public.profiles(id),
 
   -- One person can have multiple roles for the same client
   unique (client_id, team_member_id, role)
 );
 
+-- Indexes for common query patterns
 create index idx_assignments_client on public.client_assignments(client_id);
 create index idx_assignments_member on public.client_assignments(team_member_id);
 create index idx_assignments_role on public.client_assignments(role);
+create index idx_assignments_member_client on public.client_assignments(team_member_id, client_id);
+create index idx_assignments_client_role on public.client_assignments(client_id, role);
 ```
 
 **Key Design Decision:**
@@ -665,7 +743,7 @@ select
   c.status,
   ca.assigned_at
 from client_assignments ca
-join clients c on ca.client_id = c.id
+join agency_clients c on ca.client_id = c.id
 where ca.team_member_id = :memberId
 order by ca.role, c.name;
 ```
@@ -681,6 +759,126 @@ where not exists (
 and p.bench_status = 'available'
 order by p.display_name;
 ```
+
+---
+
+### 6.3 Row-Level Security (RLS) Policies
+
+**Security Model:** Single-tenant (Ecomlabs internal). All authenticated Ecomlabs employees can view data; only admins can modify.
+
+#### **`public.agency_clients`**
+
+```sql
+-- Enable RLS
+alter table public.agency_clients enable row level security;
+
+-- Policy: All authenticated users can view clients
+create policy "Authenticated users can view agency clients"
+  on public.agency_clients
+  for select
+  to authenticated
+  using (true);
+
+-- Policy: Only admins can insert/update/delete clients
+create policy "Only admins can manage agency clients"
+  on public.agency_clients
+  for all
+  to authenticated
+  using (
+    exists (
+      select 1 from public.profiles
+      where id = auth.uid() and is_admin = true
+    )
+  )
+  with check (
+    exists (
+      select 1 from public.profiles
+      where id = auth.uid() and is_admin = true
+    )
+  );
+```
+
+#### **`public.client_assignments`**
+
+```sql
+alter table public.client_assignments enable row level security;
+
+-- Policy: All authenticated users can view assignments (for org charts)
+create policy "Authenticated users can view assignments"
+  on public.client_assignments
+  for select
+  to authenticated
+  using (true);
+
+-- Policy: Only admins can manage assignments
+create policy "Only admins can manage assignments"
+  on public.client_assignments
+  for all
+  to authenticated
+  using (
+    exists (
+      select 1 from public.profiles
+      where id = auth.uid() and is_admin = true
+    )
+  )
+  with check (
+    exists (
+      select 1 from public.profiles
+      where id = auth.uid() and is_admin = true
+    )
+  );
+```
+
+#### **`public.team_members_pending`**
+
+```sql
+alter table public.team_members_pending enable row level security;
+
+-- Policy: Only admins can view/manage pending members
+create policy "Only admins can manage pending members"
+  on public.team_members_pending
+  for all
+  to authenticated
+  using (
+    exists (
+      select 1 from public.profiles
+      where id = auth.uid() and is_admin = true
+    )
+  );
+```
+
+#### **`public.profiles` (Enhanced Policies)**
+
+```sql
+-- Existing: Users can view all profiles (team directory)
+-- Existing: Users can update their own profile
+
+-- NEW: Only admins can toggle is_admin flag
+create policy "Only admins can grant admin access"
+  on public.profiles
+  for update
+  to authenticated
+  using (
+    -- Current user must be admin
+    exists (
+      select 1 from public.profiles
+      where id = auth.uid() and is_admin = true
+    )
+  )
+  with check (
+    -- Can only modify is_admin if updater is admin
+    exists (
+      select 1 from public.profiles
+      where id = auth.uid() and is_admin = true
+    )
+  );
+```
+
+**Notes:**
+- All policies check `is_admin` flag via subquery (not a stored function)
+- Authenticated users = anyone logged in via Google SSO
+- Admin-only operations: Create/update/delete clients, manage assignments, toggle admin access
+- Read access is open to all authenticated Ecomlabs employees (team directory visibility)
 
 ---
 
@@ -828,33 +1026,27 @@ clickup.create_task(
 4. `is_admin = false` by default
 5. Admin navigates to Team Central, sees new profile, can assign to clients
 
-**Scenario B: Admin Adds Team Member First (Not Logged In Yet)**
-1. Admin clicks "+ New Team Member"
-2. Enters: `sarah@ecomlabs.ca`, "Sarah Johnson", ClickUp ID, etc.
-3. System creates `profiles` entry with `id = NULL` (not yet linked to auth)
-4. Sarah can now be assigned to clients via drag-and-drop
-5. When Sarah eventually logs in with Google:
-   - Supabase matches by email
-   - Auto-updates `profiles.id` to link to `auth.users.id`
-6. Sarah can now log in and see her assignments (future: non-admin access)
+**Scenario B: Admin Adds Team Member First (Not Logged In Yet)** ⭐ **Common during onboarding**
+1. Admin clicks "+ New Team Member" (pre-login)
+2. Enters: `sarah@ecomlabs.ca`, "Sarah Johnson", ClickUp ID, Slack handle
+3. System creates `team_members_pending` entry (not yet in `profiles`)
+4. Admin can configure Sarah's ClickUp/Slack mappings, but **cannot yet assign to clients**
+5. Admin sends Google Workspace invite to sarah@ecomlabs.ca
+6. When Sarah logs in with Google:
+   - Supabase creates `auth.users` + `profiles` entries
+   - Trigger auto-links: `team_members_pending.linked_profile_id = sarah's profile.id`
+   - ClickUp/Slack IDs copied from pending record to `profiles`
+7. Sarah now appears in "The Bench" and can be assigned to clients
 
-**Database Trigger (Auto-Link):**
-```sql
--- When a new auth.users row is created, check if a profile exists with that email
-create or replace function link_profile_to_auth()
-returns trigger as $$
-begin
-  update public.profiles
-  set id = NEW.id, updated_at = now()
-  where email = NEW.email and id is null;
-  return NEW;
-end;
-$$ language plpgsql;
+**Why this approach?**
+- `profiles.id` must reference `auth.users.id` (non-nullable FK)
+- Can't create profiles without login
+- Separate table allows pre-configuration before first login
+- Auto-linking happens transparently via trigger (see Section 6.1)
 
-create trigger on_auth_user_created
-after insert on auth.users
-for each row execute function link_profile_to_auth();
-```
+**UI Indicator:**
+- Pending members show with badge: "⏳ Pending Login"
+- Once linked, badge changes to: "✅ Active"
 
 ---
 
@@ -1136,12 +1328,20 @@ Based on earlier brainstorming, these could be added later:
 ### Existing Data
 **Current state:**
 - Some team members exist in `profiles` (logged in before)
-- Some clients may exist in `clients` table (if created for Composer)
+- No conflicts: `client_profiles` is for Composer/Ngram external users (different entity)
+- Team Central uses new `agency_clients` table
 
 **Migration Steps:**
-1. Run schema migration (create `client_assignments` table, add new columns to `profiles`)
+1. Run schema migration:
+   - Create enum types: `team_role`, `bench_status` (if using enum)
+   - Enhance `profiles` with new columns (additive only)
+   - Create `team_members_pending` table + trigger
+   - Create `agency_clients` table
+   - Create `client_assignments` table
+   - Add indexes (Section 6.1)
+   - Enable RLS policies (Section 6.3)
 2. Backfill `is_admin = true` for known admins (manually or via script)
-3. No data loss (additive changes only)
+3. No data loss (all changes are additive)
 
 ### Rollout
 1. **Week 1:** Schema + API development
@@ -1173,13 +1373,24 @@ Based on earlier brainstorming, these could be added later:
 
 ---
 
-## 16. Open Questions / Decisions Needed
+## 16. Decisions Made (Post-Review)
+
+**Resolved after Red Team & Supabase Consultant review (2025-11-21):**
+
+1. ✅ **Multi-Tenancy:** Single-tenant (Ecomlabs internal only). No `organization_id` needed in Team Central tables.
+2. ✅ **Pre-Login Team Members:** Use `team_members_pending` table with auto-linking trigger (not nullable `profiles.id`).
+3. ✅ **Admin Model:** `profiles.is_admin` boolean flag (not role enum).
+4. ✅ **Table Naming:** `public.agency_clients` (avoids conflict with existing `client_profiles`).
+5. ✅ **RLS Policies:** Defined in Section 6.3 (all authenticated can view, only admins can modify).
+6. ✅ **Indexes:** Composite indexes added for common query patterns (org charts, reverse charts, role filtering).
+
+**Still Open (Require Product Decision):**
 
 1. **ClickUp Team ID:** What is the ClickUp Team ID for Ecomlabs? (Needed for API calls)
-2. **Default Max Clients Per Role:** Should we enforce limits? (e.g., "Brand Managers can't exceed 6 clients")
-3. **Assignment Change Notifications:** Should team members receive email/Slack when assigned to new client? (Deferred to Phase 5?)
-4. **Client Deletion:** Hard delete or soft delete (status = 'archived')? **Recommendation:** Soft delete for audit trail.
-5. **Team Member Deletion:** What happens to their assignments? Cascade delete or prevent deletion if assigned? **Recommendation:** Prevent deletion, require unassignment first.
+2. **Default Max Clients Per Role:** Should we enforce limits? (e.g., "Brand Managers can't exceed 6 clients") **Recommendation:** No limits in MVP, add Phase 4 with hours data.
+3. **Assignment Change Notifications:** Should team members receive email/Slack when assigned to new client? **Recommendation:** Deferred to Phase 5 (Slack integration).
+4. **Client Deletion:** Hard delete or soft delete (status = 'archived')? **Recommendation:** Soft delete for audit trail (add `archived_at` column).
+5. **Team Member Deletion:** What happens to their assignments? Cascade delete or prevent deletion if assigned? **Recommendation:** Prevent deletion, require unassignment first (safer).
 
 ---
 
