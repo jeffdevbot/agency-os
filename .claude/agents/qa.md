@@ -252,8 +252,8 @@ Tests can use the same path aliases as source code:
 - **`KeywordCleanupStep`:** Tests now active (tab navigation, progress indicators, approve/unapprove flow, Continue-to-Titles CTA) with hook mocks isolated per test.
 - **`useKeywordPools`:** Added test for `unapproveClean()` function asserting PATCH payload + optimistic update.
 
-**Suite status (as of 2025-11-20):** Stage 5 UI suites now fully passing (no skips); targeted run:  
-`npm run test:run -- 'src/lib/composer/hooks/useKeywordPools.test.tsx' 'src/app/composer/[projectId]/components/keyword-cleanup/CleanedKeywordsList.test.tsx' 'src/app/composer/[projectId]/components/keyword-cleanup/RemovedKeywordsList.test.tsx' 'src/app/composer/[projectId]/components/keyword-cleanup/KeywordCleanupStep.test.tsx'` → 27/27 passing. Run full `npm run test:run` to refresh overall count beyond prior 180 passing.
+**Suite status (as of 2025-11-20):** Full `npm run test:run` now passes 185 tests across 17 files (Stage 5 UI suites included, no skips). Targeted Stage 5 command:  
+`npm run test:run -- 'src/lib/composer/hooks/useKeywordPools.test.tsx' 'src/app/composer/[projectId]/components/keyword-cleanup/CleanedKeywordsList.test.tsx' 'src/app/composer/[projectId]/components/keyword-cleanup/RemovedKeywordsList.test.tsx' 'src/app/composer/[projectId]/components/keyword-cleanup/KeywordCleanupStep.test.tsx'` (27/27 passing).
 
 ### Priority Testing Targets
 
