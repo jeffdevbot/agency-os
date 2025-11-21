@@ -1,6 +1,6 @@
 # Product Requirement Document: Team Central
 
-**Version:** 1.1 (Updated after Red Team & Supabase Consultant review)
+**Version:** 1.2 (Archiving strategy & ClickUp Team ID documented)
 **Product Area:** Agency OS → Tools → Team Central
 **Status:** Ready for Engineering
 **Route:** `tools.ecomlabs.ca/team-central`
@@ -562,6 +562,9 @@ alter table public.profiles
   add column if not exists is_admin boolean default false,
   add column if not exists clickup_user_id text unique,
   add column if not exists slack_user_id text unique,
+  add column if not exists employment_status text
+    default 'active'
+    check (employment_status in ('active', 'inactive', 'contractor')),
   add column if not exists bench_status text
     default 'available'
     check (bench_status in ('available', 'assigned', 'unavailable'));
@@ -570,6 +573,10 @@ alter table public.profiles
 **Important Notes:**
 - ⚠️ `id` is **non-nullable** (PRIMARY KEY referencing `auth.users`)
 - Users must log in via Google SSO before they can be assigned to clients
+- `employment_status`:
+  - `'active'`: Current employee, shows in "The Bench" and assignment interfaces
+  - `'inactive'`: Former employee or on leave, excluded from "The Bench" (soft delete)
+  - `'contractor'`: Temporary/contract worker, shows in interfaces but marked distinctly
 - `bench_status` is derived: 'assigned' if user has any client assignments, else 'available'
 - `is_admin` controls access to Team Central admin features
 
@@ -658,6 +665,7 @@ create table public.agency_clients (
   slack_channel_internal text,
   slack_channel_external text,
   status text default 'active' check (status in ('active', 'paused', 'churned')),
+  archived_at timestamptz,
   created_at timestamptz default now(),
   created_by uuid references public.profiles(id),
   updated_at timestamptz default now()
@@ -666,12 +674,20 @@ create table public.agency_clients (
 -- Indexes
 create index idx_agency_clients_status on public.agency_clients(status) where status = 'active';
 create index idx_agency_clients_clickup on public.agency_clients(clickup_space_id) where clickup_space_id is not null;
+create index idx_agency_clients_archived on public.agency_clients(archived_at) where archived_at is not null;
 ```
 
 **Why "agency_clients"?**
 - Live DB already has `public.client_profiles` for Composer/Ngram end-users
 - This table is for **Ecomlabs' internal client accounts** (the brands you serve)
 - Naming avoids confusion and future conflicts
+
+**Archiving Strategy:**
+- Clients are **never hard-deleted** (preservation of audit trail and historical data)
+- Set `archived_at` to mark client as archived
+- Archived clients excluded from default views (filter `WHERE archived_at IS NULL`)
+- Archived clients retain all assignments for historical reference
+- Can be unarchived by setting `archived_at = NULL` if client returns
 
 ---
 
@@ -757,6 +773,7 @@ where not exists (
   where ca.team_member_id = p.id
 )
 and p.bench_status = 'available'
+and p.employment_status = 'active'  -- Only show active employees
 order by p.display_name;
 ```
 
@@ -903,7 +920,10 @@ All routes are **admin-only** (enforce `is_admin = true` middleware).
   - Body: `{ name?, logo_url?, clickup_space_id?, slack_*, status? }`
   - Returns: `{ client: Client }`
 
-- `DELETE /api/team-central/clients/:id` — Delete client (cascades assignments)
+- `PATCH /api/team-central/clients/:id/archive` — Archive client (soft delete)
+  - Body: `{ archived: boolean }` (set to false to unarchive)
+  - Sets `archived_at` timestamp or nullifies it
+  - Returns: `{ client: Client }`
 
 ---
 
@@ -921,10 +941,14 @@ All routes are **admin-only** (enforce `is_admin = true` middleware).
   - Returns: `{ member: TeamMember, assignments: GroupedAssignment[], history: ActivityLog[] }`
 
 - `PATCH /api/team-central/team/:id` — Update team member metadata
-  - Body: `{ display_name?, is_admin?, clickup_user_id?, slack_user_id?, bench_status? }`
+  - Body: `{ display_name?, is_admin?, clickup_user_id?, slack_user_id?, bench_status?, employment_status? }`
   - Returns: `{ member: TeamMember }`
 
-- `DELETE /api/team-central/team/:id` — Delete team member (cascades assignments)
+- `PATCH /api/team-central/team/:id/employment-status` — Update employment status (soft delete)
+  - Body: `{ employment_status: 'active' | 'inactive' | 'contractor' }`
+  - Sets status to 'inactive' for offboarding (preserves all assignment history)
+  - Inactive members excluded from "The Bench" and assignment interfaces
+  - Returns: `{ member: TeamMember }`
 
 ---
 
@@ -976,6 +1000,15 @@ All routes are **admin-only** (enforce `is_admin = true` middleware).
 
 **Purpose:** Enable The Operator to assign tasks to the right person for each client
 
+**ClickUp Team ID:** `42600885` (Ecomlabs workspace)
+
+**How to Find Your Team ID:**
+If you need to verify or retrieve your ClickUp Team ID in the future, run this command:
+```bash
+curl -H "Authorization: YOUR_CLICKUP_API_TOKEN" https://api.clickup.com/api/v2/team
+```
+Look for the `id` field in the response. You'll need this ID for all Space and User sync operations.
+
 **What We Store:**
 - Client → ClickUp Space ID
 - Team Member → ClickUp User ID
@@ -983,8 +1016,8 @@ All routes are **admin-only** (enforce `is_admin = true` middleware).
 **Sync Flow:**
 1. Admin clicks "Sync ClickUp" button
 2. Backend calls ClickUp API (requires `CLICKUP_API_TOKEN` env var):
-   - `GET /team/{team_id}/space` → Returns all Spaces
-   - `GET /team/{team_id}/member` → Returns all Users
+   - `GET /team/42600885/space` → Returns all Spaces
+   - `GET /team/42600885/member` → Returns all Users
 3. Frontend displays dropdowns populated with synced data
 4. Admin selects correct mapping
 5. System stores IDs in DB
@@ -1002,9 +1035,11 @@ client = get_client(client_id)
 assignment = get_assignment(client_id, role='brand_manager')
 team_member = get_team_member(assignment.team_member_id)
 
+# Create task in client's ClickUp Space, assigned to team member's ClickUp User ID
 clickup.create_task(
-  space_id=client.clickup_space_id,
-  assignee=team_member.clickup_user_id,
+  space_id=client.clickup_space_id,      # e.g., "90123456"
+  assignee=team_member.clickup_user_id,  # e.g., "12345678"
+  title="Weekly report for Brand X",
   ...
 )
 ```
@@ -1383,14 +1418,14 @@ Based on earlier brainstorming, these could be added later:
 4. ✅ **Table Naming:** `public.agency_clients` (avoids conflict with existing `client_profiles`).
 5. ✅ **RLS Policies:** Defined in Section 6.3 (all authenticated can view, only admins can modify).
 6. ✅ **Indexes:** Composite indexes added for common query patterns (org charts, reverse charts, role filtering).
+7. ✅ **Client Archiving:** Soft delete using `archived_at` column. Archived clients excluded from default views, preserves all historical data and assignments.
+8. ✅ **Team Member Offboarding:** Soft delete using `employment_status = 'inactive'`. Inactive members excluded from "The Bench" and assignment interfaces, preserves assignment history.
+9. ✅ **ClickUp Team ID:** `42600885` (Ecomlabs workspace). Documented in Section 8.1 with "how to find it" instructions.
 
 **Still Open (Require Product Decision):**
 
-1. **ClickUp Team ID:** What is the ClickUp Team ID for Ecomlabs? (Needed for API calls)
-2. **Default Max Clients Per Role:** Should we enforce limits? (e.g., "Brand Managers can't exceed 6 clients") **Recommendation:** No limits in MVP, add Phase 4 with hours data.
-3. **Assignment Change Notifications:** Should team members receive email/Slack when assigned to new client? **Recommendation:** Deferred to Phase 5 (Slack integration).
-4. **Client Deletion:** Hard delete or soft delete (status = 'archived')? **Recommendation:** Soft delete for audit trail (add `archived_at` column).
-5. **Team Member Deletion:** What happens to their assignments? Cascade delete or prevent deletion if assigned? **Recommendation:** Prevent deletion, require unassignment first (safer).
+1. **Default Max Clients Per Role:** Should we enforce limits? (e.g., "Brand Managers can't exceed 6 clients") **Recommendation:** No limits in MVP, add Phase 4 with hours data.
+2. **Assignment Change Notifications:** Should team members receive email/Slack when assigned to new client? **Recommendation:** Deferred to Phase 5 (Slack integration).
 
 ---
 
