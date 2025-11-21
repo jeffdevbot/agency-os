@@ -35,6 +35,7 @@ interface KeywordPoolRow {
   grouped_at: string | null;
   approved_at: string | null;
   created_at: string;
+  updated_at: string;
 }
 
 const normalizeGroupingConfig = (grouping: KeywordPoolRow["grouping_config"]): GroupingConfig => {
@@ -68,6 +69,7 @@ const mapRowToPool = (row: KeywordPoolRow): ComposerKeywordPool => ({
   groupedAt: row.grouped_at,
   approvedAt: row.approved_at,
   createdAt: row.created_at,
+  updatedAt: row.updated_at,
 });
 
 /**
@@ -271,17 +273,23 @@ export async function POST(
     finalKeywords = incomingKeywords;
   }
 
-  // Validate keyword count
+  // Validate keyword count (only max limit is enforced, min is a warning)
   const validation = validateKeywordCount(finalKeywords);
-  if (!validation.valid) {
+
+  // Only block if exceeds maximum (5000)
+  if (finalKeywords.length > 5000) {
     return NextResponse.json(
       { error: validation.error, count: finalKeywords.length },
       { status: 400 },
     );
   }
 
+  // Allow uploads with < 5 keywords (warning will be shown in frontend)
+  // User won't be able to proceed to cleanup step until both pools have >= 5
+
   if (existingPools) {
     // Update existing pool - merge keywords and reset approvals
+    // Use optimistic locking to prevent race conditions
     const { data, error } = await supabase
       .from("composer_keyword_pools")
       .update({
@@ -296,11 +304,23 @@ export async function POST(
         removed_keywords: [],
       })
       .eq("id", existingPools.id)
+      .eq("updated_at", existingPools.updated_at) // Optimistic locking
       .select("*")
       .single();
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    // Check if update succeeded (row was found and updated)
+    if (!data) {
+      return NextResponse.json(
+        {
+          error: "Concurrent update detected. Please refresh and try again.",
+          code: "CONCURRENT_MODIFICATION"
+        },
+        { status: 409 }
+      );
     }
 
     return NextResponse.json({

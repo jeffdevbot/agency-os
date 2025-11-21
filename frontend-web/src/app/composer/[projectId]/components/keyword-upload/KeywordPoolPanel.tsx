@@ -55,19 +55,29 @@ export const KeywordPoolPanel = ({
 
     const merged = mergeKeywords(rawKeywords, keywords);
     const validation = validateKeywordCount(merged);
-    if (!validation.valid) {
-      setError(validation.error ?? "Invalid keyword count");
-      return;
-    }
 
+    // Upload keywords regardless of count (allow iterative accumulation)
     setIsSubmitting(true);
     const result = await onUpload(keywords);
     setIsSubmitting(false);
-    if (result.warning || validation.warning) {
+
+    // Show appropriate message based on validation state
+    const totalCount = merged.length;
+
+    if (!validation.valid && validation.error) {
+      // Show progress message for < 5 keywords (informational, not error)
+      const remaining = 5 - totalCount;
+      setMessage(
+        `Uploaded ${keywords.length} keyword(s). Total: ${totalCount}/5. Upload ${remaining} more to proceed to cleanup.`
+      );
+    } else if (result.warning || validation.warning) {
+      // Show warning for counts between 5-49 (recommend 50-100+)
       setMessage(result.warning ?? validation.warning ?? null);
     } else {
+      // Success message for good counts (50+)
       setMessage(`Uploaded ${keywords.length} keyword(s)`);
     }
+
     setPasteValue("");
     setManualValue("");
   };
