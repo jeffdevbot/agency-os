@@ -1,11 +1,3 @@
-import OpenAI from "openai";
-
-export interface OpenAIConfig {
-  apiKey: string;
-  model: string;
-  fallbackModel?: string;
-}
-
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
   content: string;
@@ -20,16 +12,71 @@ export interface ChatCompletionResult {
   durationMs: number;
 }
 
-const getOpenAIClient = (): OpenAI => {
+const getDefaultModel = (): string => {
+  return process.env.OPENAI_MODEL_PRIMARY || "gpt-5.1-nano";
+};
+
+const getApiKey = (): string => {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     throw new Error("OPENAI_API_KEY environment variable is not set");
   }
-  return new OpenAI({ apiKey });
+  return apiKey;
 };
 
-const getDefaultModel = (): string => {
-  return process.env.OPENAI_MODEL_PRIMARY || "gpt-5.1-nano";
+const callOpenAIHttp = async (
+  messages: ChatMessage[],
+  model: string,
+  temperature: number,
+  maxTokens?: number,
+): Promise<ChatCompletionResult> => {
+  const startTime = Date.now();
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${getApiKey()}`,
+    },
+    body: JSON.stringify({
+      model,
+      messages,
+      temperature,
+      max_tokens: maxTokens,
+    }),
+  });
+
+  const durationMs = Date.now() - startTime;
+
+  if (!response.ok) {
+    const errorBody = await response.text().catch(() => "");
+    throw new Error(
+      `OpenAI API error (${response.status}): ${errorBody || response.statusText}`,
+    );
+  }
+
+  const data = (await response.json()) as {
+    choices: Array<{ message?: { content?: string } }>;
+    usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+    model: string;
+  };
+
+  const choice = data.choices?.[0];
+  if (!choice?.message?.content) {
+    throw new Error("No content in OpenAI response");
+  }
+
+  const tokensIn = data.usage?.prompt_tokens ?? 0;
+  const tokensOut = data.usage?.completion_tokens ?? 0;
+  const tokensTotal = data.usage?.total_tokens ?? tokensIn + tokensOut;
+
+  return {
+    content: choice.message.content,
+    tokensIn,
+    tokensOut,
+    tokensTotal,
+    model: data.model || model,
+    durationMs,
+  };
 };
 
 export const createChatCompletion = async (
@@ -40,47 +87,18 @@ export const createChatCompletion = async (
     maxTokens?: number;
   },
 ): Promise<ChatCompletionResult> => {
-  const client = getOpenAIClient();
   const model = options?.model || getDefaultModel();
-  const startTime = Date.now();
-
   try {
-    const completion = await client.chat.completions.create({
-      model,
-      messages,
-      temperature: options?.temperature ?? 0.7,
-      max_tokens: options?.maxTokens,
-    });
-
-    const durationMs = Date.now() - startTime;
-    const choice = completion.choices[0];
-    const usage = completion.usage;
-
-    if (!choice?.message?.content) {
-      throw new Error("No content in OpenAI response");
-    }
-
-    return {
-      content: choice.message.content,
-      tokensIn: usage?.prompt_tokens ?? 0,
-      tokensOut: usage?.completion_tokens ?? 0,
-      tokensTotal: usage?.total_tokens ?? 0,
-      model: completion.model,
-      durationMs,
-    };
+    return await callOpenAIHttp(messages, model, options?.temperature ?? 0.7, options?.maxTokens);
   } catch (error) {
-    const durationMs = Date.now() - startTime;
-
     if (options?.model && options.model !== getDefaultModel()) {
       throw error;
     }
-
     const fallbackModel = process.env.OPENAI_MODEL_FALLBACK;
     if (fallbackModel && fallbackModel !== model) {
       console.warn(`OpenAI call failed with ${model}, retrying with ${fallbackModel}`);
       return createChatCompletion(messages, { ...options, model: fallbackModel });
     }
-
     throw error;
   }
 };
