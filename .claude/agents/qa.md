@@ -248,11 +248,12 @@ Tests can use the same path aliases as source code:
 - Hook tests: `src/lib/composer/hooks/useKeywordPools.test.tsx` (upload, clean, manual operations, approval flow).
 
 **Stage 5 UI Components (Keyword Cleanup):**
-- **Missing dedicated tests** for KeywordCleanupStep, CleanedKeywordsList, RemovedKeywordsList components (tab navigation, progress indicator, collapsible lists, approval toggle).
-- **Missing test** for `unapproveClean()` function in useKeywordPools hook.
-- Functionality verified manually; recommend adding component tests for: approval toggle behavior, tab switching, collapsible list interactions, and unapprove flow.
+- **`CleanedKeywordsList` & `RemovedKeywordsList`:** Fully tested (collapsible behavior, remove/restore actions, rendering).
+- **`KeywordCleanupStep`:** Tests now active (tab navigation, progress indicators, approve/unapprove flow, Continue-to-Titles CTA) with hook mocks isolated per test.
+- **`useKeywordPools`:** Added test for `unapproveClean()` function asserting PATCH payload + optimistic update.
 
-**Suite status (as of 2025-11-20):** `npm run test:run` passes 165 tests across 14 files (Product Info, groups/variants APIs, keyword pools/cleaning, utilities, server utils, hooks).
+**Suite status (as of 2025-11-20):** Stage 5 UI suites now fully passing (no skips); targeted run:  
+`npm run test:run -- 'src/lib/composer/hooks/useKeywordPools.test.tsx' 'src/app/composer/[projectId]/components/keyword-cleanup/CleanedKeywordsList.test.tsx' 'src/app/composer/[projectId]/components/keyword-cleanup/RemovedKeywordsList.test.tsx' 'src/app/composer/[projectId]/components/keyword-cleanup/KeywordCleanupStep.test.tsx'` → 27/27 passing. Run full `npm run test:run` to refresh overall count beyond prior 180 passing.
 
 ### Priority Testing Targets
 

@@ -250,4 +250,35 @@ describe("useKeywordPools", () => {
     expect(hook.result.pools[0].cleanedKeywords).toHaveLength(0);
     await hook.unmount();
   });
+
+  it("unapproves a cleaned pool", async () => {
+    const cleanedPool = { ...basePool, status: "cleaned" as const, cleanedKeywords: ["blue"] };
+    getFetchMock().mockResolvedValueOnce(mockFetchResponse({ pools: [cleanedPool] }));
+    getFetchMock().mockResolvedValueOnce(
+      mockFetchResponse({
+        pool: { ...cleanedPool, status: "uploaded" },
+      }),
+    );
+
+    const hook = await renderHook("proj-1");
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    await act(async () => {
+      await hook.result.unapproveClean("pool-1");
+      await flushMicrotasks();
+    });
+
+    expect(getFetchMock()).toHaveBeenLastCalledWith(
+      "/api/composer/keyword-pools/pool-1",
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "uploaded" }),
+      },
+    );
+    expect(hook.result.pools[0].status).toBe("uploaded");
+    await hook.unmount();
+  });
 });
