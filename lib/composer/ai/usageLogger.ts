@@ -1,8 +1,12 @@
 import type { UsageAction } from "@agency/lib/composer/types";
-import type { SupabaseClient } from "@supabase/supabase-js";
 
 export interface LogUsageParams {
-  supabase: SupabaseClient;
+  // Supabase client is passed from caller; typed loosely here to avoid cross-package type resolution issues in builds.
+  supabase: {
+    from: (table: string) => {
+      insert: (values: Record<string, unknown>) => Promise<{ error: { message: string } | null }>;
+    };
+  };
   organizationId: string;
   projectId?: string | null;
   jobId?: string | null;
