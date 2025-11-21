@@ -2,9 +2,10 @@ import type { UsageAction } from "@agency/lib/composer/types";
 
 export interface LogUsageParams {
   // Supabase client is passed from caller; typed loosely here to avoid cross-package type resolution issues in builds.
+  // Using PromiseLike instead of Promise to match Supabase's query builder which is awaitable but not a direct Promise.
   supabase: {
     from: (table: string) => {
-      insert: (values: Record<string, unknown>) => Promise<{ error: { message: string } | null }>;
+      insert: (values: Record<string, unknown>) => PromiseLike<{ error: { message: string } | null }>;
     };
   };
   organizationId: string;
