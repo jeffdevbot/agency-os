@@ -1,5 +1,20 @@
 # Product Requirement Document: The Agency Configurator (Admin Settings)
 
+> **⚠️ ARCHIVED - 2025-11-21**
+>
+> This PRD has been superseded by the Team Central PRD ([docs/07_team_central_prd.md](../07_team_central_prd.md)).
+>
+> Team Central expands on the concepts in this document with:
+> - Comprehensive 7-role hierarchy (vs simple role enum)
+> - Org chart visualizations
+> - ClickUp service architecture
+> - Enhanced team member management
+> - Detailed UI/UX specifications
+>
+> This document is preserved for historical reference.
+
+---
+
 ## 1. Executive Summary
 **The Agency Configurator** is the "Control Panel" for the Agency OS. It is a restricted, Admin-only interface that manages the relationships between **People**, **Clients**, and **External Tools** (ClickUp).
 

@@ -647,7 +647,256 @@ if __name__ == "__main__":
 
 ---
 
-## 5. Configuration & Environment
+## 5. Database Schema (Caching & Sync Tracking)
+
+### Overview
+
+The ClickUp Service requires database tables to:
+1. Cache ClickUp data (spaces, users, tasks) to reduce API calls
+2. Track sync status and errors
+3. Store API credentials securely per organization
+
+**Multi-Tenancy:** All tables include `organization_id` for data isolation.
+
+---
+
+### 5.1 Cache Tables
+
+#### `public.clickup_spaces_cache`
+
+Caches ClickUp Spaces to reduce API calls.
+
+```sql
+create table public.clickup_spaces_cache (
+  id uuid default gen_random_uuid(),
+  organization_id uuid not null references organizations(id) on delete cascade,
+
+  -- ClickUp data
+  clickup_space_id text not null,
+  space_name text not null,
+  is_private boolean default false,
+  cached_data jsonb not null, -- Full space object from ClickUp API
+
+  -- Sync tracking
+  last_synced_at timestamptz not null default now(),
+  created_at timestamptz not null default now(),
+
+  primary key (organization_id, id),
+  unique (organization_id, clickup_space_id)
+);
+
+create index idx_clickup_spaces_org on public.clickup_spaces_cache(organization_id);
+create index idx_clickup_spaces_last_synced on public.clickup_spaces_cache(organization_id, last_synced_at);
+```
+
+---
+
+#### `public.clickup_users_cache`
+
+Caches ClickUp Users/Members.
+
+```sql
+create table public.clickup_users_cache (
+  id uuid default gen_random_uuid(),
+  organization_id uuid not null references organizations(id) on delete cascade,
+
+  -- ClickUp data
+  clickup_user_id text not null,
+  username text,
+  email text,
+  cached_data jsonb not null, -- Full user object from ClickUp API
+
+  -- Sync tracking
+  last_synced_at timestamptz not null default now(),
+  created_at timestamptz not null default now(),
+
+  primary key (organization_id, id),
+  unique (organization_id, clickup_user_id)
+);
+
+create index idx_clickup_users_org on public.clickup_users_cache(organization_id);
+create index idx_clickup_users_email on public.clickup_users_cache(organization_id, email);
+```
+
+---
+
+#### `public.clickup_tasks_cache`
+
+Caches frequently accessed tasks (optional, for high-traffic scenarios).
+
+```sql
+create table public.clickup_tasks_cache (
+  id uuid default gen_random_uuid(),
+  organization_id uuid not null references organizations(id) on delete cascade,
+
+  -- ClickUp data
+  clickup_task_id text not null,
+  clickup_space_id text not null,
+  task_name text not null,
+  task_status text,
+  cached_data jsonb not null, -- Full task object from ClickUp API
+
+  -- Sync tracking
+  last_synced_at timestamptz not null default now(),
+  created_at timestamptz not null default now(),
+
+  primary key (organization_id, id),
+  unique (organization_id, clickup_task_id)
+);
+
+create index idx_clickup_tasks_org on public.clickup_tasks_cache(organization_id);
+create index idx_clickup_tasks_space on public.clickup_tasks_cache(organization_id, clickup_space_id);
+create index idx_clickup_tasks_status on public.clickup_tasks_cache(organization_id, task_status);
+```
+
+---
+
+### 5.2 Sync Status & Error Tracking
+
+#### `public.clickup_sync_status`
+
+Tracks sync operations and errors.
+
+```sql
+create table public.clickup_sync_status (
+  id uuid default gen_random_uuid(),
+  organization_id uuid not null references organizations(id) on delete cascade,
+
+  -- Sync metadata
+  entity_type text not null check (entity_type in ('spaces', 'users', 'tasks', 'templates')),
+  last_sync_attempt timestamptz not null default now(),
+  last_successful_sync timestamptz,
+
+  -- Status tracking
+  sync_status text not null check (sync_status in ('success', 'failed', 'in_progress')),
+  error_message text,
+  error_code text,
+  retry_count integer not null default 0,
+
+  -- Sync stats
+  items_synced integer default 0,
+  items_new integer default 0,
+  items_updated integer default 0,
+  items_failed integer default 0,
+
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  primary key (organization_id, id)
+);
+
+create index idx_clickup_sync_org_entity on public.clickup_sync_status(organization_id, entity_type);
+create index idx_clickup_sync_status on public.clickup_sync_status(organization_id, sync_status);
+create index idx_clickup_sync_last_attempt on public.clickup_sync_status(organization_id, last_sync_attempt desc);
+```
+
+---
+
+### 5.3 API Credentials
+
+#### `public.clickup_api_credentials`
+
+Stores ClickUp API credentials securely per organization.
+
+```sql
+create table public.clickup_api_credentials (
+  id uuid default gen_random_uuid(),
+  organization_id uuid not null unique references organizations(id) on delete cascade,
+
+  -- Encrypted credentials
+  api_token_encrypted text not null, -- Use pgcrypto or Supabase Vault
+  workspace_id text,
+  team_id text,
+
+  -- Metadata
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  last_used_at timestamptz,
+
+  primary key (organization_id, id)
+);
+
+-- Only org admins can access this table (enforced via RLS)
+```
+
+**Security Note:** Use Supabase Vault or `pgcrypto` extension to encrypt `api_token_encrypted`. Never store API tokens in plaintext.
+
+---
+
+### 5.4 RLS Policies
+
+```sql
+-- Enable RLS on all tables
+alter table public.clickup_spaces_cache enable row level security;
+alter table public.clickup_users_cache enable row level security;
+alter table public.clickup_tasks_cache enable row level security;
+alter table public.clickup_sync_status enable row level security;
+alter table public.clickup_api_credentials enable row level security;
+
+-- Users can read cache data from their organization
+create policy "Users can read their org's ClickUp spaces"
+  on public.clickup_spaces_cache for select
+  using (
+    organization_id in (
+      select organization_id from profiles where id = auth.uid()
+    )
+  );
+
+create policy "Users can read their org's ClickUp users"
+  on public.clickup_users_cache for select
+  using (
+    organization_id in (
+      select organization_id from profiles where id = auth.uid()
+    )
+  );
+
+create policy "Users can read their org's ClickUp tasks"
+  on public.clickup_tasks_cache for select
+  using (
+    organization_id in (
+      select organization_id from profiles where id = auth.uid()
+    )
+  );
+
+create policy "Users can read their org's sync status"
+  on public.clickup_sync_status for select
+  using (
+    organization_id in (
+      select organization_id from profiles where id = auth.uid()
+    )
+  );
+
+-- Only service role can write to cache tables
+create policy "Service role can write to spaces cache"
+  on public.clickup_spaces_cache for all
+  using (auth.uid() = '00000000-0000-0000-0000-000000000000'); -- Service role
+
+create policy "Service role can write to users cache"
+  on public.clickup_users_cache for all
+  using (auth.uid() = '00000000-0000-0000-0000-000000000000');
+
+create policy "Service role can write to tasks cache"
+  on public.clickup_tasks_cache for all
+  using (auth.uid() = '00000000-0000-0000-0000-000000000000');
+
+create policy "Service role can write to sync status"
+  on public.clickup_sync_status for all
+  using (auth.uid() = '00000000-0000-0000-0000-000000000000');
+
+-- Only org admins can manage API credentials
+create policy "Org admins can manage ClickUp credentials"
+  on public.clickup_api_credentials for all
+  using (
+    organization_id in (
+      select organization_id from profiles
+      where id = auth.uid() and role = 'admin'
+    )
+  );
+```
+
+---
+
+## 6. Configuration & Environment
 
 ### 5.1 Required Environment Variables
 

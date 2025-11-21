@@ -539,6 +539,29 @@ Report Specialist (supports Brand Manager)
 
 ## 6. Data Model
 
+### Architecture: Single-Tenant Design
+
+**Important:** Team Central uses a **single-tenant architecture** that differs from the rest of Agency OS.
+
+**Why Single-Tenant?**
+- Team Central manages **Ecomlabs' internal operations** (not multi-tenant client data)
+- All data is Ecomlabs-specific: employee profiles, agency client accounts, internal team assignments
+- No need for `organization_id` filtering—there's only one organization (Ecomlabs)
+
+**Implications:**
+- ✅ **No `organization_id` column** in Team Central tables
+- ✅ **RLS policies use `is_admin` checks** instead of org-based isolation
+- ✅ **All authenticated Ecomlabs employees** can view data (no cross-tenant concerns)
+- ✅ **Only admins can modify** data via RLS policies
+
+**Semantic Distinction:**
+- `agency_clients` (Team Central) = **Ecomlabs' agency clients** (the brands Ecomlabs serves)
+- `client_profiles` (Composer/Ngram) = **Multi-tenant end-user clients** (Composer users' clients)
+
+These are different entities in different domains. Team Central's single-tenant design is intentional and appropriate.
+
+---
+
 ### 6.1 Tables & Schema
 
 #### **`public.profiles` (enhanced)**
@@ -568,6 +591,11 @@ alter table public.profiles
   add column if not exists bench_status text
     default 'available'
     check (bench_status in ('available', 'assigned', 'unavailable'));
+
+-- Performance index for RLS policies
+create index if not exists idx_profiles_is_admin
+  on public.profiles(is_admin)
+  where is_admin = true;
 ```
 
 **Important Notes:**
@@ -579,6 +607,7 @@ alter table public.profiles
   - `'contractor'`: Temporary/contract worker, shows in interfaces but marked distinctly
 - `bench_status` is derived: 'assigned' if user has any client assignments, else 'available'
 - `is_admin` controls access to Team Central admin features
+- **Performance**: The `idx_profiles_is_admin` partial index optimizes RLS policy checks by only indexing admin users. This significantly improves query performance since RLS policies check `is_admin` on every request.
 
 ---
 
@@ -696,7 +725,7 @@ create index idx_agency_clients_archived on public.agency_clients(archived_at) w
 ```sql
 create table public.client_assignments (
   id uuid primary key default gen_random_uuid(),
-  client_id uuid not null references public.agency_clients(id) on delete cascade,
+  client_id uuid not null references public.agency_clients(id) on delete restrict,
   team_member_id uuid not null references public.profiles(id) on delete cascade,
   role team_role not null,
   assigned_at timestamptz default now(),
@@ -729,6 +758,10 @@ id | client_id | team_member_id | role                | assigned_at
 3  | client-b  | sarah-123      | catalog_strategist  | 2025-11-21
 4  | client-a  | mike-456       | catalog_strategist  | 2025-11-20
 ```
+
+**Delete Behavior:**
+- `team_member_id ON DELETE CASCADE`: When a team member's profile is deleted (employee leaves), their assignments are automatically removed. This is correct behavior since assignments are meaningless without the team member.
+- `client_id ON DELETE RESTRICT`: When attempting to delete a client, the delete will fail if assignments exist. This prevents accidental data loss. Instead, use the soft-delete pattern by setting `archived_at` on the client (see archiving strategy above). This preserves assignment history for reporting and audit purposes.
 
 ---
 
@@ -1498,16 +1531,17 @@ Based on earlier brainstorming, these could be added later:
 
 **Resolved after Red Team & Supabase Consultant review (2025-11-21):**
 
-1. ✅ **Multi-Tenancy:** Single-tenant (Ecomlabs internal only). No `organization_id` needed in Team Central tables.
+1. ✅ **Multi-Tenancy:** Single-tenant (Ecomlabs internal only). No `organization_id` needed in Team Central tables. Documented in Section 6 (Architecture: Single-Tenant Design).
 2. ✅ **Pre-Login Team Members:** Use `team_members_pending` table with auto-linking trigger (not nullable `profiles.id`).
 3. ✅ **Admin Model:** `profiles.is_admin` boolean flag (not role enum).
 4. ✅ **Table Naming:** `public.agency_clients` (avoids conflict with existing `client_profiles`).
-5. ✅ **RLS Policies:** Defined in Section 6.3 (all authenticated can view, only admins can modify).
-6. ✅ **Indexes:** Composite indexes added for common query patterns (org charts, reverse charts, role filtering).
+5. ✅ **RLS Policies:** Defined in Section 6.3 (all authenticated can view, only admins can modify). Uses `profiles.is_admin` checks (not JWT role).
+6. ✅ **Indexes:** Composite indexes added for common query patterns (org charts, reverse charts, role filtering). Added `idx_profiles_is_admin` partial index for RLS performance.
 7. ✅ **Client Archiving:** Soft delete using `archived_at` column. Archived clients excluded from default views, preserves all historical data and assignments.
 8. ✅ **Team Member Offboarding:** Soft delete using `employment_status = 'inactive'`. Inactive members excluded from "The Bench" and assignment interfaces, preserves assignment history.
 9. ✅ **ClickUp Team ID:** `42600885` (Ecomlabs workspace). Documented in Section 8.1 with "how to find it" instructions.
 10. ✅ **ClickUp Service Architecture:** Team Central will consume a shared ClickUp service (not call API directly). Service will be used by Team Central, The Operator, and future tools. Documented in Section 8.1.1 and Section 13.
+11. ✅ **Foreign Key Delete Behavior:** `client_id` uses `ON DELETE RESTRICT` (not CASCADE) to prevent accidental data loss. Team members must be explicitly unassigned before deleting clients. Soft-delete via `archived_at` is preferred. Documented in Section 6.1.
 
 **Still Open (Require Product Decision):**
 
