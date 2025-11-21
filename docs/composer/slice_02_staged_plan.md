@@ -284,7 +284,7 @@ This document breaks Slice 2 (Keyword Pipeline) into 8 manageable stages to avoi
   - Delete all overrides (reset to AI baseline)
 - [ ] Create `/lib/composer/ai/groupKeywords.ts` orchestrator
   - `groupKeywords(keywords, config, project): Promise<ComposerKeywordGroup[]>`
-  - Model: `gpt-4o-mini`
+  - Model: `gpt-5.1-nano`
   - Input prompt based on `config.basis`:
     - `'single'`: "Group all keywords into 1 group"
     - `'per_sku'`: "Group keywords per SKU"

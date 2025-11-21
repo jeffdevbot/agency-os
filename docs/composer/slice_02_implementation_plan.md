@@ -122,7 +122,7 @@ The pipeline enforces a strict approval flow to prevent "garbage in, garbage out
 *   Final grouping view = AI groups + overrides merged server-side.
 
 ### AI Worker Contract (Grouping)
-*   **Model:** `gpt-4o-mini` (High speed/low cost).
+*   **Model:** `gpt-5.1-nano` (default lightweight model per env).
 *   **Input:**
     ```json
     {
