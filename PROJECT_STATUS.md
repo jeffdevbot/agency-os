@@ -22,6 +22,7 @@ Agency OS consolidates internal tools (Ngram, The Operator, Amazon Composer, Cre
 
 ## Recent Accomplishments
 - **2025-11-21**
+  - **Completed Composer Slice 2 Stage 7 (Keyword Grouping UI)** ✅: Shipped full drag-and-drop grouping interface with tab navigation (body/titles pools), 3-state progress indicator (Configure → Review → Approve), `@dnd-kit` drag-and-drop for keyword assignment, approval/unapproval workflow with optimistic locking (prevents race conditions via `updated_at` timestamp check), override tracking for manual keyword moves (audit trail in `composer_keyword_group_overrides`), and timestamp consistency fixes (both `approved_at` and `grouped_at` cleared together on unapproval). Created 5 new UI components: `GroupingPlanStep`, `KeywordGroupCard`, `DraggableKeyword`, `GroupingConfigForm`, and `types.ts`. Added 1 new API endpoint: `POST /approve-grouping` with concurrent modification protection (returns 409 on conflict). Extended `useKeywordPools` hook with 6 new methods: `generateGroupingPlan`, `getGroups`, `addOverride`, `resetOverrides`, `approveGrouping`, `unapproveGrouping`. Implemented 3 critical fixes identified during Red Team review: (1) Override tracking - non-blocking audit trail, (2) Optimistic locking - race condition prevention, (3) Timestamp consistency - paired approval/grouping timestamps. All changes follow existing patterns from Stage 5 cleanup step. Stage 7 is production-ready. **Composer Slice 2 Stages 1-7 now complete.**
   - Updated Stage 6 grouping backend to log actual OpenAI usage metrics (model/tokens/duration) returned by the orchestrator; added minimal Supabase typing to keep Render/Turbopack builds passing. Render deploy succeeded; full suite **235 tests** passing.
   - Added Stage 5 cleanup UI tests (KeywordCleanupStep, CleanedKeywordsList, RemovedKeywordsList, `unapproveClean`) — cleanup step now fully covered.
 - **2025-11-20**
@@ -46,7 +47,7 @@ Agency OS consolidates internal tools (Ngram, The Operator, Amazon Composer, Cre
 - **2025-11-13** – Added Supabase-aware Next.js middleware to guard `/ngram`, ensuring logged-out users are redirected to the login screen before hitting protected pages.
 
 ## Next Priorities
-- Start Composer Slice 2 Stage 7 (Group Review UI): implement frontend interface for reviewing/editing AI-generated keyword groups with drag-and-drop phrase assignment, override tracking, and approval flow.
+- Start Composer Slice 2 Stage 8 (Asset Generation): implement AI-powered content generation for Amazon listings based on approved keyword groups. Generate product descriptions, bullet points, and titles optimized for each group. Add UI for reviewing and editing generated assets before export.
 - Deploy backend-core + refreshed frontend to Render, validate env vars (usage logging, Supabase secrets, OpenAI keys) and ensure `/ngram` works end-to-end in production.
 - Scope the Operator Milestone 1 UI shell so it can host the chat + context panes described in `docs/02_the_operator_prd.md`, even if data is mocked at first.
 

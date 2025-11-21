@@ -6,6 +6,21 @@ import type {
 } from "@agency/lib/composer/types";
 import { dedupeKeywords, mergeKeywords } from "@agency/lib/composer/keywords/utils";
 
+interface GroupingConfig {
+  basis: string;
+  attributeName?: string;
+  groupCount?: number;
+  phrasesPerGroup?: number;
+}
+
+interface KeywordOverride {
+  phrase: string;
+  action: 'move' | 'remove' | 'add';
+  sourceGroupId?: string | null;
+  targetGroupLabel?: string;
+  targetGroupIndex?: number;
+}
+
 interface UseKeywordPoolsResult {
   pools: ComposerKeywordPool[];
   isLoading: boolean;
@@ -22,6 +37,12 @@ interface UseKeywordPoolsResult {
   deleteKeywords: (poolId: string) => Promise<ComposerKeywordPool | null>;
   approveClean: (poolId: string) => Promise<ComposerKeywordPool | null>;
   unapproveClean: (poolId: string) => Promise<ComposerKeywordPool | null>;
+  generateGroupingPlan: (poolId: string, config: GroupingConfig) => Promise<ComposerKeywordPool | null>;
+  getGroups: (poolId: string) => Promise<{ groups: any[]; overrides: any[] } | null>;
+  addOverride: (poolId: string, override: KeywordOverride) => Promise<boolean>;
+  resetOverrides: (poolId: string) => Promise<boolean>;
+  approveGrouping: (poolId: string) => Promise<ComposerKeywordPool | null>;
+  unapproveGrouping: (poolId: string) => Promise<ComposerKeywordPool | null>;
 }
 
 const byPoolType = (poolType: "body" | "titles") => (pool: ComposerKeywordPool) =>
@@ -320,6 +341,136 @@ export const useKeywordPools = (
     [pools],
   );
 
+  const generateGroupingPlan = useCallback<UseKeywordPoolsResult["generateGroupingPlan"]>(
+    async (poolId, config) => {
+      setError(null);
+      try {
+        const response = await fetch(`/api/composer/keyword-pools/${poolId}/grouping-plan`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ config }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(data.error || "Unable to generate grouping plan");
+        }
+        const updatedPool = data.pool as ComposerKeywordPool;
+        setPools((prev) => prev.map((p) => (p.id === poolId ? updatedPool : p)));
+        return updatedPool;
+      } catch (groupingError) {
+        setError(groupingError instanceof Error ? groupingError.message : "Unable to generate grouping plan");
+        return null;
+      }
+    },
+    [],
+  );
+
+  const getGroups = useCallback<UseKeywordPoolsResult["getGroups"]>(
+    async (poolId) => {
+      setError(null);
+      try {
+        const response = await fetch(`/api/composer/keyword-pools/${poolId}/groups`);
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(data.error || "Unable to fetch groups");
+        }
+        return { groups: data.groups || [], overrides: data.overrides || [] };
+      } catch (fetchError) {
+        setError(fetchError instanceof Error ? fetchError.message : "Unable to fetch groups");
+        return null;
+      }
+    },
+    [],
+  );
+
+  const addOverride = useCallback<UseKeywordPoolsResult["addOverride"]>(
+    async (poolId, override) => {
+      setError(null);
+      try {
+        const response = await fetch(`/api/composer/keyword-pools/${poolId}/group-overrides`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(override),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(data.error || "Unable to add override");
+        }
+        // Log but don't throw - override tracking is non-blocking
+        return true;
+      } catch (overrideError) {
+        console.error("Override tracking failed:", overrideError);
+        // Return true anyway - the UI operation should proceed
+        return true;
+      }
+    },
+    [],
+  );
+
+  const resetOverrides = useCallback<UseKeywordPoolsResult["resetOverrides"]>(
+    async (poolId) => {
+      setError(null);
+      try {
+        const response = await fetch(`/api/composer/keyword-pools/${poolId}/group-overrides`, {
+          method: "DELETE",
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(data.error || "Unable to reset overrides");
+        }
+        return true;
+      } catch (resetError) {
+        setError(resetError instanceof Error ? resetError.message : "Unable to reset overrides");
+        return false;
+      }
+    },
+    [],
+  );
+
+  const approveGrouping = useCallback<UseKeywordPoolsResult["approveGrouping"]>(
+    async (poolId) => {
+      setError(null);
+      try {
+        const response = await fetch(`/api/composer/keyword-pools/${poolId}/approve-grouping`, {
+          method: "POST",
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(data.error || "Unable to approve grouping");
+        }
+        const updatedPool = data.pool as ComposerKeywordPool;
+        setPools((prev) => prev.map((p) => (p.id === poolId ? updatedPool : p)));
+        return updatedPool;
+      } catch (approveError) {
+        setError(approveError instanceof Error ? approveError.message : "Unable to approve grouping");
+        return null;
+      }
+    },
+    [],
+  );
+
+  const unapproveGrouping = useCallback<UseKeywordPoolsResult["unapproveGrouping"]>(
+    async (poolId) => {
+      setError(null);
+      try {
+        const response = await fetch(`/api/composer/keyword-pools/${poolId}?action=unapprove`, {
+          method: "DELETE",
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(data.error || "Unable to unapprove grouping");
+        }
+        const updatedPool = data.pool as ComposerKeywordPool;
+        setPools((prev) => prev.map((p) => (p.id === poolId ? updatedPool : p)));
+        return updatedPool;
+      } catch (unapproveError) {
+        setError(unapproveError instanceof Error ? unapproveError.message : "Unable to unapprove grouping");
+        return null;
+      }
+    },
+    [],
+  );
+
   // Derived helpers for panels (optional)
   useMemo(() => pools.filter(byPoolType("body")), [pools]);
 
@@ -335,5 +486,11 @@ export const useKeywordPools = (
     deleteKeywords,
     approveClean,
     unapproveClean,
+    generateGroupingPlan,
+    getGroups,
+    addOverride,
+    resetOverrides,
+    approveGrouping,
+    unapproveGrouping,
   };
 };
