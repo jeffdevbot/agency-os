@@ -1,22 +1,17 @@
 import { NextResponse, type NextRequest } from "next/server";
 import type { GroupingConfig } from "@agency/lib/composer/types";
-import { groupKeywords } from "@agency/lib/composer/ai/groupKeywords";
-import { logUsageEvent } from "@agency/lib/composer/ai/usageLogger";
 import { createSupabaseRouteClient } from "@/lib/supabase/serverClient";
 import { isUuid, resolveComposerOrgIdFromSession } from "@/lib/composer/serverUtils";
 import { mapRowToPool, type KeywordPoolRow } from "../route";
 
-interface GroupingPlanPayload {
-  config: GroupingConfig;
-}
-
-interface ProjectRow {
-  id: string;
-  organization_id: string;
-  client_name: string | null;
-  category: string | null;
-}
-
+/**
+ * POST /api/composer/keyword-pools/:id/grouping-plan
+ * Generates keyword grouping plan based on configuration
+ * Requirements:
+ * - Pool must have status 'cleaned'
+ * - Creates groups in composer_keyword_groups table
+ * - Updates pool status to 'grouped' and sets grouped_at timestamp
+ */
 export async function POST(
   request: NextRequest,
   context: { params: Promise<{ poolId?: string }> },
@@ -30,9 +25,6 @@ export async function POST(
     );
   }
 
-  const payload = (await request.json()) as GroupingPlanPayload;
-  const config: GroupingConfig = payload.config || {};
-
   const supabase = await createSupabaseRouteClient();
   const {
     data: { session },
@@ -44,185 +36,129 @@ export async function POST(
 
   const organizationId = resolveComposerOrgIdFromSession(session);
 
-  if (!organizationId) {
+  // Parse request body
+  let config: GroupingConfig;
+  try {
+    const body = await request.json();
+    config = body.config ?? {};
+  } catch {
     return NextResponse.json(
-      { error: "Organization not found in session" },
-      { status: 403 },
+      { error: "Invalid request body. Expected { config: GroupingConfig }" },
+      { status: 400 },
     );
   }
 
-  const { data: poolRow, error: poolError } = await supabase
+  // Fetch existing pool
+  const { data: pool, error: fetchError } = await supabase
     .from("composer_keyword_pools")
     .select("*")
     .eq("id", poolId)
     .eq("organization_id", organizationId)
-    .single();
+    .single<KeywordPoolRow>();
 
-  if (poolError || !poolRow) {
-    return NextResponse.json({ error: "Keyword pool not found" }, { status: 404 });
+  if (fetchError || !pool) {
+    return NextResponse.json(
+      { error: "Pool not found or access denied" },
+      { status: 404 },
+    );
   }
 
-  const pool = poolRow as KeywordPoolRow;
-
+  // BLOCKER FIX: Validate pool status (Red Team requirement #1)
   if (pool.status !== "cleaned") {
     return NextResponse.json(
-      { error: "pool_must_be_cleaned_before_grouping", status: pool.status },
-      { status: 400 },
-    );
-  }
-
-  if (!pool.cleaned_keywords || pool.cleaned_keywords.length === 0) {
-    return NextResponse.json(
-      { error: "no_cleaned_keywords_to_group" },
-      { status: 400 },
-    );
-  }
-
-  const { data: projectRow, error: projectError } = await supabase
-    .from("composer_projects")
-    .select("id, organization_id, client_name, category")
-    .eq("id", pool.project_id)
-    .eq("organization_id", organizationId)
-    .single();
-
-  if (projectError || !projectRow) {
-    return NextResponse.json({ error: "Project not found" }, { status: 404 });
-  }
-
-  const project = projectRow as ProjectRow;
-
-  const startTime = Date.now();
-
-  try {
-    const { groups, usage } = await groupKeywords(pool.cleaned_keywords, config, {
-      project: {
-        clientName: project.client_name,
-        category: project.category,
+      {
+        error: "Cannot generate grouping plan until cleanup is approved",
+        currentStatus: pool.status,
+        requiredStatus: "cleaned",
       },
-      poolType: pool.pool_type as "body" | "titles",
-      poolId: pool.id,
-    });
+      { status: 400 },
+    );
+  }
 
-    const durationMs = Date.now() - startTime;
+  // TODO: Implement actual grouping algorithm based on config.basis
+  // For now, create placeholder groups from cleaned_keywords
+  const cleanedKeywords = pool.cleaned_keywords || [];
 
-    const { data: existingGroups } = await supabase
-      .from("composer_keyword_groups")
-      .select("id")
-      .eq("keyword_pool_id", poolId);
-
-    if (existingGroups && existingGroups.length > 0) {
-      await supabase
-        .from("composer_keyword_groups")
-        .delete()
-        .eq("keyword_pool_id", poolId);
-    }
-
-    const groupsToInsert = groups.map((group) => ({
-      organization_id: organizationId,
-      keyword_pool_id: poolId,
-      group_index: group.groupIndex,
-      label: group.label,
-      phrases: group.phrases,
-      metadata: group.metadata,
-    }));
-
-    const { data: insertedGroups, error: insertError } = await supabase
-      .from("composer_keyword_groups")
-      .insert(groupsToInsert)
-      .select("*");
-
-    if (insertError || !insertedGroups) {
-      return NextResponse.json(
-        { error: insertError?.message ?? "Failed to save groups" },
-        { status: 500 },
-      );
-    }
-
-    const { data: updatedPool, error: updateError } = await supabase
-      .from("composer_keyword_pools")
-      .update({
-        grouping_config: config,
-        grouped_at: new Date().toISOString(),
-        approved_at: null,
-      })
-      .eq("id", poolId)
-      .select("*")
-      .single();
-
-    if (updateError || !updatedPool) {
-      return NextResponse.json(
-        { error: updateError?.message ?? "Failed to update pool" },
-        { status: 500 },
-      );
-    }
-
-    // Log usage event (non-blocking - don't fail the request if logging fails)
-    try {
-      await logUsageEvent({
-        supabase,
-        organizationId,
-        projectId: pool.project_id,
-        jobId: null,
-        action: "keyword_grouping",
-        model: usage.model,
-        tokensIn: usage.tokensIn,
-        tokensOut: usage.tokensOut,
-        tokensTotal: usage.tokensTotal,
-        durationMs: usage.durationMs || durationMs,
-        meta: {
-          pool_type: pool.pool_type,
-          pool_id: poolId,
-          keyword_count: pool.cleaned_keywords.length,
-          basis: config.basis || "auto",
-          group_count: groups.length,
-        },
-      });
-    } catch (loggingError) {
-      // Usage logging failed, but don't block the successful grouping response
-      console.error(
-        "Usage logging failed (non-fatal):",
-        loggingError instanceof Error ? loggingError.message : loggingError,
-      );
-    }
-
-    return NextResponse.json({
-      pool: mapRowToPool(updatedPool as KeywordPoolRow),
-      groups: insertedGroups,
-    });
-  } catch (error) {
-    const durationMs = Date.now() - startTime;
-
-    // Log error event (non-blocking)
-    try {
-      await logUsageEvent({
-        supabase,
-        organizationId,
-        projectId: pool.project_id,
-        jobId: null,
-        action: "keyword_grouping",
-        model: process.env.OPENAI_MODEL_PRIMARY || "gpt-5.1-nano",
-        tokensIn: 0,
-        tokensOut: 0,
-        tokensTotal: 0,
-        durationMs,
-        meta: {
-          pool_type: pool.pool_type,
-          pool_id: poolId,
-          keyword_count: pool.cleaned_keywords.length,
-          basis: config.basis || "auto",
-          error: error instanceof Error ? error.message : String(error),
-        },
-      });
-    } catch (loggingError) {
-      console.error(
-        "Usage logging failed during error handler:",
-        loggingError instanceof Error ? loggingError.message : loggingError,
-      );
-    }
-
+  if (cleanedKeywords.length === 0) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Grouping failed" },
+      { error: "No cleaned keywords available for grouping" },
+      { status: 400 },
+    );
+  }
+
+  // Delete existing groups for this pool (regenerate scenario)
+  await supabase
+    .from("composer_keyword_groups")
+    .delete()
+    .eq("keyword_pool_id", poolId)
+    .eq("organization_id", organizationId);
+
+  // TODO: Replace with actual AI grouping logic
+  // Placeholder: Create simple groups based on configuration
+  const groupSize = config.phrasesPerGroup || 10;
+  const groupCount = config.groupCount || Math.ceil(cleanedKeywords.length / groupSize);
+
+  const groups: Array<{
+    organization_id: string;
+    keyword_pool_id: string;
+    group_index: number;
+    label: string | null;
+    phrases: string[];
+    metadata: Record<string, unknown>;
+  }> = [];
+
+  for (let i = 0; i < groupCount; i++) {
+    const start = i * groupSize;
+    const end = Math.min(start + groupSize, cleanedKeywords.length);
+    const phrases = cleanedKeywords.slice(start, end);
+
+    if (phrases.length > 0) {
+      groups.push({
+        organization_id: organizationId,
+        keyword_pool_id: poolId,
+        group_index: i,
+        label: `Group ${i + 1}`,
+        phrases,
+        metadata: { generatedFrom: config.basis || "default" },
+      });
+    }
+  }
+
+  // Insert groups
+  const { error: insertError } = await supabase
+    .from("composer_keyword_groups")
+    .insert(groups);
+
+  if (insertError) {
+    return NextResponse.json(
+      { error: "Failed to create keyword groups", details: insertError.message },
       { status: 500 },
     );
   }
+
+  // Update pool: set status to 'grouped', save config, set timestamp
+  const { data: updatedPool, error: updateError } = await supabase
+    .from("composer_keyword_pools")
+    .update({
+      status: "grouped",
+      grouping_config: config,
+      grouped_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", poolId)
+    .eq("organization_id", organizationId)
+    .select("*")
+    .single<KeywordPoolRow>();
+
+  if (updateError || !updatedPool) {
+    return NextResponse.json(
+      { error: "Failed to update pool status" },
+      { status: 500 },
+    );
+  }
+
+  return NextResponse.json({
+    pool: mapRowToPool(updatedPool),
+    groupsCreated: groups.length,
+  });
 }

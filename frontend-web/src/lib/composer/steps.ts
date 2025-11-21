@@ -3,6 +3,7 @@ export const COMPOSER_STEPS = [
   { id: "content_strategy", label: "Content Strategy" },
   { id: "keyword_upload", label: "Keyword Upload" },
   { id: "keyword_cleanup", label: "Keyword Cleanup" },
+  { id: "keyword_grouping", label: "Keyword Grouping" },
 ] as const;
 
 export type ComposerStepId = (typeof COMPOSER_STEPS)[number]["id"];

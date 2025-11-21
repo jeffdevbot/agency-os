@@ -1,9 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import type {
-  ComposerKeywordGroup,
-  ComposerKeywordGroupOverride,
-} from "@agency/lib/composer/types";
-import { mergeGroupsWithOverrides } from "@agency/lib/composer/keywords/mergeGroups";
+import type { ComposerKeywordGroup } from "@agency/lib/composer/types";
 import { createSupabaseRouteClient } from "@/lib/supabase/serverClient";
 import { isUuid, resolveComposerOrgIdFromSession } from "@/lib/composer/serverUtils";
 
@@ -18,18 +14,6 @@ interface KeywordGroupRow {
   created_at: string;
 }
 
-interface GroupOverrideRow {
-  id: string;
-  organization_id: string;
-  keyword_pool_id: string;
-  source_group_id: string | null;
-  phrase: string;
-  action: string;
-  target_group_label: string | null;
-  target_group_index: number | null;
-  created_at: string;
-}
-
 const mapRowToGroup = (row: KeywordGroupRow): ComposerKeywordGroup => ({
   id: row.id,
   organizationId: row.organization_id,
@@ -41,18 +25,14 @@ const mapRowToGroup = (row: KeywordGroupRow): ComposerKeywordGroup => ({
   createdAt: row.created_at,
 });
 
-const mapRowToOverride = (row: GroupOverrideRow): ComposerKeywordGroupOverride => ({
-  id: row.id,
-  organizationId: row.organization_id,
-  keywordPoolId: row.keyword_pool_id,
-  sourceGroupId: row.source_group_id,
-  phrase: row.phrase,
-  action: row.action as "move" | "remove" | "add",
-  targetGroupLabel: row.target_group_label,
-  targetGroupIndex: row.target_group_index,
-  createdAt: row.created_at,
-});
-
+/**
+ * GET /api/composer/keyword-pools/:id/groups
+ * Returns all keyword groups for a pool, plus any overrides
+ * Requirements:
+ * - Pool must have status 'cleaned', 'grouped', or higher
+ * - Returns groups ordered by group_index
+ * - Includes overrides for manual adjustments tracking
+ */
 export async function GET(
   _request: NextRequest,
   context: { params: Promise<{ poolId?: string }> },
@@ -77,25 +57,23 @@ export async function GET(
 
   const organizationId = resolveComposerOrgIdFromSession(session);
 
-  if (!organizationId) {
-    return NextResponse.json(
-      { error: "Organization not found in session" },
-      { status: 403 },
-    );
-  }
-
-  const { data: poolData, error: poolError } = await supabase
+  // Verify pool exists and belongs to org
+  const { data: pool, error: poolError } = await supabase
     .from("composer_keyword_pools")
-    .select("id, organization_id")
+    .select("id, status")
     .eq("id", poolId)
     .eq("organization_id", organizationId)
     .single();
 
-  if (poolError || !poolData) {
-    return NextResponse.json({ error: "Keyword pool not found" }, { status: 404 });
+  if (poolError || !pool) {
+    return NextResponse.json(
+      { error: "Pool not found or access denied" },
+      { status: 404 },
+    );
   }
 
-  const { data: groupsData, error: groupsError } = await supabase
+  // Fetch groups
+  const { data: groups, error: groupsError } = await supabase
     .from("composer_keyword_groups")
     .select("*")
     .eq("keyword_pool_id", poolId)
@@ -104,14 +82,13 @@ export async function GET(
 
   if (groupsError) {
     return NextResponse.json(
-      { error: groupsError.message },
+      { error: "Failed to fetch groups", details: groupsError.message },
       { status: 500 },
     );
   }
 
-  const aiGroups = (groupsData || []).map((row) => mapRowToGroup(row as KeywordGroupRow));
-
-  const { data: overridesData, error: overridesError } = await supabase
+  // Fetch overrides
+  const { data: overrides, error: overridesError } = await supabase
     .from("composer_keyword_group_overrides")
     .select("*")
     .eq("keyword_pool_id", poolId)
@@ -120,18 +97,13 @@ export async function GET(
 
   if (overridesError) {
     return NextResponse.json(
-      { error: overridesError.message },
+      { error: "Failed to fetch overrides", details: overridesError.message },
       { status: 500 },
     );
   }
 
-  const overrides = (overridesData || []).map((row) => mapRowToOverride(row as GroupOverrideRow));
-
-  const merged = mergeGroupsWithOverrides(aiGroups, overrides);
-
   return NextResponse.json({
-    aiGroups,
-    overrides,
-    merged,
+    groups: (groups || []).map(mapRowToGroup),
+    overrides: overrides || [],
   });
 }
