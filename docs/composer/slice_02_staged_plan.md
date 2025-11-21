@@ -243,7 +243,7 @@ This document breaks Slice 2 (Keyword Pipeline) into 8 manageable stages to avoi
   - **Added `unapproveClean(poolId)` method**
 - [x] Loading states during cleaning
 - [x] Optimistic updates for manual operations
-- [ ] **MISSING:** Vitest tests for UI components (KeywordCleanupStep, CleanedKeywordsList, RemovedKeywordsList) and `unapproveClean()` function
+- [x] Vitest tests for UI components (KeywordCleanupStep, CleanedKeywordsList, RemovedKeywordsList) and `unapproveClean()` function
 
 **Dependencies:** Stages 2-4 complete
 
@@ -267,23 +267,23 @@ This document breaks Slice 2 (Keyword Pipeline) into 8 manageable stages to avoi
 - `qa` — testing
 
 **Deliverables:**
-- [ ] `POST /api/composer/keyword-pools/:id/grouping-plan` route
+- [x] `POST /api/composer/keyword-pools/:id/grouping-plan` route
   - Body: `{ config: GroupingConfig }`
   - Persist `grouping_config` to pool
   - Trigger AI grouping worker
   - Reset `grouped_at` and `approved_at` if config changed
   - Return job_id or inline groups
-- [ ] `GET /api/composer/keyword-pools/:id/groups` route
+- [x] `GET /api/composer/keyword-pools/:id/groups` route
   - Return `{ aiGroups, overrides, merged }`
   - Merged = AI groups + overrides applied
-- [ ] `POST /api/composer/keyword-pools/:id/group-overrides` route
+- [x] `POST /api/composer/keyword-pools/:id/group-overrides` route
   - Body: `{ phrase, action, targetGroupLabel?, targetGroupIndex?, sourceGroupId? }`
   - Create override record
   - Return updated merged groups
-- [ ] `DELETE /api/composer/keyword-pools/:id/group-overrides` route
+- [x] `DELETE /api/composer/keyword-pools/:id/group-overrides` route
   - Delete all overrides (reset to AI baseline)
-- [ ] Create `/lib/composer/ai/groupKeywords.ts` orchestrator
-  - `groupKeywords(keywords, config, project): Promise<ComposerKeywordGroup[]>`
+- [x] Create `/lib/composer/ai/groupKeywords.ts` orchestrator
+  - `groupKeywords(keywords, config, project): Promise<{ groups: ComposerKeywordGroup[]; usage: { model; tokensIn; tokensOut; tokensTotal; durationMs } }>`
   - Model: `gpt-5.1-nano`
   - Input prompt based on `config.basis`:
     - `'single'`: "Group all keywords into 1 group"
@@ -293,15 +293,15 @@ This document breaks Slice 2 (Keyword Pipeline) into 8 manageable stages to avoi
   - Output: JSON `{ label, keywords }[]`
   - Validation: ensure all keywords assigned
   - Fallback: single "General" group if AI fails
-- [ ] Log all AI calls to `composer_usage_events`
+- [x] Log all AI calls to `composer_usage_events`
   - Action: `'keyword_grouping'`
   - Include tokens, model, duration, project_id
   - Meta: `{ pool_type, pool_id, keyword_count, basis }`
-- [ ] Create `/lib/composer/keywords/mergeGroups.ts` utility
+- [x] Create `/lib/composer/keywords/mergeGroups.ts` utility
   - `mergeGroupsWithOverrides(aiGroups, overrides): MergedGroup[]`
   - Apply overrides in order
-- [ ] Vitest unit tests (mocked OpenAI)
-- [ ] Vitest integration tests
+- [x] Vitest unit tests (mocked OpenAI)
+- [x] Vitest integration tests
 
 **Dependencies:** Stages 2-3 complete, OpenAI API key configured
 

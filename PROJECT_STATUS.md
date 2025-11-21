@@ -1,6 +1,6 @@
 # Project Status — Agency OS
 
-_Last updated: 2025-11-20_
+_Last updated: 2025-11-21_
 
 ## How to Use This File
 - Skim **Quick Recap**, **Recent Accomplishments**, and **Next Priorities** before coding.
@@ -21,6 +21,9 @@ _Last updated: 2025-11-20_
 Agency OS consolidates internal tools (Ngram, The Operator, Amazon Composer, Creative Brief) behind a shared Next.js frontend, FastAPI backend, and Supabase auth stack deployed on Render. Supabase handles SSO (Google) plus the shared database, while the worker service manages nightly syncs and other heavy jobs.
 
 ## Recent Accomplishments
+- **2025-11-21**
+  - Updated Stage 6 grouping backend to log actual OpenAI usage metrics (model/tokens/duration) returned by the orchestrator; added minimal Supabase typing to keep Render/Turbopack builds passing. Render deploy succeeded; full suite **235 tests** passing.
+  - Added Stage 5 cleanup UI tests (KeywordCleanupStep, CleanedKeywordsList, RemovedKeywordsList, `unapproveClean`) — cleanup step now fully covered.
 - **2025-11-20**
   - Completed Composer Slice 2 Stage 6 (Keyword Grouping APIs & AI Integration): shipped AI-powered keyword grouping with OpenAI gpt-5.1-nano integration, 4 grouping basis types (single, per_sku, attribute, custom), merge utility for AI groups + user overrides (move/remove/add), 4 production APIs (grouping-plan, groups GET, group-overrides POST/DELETE), comprehensive usage event logging to `composer_usage_events` table, and complete test coverage. Logging now records actual OpenAI usage (model/tokens/duration) returned by the orchestrator. Enhanced usage logging tests to explicitly verify all parameters (organizationId, projectId, tokens, duration, meta) on both success and error paths per QA agent recommendation. Full test suite: **235 passing tests** (50 new for Stage 6).
   - Completed Composer Slice 2 Stage 5 (Keyword Cleanup UI): shipped production-ready cleanup interface with tab-based navigation (Description & Bullets / Titles), 3-state progress indicator (Run → Review → Approve), stateful approval toggle (approve/unapprove with `unapproveClean()`), collapsible keyword lists (400px max-height scroll for 3000+ keywords), grouped removed keywords by reason with color-coded badges (7 types), manual remove/restore, confirmation checkbox, and "Continue to Titles Pool" button. Uses unicode symbols (▲▼▶✓) with no icon library dependency.
