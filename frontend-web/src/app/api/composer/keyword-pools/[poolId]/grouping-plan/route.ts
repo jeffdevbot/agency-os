@@ -94,7 +94,7 @@ export async function POST(
   const startTime = Date.now();
 
   try {
-    const groups = await groupKeywords(pool.cleaned_keywords, config, {
+    const { groups, usage } = await groupKeywords(pool.cleaned_keywords, config, {
       project: {
         clientName: project.client_name,
         category: project.category,
@@ -156,20 +156,17 @@ export async function POST(
       );
     }
 
-    const tokensIn = Math.ceil(pool.cleaned_keywords.join(" ").length / 4);
-    const tokensOut = Math.ceil(JSON.stringify(groups).length / 4);
-
     await logUsageEvent({
       supabase,
       organizationId,
       projectId: pool.project_id,
       jobId: null,
       action: "keyword_grouping",
-      model: process.env.OPENAI_MODEL_PRIMARY || "gpt-5.1-nano",
-      tokensIn,
-      tokensOut,
-      tokensTotal: tokensIn + tokensOut,
-      durationMs,
+      model: usage.model,
+      tokensIn: usage.tokensIn,
+      tokensOut: usage.tokensOut,
+      tokensTotal: usage.tokensTotal,
+      durationMs: usage.durationMs || durationMs,
       meta: {
         pool_type: pool.pool_type,
         pool_id: poolId,

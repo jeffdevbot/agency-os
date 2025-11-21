@@ -3,7 +3,7 @@ import type {
   ComposerProject,
   ComposerKeywordGroup,
 } from "@agency/lib/composer/types";
-import { createChatCompletion, parseJSONResponse } from "./openai";
+import { createChatCompletion, parseJSONResponse, type ChatCompletionResult } from "./openai";
 
 export interface GroupKeywordsContext {
   project: {
@@ -90,29 +90,60 @@ Requirements:
 }`;
 };
 
+export interface GroupKeywordsResult {
+  groups: ComposerKeywordGroup[];
+  usage: Pick<ChatCompletionResult, "tokensIn" | "tokensOut" | "tokensTotal" | "model" | "durationMs">;
+}
+
 export const groupKeywords = async (
   keywords: string[],
   config: GroupingConfig,
   context: GroupKeywordsContext,
-): Promise<ComposerKeywordGroup[]> => {
+): Promise<GroupKeywordsResult> => {
   if (keywords.length === 0) {
-    return [];
+    return {
+      groups: [],
+      usage: {
+        tokensIn: 0,
+        tokensOut: 0,
+        tokensTotal: 0,
+        model: "gpt-5.1-nano",
+        durationMs: 0,
+      },
+    };
   }
 
   if (config.basis === "single" || keywords.length === 1) {
-    return [
-      {
-        id: crypto.randomUUID(),
-        organizationId: "",
-        keywordPoolId: context.poolId,
-        groupIndex: 0,
-        label: "General",
-        phrases: keywords,
-        metadata: { basis: config.basis || "single" },
-        createdAt: new Date().toISOString(),
+    return {
+      groups: [
+        {
+          id: crypto.randomUUID(),
+          organizationId: "",
+          keywordPoolId: context.poolId,
+          groupIndex: 0,
+          label: "General",
+          phrases: keywords,
+          metadata: { basis: config.basis || "single" },
+          createdAt: new Date().toISOString(),
+        },
+      ],
+      usage: {
+        tokensIn: 0,
+        tokensOut: 0,
+        tokensTotal: 0,
+        model: "gpt-5.1-nano",
+        durationMs: 0,
       },
-    ];
+    };
   }
+
+  let usage: GroupKeywordsResult["usage"] = {
+    tokensIn: 0,
+    tokensOut: 0,
+    tokensTotal: 0,
+    model: process.env.OPENAI_MODEL_PRIMARY || "gpt-5.1-nano",
+    durationMs: 0,
+  };
 
   try {
     const prompt = buildGroupingPrompt(keywords, config, context);
@@ -132,6 +163,13 @@ export const groupKeywords = async (
         maxTokens: 4000,
       },
     );
+    usage = {
+      tokensIn: result.tokensIn,
+      tokensOut: result.tokensOut,
+      tokensTotal: result.tokensTotal,
+      model: result.model,
+      durationMs: result.durationMs,
+    };
 
     const aiResponse = parseJSONResponse<AIGroupResponse>(result.content);
 
@@ -161,33 +199,44 @@ export const groupKeywords = async (
       }
     }
 
-    return aiResponse.groups.map((group, index) => ({
-      id: crypto.randomUUID(),
-      organizationId: "",
-      keywordPoolId: context.poolId,
-      groupIndex: index,
-      label: group.label,
-      phrases: group.keywords,
-      metadata: {
-        basis: config.basis,
-        attributeName: config.attributeName,
-        aiGenerated: true,
-      },
-      createdAt: new Date().toISOString(),
-    }));
-  } catch (error) {
-    console.error("AI grouping failed, falling back to single group:", error);
-    return [
-      {
+    return {
+      groups: aiResponse.groups.map((group, index) => ({
         id: crypto.randomUUID(),
         organizationId: "",
         keywordPoolId: context.poolId,
-        groupIndex: 0,
-        label: "General",
-        phrases: keywords,
-        metadata: { basis: "single", fallback: true },
+        groupIndex: index,
+        label: group.label,
+        phrases: group.keywords,
+        metadata: {
+          basis: config.basis,
+          attributeName: config.attributeName,
+          aiGenerated: true,
+        },
         createdAt: new Date().toISOString(),
+      })),
+      usage,
+    };
+  } catch (error) {
+    console.error("AI grouping failed, falling back to single group:", error);
+    return {
+      groups: [
+        {
+          id: crypto.randomUUID(),
+          organizationId: "",
+          keywordPoolId: context.poolId,
+          groupIndex: 0,
+          label: "General",
+          phrases: keywords,
+          metadata: { basis: "single", fallback: true },
+          createdAt: new Date().toISOString(),
+        },
+      ],
+      usage: {
+        ...usage,
+        tokensIn: 0,
+        tokensOut: 0,
+        tokensTotal: 0,
       },
-    ];
+    };
   }
 };

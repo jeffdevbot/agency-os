@@ -112,7 +112,10 @@ describe("grouping-plan API", () => {
       },
     ];
 
-    vi.spyOn(groupKeywordsModule, "groupKeywords").mockResolvedValue(mockGroups);
+    vi.spyOn(groupKeywordsModule, "groupKeywords").mockResolvedValue({
+      groups: mockGroups,
+      usage: { tokensIn: 10, tokensOut: 20, tokensTotal: 30, model: "gpt-5.1-nano", durationMs: 500 },
+    });
 
     groupsBuilder.__pushResponse({
       data: [
@@ -189,6 +192,10 @@ describe("grouping-plan API", () => {
     expect(usageLoggerModule.logUsageEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         action: "keyword_grouping",
+        model: "gpt-5.1-nano",
+        tokensIn: 10,
+        tokensOut: 20,
+        tokensTotal: 30,
         meta: expect.objectContaining({
           pool_type: "body",
           pool_id: "223e4567-e89b-12d3-a456-426614174000",
@@ -326,18 +333,21 @@ describe("grouping-plan API", () => {
 
     groupsBuilder.__pushResponse({ data: [], error: null });
 
-    vi.spyOn(groupKeywordsModule, "groupKeywords").mockResolvedValue([
-      {
-        id: "n23e4567-e89b-12d3-a456-426614174000",
-        organizationId: session.user.org_id,
-        keywordPoolId: "223e4567-e89b-12d3-a456-426614174000",
-        groupIndex: 0,
-        label: "General",
-        phrases: ["blue shirt"],
-        metadata: {},
-        createdAt: new Date().toISOString(),
-      },
-    ]);
+    vi.spyOn(groupKeywordsModule, "groupKeywords").mockResolvedValue({
+      groups: [
+        {
+          id: "n23e4567-e89b-12d3-a456-426614174000",
+          organizationId: session.user.org_id,
+          keywordPoolId: "223e4567-e89b-12d3-a456-426614174000",
+          groupIndex: 0,
+          label: "General",
+          phrases: ["blue shirt"],
+          metadata: {},
+          createdAt: new Date().toISOString(),
+        },
+      ],
+      usage: { tokensIn: 5, tokensOut: 5, tokensTotal: 10, model: "gpt-5.1-nano", durationMs: 50 },
+    });
 
     groupsBuilder.__pushResponse({
       data: [
@@ -513,6 +523,22 @@ describe("grouping-plan API", () => {
       error: null,
     });
 
+    vi.spyOn(groupKeywordsModule, "groupKeywords").mockResolvedValue({
+      groups: [
+        {
+          id: "group-1",
+          organizationId: orgId,
+          keywordPoolId: poolId,
+          groupIndex: 0,
+          label: "Test Group",
+          phrases: ["keyword1", "keyword2", "keyword3"],
+          metadata: { basis: "per_sku", aiGenerated: true },
+          createdAt: new Date().toISOString(),
+        },
+      ],
+      usage: { tokensIn: 12, tokensOut: 8, tokensTotal: 20, model: "gpt-5.1-nano", durationMs: 42 },
+    });
+
     await POST(
       mockRequest({ config: { basis: "per_sku" } }),
       mockParams({ poolId }),
@@ -525,11 +551,11 @@ describe("grouping-plan API", () => {
       projectId: projectId,
       jobId: null,
       action: "keyword_grouping",
-      model: expect.any(String),
-      tokensIn: expect.any(Number),
-      tokensOut: expect.any(Number),
-      tokensTotal: expect.any(Number),
-      durationMs: expect.any(Number),
+      model: "gpt-5.1-nano",
+      tokensIn: 12,
+      tokensOut: 8,
+      tokensTotal: 20,
+      durationMs: 42,
       meta: {
         pool_type: "titles",
         pool_id: poolId,

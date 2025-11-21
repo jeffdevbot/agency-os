@@ -21,7 +21,8 @@ describe("groupKeywords", () => {
 
   it("returns empty array for empty keywords", async () => {
     const result = await groupKeywords([], { basis: "single" }, mockContext);
-    expect(result).toEqual([]);
+    expect(result.groups).toEqual([]);
+    expect(result.usage.tokensTotal).toBe(0);
   });
 
   it("returns single group for basis=single", async () => {
@@ -30,11 +31,11 @@ describe("groupKeywords", () => {
 
     const result = await groupKeywords(keywords, config, mockContext);
 
-    expect(result).toHaveLength(1);
-    expect(result[0].label).toBe("General");
-    expect(result[0].phrases).toEqual(keywords);
-    expect(result[0].groupIndex).toBe(0);
-    expect(result[0].metadata.basis).toBe("single");
+    expect(result.groups).toHaveLength(1);
+    expect(result.groups[0].label).toBe("General");
+    expect(result.groups[0].phrases).toEqual(keywords);
+    expect(result.groups[0].groupIndex).toBe(0);
+    expect(result.groups[0].metadata.basis).toBe("single");
   });
 
   it("returns single group for single keyword", async () => {
@@ -43,9 +44,9 @@ describe("groupKeywords", () => {
 
     const result = await groupKeywords(keywords, config, mockContext);
 
-    expect(result).toHaveLength(1);
-    expect(result[0].label).toBe("General");
-    expect(result[0].phrases).toEqual(keywords);
+    expect(result.groups).toHaveLength(1);
+    expect(result.groups[0].label).toBe("General");
+    expect(result.groups[0].phrases).toEqual(keywords);
   });
 
   it("calls OpenAI for custom grouping and parses response", async () => {
@@ -76,13 +77,13 @@ describe("groupKeywords", () => {
 
     const result = await groupKeywords(keywords, config, mockContext);
 
-    expect(result).toHaveLength(2);
-    expect(result[0].label).toBe("Blue Items");
-    expect(result[0].phrases).toEqual(["blue shirt"]);
-    expect(result[0].groupIndex).toBe(0);
-    expect(result[1].label).toBe("Red/Green Items");
-    expect(result[1].phrases).toEqual(["red dress", "green pants"]);
-    expect(result[1].groupIndex).toBe(1);
+    expect(result.groups).toHaveLength(2);
+    expect(result.groups[0].label).toBe("Blue Items");
+    expect(result.groups[0].phrases).toEqual(["blue shirt"]);
+    expect(result.groups[0].groupIndex).toBe(0);
+    expect(result.groups[1].label).toBe("Red/Green Items");
+    expect(result.groups[1].phrases).toEqual(["red dress", "green pants"]);
+    expect(result.groups[1].groupIndex).toBe(1);
 
     expect(openaiModule.createChatCompletion).toHaveBeenCalledWith(
       expect.arrayContaining([
@@ -118,10 +119,10 @@ describe("groupKeywords", () => {
 
     const result = await groupKeywords(keywords, config, mockContext);
 
-    expect(result).toHaveLength(1);
-    expect(result[0].phrases).toContain("blue shirt");
-    expect(result[0].phrases).toContain("red dress");
-    expect(result[0].phrases).toContain("green pants");
+    expect(result.groups).toHaveLength(1);
+    expect(result.groups[0].phrases).toContain("blue shirt");
+    expect(result.groups[0].phrases).toContain("red dress");
+    expect(result.groups[0].phrases).toContain("green pants");
   });
 
   it("falls back to single group when AI call fails", async () => {
@@ -134,10 +135,10 @@ describe("groupKeywords", () => {
 
     const result = await groupKeywords(keywords, config, mockContext);
 
-    expect(result).toHaveLength(1);
-    expect(result[0].label).toBe("General");
-    expect(result[0].phrases).toEqual(keywords);
-    expect(result[0].metadata.fallback).toBe(true);
+    expect(result.groups).toHaveLength(1);
+    expect(result.groups[0].label).toBe("General");
+    expect(result.groups[0].phrases).toEqual(keywords);
+    expect(result.groups[0].metadata.fallback).toBe(true);
   });
 
   it("builds correct prompt for per_sku basis", async () => {
@@ -168,7 +169,7 @@ describe("groupKeywords", () => {
 
     const result = await groupKeywords(keywords, config, mockContext);
 
-    expect(result).toHaveLength(2);
+    expect(result.groups).toHaveLength(2);
 
     const calls = vi.mocked(openaiModule.createChatCompletion).mock.calls;
     const userMessage = calls[0][0][1].content;
@@ -203,7 +204,7 @@ describe("groupKeywords", () => {
 
     const result = await groupKeywords(keywords, config, mockContext);
 
-    expect(result).toHaveLength(2);
+    expect(result.groups).toHaveLength(2);
 
     const calls = vi.mocked(openaiModule.createChatCompletion).mock.calls;
     const userMessage = calls[0][0][1].content;
@@ -216,10 +217,10 @@ describe("groupKeywords", () => {
 
     const result = await groupKeywords(keywords, config, mockContext);
 
-    expect(result).toHaveLength(1);
-    expect(result[0].label).toBe("General");
-    expect(result[0].phrases).toEqual(keywords);
-    expect(result[0].metadata.fallback).toBe(true);
+    expect(result.groups).toHaveLength(1);
+    expect(result.groups[0].label).toBe("General");
+    expect(result.groups[0].phrases).toEqual(keywords);
+    expect(result.groups[0].metadata.fallback).toBe(true);
   });
 
   it("falls back to single group when groupCount missing for custom basis", async () => {
@@ -228,10 +229,10 @@ describe("groupKeywords", () => {
 
     const result = await groupKeywords(keywords, config, mockContext);
 
-    expect(result).toHaveLength(1);
-    expect(result[0].label).toBe("General");
-    expect(result[0].phrases).toEqual(keywords);
-    expect(result[0].metadata.fallback).toBe(true);
+    expect(result.groups).toHaveLength(1);
+    expect(result.groups[0].label).toBe("General");
+    expect(result.groups[0].phrases).toEqual(keywords);
+    expect(result.groups[0].metadata.fallback).toBe(true);
   });
 
   it("includes phrasesPerGroup hint in prompt when provided", async () => {
@@ -299,8 +300,8 @@ describe("groupKeywords", () => {
 
     const result = await groupKeywords(keywords, config, mockContext);
 
-    expect(result[0].metadata.basis).toBe("attribute");
-    expect(result[0].metadata.attributeName).toBe("Color");
-    expect(result[0].metadata.aiGenerated).toBe(true);
+    expect(result.groups[0].metadata.basis).toBe("attribute");
+    expect(result.groups[0].metadata.attributeName).toBe("Color");
+    expect(result.groups[0].metadata.aiGenerated).toBe(true);
   });
 });
