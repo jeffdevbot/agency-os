@@ -352,8 +352,8 @@ Tradeoff: Requires build toolchain to properly resolve `@supabase/supabase-js` t
 
 ## Stage 7: Frontend — Grouping Plan (Surface 7) ✅ COMPLETED
 
-**Status:** Completed 2025-11-21
-**Notes:** Delivered full drag-and-drop grouping interface with tab navigation, 3-state progress indicator, optimistic locking for approval workflow, non-blocking override tracking, and timestamp consistency fixes. Build deployed successfully to Render. Awaiting manual testing.
+**Status:** Completed 2025-11-21, Fixed 2025-11-22
+**Notes:** Delivered full drag-and-drop grouping interface with tab navigation, 3-state progress indicator, optimistic locking for approval workflow, non-blocking override tracking, and timestamp consistency fixes. Build deployed successfully to Render. **2025-11-22 Update:** Fixed three critical issues preventing "GENERATE GROUPING PLAN" from working: (1) Empty pools array - page.tsx now fetches actual pools via `useKeywordPools` hook, (2) Placeholder AI logic replaced with actual `groupKeywords()` function call with full usage logging, (3) API response format changed from count to full groups array. Fixed TypeScript pool_type casting error. **Grouping generation now fully functional end-to-end.**
 
 **Goal:** Build Grouping Plan UI with config form, AI preview, manual overrides (drag-drop), approval.
 
@@ -435,6 +435,8 @@ Tradeoff: Requires build toolchain to properly resolve `@supabase/supabase-js` t
 - `/frontend-web/src/lib/composer/hooks/useKeywordPools.ts` — Added 6 new methods
 - `/frontend-web/src/app/api/composer/keyword-pools/[poolId]/route.ts` — Added DELETE handler with timestamp consistency
 - `/frontend-web/package.json` — Added @dnd-kit dependencies
+- **2025-11-22:** `/frontend-web/src/app/composer/[projectId]/[stepId]/page.tsx` — Added `useKeywordPools` hook to pass actual pools data
+- **2025-11-22:** `/frontend-web/src/app/api/composer/keyword-pools/[poolId]/grouping-plan/route.ts` — Replaced placeholder logic with actual AI grouping, added usage logging, fixed response format, added pool_type type assertion
 
 **Critical Design Decisions:**
 1. **Optimistic Locking**: Approval endpoint uses `updated_at` timestamp comparison to detect concurrent modifications and returns 409 Conflict, preventing race conditions during parallel edits
