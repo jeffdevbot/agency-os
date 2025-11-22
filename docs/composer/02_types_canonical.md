@@ -307,6 +307,7 @@ export interface ComposerKeywordPool {
   groupId: SkuGroupId | null;
   poolType: KeywordPoolType;
   status: KeywordPoolStatus;
+  version?: number;
   rawKeywords: string[];
   rawKeywordsUrl?: string | null;
   cleanedKeywords: string[];
@@ -338,7 +339,7 @@ export interface ComposerKeywordGroup {
 ### ComposerKeywordGroupOverride
 
 ```ts
-export type KeywordGroupOverrideAction = 'move' | 'remove' | 'add';
+export type KeywordGroupOverrideAction = 'move' | 'remove' | 'add' | 'rename';
 
 export interface ComposerKeywordGroupOverride {
   id: string;

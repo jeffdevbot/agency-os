@@ -109,6 +109,7 @@ This micro-spec defines the **database layer** for Composer:
 - Fields:
   - `pool_type` (`body` for description/bullets, `titles`).
   - `status` (`empty` | `uploaded` | `cleaned` | `grouped`).
+  - `version` (integer, optimistic lock counter).
   - `raw_keywords` (JSONB `text[]`) — deduped ingest snapshot.
   - `raw_keywords_url` (optional S3 reference when uploads exceed inline limit).
   - `cleaned_keywords` (JSONB `text[]`).
@@ -116,7 +117,7 @@ This micro-spec defines the **database layer** for Composer:
   - `clean_settings` JSON (removeColors/sizes/brand/competitor flags).
   - `cleaned_at`, `grouped_at`.
   - `grouping_config` JSON (basis, attributeName, groupCount, phrasesPerGroup).
-  - `approved_at` (grouping approval timestamp).
+  - `approved_at` (grouping approval timestamp; approval tracked via timestamp, status remains `grouped`).
   - `created_at`.
 
 **`composer_keyword_groups`**
@@ -136,7 +137,7 @@ This micro-spec defines the **database layer** for Composer:
   - `keyword_pool_id`
   - `source_group_id` (AI group being modified) nullable if new group
   - `phrase`
-  - `action` (`move`, `remove`, `add`)
+  - `action` (`move`, `remove`, `add`, `rename`)
   - `target_group_label`, `target_group_index`
   - `created_at`
 
