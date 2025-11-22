@@ -11,6 +11,7 @@ import { GroupingPlanStep } from "../components/keyword-grouping/GroupingPlanSte
 import { useComposerProject } from "@/lib/composer/hooks/useComposerProject";
 import { useProjectAutosave } from "@/lib/composer/hooks/useProjectAutosave";
 import { useSkuVariants } from "@/lib/composer/hooks/useSkuVariants";
+import { useKeywordPools } from "@/lib/composer/hooks/useKeywordPools";
 import { validateProductInfoForm } from "@/lib/composer/productInfo/validateProductInfoForm";
 import type { StrategyType } from "@agency/lib/composer/types";
 import {
@@ -70,6 +71,8 @@ export default function ComposerWizardStepPage() {
     deleteVariant,
     isSaving: variantsSaving,
   } = useSkuVariants(projectId);
+
+  const { pools } = useKeywordPools(projectId);
 
   const validStep: ComposerStepId = useMemo(() => {
     if (isComposerStepId(requestedStep)) {
@@ -207,7 +210,7 @@ export default function ComposerWizardStepPage() {
         return (
           <GroupingPlanStep
             projectId={project.id}
-            pools={[]}
+            pools={pools}
             onValidityChange={(ready) => setKeywordGroupingReady(ready)}
           />
         );
