@@ -11,14 +11,14 @@ interface KeywordGroupCardProps {
 }
 
 export function KeywordGroupCard({ group, onUpdateLabel }: KeywordGroupCardProps) {
-  const { setNodeRef, isOver } = useDroppable({ id: group.id });
+  const { setNodeRef, isOver } = useDroppable({ id: group.groupIndex.toString() });
   const [isEditing, setIsEditing] = useState(false);
-  const [labelValue, setLabelValue] = useState(group.label);
+  const [labelValue, setLabelValue] = useState(group.label ?? "");
   const [isCollapsed, setIsCollapsed] = useState(false);
 
   const handleSaveLabel = () => {
     if (onUpdateLabel && labelValue.trim() !== group.label) {
-      onUpdateLabel(group.id, labelValue.trim());
+      onUpdateLabel(group.groupIndex.toString(), labelValue.trim());
     }
     setIsEditing(false);
   };
@@ -69,7 +69,11 @@ export function KeywordGroupCard({ group, onUpdateLabel }: KeywordGroupCardProps
       {!isCollapsed && (
         <div className="flex flex-wrap gap-2 max-h-[400px] overflow-y-auto">
           {group.phrases.map((phrase) => (
-            <DraggableKeyword key={phrase} phrase={phrase} groupId={group.id} />
+            <DraggableKeyword
+              key={`${group.groupIndex}-${phrase}`}
+              phrase={phrase}
+              groupIndex={group.groupIndex}
+            />
           ))}
         </div>
       )}

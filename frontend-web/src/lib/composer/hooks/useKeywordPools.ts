@@ -6,22 +6,22 @@ import type {
 } from "@agency/lib/composer/types";
 import { dedupeKeywords, mergeKeywords } from "@agency/lib/composer/keywords/utils";
 
-interface GroupingConfig {
+export interface GroupingConfig {
   basis: string;
   attributeName?: string;
   groupCount?: number;
   phrasesPerGroup?: number;
 }
 
-interface KeywordOverride {
+export interface KeywordOverride {
   phrase: string;
-  action: 'move' | 'remove' | 'add';
+  action: 'move' | 'remove' | 'add' | 'rename';
   sourceGroupId?: string | null;
   targetGroupLabel?: string;
   targetGroupIndex?: number;
 }
 
-interface UseKeywordPoolsResult {
+export interface UseKeywordPoolsResult {
   pools: ComposerKeywordPool[];
   isLoading: boolean;
   error: string | null;
@@ -38,7 +38,7 @@ interface UseKeywordPoolsResult {
   approveClean: (poolId: string) => Promise<ComposerKeywordPool | null>;
   unapproveClean: (poolId: string) => Promise<ComposerKeywordPool | null>;
   generateGroupingPlan: (poolId: string, config: GroupingConfig) => Promise<ComposerKeywordPool | null>;
-  getGroups: (poolId: string) => Promise<{ groups: any[]; overrides: any[] } | null>;
+  getGroups: (poolId: string) => Promise<{ groups: any[]; overrides: any[]; merged: any[] } | null>;
   addOverride: (poolId: string, override: KeywordOverride) => Promise<boolean>;
   resetOverrides: (poolId: string) => Promise<boolean>;
   approveGrouping: (poolId: string) => Promise<ComposerKeywordPool | null>;
@@ -375,7 +375,7 @@ export const useKeywordPools = (
         if (!response.ok) {
           throw new Error(data.error || "Unable to fetch groups");
         }
-        return { groups: data.groups || [], overrides: data.overrides || [] };
+        return { groups: data.groups || [], overrides: data.overrides || [], merged: data.merged || [] };
       } catch (fetchError) {
         setError(fetchError instanceof Error ? fetchError.message : "Unable to fetch groups");
         return null;
@@ -454,7 +454,7 @@ export const useKeywordPools = (
     async (poolId) => {
       setError(null);
       try {
-        const response = await fetch(`/api/composer/keyword-pools/${poolId}?action=unapprove`, {
+        const response = await fetch(`/api/composer/keyword-pools/${poolId}/approve-grouping`, {
           method: "DELETE",
         });
         const data = await response.json().catch(() => ({}));

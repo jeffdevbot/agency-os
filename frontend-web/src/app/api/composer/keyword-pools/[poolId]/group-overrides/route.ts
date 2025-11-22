@@ -40,7 +40,7 @@ export async function POST(
   // Parse request body
   let override: {
     phrase: string;
-    action: "move" | "remove" | "add";
+    action: "move" | "remove" | "add" | "rename";
     sourceGroupId?: string | null;
     targetGroupLabel?: string;
     targetGroupIndex?: number;
@@ -60,6 +60,22 @@ export async function POST(
       { error: "Missing required fields: phrase, action" },
       { status: 400 },
     );
+  }
+
+  if (override.action === "rename" && !override.targetGroupLabel) {
+    return NextResponse.json(
+      { error: "Rename override requires targetGroupLabel" },
+      { status: 400 },
+    );
+  }
+
+  if (override.targetGroupIndex !== undefined && override.targetGroupIndex !== null) {
+    if (override.targetGroupIndex < 0) {
+      return NextResponse.json(
+        { error: "targetGroupIndex must be >= 0" },
+        { status: 400 },
+      );
+    }
   }
 
   // Verify pool exists and status allows overrides

@@ -1,7 +1,9 @@
 export interface KeywordGroup {
-  id: string;
+  id?: string;
+  groupIndex: number;
   label: string;
   phrases: string[];
+  metadata?: Record<string, unknown>;
 }
 
 export interface GroupingConfig {

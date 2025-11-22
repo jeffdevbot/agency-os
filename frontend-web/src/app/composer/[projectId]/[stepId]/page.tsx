@@ -72,7 +72,8 @@ export default function ComposerWizardStepPage() {
     isSaving: variantsSaving,
   } = useSkuVariants(projectId);
 
-  const { pools } = useKeywordPools(projectId);
+  const keywordPools = useKeywordPools(projectId);
+  const { pools } = keywordPools;
 
   const validStep: ComposerStepId = useMemo(() => {
     if (isComposerStepId(requestedStep)) {
@@ -209,8 +210,8 @@ export default function ComposerWizardStepPage() {
       case "keyword_grouping":
         return (
           <GroupingPlanStep
-            projectId={project.id}
             pools={pools}
+            poolsApi={keywordPools}
             onValidityChange={(ready) => setKeywordGroupingReady(ready)}
           />
         );

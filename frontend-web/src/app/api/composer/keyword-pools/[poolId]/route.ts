@@ -13,6 +13,7 @@ export interface KeywordPoolRow {
   group_id: string | null;
   pool_type: string;
   status: string;
+  version?: number;
   raw_keywords: string[];
   raw_keywords_url: string | null;
   cleaned_keywords: string[];
@@ -58,6 +59,7 @@ export const mapRowToPool = (row: KeywordPoolRow): ComposerKeywordPool => ({
   groupId: row.group_id,
   poolType: row.pool_type as "body" | "titles",
   status: row.status as "empty" | "uploaded" | "cleaned" | "grouped",
+  version: row.version,
   rawKeywords: row.raw_keywords,
   rawKeywordsUrl: row.raw_keywords_url,
   cleanedKeywords: row.cleaned_keywords,
@@ -282,12 +284,30 @@ export async function PATCH(
   }
 
   // Perform the update
-  const { data, error } = await supabase
+  if (Object.keys(updates).length > 0) {
+    updates.version = ((existingPool as KeywordPoolRow).version ?? 1) + 1;
+  }
+
+  const query = supabase
     .from("composer_keyword_pools")
     .update(updates)
     .eq("id", poolId)
+    .eq("organization_id", organizationId);
+
+  if ((existingPool as KeywordPoolRow).version !== undefined) {
+    query.eq("version", (existingPool as KeywordPoolRow).version ?? 1);
+  }
+
+  const { data, error, status: updateStatus } = await query
     .select("*")
     .single();
+
+  if ((updateStatus === 204 && !data) || (!data && !error)) {
+    return NextResponse.json(
+      { error: "Concurrent update detected. Please refresh and try again." },
+      { status: 409 },
+    );
+  }
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });

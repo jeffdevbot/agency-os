@@ -31,7 +31,7 @@ export const mergeGroupsWithOverrides = (
   );
 
   sortedOverrides.forEach((override) => {
-    const { action, phrase, targetGroupIndex, targetGroupLabel, sourceGroupId } = override;
+    const { action, phrase, targetGroupIndex, targetGroupLabel } = override;
 
     if (action === "remove") {
       for (const group of groupsMap.values()) {
@@ -84,6 +84,21 @@ export const mergeGroupsWithOverrides = (
         }
       }
       return;
+    }
+
+    if (action === "rename") {
+      if (targetGroupIndex === null || targetGroupIndex === undefined) return;
+      const target = groupsMap.get(targetGroupIndex);
+      if (target) {
+        target.label = targetGroupLabel || target.label || `Group ${targetGroupIndex + 1}`;
+      } else {
+        groupsMap.set(targetGroupIndex, {
+          groupIndex: targetGroupIndex,
+          label: targetGroupLabel || `Group ${targetGroupIndex + 1}`,
+          phrases: [],
+          metadata: { manuallyCreated: true },
+        });
+      }
     }
   });
 

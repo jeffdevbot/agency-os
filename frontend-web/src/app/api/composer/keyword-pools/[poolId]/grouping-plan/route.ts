@@ -98,13 +98,6 @@ export async function POST(
     .eq("organization_id", organizationId)
     .single();
 
-  // Delete existing groups for this pool (regenerate scenario)
-  await supabase
-    .from("composer_keyword_groups")
-    .delete()
-    .eq("keyword_pool_id", poolId)
-    .eq("organization_id", organizationId);
-
   const startTime = Date.now();
   let aiGroups;
   let usage;
@@ -162,31 +155,55 @@ export async function POST(
   }));
 
   // Insert groups
-  const { data: insertedGroups, error: insertError } = await supabase
+  const { data: upsertedGroups, error: insertError } = await supabase
     .from("composer_keyword_groups")
-    .insert(dbGroups)
+    .upsert(dbGroups, { onConflict: "keyword_pool_id,group_index" })
     .select("*");
 
-  if (insertError || !insertedGroups) {
+  if (insertError || !upsertedGroups) {
     return NextResponse.json(
       { error: "Failed to create keyword groups", details: insertError?.message },
       { status: 500 },
     );
   }
 
+  // Remove stale groups that are no longer present
+  const newGroupIndexes = aiGroups.map((group) => group.groupIndex);
+  if (newGroupIndexes.length > 0) {
+    await supabase
+      .from("composer_keyword_groups")
+      .delete()
+      .eq("keyword_pool_id", poolId)
+      .eq("organization_id", organizationId)
+      .not("group_index", "in", `(${newGroupIndexes.join(",")})`);
+  }
+
   // Update pool: set status to 'grouped', save config, set timestamp
-  const { data: updatedPool, error: updateError } = await supabase
+  const nextVersion = (pool.version ?? 1) + 1;
+  const { data: updatedPool, error: updateError, status: updateStatus } = await supabase
     .from("composer_keyword_pools")
     .update({
       status: "grouped",
       grouping_config: config,
       grouped_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
+      version: nextVersion,
     })
     .eq("id", poolId)
     .eq("organization_id", organizationId)
+    .eq("version", pool.version ?? 1)
     .select("*")
     .single<KeywordPoolRow>();
+
+  if ((updateStatus === 204 && !updatedPool) || (!updatedPool && !updateError)) {
+    return NextResponse.json(
+      {
+        error: "Concurrent update detected. Please refresh and try again.",
+        code: "CONCURRENT_MODIFICATION",
+      },
+      { status: 409 },
+    );
+  }
 
   if (updateError || !updatedPool) {
     return NextResponse.json(
@@ -217,7 +234,7 @@ export async function POST(
   });
 
   // Map inserted groups to frontend format
-  const mappedGroups = insertedGroups.map((row) => ({
+  const mappedGroups = upsertedGroups.map((row) => ({
     id: row.id,
     organizationId: row.organization_id,
     keywordPoolId: row.keyword_pool_id,

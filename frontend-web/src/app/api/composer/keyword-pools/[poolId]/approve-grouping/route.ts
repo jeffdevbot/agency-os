@@ -67,21 +67,35 @@ export async function POST(
     );
   }
 
+  const nextVersion = (pool.version ?? 1) + 1;
+
   // Update pool: set approved_at timestamp
   // Note: Status remains 'grouped' - approval is tracked via approved_at field
   // This allows the step validation logic to check for both pools having approved_at set
-  const { data: updatedPool, error: updateError } = await supabase
+  const { data: updatedPool, error: updateError, status: updateStatus } = await supabase
     .from("composer_keyword_pools")
     .update({
       approved_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
+      version: nextVersion,
     })
     .eq("id", poolId)
     .eq("organization_id", organizationId)
+    .eq("version", pool.version ?? 1)
     // TODO (Red Team WARNING #4): Add optimistic locking check
     // .eq("updated_at", pool.updated_at)
     .select("*")
     .single<KeywordPoolRow>();
+
+  if ((updateStatus === 204 && !updatedPool) || (!updatedPool && !updateError)) {
+    return NextResponse.json(
+      {
+        error: "Concurrent update detected. Please refresh and try again.",
+        code: "CONCURRENT_MODIFICATION",
+      },
+      { status: 409 },
+    );
+  }
 
   if (updateError || !updatedPool) {
     // TODO: Check if this failed due to optimistic lock conflict
@@ -152,16 +166,29 @@ export async function DELETE(
   }
 
   // Clear approval timestamp
-  const { data: updatedPool, error: updateError } = await supabase
+  const nextVersion = (pool.version ?? 1) + 1;
+  const { data: updatedPool, error: updateError, status: updateStatus } = await supabase
     .from("composer_keyword_pools")
     .update({
       approved_at: null,
       updated_at: new Date().toISOString(),
+      version: nextVersion,
     })
     .eq("id", poolId)
     .eq("organization_id", organizationId)
+    .eq("version", pool.version ?? 1)
     .select("*")
     .single<KeywordPoolRow>();
+
+  if ((updateStatus === 204 && !updatedPool) || (!updatedPool && !updateError)) {
+    return NextResponse.json(
+      {
+        error: "Concurrent update detected. Please refresh and try again.",
+        code: "CONCURRENT_MODIFICATION",
+      },
+      { status: 409 },
+    );
+  }
 
   if (updateError || !updatedPool) {
     return NextResponse.json(

@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import type { ComposerKeywordGroup } from "@agency/lib/composer/types";
 import { createSupabaseRouteClient } from "@/lib/supabase/serverClient";
 import { isUuid, resolveComposerOrgIdFromSession } from "@/lib/composer/serverUtils";
+import { mergeGroupsWithOverrides } from "@agency/lib/composer/keywords/mergeGroups";
 
 interface KeywordGroupRow {
   id: string;
@@ -24,6 +25,18 @@ const mapRowToGroup = (row: KeywordGroupRow): ComposerKeywordGroup => ({
   metadata: row.metadata,
   createdAt: row.created_at,
 });
+
+interface OverrideRow {
+  id: string;
+  organization_id: string;
+  keyword_pool_id: string;
+  source_group_id: string | null;
+  phrase: string;
+  action: "move" | "remove" | "add" | "rename";
+  target_group_label: string | null;
+  target_group_index: number | null;
+  created_at: string;
+}
 
 /**
  * GET /api/composer/keyword-pools/:id/groups
@@ -106,8 +119,25 @@ export async function GET(
     );
   }
 
+  const mappedGroups = (groups || []).map(mapRowToGroup);
+  const mappedOverrides =
+    (overrides || []).map((row: OverrideRow) => ({
+      id: row.id,
+      organizationId: row.organization_id,
+      keywordPoolId: row.keyword_pool_id,
+      sourceGroupId: row.source_group_id,
+      phrase: row.phrase,
+      action: row.action,
+      targetGroupLabel: row.target_group_label,
+      targetGroupIndex: row.target_group_index,
+      createdAt: row.created_at,
+    })) ?? [];
+
+  const merged = mergeGroupsWithOverrides(mappedGroups, mappedOverrides);
+
   return NextResponse.json({
-    groups: (groups || []).map(mapRowToGroup),
-    overrides: overrides || [],
+    groups: mappedGroups,
+    overrides: mappedOverrides,
+    merged,
   });
 }

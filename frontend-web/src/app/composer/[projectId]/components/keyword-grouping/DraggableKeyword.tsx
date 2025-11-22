@@ -5,13 +5,13 @@ import { CSS } from '@dnd-kit/utilities';
 
 interface DraggableKeywordProps {
   phrase: string;
-  groupId: string;
+  groupIndex: number;
 }
 
-export function DraggableKeyword({ phrase, groupId }: DraggableKeywordProps) {
+export function DraggableKeyword({ phrase, groupIndex }: DraggableKeywordProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
-    id: phrase,
-    data: { phrase, groupId },
+    id: `${groupIndex}:${phrase}`,
+    data: { phrase, groupIndex },
   });
 
   const style = {

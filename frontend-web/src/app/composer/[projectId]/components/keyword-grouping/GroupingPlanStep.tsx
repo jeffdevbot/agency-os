@@ -3,19 +3,20 @@
 import { useState, useEffect } from 'react';
 import { DndContext, DragEndEvent, closestCenter } from '@dnd-kit/core';
 import type { ComposerKeywordPool } from '@agency/lib/composer/types';
-import { useKeywordPools } from '@/lib/composer/hooks/useKeywordPools';
-import type { KeywordGroup, GroupingConfig } from './types';
+import type { UseKeywordPoolsResult, GroupingConfig } from '@/lib/composer/hooks/useKeywordPools';
+import type { KeywordGroup } from './types';
 import { KeywordGroupCard } from './KeywordGroupCard';
 import { GroupingConfigForm } from './GroupingConfigForm';
 
 interface GroupingPlanStepProps {
-  projectId: string;
+  projectId?: string;
   pools: ComposerKeywordPool[];
+  poolsApi: UseKeywordPoolsResult;
   onContinue?: () => void;
   onValidityChange?: (isValid: boolean) => void;
 }
 
-export function GroupingPlanStep({ projectId, pools, onContinue, onValidityChange }: GroupingPlanStepProps) {
+export function GroupingPlanStep({ pools, poolsApi, onContinue, onValidityChange }: GroupingPlanStepProps) {
   const [activeTab, setActiveTab] = useState<'body' | 'titles'>('body');
   const [groups, setGroups] = useState<KeywordGroup[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -28,12 +29,13 @@ export function GroupingPlanStep({ projectId, pools, onContinue, onValidityChang
     resetOverrides,
     approveGrouping,
     unapproveGrouping,
-  } = useKeywordPools(projectId);
+    refresh,
+  } = poolsApi;
 
   const currentPool = pools.find((p) => p.poolType === activeTab);
-  const isApproved = currentPool?.status === 'grouped';
+  const isApproved = currentPool?.approvedAt != null;
   const canApprove =
-    currentPool?.status === 'cleaned' && groups.length > 0 && groups.every((g) => g.phrases.length > 0);
+    currentPool?.status === 'grouped' && groups.length > 0 && groups.every((g) => g.phrases.length > 0);
 
   // Check if both pools have grouping approved
   useEffect(() => {
@@ -49,14 +51,26 @@ export function GroupingPlanStep({ projectId, pools, onContinue, onValidityChang
 
   useEffect(() => {
     if (currentPool) {
-      loadGroups(currentPool.id);
+      void loadGroups(currentPool.id);
+    } else {
+      setGroups([]);
+      setShowConfig(true);
     }
   }, [currentPool?.id]);
 
   const loadGroups = async (poolId: string) => {
     const result = await getGroups(poolId);
     if (result) {
-      setGroups(result.groups);
+      const merged = result.merged ?? result.groups ?? [];
+      setGroups(
+        merged.map((g: any, idx: number) => ({
+          id: g.id ?? `group-${g.groupIndex ?? idx}`,
+          groupIndex: g.groupIndex ?? idx,
+          label: g.label ?? '',
+          phrases: g.phrases ?? [],
+          metadata: g.metadata,
+        })),
+      );
     }
   };
 
@@ -67,6 +81,7 @@ export function GroupingPlanStep({ projectId, pools, onContinue, onValidityChang
     try {
       await generateGroupingPlan(currentPool.id, config);
       await loadGroups(currentPool.id);
+      await refresh();
       setShowConfig(false);
     } catch (error) {
       console.error('Failed to generate grouping plan:', error);
@@ -80,18 +95,18 @@ export function GroupingPlanStep({ projectId, pools, onContinue, onValidityChang
     if (!over || !active.data.current || !currentPool) return;
 
     const phrase = active.data.current.phrase as string;
-    const sourceGroupId = active.data.current.groupId as string;
-    const targetGroupId = over.id as string;
+    const sourceGroupIndex = active.data.current.groupIndex as number;
+    const targetGroupIndex = Number(over.id);
 
-    if (sourceGroupId === targetGroupId) return;
+    if (sourceGroupIndex === targetGroupIndex) return;
 
     // Optimistic UI update
     setGroups((prev) => {
       const updated = prev.map((group) => {
-        if (group.id === sourceGroupId) {
+        if (group.groupIndex === sourceGroupIndex) {
           return { ...group, phrases: group.phrases.filter((p) => p !== phrase) };
         }
-        if (group.id === targetGroupId) {
+        if (group.groupIndex === targetGroupIndex) {
           return { ...group, phrases: [...group.phrases, phrase] };
         }
         return group;
@@ -103,18 +118,28 @@ export function GroupingPlanStep({ projectId, pools, onContinue, onValidityChang
     await addOverride(currentPool.id, {
       phrase,
       action: 'move',
-      sourceGroupId,
-      targetGroupLabel: groups.find((g) => g.id === targetGroupId)?.label,
-      targetGroupIndex: groups.findIndex((g) => g.id === targetGroupId),
+      sourceGroupId: null,
+      targetGroupLabel: groups.find((g) => g.groupIndex === targetGroupIndex)?.label,
+      targetGroupIndex,
     });
+
+    await loadGroups(currentPool.id);
   };
 
-  const handleUpdateLabel = async (groupId: string, newLabel: string) => {
+  const handleUpdateLabel = async (groupKey: string, newLabel: string) => {
+    const targetGroupIndex = Number(groupKey);
     // Update locally
     setGroups((prev) =>
-      prev.map((g) => (g.id === groupId ? { ...g, label: newLabel } : g))
+      prev.map((g) => (g.groupIndex === targetGroupIndex ? { ...g, label: newLabel } : g)),
     );
-    // TODO: Call API to persist label change
+    if (!currentPool) return;
+    await addOverride(currentPool.id, {
+      phrase: newLabel,
+      action: 'rename',
+      targetGroupIndex,
+      targetGroupLabel: newLabel,
+    });
+    await loadGroups(currentPool.id);
   };
 
   const handleApprove = async () => {
@@ -123,6 +148,7 @@ export function GroupingPlanStep({ projectId, pools, onContinue, onValidityChang
     const result = await approveGrouping(currentPool.id);
     if (result) {
       // Success - pool status updated to 'grouped'
+      await refresh();
       if (onContinue) onContinue();
     }
   };
@@ -131,6 +157,7 @@ export function GroupingPlanStep({ projectId, pools, onContinue, onValidityChang
     if (!currentPool) return;
 
     await unapproveGrouping(currentPool.id);
+    await refresh();
   };
 
   const handleReset = async () => {
@@ -143,7 +170,7 @@ export function GroupingPlanStep({ projectId, pools, onContinue, onValidityChang
   // Progress indicator
   const getProgressState = () => {
     if (!currentPool) return 'Configure';
-    if (currentPool.status === 'grouped') return 'Approved ✓';
+    if (currentPool.approvedAt) return 'Approved ✓';
     if (groups.length > 0) return 'Review';
     return 'Configure';
   };
@@ -218,7 +245,7 @@ export function GroupingPlanStep({ projectId, pools, onContinue, onValidityChang
           <DndContext onDragEnd={handleDragEnd} collisionDetection={closestCenter}>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {groups.map((group) => (
-                <KeywordGroupCard key={group.id} group={group} onUpdateLabel={handleUpdateLabel} />
+                <KeywordGroupCard key={group.groupIndex} group={group} onUpdateLabel={handleUpdateLabel} />
               ))}
             </div>
           </DndContext>
