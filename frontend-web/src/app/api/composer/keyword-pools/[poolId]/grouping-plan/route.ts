@@ -116,7 +116,7 @@ export async function POST(
         clientName: project?.client_name || "",
         category: project?.category || "",
       },
-      poolType: pool.pool_type,
+      poolType: pool.pool_type as "body" | "titles",
       poolId: pool.id,
     });
 
