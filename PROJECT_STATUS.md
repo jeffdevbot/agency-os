@@ -1,6 +1,6 @@
 # Project Status — Agency OS
 
-_Last updated: 2025-11-22_
+_Last updated: 2025-11-26_
 
 ## How to Use This File
 - Skim **Quick Recap**, **Recent Accomplishments**, and **Next Priorities** before coding.
@@ -18,9 +18,18 @@ _Last updated: 2025-11-22_
   ```
 
 ## Quick Recap
-Agency OS consolidates internal tools (Ngram, The Operator, Amazon Composer, Creative Brief) behind a shared Next.js frontend, FastAPI backend, and Supabase auth stack deployed on Render. Supabase handles SSO (Google) plus the shared database, while the worker service manages nightly syncs and other heavy jobs.
+Agency OS consolidates internal tools (Ngram, The Operator, Creative Brief) behind a shared Next.js frontend, FastAPI backend, and Supabase auth stack deployed on Render. Supabase handles SSO (Google) plus the shared database, while the worker service manages nightly syncs and other heavy jobs. **Amazon Composer is deprecated** and will be replaced by the new **Scribe** project (simpler, more focused listing/content generation). Composer code and data are frozen pending decommission.
 
 ## Recent Accomplishments
+- **2025-11-27**
+  - **Scribe Stage A polished & CSV upsert** ✅: Rebuilt Stage A to grouped per-SKU blocks with scalar modules, inline multi-value lists, copy-from, inline attribute delete, and per-SKU approve/unapprove. CSV import now upserts by `sku_code`, patches scalars/words, replaces keywords/questions, strips bullets, and is quote-aware to avoid duplicate SKUs. Export renamed to Download Template. Frontend keeps local state (no wipe on add/delete) and hides spurious errors. PRD/implementation plan updated to match approve/unapprove and import upsert semantics.
+- **2025-11-26**
+  - **Scribe per-SKU migration and docs aligned** ✅: Applied Supabase migration to drop shared/default columns, rename override fields, and enforce `sku_id` NOT NULL on keywords/questions/topics (per-SKU-only model). PRD and implementation plan updated to the grouped-row Stage A UI, per-SKU-only Stage B/C, and legacy migration marked as optional. Backend Phase 2 (per-SKU APIs + copy-from-SKU endpoint/tests) completed.
+- **2025-11-25**
+  - **Scribe Slice 1 (Projects Shell) Complete** ✅: Added Scribe projects API (list/create/detail/update, archive/restore) with owner scoping and status transition guards. Implemented frontend dashboard at `/scribe` with create form, pagination, archive/restore, and CTA styling aligned to the homepage. Enabled auto-creation of profiles on auth user insert; seeded admin profile to clear FK issues.
+  - **Scribe Stage A Grid In Progress** 🚧: Refactored `/scribe/[projectId]` into a single grid-centric Stage A layout (sticky SKU column, horizontal scroll, dynamic variant attribute columns). Added shared defaults controls, inline overrides with indicators, SKU inline edit/reorder/delete, variant value grid, per-SKU keyword/question counts, and CSV import/export hooks in the grid toolbar. Pending: popover editors for keywords/questions and additional tests.
+- **2025-11-22**
+  - **Composer Deprecated, Scribe Announced** ✅: Paused further Composer slices (Stage 8+). Marked Composer as frozen and initiated replacement effort with Scribe (new content-generation project). Planning Supabase cleanup of Composer tables/types after Scribe ships. Existing Composer data retained; no new work will land there.
 - **2025-11-22**
   - **Fixed Keyword Grouping Generation** ✅: Resolved three critical issues preventing "GENERATE GROUPING PLAN" button from working. (1) Fixed empty pools array - page.tsx now uses `useKeywordPools` hook to pass actual pool data to `GroupingPlanStep` component instead of empty array, enabling button handler to access currentPool. (2) Implemented actual AI grouping logic - replaced placeholder chunking algorithm with real `groupKeywords()` function call from `@agency/lib/composer/ai/groupKeywords`, added project context fetching (clientName, category) for better AI results, implemented comprehensive usage logging for both success and error cases via `logUsageEvent()`. (3) Fixed API response format - changed from `{ groupsCreated: number }` to `{ groups: ComposerKeywordGroup[] }` with full group objects mapped from database rows, matching expected format from tests and frontend code. Fixed TypeScript build error by adding type assertion `pool.pool_type as "body" | "titles"` to match strict type requirements. Verified OpenAI API integration correctly reads `OPENAI_API_KEY`, `OPENAI_MODEL_PRIMARY`, and `OPENAI_MODEL_FALLBACK` from Render environment variables (not hardcoded). **Render deploy succeeded.** Keyword grouping generation now fully functional end-to-end.
 - **2025-11-21**
@@ -51,7 +60,8 @@ Agency OS consolidates internal tools (Ngram, The Operator, Amazon Composer, Cre
 - **2025-11-13** – Added Supabase-aware Next.js middleware to guard `/ngram`, ensuring logged-out users are redirected to the login screen before hitting protected pages.
 
 ## Next Priorities
-- Start Composer Slice 2 Stage 8 (Asset Generation): implement AI-powered content generation for Amazon listings based on approved keyword groups. Generate product descriptions, bullet points, and titles optimized for each group. Add UI for reviewing and editing generated assets before export.
+- **Scribe Slice 2 (Stage A data)**: Implement SKUs/variant attributes/keywords/questions APIs + UI with apply-to-all, limits, and Stage A approval; add tests.
+- Plan and execute **Composer decommission**: Supabase cleanup (tables/types/functions), env var removal, Render routes/pages removal. Take backups before dropping any schema.
 - Deploy backend-core + refreshed frontend to Render, validate env vars (usage logging, Supabase secrets, OpenAI keys) and ensure `/ngram` works end-to-end in production.
 - Scope the Operator Milestone 1 UI shell so it can host the chat + context panes described in `docs/02_the_operator_prd.md`, even if data is mocked at first.
 
@@ -59,8 +69,10 @@ Agency OS consolidates internal tools (Ngram, The Operator, Amazon Composer, Cre
 - `docs/00_agency_os_architecture.md` — High-level blueprint for the Render services, Supabase auth setup, and domain migration strategy. Start here for infra questions or when onboarding collaborators.
 - `docs/01_ngram_migration.md` — Detailed checklist for splitting the legacy Ngram processor into the new frontend/backed pattern (dependencies, routers, CORS). Use when working on `/ngram`.
 - `docs/02_the_operator_prd.md` — Product + technical spec for The Operator AI assistant (M1). Covers UX flows, agent responsibilities, SOP management with AI embeddings, and multi-tenant data model. Database migration: `20250122000002_operator_tables.sql`.
-- `docs/04_amazon_composer_prd.md` — Amazon listing generation workflow (input wizard, AI draft, review links, exports) and backend chaining details.
+- `docs/04_amazon_composer_prd.md` — Amazon listing generation workflow (input wizard, AI draft, review links, exports) and backend chaining details. **Deprecated** in favor of Scribe.
 - `docs/05_creative_brief_prd.md` — Creative Brief tool spec focusing on asset ingestion, AI tagging, storyboard editor, and storage constraints.
+- `docs/12_scribe_prd.md` — Scribe PRD (Composer replacement) covering product data intake, topics, and Amazon copy generation workflow.
+- `docs/13_scribe_implementation_plan.md` — Scribe sliced plan and testing plan references (`docs/14_scribe_testing_plan.md`), Stage A grid workflow.
 - `docs/07_team_central_prd.md` — Team Central PRD for single-tenant internal team management, client tracking, and role-based access control. Replaces the Admin Settings PRD. Database migration: `20250122000001_team_central_tables.sql`.
 - `docs/08_clickup_service_prd.md` — ClickUp Service integration spec covering multi-tenant API credential management, task/space/user caching with TTL, and sync status tracking. Database migration: `20250122000003_clickup_service_tables.sql`.
 - `docs/10_systems_overview.md` — Running list of every service, its repo path, Render deployment, and shared dependencies. Update this table whenever new tools or env vars are introduced.

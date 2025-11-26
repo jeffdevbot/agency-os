@@ -6,7 +6,7 @@
 The goal is to move from "scripts and spreadsheets" to "integrated software" that streamlines:
 1.  Ad Data Analysis (Ngram).
 2.  Project Management & SOPs (The Operator).
-3.  Content Creation (Amazon Composer).
+3.  Content Creation (Scribe — replacing the deprecated Amazon Composer).
 4.  Creative Briefing (Creative Brief Tool).
 
 ## 2. Domain & Migration Strategy
@@ -28,7 +28,7 @@ We will run three distinct services within the same Render Project:
 2.  **Backend Service (`backend-core`)**
     * **Type:** Web Service (Python).
     * **Tech:** FastAPI.
-    * **Role:** The heavy lifter. Runs the Ngram processing logic, Chat Orchestrator (LLM routing), and Amazon Composer flat-file generation.
+    * **Role:** The heavy lifter. Runs the Ngram processing logic, Chat Orchestrator (LLM routing), and content generation backends (Scribe). Amazon Composer is deprecated and will be removed once Scribe is live.
     * **Domain:** Internal private networking (accessible only by Frontend) OR `api.ecomlabs.ca` (if public access is needed).
 
 3.  **Worker Service (`worker-sync`)**
@@ -47,7 +47,7 @@ We will run three distinct services within the same Render Project:
 
 ## 3. Infrastructure Setup (Step-by-Step)
 
-**Context:** We are using a single Supabase project to handle auth for *all* tools. This avoids users needing to log in separately for Ngram vs. Composer.
+**Context:** We are using a single Supabase project to handle auth for *all* tools. This avoids users needing to log in separately for Ngram vs. Scribe (Composer is legacy/deprecated).
 
 ### A. Google Cloud Console (The "Annoying Part")
 *Goal: Get a Client ID and Client Secret to give to Supabase.*
@@ -110,13 +110,14 @@ We will run three distinct services within the same Render Project:
     * **ClickUp Fetcher:** Deterministic task creation/assignment.
 * **Backend:** Requires OpenAI (GPT-4o/mini) API key + ClickUp API Token.
 
-### ✍️ Tool 3: Amazon Composer (New)
+### ✍️ Tool 3: Scribe (New; replaces Amazon Composer)
 * **Host:** `frontend-web` (UI) + `backend-core` (Logic).
-* **Function:** Listing generation and approval workflow.
-* **Core Features:**
-    * Input form (SKU data).
-    * "Secret Link" sharing for client approval (no login required for clients).
-    * Flat file export upon approval.
+* **Function:** Successor to Amazon Composer with a simplified listing/content generation workflow. Composer is deprecated and frozen; Scribe will own future listing work.
+* **Core Features (to be defined in Scribe PRD):**
+    * Lean input + review flow for Amazon content.
+    * Client-friendly sharing/review.
+    * Export pathways (flat file/CSV) aligned to the simpler scope.
+* **Spec:** See `docs/12_scribe_prd.md` for the full PRD.
 
 ### 🎨 Tool 4: Creative Brief (New)
 * **Function:** Generates image/asset briefs based on copy.
