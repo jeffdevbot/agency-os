@@ -8,7 +8,8 @@ const isUuid = (value: unknown): value is string =>
 type VariantValueRow = {
   attribute_id: string;
   value: string | null;
-  scribe_variant_attributes: { name: string | null } | null;
+  // Supabase can return either a single object or a 1-element array for the FK relation
+  scribe_variant_attributes: { name: string | null } | { name: string | null }[] | null;
 };
 
 /**
@@ -165,7 +166,8 @@ export async function GET(
   skus.forEach((sku) => {
     const variants = (sku.scribe_sku_variant_values as VariantValueRow[] | null) ?? [];
     variants.forEach((vv) => {
-      const attrName = vv.scribe_variant_attributes?.name;
+      const attrRelation = vv.scribe_variant_attributes;
+      const attrName = Array.isArray(attrRelation) ? attrRelation[0]?.name : attrRelation?.name;
       if (attrName) {
         variantAttrNamesSet.add(attrName);
       }
@@ -211,7 +213,8 @@ export async function GET(
     const variantValues = new Map<string, string>();
     const variants = (sku.scribe_sku_variant_values as VariantValueRow[] | null) ?? [];
     variants.forEach((vv) => {
-      const attrName = vv.scribe_variant_attributes?.name ?? undefined;
+      const attrRelation = vv.scribe_variant_attributes;
+      const attrName = Array.isArray(attrRelation) ? attrRelation[0]?.name : attrRelation?.name;
       if (attrName) {
         variantValues.set(attrName, vv.value || "");
       }
