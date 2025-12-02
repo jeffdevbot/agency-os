@@ -38,6 +38,8 @@ interface StageCProps {
   skus: Sku[];
   onApprove: () => void;
   onUnapprove: () => void;
+  onExport: () => void;
+  exportLoading: boolean;
   approveLoading: boolean;
   isArchived: boolean;
 }
@@ -76,6 +78,7 @@ export default function StageC({
   const [variantAttributes, setVariantAttributes] = useState<{ id: string; name: string }[]>([]);
   const [attrsLoading, setAttrsLoading] = useState(false);
   const [lastSavedPrefsKey, setLastSavedPrefsKey] = useState<string>("");
+  const [attrPrefsOpen, setAttrPrefsOpen] = useState<Record<string, boolean>>({});
 
   const isStageUnlocked =
     normalizedStatus === "stage_b_approved" ||
