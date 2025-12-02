@@ -7,7 +7,7 @@ interface ProjectRow {
   id: string;
   created_by: string;
   name: string;
-  marketplaces: string[] | null;
+  locale: string | null;
   category: string | null;
   sub_category: string | null;
   status: string;
@@ -25,7 +25,7 @@ const isStatus = (value: string): value is ScribeProjectStatus =>
 const mapProjectRow = (row: ProjectRow) => ({
   id: row.id,
   name: row.name,
-  marketplaces: row.marketplaces ?? [],
+  locale: row.locale,
   category: row.category,
   subCategory: row.sub_category,
   status: isStatus(row.status) ? row.status : null,
@@ -64,7 +64,7 @@ export async function GET(
 
   const { data, error } = await supabase
     .from("scribe_projects")
-    .select("id, created_by, name, marketplaces, category, sub_category, status, created_at, updated_at")
+    .select("id, created_by, name, locale, category, sub_category, status, created_at, updated_at")
     .eq("id", projectId)
     .eq("created_by", session.user.id)
     .single();
@@ -82,7 +82,7 @@ export async function GET(
 
 interface UpdateProjectPayload {
   name?: string;
-  marketplaces?: string[];
+  locale?: string;
   category?: string | null;
   subCategory?: string | null;
   status?: ScribeProjectStatus;
@@ -104,7 +104,7 @@ export async function PATCH(
   const updates: Record<string, unknown> = {};
 
   if (payload.name !== undefined) updates.name = payload.name?.trim();
-  if (payload.marketplaces !== undefined) updates.marketplaces = payload.marketplaces;
+  if (payload.locale !== undefined) updates.locale = payload.locale;
   if (payload.category !== undefined) updates.category = payload.category;
   if (payload.subCategory !== undefined) updates.sub_category = payload.subCategory;
 
@@ -171,7 +171,7 @@ export async function PATCH(
     .update(updates)
     .eq("id", projectId)
     .eq("created_by", session.user.id)
-    .select("id, created_by, name, marketplaces, category, sub_category, status, created_at, updated_at")
+    .select("id, created_by, name, locale, category, sub_category, status, created_at, updated_at")
     .single();
 
   if (error || !data) {

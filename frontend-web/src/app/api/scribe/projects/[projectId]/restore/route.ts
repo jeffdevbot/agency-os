@@ -1,7 +1,13 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createSupabaseRouteClient } from "@/lib/supabase/serverClient";
 
-type ScribeProjectStatus = "draft" | "topics_generated" | "copy_generated" | "approved" | "archived";
+type ScribeProjectStatus =
+  | "draft"
+  | "stage_a_approved"
+  | "stage_b_approved"
+  | "stage_c_approved"
+  | "approved"
+  | "archived";
 
 const isUuid = (value: unknown): value is string =>
   typeof value === "string" &&
@@ -9,8 +15,9 @@ const isUuid = (value: unknown): value is string =>
 
 const isStatus = (value: string): value is ScribeProjectStatus =>
   value === "draft" ||
-  value === "topics_generated" ||
-  value === "copy_generated" ||
+  value === "stage_a_approved" ||
+  value === "stage_b_approved" ||
+  value === "stage_c_approved" ||
   value === "approved" ||
   value === "archived";
 
@@ -78,7 +85,7 @@ export async function POST(
     .update({ status: targetStatus, updated_at: now })
     .eq("id", projectId)
     .eq("created_by", session.user.id)
-    .select("id, name, marketplaces, category, sub_category, status, created_at, updated_at")
+    .select("id, name, locale, category, sub_category, status, created_at, updated_at")
     .single();
 
   if (error || !data) {
@@ -91,7 +98,7 @@ export async function POST(
   return NextResponse.json({
     id: data.id,
     name: data.name,
-    marketplaces: data.marketplaces ?? [],
+    locale: data.locale,
     category: data.category,
     subCategory: data.sub_category,
     status: data.status,

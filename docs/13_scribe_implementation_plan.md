@@ -3,7 +3,7 @@
 ## Overview
 Sliced rollout for Scribe with RLS-safe APIs, UI, and job-backed generation. Follows owner-scoped model (`created_by = auth.uid()`), archived projects read-only, consistent error envelope.
 
-**Current scope:** Stage A per-SKU-only model is active. Stages B/C (topics and copy generation) are deferred/disabled until the redesigned flow is ready.
+**Current scope:** Stage A/B/C are implemented. Stage C backend + UI shipped; attribute prefs UI is minimal and slated for polish. Stage B/C now support unapprove (status rollbacks only). Stage A locks editing once later stages are approved. Per-SKU-only model remains active.
 
 **Key Change in v2.0:** Stage A now uses a **per-SKU-only model** with no shared defaults or overrides. All data is explicit and per-SKU, with "Copy from SKU" as the reusability mechanism.
 
@@ -262,50 +262,117 @@ MHCP-TUB-01 | BOFN138PV1 | MiHIGH Cold Plunge Tub (Black) | Technical & precise 
 
 ---
 
-## Slice 3 — Topics Generation (Stage B)
+## Slice 3 — Topics Generation & Selection (Stage B)
 
-> Deferred. When enabled, topics are per-SKU only (no shared topics).
+> Implemented and live; up to 8 per-SKU candidates with 5 approved feeding Stage C. Pending full test plan execution (see `docs/18_scribe_test_plan.md`).
 
 ### API
-- `POST /projects/:id/generate-topics` (per-SKU only) returns job_id; `GET /jobs/:id` for status.
-- Topics CRUD (edit text, reorder topic_index) per SKU; approve topics endpoint (when re-enabled) advances to the Stage B completion status (reserved).
-- Preconditions (when enabled): Stage A must be approved; reject (409/validation_error) otherwise.
+- `POST /projects/:id/generate-topics` — enqueue job for all SKUs (or provided SKU IDs) to generate up to 8 topics each; `GET /jobs/:id` for status. Preconditions: project status is at least `stage_a_approved`; otherwise 409/validation_error.
+- `POST /projects/:id/skus/:sku_id/regenerate-topics` — optional per-SKU regenerate; same behavior as main generate.
+- `GET /projects/:id/topics?skuId=...` — list topics for the SKU (up to 8) sorted by `topic_index`.
+- `PATCH /projects/:id/topics/:topic_id` — edit `title`, `description`, `topic_index`, `approved`; reordering is by `topic_index`.
+- `POST /projects/:id/approve-topics` — validate every SKU has at least 5 topics with `approved = true`; on success, update project status to Stage B completion status (`stage_b_approved`) to unlock Stage C/progress stepper.
+- `POST /projects/:id/unapprove-topics` — allowed only when `stage_b_approved`; sets status back to `stage_a_approved` (no topic deletion).
+- Validation: max 8 topics stored per SKU; at most 5 can be `approved = true`; approve-topics rejects if any SKU has fewer than 5 approved topics.
 
 ### Backend
-- Per-SKU LLM call: generate exactly 5 topics for each SKU using only that SKU’s data (keywords, customer questions, brand tone, target audience, supplied content, variant attributes, words to avoid).
-- Persist 5 rows per SKU in `scribe_topics` with `sku_id` set; job runner updates job status/error.
+- Job type `topics`: for each SKU, load Stage A data (SKU scalars, variant attributes/values, words_to_avoid, supplied_content, keywords max 10, questions), call LLM with a question-first prompt that clusters questions into themes and proposes up to 8 distinct topics; incorporate high-value keywords, brand tone, target audience where natural; avoid words_to_avoid. If a SKU has zero questions, still generate using supplied_content + keywords (may be generic).
+- For each SKU: delete existing topics; insert up to 8 rows into `scribe_topics` with `topic_index` 1..N, `title`, `description`, `approved = false`, `generated_by = "llm"`, `sku_id` set. Mark job succeeded/failed; include per-SKU errors in job payload if any fail.
+- Stage C must query only selected topics: `SELECT * FROM scribe_topics WHERE project_id = ? AND sku_id = ? AND approved = true ORDER BY topic_index LIMIT 5`.
+- Job payload schema (canonical): `{ "projectId": "...", "skuIds": ["..."] | null, "jobType": "topics", "options": {} }`; `skuIds` omitted/null = all project SKUs.
+- Prompt (standard): see `docs/16_scribe_stage_b_topics_slice.md` for the question-first 1–8 topics prompt (title + description with exactly three bullet sentences prefixed by "•", JSON-only). Ship a versioned prompt in code/config (e.g., `scribe_topics_prompt_v1`) and persist the `prompt_version` with each job/topics insert for traceability when prompts change.
 
 ### Frontend
-- Per-SKU topics table (`| SKU | Topic 1..5 |`) with inline edit, reorder, and regenerate per SKU; loading copy remains humorous.
-- Approval (when enabled) advances to the Stage B completion status (reserved).
+- Per-SKU topics list (up to 8) with inline edit, select/deselect (toggles `approved`), drag-to-reorder (`topic_index`), and regenerate per SKU; humorous loading copy.
+- Approval UI blocked until every SKU has 5 selected topics; selected topics are the only ones used by Stage C.
+- Regenerate behavior: replaces all topics for that SKU (selections cleared).
+- Routing: keep Stage A/B/C on the same page with tabs/panels; stepper clicks switch tabs (no new route) for now.
 
 ### Test (when enabled)
-- Job lifecycle; per-SKU topic persistence; exactly 5 topics per SKU; approval transitions to Stage B completion; RLS respected.
+- Job lifecycle; per-SKU topic persistence (up to 8 rows); approve guard requiring 5 selected (`approved = true`) topics per SKU; RLS respected; reordering updates `topic_index`; regenerate replaces topics and clears approvals; server enforces max 5 approved.
+
+**Dependencies & risks:** Requires Stage A data/status to be stable (`stage_a_approved`). If a SKU has zero questions, the LLM still generates topics using supplied_content + keywords, but results may be more generic.
+
+**Partial failure handling (topics job):** If some SKUs fail generation, mark job as failed and include per-SKU errors in payload; frontend should surface failed SKUs and prompt regenerate for those SKUs. Approval is blocked until all SKUs have 5 approved topics.
 
 ---
 
 ## Slice 4 — Copy Generation (Stage C)
 
-> Deferred. When enabled, all generated content is per-SKU only.
+> Pending implementation; all generated content is per-SKU only and gated on Stage B approval.
+
+### Micro-tasks
+1) **API & Schema**
+   - Implement `POST /projects/:id/generate-copy` (full regenerate only in v1), `POST /projects/:id/skus/:sku_id/regenerate-copy` (full regenerate; sections optional/deferred), `PATCH /projects/:id/generated-content/:sku_id`, `POST /projects/:id/approve-copy`.
+   - Enforce gates: project status `stage_b_approved`; each target SKU has 5 approved topics.
+   - Enforce limits: title length (~200), bullets=5, backend keywords 249 bytes; reject/validate accordingly.
+   - Optional: add lightweight attribute preferences storage on SKU (JSON) if used by prompt.
+2) **Job Runner (`job_type = "copy"`)**
+   - Load inputs (5 approved topics ordered, keywords, questions, brand tone, target audience, supplied content, variant attrs/values, words_to_avoid, attribute prefs).
+   - Call Stage C prompt; expect `{ title, bullets[5], description, backend_keywords, prompt_version, model/tokens }`.
+   - Upsert `scribe_generated_content`; bump `version`; overwrite sections if enabled; bullets=5 and limits enforced.
+   - Handle errors: per-SKU error payload; job fails if any fail; user retries via regenerate; fail fast on timeout/OpenAI error.
+   - Log `scribe_usage_logs` per call (tool='scribe', project/user/job/sku, tokens/model/prompt_version).
+3) **Prompt & Versioning**
+   - Finalize Stage C prompt (amazon-safe rules, attribute defaults/overrides, 5 bullets, 249-byte backend keywords).
+   - Set `prompt_version` (e.g., `scribe_stage_c_v1`), store per generation; regenerations use latest unless locked.
+4) **Frontend**
+   - Stage C tab/panel: empty state (Generate All/Sample, rules), SKU selector/swatches, editor (Title/Bullets/Description/Backend Keywords), Save (PATCH), full regenerate, version display, mini preview, approve button (requires content for all SKUs).
+   - Attribute Usage mini-panel: toggle; mode auto vs user selections with per-attribute checkboxes; store prefs on SKU (lightweight) and pass to prompt.
+   - Loading/error states: show brief generating/saving; surface per-SKU errors if generation fails.
+5) **Tests**
+   - API: guards (stage_b_approved, 5 topics), limits, approval gate, regenerate bumps version, CSV export fields.
+   - Jobs: lifecycle success/fail/partial; per-SKU errors; fail fast on OpenAI/timeout; usage logs written.
+   - UI smoke: empty state → generate → edit/save → regenerate (full) → approve gate; attribute prefs passed.
+   - RLS: jobs/generated_content isolation; archived write-block.
+   - Telemetry: verify `scribe_usage_logs` rows per copy generation call.
+6) **Ops/Flags**
+   - Feature-flag Stage C routes/UI.
+   - Ensure env model settings reused; monitoring/logging for copy jobs.
 
 ### API
-- `POST /projects/:id/generate-copy` (sample vs all SKUs) returns job_id; `GET /jobs/:id` shared.
-- Per-SKU regeneration endpoints for sections (title, bullets, description, backend keywords); bump `scribe_generated_content.version`.
-- Generated content CRUD/edit; approve copy endpoint (when enabled) advances to Stage C completion and final approval statuses (reserved).
-- Enforce limits: Title length, backend byte limit, exactly 5 bullets per SKU.
-- Preconditions (when enabled): topics must be approved; reject requests otherwise (409/validation_error).
+- `POST /projects/:id/generate-copy` — body `{ skuIds?: ["<uuid>", ...], mode?: "all"|"sample" }`; preconditions: project status `stage_b_approved` and each target SKU has 5 approved topics. Returns `{ jobId }`. `GET /jobs/:id` shared.
+- `POST /projects/:id/skus/:sku_id/regenerate-copy` — body `{ sections?: ["title","bullets","description","backend_keywords"] }`; same preconditions; returns `{ jobId }`.
+- `PATCH /projects/:id/generated-content/:sku_id` — edit content fields, enforce limits, bump `version`.
+- `POST /projects/:id/approve-copy` — requires generated content per SKU (and optional per-SKU approved); sets status to `stage_c_approved`.
+- `POST /projects/:id/unapprove-copy` — allowed only when `stage_c_approved`; sets status back to `stage_b_approved` (no data deletion).
 
 ### Backend
-- Per-SKU generation uses only that SKU’s topics (5), keywords, customer questions, brand tone, target audience, supplied content, variant attributes, words to avoid. No shared/merged fields.
-- Store per-SKU output in `scribe_generated_content`; job runner updates status/error.
+- Schema: `scribe_generated_content` includes `prompt_version`, `approved`, `approved_at`, `version`, `title`, `bullets` (jsonb, exactly 5), `description`, `backend_keywords`, `model_used`, timestamps; enforce title length (~200 chars), bullets=5, backend keyword byte cap (249 bytes).
+- Attribute preferences: store lightweight per SKU (e.g., JSON on SKU) and pass to prompt; skip new table for v1. If later stored in generated_content, ensure RLS stays owner-scoped.
+- Gates: API and job runner must re-check project status `stage_b_approved` and 5 approved topics per target SKU before enqueueing/processing copy jobs (cannot be enforced via DB CHECK).
+- Job runner (`job_type = "copy"`): for each SKU, load inputs (5 approved topics ordered, keywords, questions, brand tone, target audience, supplied content, variant attrs/values, words_to_avoid, attribute-usage prefs). Call Stage C prompt; expect `{ title, bullets[5], description, backend_keywords, prompt_version, model/tokens }`. Upsert into `scribe_generated_content`; bump `version` on regenerate; allow section-scoped overwrite. Record per-SKU errors; if any fail, job = failed and approval stays blocked. Log `scribe_usage_logs` per call (tool='scribe', project/user/job/sku, tokens/model/prompt_version). Errors: single attempt; job marks failed on OpenAI/network error; user retries via regenerate. Timeouts should fail fast to avoid hung jobs.
+
+### Prompt/Output
+```json
+{
+  "title": "...",
+  "bullets": ["...", "...", "...", "...", "..."],
+  "description": "...",
+  "backend_keywords": "..."
+}
+```
+Inputs: product name, SKU/ASIN, brand tone, target audience, supplied content, variant attrs, 5 approved topics (title + 3 bullets each), keywords, questions, words_to_avoid, attribute-usage prefs (auto vs per-attribute section rules). Guardrails: 5 bullets exactly; title length limit; backend keyword byte limit (249 bytes); avoid forbidden words; ground on topics; smart defaults for attributes unless overrides specified; store `prompt_version` per generation.
+
+Regeneration strategy: full LLM call by default; extract/overwrite only requested sections if section-scoped regenerations are enabled (optional). Default v1 can ship with full regenerate only to avoid drift; per-section regenerate is nice-to-have and can be deferred.
 
 ### Frontend
-- Per-SKU review table with inline edit/regenerate for Title, Bullets (5), Description, Backend Keywords.
-- CSV export includes all Stage C fields per SKU only (no shared columns).
-- Approval (when enabled) advances to Stage C completion (reserved).
+- Stage C tab/panel in `/scribe/[projectId]`:
+  - Empty state: Generate All / Generate Sample buttons, Amazon rules summary, “No copy yet” message.
+  - SKU selector/swatches: simple buttons per SKU; one active.
+  - Left editor: Title, Bullets (5), Description, Backend Keywords; per-section regenerate; Save (PATCH); per-SKU approve toggle; show `version`.
+  - Right preview: read-only “mini PDP” showing saved fields; updates on Save.
+  - Attribute Usage mini-panel: toggle/link; mode auto vs user selections with per-attribute checkboxes for Title/Bullets/Description/Backend Keywords (lightweight storage on SKU, passed to prompt).
+  - Approve Stage C button: validate all SKUs have generated content; set `stage_c_approved`.
+- CSV export: include Stage C fields per SKU (title, bullet_1..5, description, backend_keywords); no Stage C import in v1.
+- Feature flag: gate Stage C UI/routes until ready.
 
 ### Test (when enabled)
-- Job lifecycle; per-SKU content persistence; version increment on regenerate; approval guard; limits enforced; CSV per-SKU correctness.
+- API: generate-copy rejects if not `stage_b_approved` or SKUs missing 5 approved topics; job lifecycle success/fail/partial; regenerate bumps `version`; approve-copy guard; limits enforced.
+- RLS: isolation on jobs/generated_content; archived write-block.
+- UI smoke: generate → render copy → edit → regenerate (full by default) → approve gate; attribute-usage prefs passed to prompt.
+- Telemetry: usage log per copy generation call.
+- CSV export correctness for Stage C fields.
 
 ---
 
@@ -397,8 +464,8 @@ MHCP-TUB-01 | BOFN138PV1 | MiHIGH Cold Plunge Tub (Black) | Technical & precise 
 
 ## Future Stages (Reserved Statuses)
 
-- When Stage B returns, topic approval will advance projects to `topics_generated`.
-- When Stage C returns, copy approval will advance to `copy_generated`, and final approval to `approved`.
+- When Stage B returns, topic approval will advance projects to `stage_b_approved`.
+- When Stage C returns, copy approval will advance to `stage_c_approved`, and final approval to `approved`.
 - These statuses are reserved and not reachable in the current Stage A–only release.
 
 ---

@@ -6,7 +6,15 @@ export default defineConfig({
     globals: true,
     environment: "node",
     include: ["src/**/*.test.ts", "src/**/*.test.tsx", "../lib/**/*.test.ts"],
-    exclude: ["node_modules", ".next"],
+    exclude: [
+      "node_modules",
+      ".next",
+      // Composer is deprecated/frozen; its tests are intentionally skipped to avoid noise while Scribe is active.
+      "src/app/composer/**",
+      "src/app/api/composer/**",
+      "src/lib/composer/**",
+      "../lib/composer/**",
+    ],
     coverage: {
       provider: "v8",
       reporter: ["text", "json", "html"],

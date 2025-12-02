@@ -69,11 +69,11 @@ export async function POST(
 
   const payload = (await request.json()) as UpsertValuePayload;
   const skuId = payload.skuId?.trim();
-  const value = payload.value?.trim();
+  const value = payload.value?.trim() ?? "";
 
-  if (!skuId || !isUuid(skuId) || !value) {
+  if (!skuId || !isUuid(skuId)) {
     return NextResponse.json(
-      { error: { code: "validation_error", message: "skuId and value are required" } },
+      { error: { code: "validation_error", message: "skuId is required" } },
       { status: 400 },
     );
   }
@@ -87,19 +87,62 @@ export async function POST(
     return NextResponse.json({ error: { code: "unauthorized", message: "Unauthorized" } }, { status: 401 });
   }
 
-  const { data, error } = await supabase
+  // If value is empty, delete existing row for this sku/attribute
+  if (!value) {
+    const { error: deleteError } = await supabase
+      .from("scribe_sku_variant_values")
+      .delete()
+      .eq("sku_id", skuId)
+      .eq("attribute_id", attributeId);
+
+    if (deleteError) {
+      return NextResponse.json(
+        { error: { code: "server_error", message: deleteError.message } },
+        { status: 500 },
+      );
+    }
+
+    return NextResponse.json({ ok: true });
+  }
+
+  // Manual upsert: check if row exists, then update or insert
+  const { data: existing } = await supabase
     .from("scribe_sku_variant_values")
-    .upsert(
-      {
+    .select("id")
+    .eq("sku_id", skuId)
+    .eq("attribute_id", attributeId)
+    .maybeSingle();
+
+  let data, error;
+
+  if (existing) {
+    // Update existing row
+    const result = await supabase
+      .from("scribe_sku_variant_values")
+      .update({
+        value,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("sku_id", skuId)
+      .eq("attribute_id", attributeId)
+      .select("id, sku_id, attribute_id, value, created_at, updated_at")
+      .single();
+    data = result.data;
+    error = result.error;
+  } else {
+    // Insert new row
+    const result = await supabase
+      .from("scribe_sku_variant_values")
+      .insert({
         sku_id: skuId,
         attribute_id: attributeId,
         value,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "sku_id,attribute_id" },
-    )
-    .select("id, sku_id, attribute_id, value, created_at, updated_at")
-    .single();
+      })
+      .select("id, sku_id, attribute_id, value, created_at, updated_at")
+      .single();
+    data = result.data;
+    error = result.error;
+  }
 
   if (error || !data) {
     return NextResponse.json(

@@ -1,17 +1,21 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import clsx from "clsx";
 import { getBrowserSupabaseClient } from "@/lib/supabaseClient";
 import type { Session } from "@supabase/supabase-js";
+import ProgressStepper from "./components/ProgressStepper";
+import StageB from "./components/StageB";
+import StageC from "./components/StageC";
 
-type ScribeProjectStatus = "draft" | "stage_a_approved" | "topics_generated" | "copy_generated" | "approved" | "archived";
+type ScribeProjectStatus = "draft" | "stage_a_approved" | "stage_b_approved" | "stage_c_approved" | "approved" | "archived";
 
 interface Project {
   id: string;
   name: string;
   status: ScribeProjectStatus | null;
+  updatedAt?: string;
 }
 
 interface Sku {
@@ -53,6 +57,24 @@ interface VariantValueMap {
 
 type InlineInputs = Record<string, string>;
 
+function normalizeStatus(status: ScribeProjectStatus | string | null | undefined): ScribeProjectStatus {
+  const value = typeof status === "string" ? status.toLowerCase() : "draft";
+  if (value === "stage_a_approved") return "stage_a_approved";
+  if (value === "stage_b_approved") return "stage_b_approved";
+  if (value === "stage_c_approved") return "stage_c_approved";
+  if (value === "approved") return "approved";
+  if (value === "archived") return "archived";
+  return "draft";
+}
+
+function deriveStageFromStatus(status: ScribeProjectStatus | string | null | undefined): "stage_a" | "stage_b" | "stage_c" {
+  const normalized = normalizeStatus(status);
+  if (normalized === "stage_a_approved") return "stage_b";
+  if (normalized === "stage_b_approved" || normalized === "stage_c_approved" || normalized === "approved")
+    return "stage_c";
+  return "stage_a";
+}
+
 export default function ScribeProjectPage() {
   const params = useParams();
   const projectId =
@@ -62,7 +84,6 @@ export default function ScribeProjectPage() {
         ? params.projectId[0]
         : "";
   const supabase = useMemo(() => getBrowserSupabaseClient(), []);
-  const router = useRouter();
 
   const [sessionChecked, setSessionChecked] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -88,6 +109,12 @@ export default function ScribeProjectPage() {
   const [initialDataLoaded, setInitialDataLoaded] = useState(false);
 
   const [approveLoading, setApproveLoading] = useState(false);
+  const [exportLoading, setExportLoading] = useState(false);
+  const [activeStage, setActiveStage] = useState<"stage_a" | "stage_b" | "stage_c">("stage_a");
+  const [hasSetInitialStage, setHasSetInitialStage] = useState(false);
+  useEffect(() => {
+    setError(null);
+  }, [activeStage]);
 
   // Inline add inputs per SKU
   const [wordInputs, setWordInputs] = useState<InlineInputs>({});
@@ -194,11 +221,42 @@ export default function ScribeProjectPage() {
     }
   };
 
+  const normalizedStatus = normalizeStatus(project?.status);
+  const stageALocked = normalizedStatus !== "draft";
+
+  // Helper: Check if we can unapprove each stage (must be at EXACT status, not beyond)
+  const canUnapproveA = normalizedStatus === "stage_a_approved";
+  const canUnapproveB = normalizedStatus === "stage_b_approved";
+  const canUnapproveC = normalizedStatus === "stage_c_approved";
+
+  // Helper: Check if we can navigate to each stage (stage must be unlocked)
+  const canNavigateToB =
+    normalizedStatus === "stage_a_approved" ||
+    normalizedStatus === "stage_b_approved" ||
+    normalizedStatus === "stage_c_approved" ||
+    normalizedStatus === "approved";
+  const canNavigateToC =
+    normalizedStatus === "stage_b_approved" ||
+    normalizedStatus === "stage_c_approved" ||
+    normalizedStatus === "approved";
+
   const handleInlineSkuUpdate = async (skuId: string, field: keyof Sku, value: string) => {
+    if (stageALocked) {
+      setError("Stage A is locked (later stages approved). Unapprove to edit.");
+      return;
+    }
     try {
       const body: Record<string, unknown> = {};
       // Map camelCase to API snake_case
-      if (field === "skuCode") body.sku_code = value.trim() || null;
+      if (field === "skuCode") {
+        const trimmed = value.trim();
+        // Avoid sending null/empty to DB (NOT NULL constraint). Allow local empty UI.
+        if (!trimmed) {
+          setSkus((prev) => prev.map((s) => (s.id === skuId ? { ...s, [field]: "" } : s)));
+          return;
+        }
+        body.sku_code = trimmed;
+      }
       else if (field === "productName") body.product_name = value.trim() || null;
       else if (field === "brandTone") body.brand_tone = value.trim() || null;
       else if (field === "targetAudience") body.target_audience = value.trim() || null;
@@ -213,6 +271,10 @@ export default function ScribeProjectPage() {
   };
 
   const handleWordsChange = async (sku: Sku, nextWords: string[]) => {
+    if (stageALocked) {
+      setError("Stage A is locked (later stages approved). Unapprove to edit.");
+      return;
+    }
     try {
       await patchSku(sku.id, { words_to_avoid: nextWords });
       setSkus((prev) => prev.map((s) => (s.id === sku.id ? { ...s, wordsToAvoid: nextWords } : s)));
@@ -235,6 +297,10 @@ export default function ScribeProjectPage() {
   };
 
   const handleAddKeyword = async (skuId: string) => {
+    if (stageALocked) {
+      setError("Stage A is locked (later stages approved). Unapprove to edit.");
+      return;
+    }
     const value = (keywordInputs[skuId] ?? "").trim();
     if (!value) return;
     setKeywordInputs((prev) => ({ ...prev, [skuId]: "" }));
@@ -256,6 +322,10 @@ export default function ScribeProjectPage() {
   };
 
   const handleDeleteKeyword = async (id: string) => {
+    if (stageALocked) {
+      setError("Stage A is locked (later stages approved). Unapprove to edit.");
+      return;
+    }
     try {
       const res = await fetch(`/api/scribe/projects/${projectId}/keywords?id=${id}`, { method: "DELETE" });
       if (!res.ok) throw new Error("Failed to delete keyword");
@@ -266,6 +336,10 @@ export default function ScribeProjectPage() {
   };
 
   const handleAddQuestion = async (skuId: string) => {
+    if (stageALocked) {
+      setError("Stage A is locked (later stages approved). Unapprove to edit.");
+      return;
+    }
     const value = (questionInputs[skuId] ?? "").trim();
     if (!value) return;
     setQuestionInputs((prev) => ({ ...prev, [skuId]: "" }));
@@ -287,6 +361,10 @@ export default function ScribeProjectPage() {
   };
 
   const handleDeleteQuestion = async (id: string) => {
+    if (stageALocked) {
+      setError("Stage A is locked (later stages approved). Unapprove to edit.");
+      return;
+    }
     try {
       const res = await fetch(`/api/scribe/projects/${projectId}/questions?id=${id}`, { method: "DELETE" });
       if (!res.ok) throw new Error("Failed to delete question");
@@ -297,6 +375,10 @@ export default function ScribeProjectPage() {
   };
 
   const handleAddSku = async () => {
+    if (stageALocked) {
+      setError("Stage A is locked (later stages approved). Unapprove to edit.");
+      return;
+    }
     setSkuFormLoading(true);
     try {
       const res = await fetch(`/api/scribe/projects/${projectId}/skus`, {
@@ -319,6 +401,10 @@ export default function ScribeProjectPage() {
   };
 
   const handleDeleteSku = async (id: string) => {
+    if (stageALocked) {
+      setError("Stage A is locked (later stages approved). Unapprove to edit.");
+      return;
+    }
     try {
       const res = await fetch(`/api/scribe/projects/${projectId}/skus/${id}`, { method: "DELETE" });
       if (!res.ok) throw new Error("Failed to delete SKU");
@@ -340,25 +426,47 @@ export default function ScribeProjectPage() {
   };
 
   const handleSaveVariantValue = async (attributeId: string, skuId: string, value: string) => {
+    if (stageALocked) {
+      setError("Stage A is locked (later stages approved). Unapprove to edit.");
+      return;
+    }
     try {
-      await fetch(`/api/scribe/projects/${projectId}/variant-attributes/${attributeId}/values`, {
+      const res = await fetch(`/api/scribe/projects/${projectId}/variant-attributes/${attributeId}/values`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ skuId, value: value.trim() || null }),
       });
-      setVariantValues((prev) => ({
-        ...prev,
-        [attributeId]: {
-          ...(prev[attributeId] ?? {}),
-          [skuId]: value,
-        },
-      }));
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.error?.message ?? "Failed to save value");
+      }
+
+      const trimmed = value.trim();
+      setVariantValues((prev) => {
+        const nextAttrValues = { ...(prev[attributeId] ?? {}) };
+
+        if (trimmed) {
+          nextAttrValues[skuId] = trimmed;
+        } else {
+          // Delete key when value is cleared (POST deletes DB row)
+          delete nextAttrValues[skuId];
+        }
+
+        return {
+          ...prev,
+          [attributeId]: nextAttrValues,
+        };
+      });
     } catch (err) {
       setAttributeError(err instanceof Error ? err.message : "Failed to save value");
     }
   };
 
   const handleAddAttribute = async () => {
+    if (stageALocked) {
+      setError("Stage A is locked (later stages approved). Unapprove to edit.");
+      return;
+    }
     const name = attributeForm.name.trim();
     if (!name) {
       setAttributeError("Attribute name is required");
@@ -389,6 +497,10 @@ export default function ScribeProjectPage() {
   };
 
   const handleDeleteAttribute = async (attributeId: string) => {
+    if (stageALocked) {
+      setError("Stage A is locked (later stages approved). Unapprove to edit.");
+      return;
+    }
     try {
       const res = await fetch(`/api/scribe/projects/${projectId}/variant-attributes?id=${attributeId}`, {
         method: "DELETE",
@@ -419,7 +531,6 @@ export default function ScribeProjectPage() {
       }
       const data = await res.json();
       setProject((prev) => (prev ? { ...prev, status: data.status ?? prev.status } : prev));
-      router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to approve Stage A");
     } finally {
@@ -438,11 +549,107 @@ export default function ScribeProjectPage() {
       }
       const data = await res.json();
       setProject((prev) => (prev ? { ...prev, status: data.status ?? prev.status } : prev));
-      router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to unapprove Stage A");
     } finally {
       setApproveLoading(false);
+    }
+  };
+
+  const handleApproveStageB = async () => {
+    setApproveLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/scribe/projects/${projectId}/approve-topics`, { method: "POST" });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.error?.message ?? "Failed to approve Stage B");
+      }
+      const data = await res.json();
+      setProject((prev) => (prev ? { ...prev, status: data.status ?? prev.status } : prev));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to approve Stage B");
+    } finally {
+      setApproveLoading(false);
+    }
+  };
+
+  const handleUnapproveStageB = async () => {
+    setApproveLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/scribe/projects/${projectId}/unapprove-topics`, { method: "POST" });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.error?.message ?? "Failed to unapprove Stage B");
+      }
+      const data = await res.json();
+      setProject((prev) => (prev ? { ...prev, status: data.status ?? prev.status } : prev));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to unapprove Stage B");
+    } finally {
+      setApproveLoading(false);
+    }
+  };
+
+  const handleApproveStageC = async () => {
+    setApproveLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/scribe/projects/${projectId}/approve-copy`, { method: "POST" });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.error?.message ?? "Failed to approve Stage C");
+      }
+      const data = await res.json();
+      setProject((prev) => (prev ? { ...prev, status: data.status ?? prev.status } : prev));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to approve Stage C");
+    } finally {
+      setApproveLoading(false);
+    }
+  };
+
+  const handleUnapproveStageC = async () => {
+    setApproveLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/scribe/projects/${projectId}/unapprove-copy`, { method: "POST" });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.error?.message ?? "Failed to unapprove Stage C");
+      }
+      const data = await res.json();
+      setProject((prev) => (prev ? { ...prev, status: data.status ?? prev.status } : prev));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to unapprove Stage C");
+    } finally {
+      setApproveLoading(false);
+    }
+  };
+
+  const handleExportCsv = async () => {
+    setExportLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/scribe/projects/${projectId}/export`);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.error?.message ?? "Failed to export CSV");
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `scribe-export-${projectId}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to export CSV");
+    } finally {
+      setExportLoading(false);
     }
   };
 
@@ -460,7 +667,22 @@ export default function ScribeProjectPage() {
     }
   }, [initialDataLoaded, loading, skus.length, skuFormLoading, autoCreatedFirstSku]);
 
+  // Auto-set active stage based on project status (ONLY on initial page load, not on status changes)
+  useEffect(() => {
+    if (!project || !initialDataLoaded || hasSetInitialStage) return;
+
+    setActiveStage(deriveStageFromStatus(project.status));
+    setHasSetInitialStage(true);
+  }, [project, initialDataLoaded, hasSetInitialStage]);
+
   const downloadCsv = () => {
+    // CSV escape helper: quote all fields and escape internal quotes, strip newlines
+    const escapeCSV = (value: string | null | undefined): string => {
+      if (value === null || value === undefined) return '""';
+      const str = String(value).replace(/[\r\n]+/g, ' '); // Strip newlines
+      return `"${str.replace(/"/g, '""')}"`;
+    };
+
     const headers = [
       "sku_code",
       "asin",
@@ -473,25 +695,31 @@ export default function ScribeProjectPage() {
       "keywords",
       "questions",
     ];
+
+    const headerRow = headers.map(escapeCSV).join(",");
+
     const rows = skus.map((sku) => {
       const wordsCell = (sku.wordsToAvoid ?? []).join("|");
       const skuKeywords = keywords.filter((k) => k.skuId === sku.id).map((k) => k.keyword).join("|");
       const skuQuestions = questions.filter((q) => q.skuId === sku.id).map((q) => q.question).join("|");
       const attrCells = attributes.map((a) => variantValues[a.id]?.[sku.id] ?? "");
       return [
-        sku.skuCode,
-        sku.asin ?? "",
-        sku.productName ?? "",
-        sku.brandTone ?? "",
-        sku.targetAudience ?? "",
-        (sku.suppliedContent ?? "").replace(/\r?\n/g, " "),
-        ...attrCells,
-        wordsCell,
-        skuKeywords,
-        skuQuestions,
+        escapeCSV(sku.skuCode),
+        escapeCSV(sku.asin ?? ""),
+        escapeCSV(sku.productName ?? ""),
+        escapeCSV(sku.brandTone ?? ""),
+        escapeCSV(sku.targetAudience ?? ""),
+        escapeCSV(sku.suppliedContent ?? ""),
+        ...attrCells.map(escapeCSV),
+        escapeCSV(wordsCell),
+        escapeCSV(skuKeywords),
+        escapeCSV(skuQuestions),
       ].join(",");
     });
-    const blob = new Blob([`${headers.join(",")}\n${rows.join("\n")}`], { type: "text/csv" });
+
+    const BOM = '\uFEFF'; // UTF-8 BOM for Excel compatibility
+    const csv = BOM + headerRow + "\n" + rows.join("\n");
+    const blob = new Blob([csv], { type: "text/csv; charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -661,10 +889,52 @@ export default function ScribeProjectPage() {
           setQuestions((prev) => [...prev, created]);
         }
       }
+
+      // Process variant attribute values
+      for (const attr of attributes) {
+        const attrValue = record[attr.slug.toLowerCase()]?.trim() || "";
+
+        // POST to variant values API (empty string triggers delete)
+        const valRes = await fetch(
+          `/api/scribe/projects/${projectId}/variant-attributes/${attr.id}/values`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ skuId, value: attrValue }),
+          }
+        );
+
+        if (valRes.ok) {
+          // Update local state
+          if (attrValue) {
+            setVariantValues((prev) => ({
+              ...prev,
+              [attr.id]: {
+                ...(prev[attr.id] ?? {}),
+                [skuId]: attrValue,
+              },
+            }));
+          } else {
+            // Clear value from local state
+            setVariantValues((prev) => {
+              const nextAttrValues = { ...(prev[attr.id] ?? {}) };
+              delete nextAttrValues[skuId];
+              return {
+                ...prev,
+                [attr.id]: nextAttrValues,
+              };
+            });
+          }
+        }
+      }
     }
   };
 
   const handleCopyFromSku = async (targetSkuId: string, sourceSkuId: string) => {
+    if (stageALocked) {
+      setError("Stage A is locked (later stages approved). Unapprove to edit.");
+      return;
+    }
     if (!sourceSkuId) return;
     try {
       const res = await fetch(`/api/scribe/projects/${projectId}/skus/${targetSkuId}/copy-from/${sourceSkuId}`, {
@@ -699,37 +969,73 @@ export default function ScribeProjectPage() {
     );
   }
 
-  const gridTemplate = `repeat(auto-fit, minmax(180px, 1fr))`;
-
   return (
     <div className="mx-auto flex max-w-[1200px] flex-col gap-6 px-6 py-8">
-      <header className="flex flex-col gap-1">
-        <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">Stage A</p>
-        <h1 className="text-2xl font-semibold text-slate-900">{project?.name ?? "Project"}</h1>
-        <p className="text-sm text-slate-600">
-          Per-SKU grouped grid. Each SKU has its own data; reuse is via Copy from SKU.
-        </p>
-      </header>
+      {/* Progress Stepper */}
+      {project && (
+        <ProgressStepper
+          projectStatus={normalizedStatus}
+          lastUpdated={project.updatedAt}
+          onStageClick={(stageId) => {
+            if (stageId === "stage_a" || stageId === "stage_b" || stageId === "stage_c") {
+              setActiveStage(stageId);
+              setError(null);
+              window.scrollTo({ top: 0, behavior: "smooth" });
+            }
+          }}
+        />
+      )}
+
+      {activeStage === "stage_a" && (
+        <>
+          <header className="flex flex-col gap-1">
+            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">Stage A</p>
+            <h1 className="text-2xl font-semibold text-slate-900">{project?.name ?? "Project"}</h1>
+            <p className="text-sm text-slate-600">
+              Per-SKU grouped grid. Each SKU has its own data; reuse is via Copy from SKU.
+            </p>
+          </header>
+        </>
+      )}
+
+      {activeStage === "stage_b" && (
+        <header className="flex flex-col gap-1">
+          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">Stage B</p>
+          <h1 className="text-2xl font-semibold text-slate-900">{project?.name ?? "Project"}</h1>
+          <p className="text-sm text-slate-600">
+            Review and select exactly 5 topics per SKU to guide Stage C copy generation.
+          </p>
+        </header>
+      )}
 
       {error && error !== "No valid fields provided" ? (
         <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
       ) : null}
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      {activeStage === "stage_a" && project && (
+        <>
+          <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="mb-4 flex flex-wrap items-center gap-2">
           <button
             className="rounded-2xl bg-[#0a6fd6] px-4 py-2 text-sm font-semibold text-white shadow-[0_15px_30px_rgba(10,111,214,0.35)] transition hover:bg-[#0959ab] disabled:cursor-not-allowed disabled:opacity-50"
             onClick={handleAddSku}
-            disabled={skuFormLoading}
+            disabled={skuFormLoading || stageALocked}
           >
             {skuFormLoading ? "Adding…" : "Add SKU"}
           </button>
-          <label className="cursor-pointer rounded-2xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+          <label
+            className={clsx(
+              "cursor-pointer rounded-2xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50",
+              stageALocked && "cursor-not-allowed opacity-50",
+            )}
+            aria-disabled={stageALocked}
+          >
             Import CSV
             <input
               type="file"
               accept=".csv,text/csv"
               className="hidden"
+              disabled={stageALocked}
               onChange={async (e) => {
                 const file = e.target.files?.[0];
                 if (file) await uploadCsv(file);
@@ -739,29 +1045,28 @@ export default function ScribeProjectPage() {
           <button
             className="rounded-2xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
             onClick={downloadCsv}
+            disabled={stageALocked}
           >
             Download Template
           </button>
           <button
             className="rounded-2xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
             onClick={() => setAttributeFormOpen((v) => !v)}
+            disabled={stageALocked}
           >
             {attributeFormOpen ? "Close Attribute" : "Add Attribute"}
           </button>
           <div className="ml-auto flex items-center gap-3">
-            <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-              Status: {project?.status ?? "draft"}
-            </span>
             <button
-              disabled={project?.status === "archived" || approveLoading}
+              disabled={project?.status === "archived" || approveLoading || (!canUnapproveA && stageALocked)}
               className="rounded-2xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
-              onClick={project?.status === "stage_a_approved" ? handleUnapproveStageA : handleApproveStageA}
+              onClick={canUnapproveA ? handleUnapproveStageA : handleApproveStageA}
             >
               {approveLoading
-                ? project?.status === "stage_a_approved"
+                ? canUnapproveA
                   ? "Unapproving…"
                   : "Approving…"
-                : project?.status === "stage_a_approved"
+                : canUnapproveA
                   ? "Unapprove Stage A"
                   : "Approve Stage A"}
             </button>
@@ -773,15 +1078,16 @@ export default function ScribeProjectPage() {
         {attributeFormOpen && (
           <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
             <input
-              className="rounded border border-slate-300 px-3 py-2 text-sm"
+              className="rounded border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100"
               placeholder="Attribute name (e.g., Color)"
               value={attributeForm.name}
               onChange={(e) => setAttributeForm({ name: e.target.value })}
+              disabled={stageALocked}
             />
             <button
               className="rounded-2xl bg-[#0a6fd6] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0959ab] disabled:cursor-not-allowed disabled:opacity-50"
               onClick={handleAddAttribute}
-              disabled={attributeLoading}
+              disabled={attributeLoading || stageALocked}
             >
               {attributeLoading ? "Adding…" : "Add"}
             </button>
@@ -792,7 +1098,7 @@ export default function ScribeProjectPage() {
         {loading ? (
           <p className="text-sm text-slate-600">Loading…</p>
         ) : (
-          <div className="flex flex-col gap-4">
+          <div className={clsx("flex flex-col gap-4", stageALocked && "opacity-60")}>
             {skus.map((sku) => {
               const skuKeywords = keywords.filter((k) => k.skuId === sku.id);
               const skuQuestions = questions.filter((q) => q.skuId === sku.id);
@@ -822,21 +1128,25 @@ export default function ScribeProjectPage() {
                         <InlineEdit
                           label="SKU"
                           value={sku.skuCode}
-                          onSave={(v) => handleInlineSkuUpdate(sku.id, "skuCode", v)}
-                          className="font-semibold text-slate-900"
-                        />
+                        onSave={(v) => handleInlineSkuUpdate(sku.id, "skuCode", v)}
+                        className="font-semibold text-slate-900"
+                        disabled={stageALocked}
+                        allowEmpty={true}
+                      />
                       </div>
                       <InlineEdit
                         label="ASIN"
                         value={sku.asin ?? ""}
                         onSave={(v) => handleInlineSkuUpdate(sku.id, "asin", v)}
                         className="min-w-[180px]"
+                        disabled={stageALocked}
                       />
                         <InlineEdit
                           label="Product Name"
                           value={sku.productName ?? ""}
                           onSave={(v) => handleInlineSkuUpdate(sku.id, "productName", v)}
                           className="min-w-[220px]"
+                          disabled={stageALocked}
                         />
                       {attrValues.map(({ attr, value }) => (
                         <InlineEdit
@@ -846,6 +1156,7 @@ export default function ScribeProjectPage() {
                           onSave={(v) => handleSaveVariantValue(attr.id, sku.id, v)}
                           className="min-w-[180px]"
                           onDelete={() => handleDeleteAttribute(attr.id)}
+                          disabled={stageALocked}
                         />
                       ))}
                       <div className="ml-auto flex items-center justify-end gap-2 min-w-[200px]">
@@ -853,6 +1164,7 @@ export default function ScribeProjectPage() {
                           className="rounded border border-slate-300 bg-white px-2 py-2 text-xs text-slate-700"
                           value=""
                           onChange={(e) => handleCopyFromSku(sku.id, e.target.value)}
+                          disabled={stageALocked}
                         >
                           <option value="">Copy from SKU</option>
                           {skus
@@ -957,7 +1269,99 @@ export default function ScribeProjectPage() {
             })}
           </div>
         )}
-      </section>
+          </section>
+
+          {/* Navigation Bar */}
+          <div className="flex justify-end">
+            <button
+              className="rounded-2xl bg-[#0a6fd6] px-6 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-[#0959ab] disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={() => setActiveStage("stage_b")}
+              disabled={!canNavigateToB}
+            >
+              Next: Stage B →
+            </button>
+          </div>
+        </>
+      )}
+
+      {/* Stage B */}
+      {activeStage === "stage_b" && project && (
+        <>
+          {/* Top Navigation Bar */}
+          <div className="flex items-center justify-between">
+            <button
+              className="rounded-2xl border border-slate-300 px-6 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              onClick={() => setActiveStage("stage_a")}
+            >
+              ← Back to Stage A
+            </button>
+            <button
+              className="rounded-2xl bg-[#0a6fd6] px-6 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-[#0959ab] disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={() => setActiveStage("stage_c")}
+              disabled={!canNavigateToC}
+            >
+              Next: Stage C →
+            </button>
+          </div>
+
+          <StageB
+            projectId={projectId}
+            skus={skus}
+            projectStatus={normalizedStatus}
+            onApprove={handleApproveStageB}
+            onUnapprove={handleUnapproveStageB}
+            approveLoading={approveLoading}
+          />
+
+          {/* Bottom Next Button (convenience after scrolling) */}
+          <div className="flex justify-end">
+            <button
+              className="rounded-2xl bg-[#0a6fd6] px-6 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-[#0959ab] disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={() => setActiveStage("stage_c")}
+              disabled={!canNavigateToC}
+            >
+              Next: Stage C →
+            </button>
+          </div>
+        </>
+      )}
+
+      {/* Stage C */}
+      {activeStage === "stage_c" && (
+        <>
+          <header className="flex flex-col gap-1">
+            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">Stage C</p>
+            <h1 className="text-2xl font-semibold text-slate-900">{project?.name ?? "Project"}</h1>
+            <p className="text-sm text-slate-600">
+              Generate and edit Amazon listing content based on your approved topics.
+            </p>
+          </header>
+
+          {/* Navigation Bar */}
+          <div className="flex justify-start">
+            <button
+              className="rounded-2xl border border-slate-300 px-6 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              onClick={() => setActiveStage("stage_b")}
+            >
+              ← Back to Stage B
+            </button>
+          </div>
+
+          {project && (
+            <StageC
+              projectId={projectId}
+              projectStatus={normalizedStatus}
+              skus={skus}
+              onApprove={handleApproveStageC}
+              onUnapprove={handleUnapproveStageC}
+              onExport={handleExportCsv}
+              exportLoading={exportLoading}
+              approveLoading={approveLoading}
+              isArchived={project.status === "archived"}
+            />
+          )}
+        </>
+      )}
     </div>
   );
 }
@@ -968,24 +1372,41 @@ function InlineEdit({
   onSave,
   className,
   onDelete,
+  disabled = false,
+  allowEmpty = true,
 }: {
   label: string;
   value: string;
   onSave: (v: string) => void;
   className?: string;
   onDelete?: () => void;
+  disabled?: boolean;
+  allowEmpty?: boolean;
 }) {
   const [local, setLocal] = useState(value ?? "");
-  useEffect(() => setLocal(value ?? ""), [value]);
+  useEffect(() => {
+    const next = value ?? "";
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setLocal((prev) => (prev === next ? prev : next));
+  }, [value]);
   return (
-    <label className="flex w-full flex-col gap-1 text-[12px] font-semibold uppercase tracking-[0.08em] text-slate-700">
+    <label
+      className={clsx(
+        "flex w-full flex-col gap-1 text-[12px] font-semibold uppercase tracking-[0.08em] text-slate-700",
+        disabled && "opacity-60",
+      )}
+    >
       <div className="flex items-center justify-between gap-2">
         <span className="truncate">{label}</span>
         {onDelete ? (
           <button
             type="button"
-            className="text-slate-400 transition hover:text-red-600"
-            onClick={onDelete}
+            className="text-slate-400 transition hover:text-red-600 disabled:cursor-not-allowed"
+            onClick={() => {
+              if (disabled) return;
+              onDelete();
+            }}
+            disabled={disabled}
             aria-label={`Delete ${label}`}
           >
             ×
@@ -996,10 +1417,20 @@ function InlineEdit({
         className={clsx(
           "w-full min-w-[140px] rounded border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none",
           className,
+          disabled && "bg-slate-100 cursor-not-allowed",
         )}
         value={local}
         onChange={(e) => setLocal(e.target.value)}
-        onBlur={() => onSave(local)}
+        onBlur={() => {
+          if (disabled) return;
+          if (!allowEmpty && local.trim() === "") {
+            // revert to previous value if empty not allowed
+            setLocal(value ?? "");
+            return;
+          }
+          onSave(local);
+        }}
+        disabled={disabled}
       />
     </label>
   );
@@ -1017,7 +1448,11 @@ function ScalarModule({
   onSave: (v: string) => void;
 }) {
   const [local, setLocal] = useState(value ?? "");
-  useEffect(() => setLocal(value ?? ""), [value]);
+  useEffect(() => {
+    const next = value ?? "";
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setLocal((prev) => (prev === next ? prev : next));
+  }, [value]);
   return (
     <div className="rounded-lg border border-slate-300 bg-white p-3 shadow-sm">
       <div className="mb-2 flex items-center justify-between">

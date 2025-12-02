@@ -1,8 +1,16 @@
 # 📘 PRD — Composer (Amazon Listing Content Generator)
 
-**Version:** 1.6 — Updated with Multi-Product Mode  
-**Product Area:** Agency OS → Tools → Composer  
-**Status:** Ready for Engineering
+> **⚠️ DEPRECATED — DO NOT USE FOR NEW PROJECTS**
+>
+> **Composer is being replaced by [Scribe](12_scribe_prd.md).**
+> - Existing Composer projects are frozen (no new features)
+> - Code and schema will be removed after Scribe Stage C stabilizes
+> - See [Composer Deprecation Plan](17_composer_deprecation_plan.md) for timeline
+> - **Use Scribe for all new Amazon listing projects**
+
+**Version:** 1.6 — Updated with Multi-Product Mode
+**Product Area:** Agency OS → Tools → Composer
+**Status:** ~~Ready for Engineering~~ **DEPRECATED**
 
 ## Overview
 Composer is a guided, AI-powered workflow for generating Amazon listing content across any number of SKUs.

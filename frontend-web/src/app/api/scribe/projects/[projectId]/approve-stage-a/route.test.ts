@@ -62,13 +62,13 @@ describe("approve stage A", () => {
     skus.__pushResponse({ data: null, error: null, count: 1 });
     // Third call: update project status
     projects.__pushResponse({
-      data: { id: validProjectId, name: "Proj", status: "topics_generated", updated_at: "2025-11-25T00:00:00Z" },
+      data: { id: validProjectId, name: "Proj", status: "stage_a_approved", updated_at: "2025-11-25T00:00:00Z" },
       error: null,
     });
 
     const res = await POST(mockRequest(), mockParams({ projectId: validProjectId }));
     const json = await res.json();
     expect(res.status).toBe(200);
-    expect(json.status).toBe("topics_generated");
+    expect(json.status).toBe("stage_a_approved");
   });
 });

@@ -4,12 +4,18 @@ Agency OS is a unified internal platform for EcomLabs that consolidates scattere
 
 ## Documentation map
 
+### Core Architecture
 - `docs/00_agency_os_architecture.md` — master architecture: Render services (`frontend-web`, `backend-core`, `worker-sync`), Supabase auth, and the migration path off of `ngram.ecomlabs.ca`.
-- `docs/01_ngram_migration.md` — the “Split and Lift” plan for porting the existing Ngram analyzer into the Agency OS frontend/backend pattern.
+- `docs/01_ngram_migration.md` — the "Split and Lift" plan for porting the existing Ngram analyzer into the Agency OS frontend/backend pattern.
+
+### Active Tools
 - `docs/02_the_operator_prd.md` — PRD for The Operator, the AI-driven ClickUp command center and SOP canonization workflow.
 - `docs/03_admin_settings_prd.md` — Admin-only configurator that manages users, clients, ClickUp spaces, and staffing assignments (RBAC backbone for the rest of the OS).
-- `docs/04_amazon_composer_prd.md` — Amazon listing composer with client-facing approval links and flat-file exports.
+- `docs/12_scribe_prd.md` — **[NEW]** Scribe: Amazon listing content generator (3-stage workflow: Product Data → Topics → Copy). **Replaces Composer.**
 - `docs/05_creative_brief_prd.md` — Creative Brief tool that maps Composer copy + uploaded assets into designer-ready storyboards.
+
+### Deprecated
+- `docs/04_amazon_composer_prd.md` — **[DEPRECATED]** Amazon listing composer. **Replaced by Scribe** (see `docs/12_scribe_prd.md`). Code will be removed after Scribe stabilizes.
 
 Each doc includes the UX, backend contracts, and Supabase schema changes needed for its domain. Treat them as living specs; update them before or alongside any code changes that affect scope or interfaces.
 

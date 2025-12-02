@@ -55,7 +55,7 @@ export async function POST(
     .update({ status: "archived", updated_at: now })
     .eq("id", projectId)
     .eq("created_by", session.user.id)
-    .select("id, name, marketplaces, category, sub_category, status, created_at, updated_at")
+    .select("id, name, locale, category, sub_category, status, created_at, updated_at")
     .single();
 
   if (error || !data) {
@@ -68,7 +68,7 @@ export async function POST(
   return NextResponse.json({
     id: data.id,
     name: data.name,
-    marketplaces: data.marketplaces ?? [],
+    locale: data.locale,
     category: data.category,
     subCategory: data.sub_category,
     status: data.status,

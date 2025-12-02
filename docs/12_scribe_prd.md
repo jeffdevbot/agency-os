@@ -1,7 +1,7 @@
 # 🧵 Scribe — Product Requirements Document (PRD)
 
 **Version:** 2.0
-**Updated:** 2025-11-26
+**Updated:** 2025-11-28 (EST)
 **Owner:** Internal Tools (Ecomlabs)
 **Purpose:** Automate Amazon copywriting workflow (titles, bullets, descriptions, backend keywords) in a structured, step-by-step tool. Replaces ad-hoc Word/ChatGPT flows with a consistent, compliant, SEO-ready, multi-SKU workflow.
 
@@ -24,16 +24,16 @@ Scribe is an internal web application that helps Ecomlabs employees produce high
 ---
 
 ## 3. 🏠 Landing Page / Project List
-- **Active Projects:** Scrollable list of active (non-archived) projects created by the logged-in user. Columns: Project Name, Category, Sub-category, Marketplace(s), Last Updated, Status (Draft, Topics Ready, Copy Ready, Approved, Archived). Actions: OPEN, ARCHIVE.
+- **Active Projects:** Scrollable list of active (non-archived) projects created by the logged-in user. Columns: Project Name, Category, Sub-category, Locale (e.g., en-US, fr-CA), Last Updated, Status (Draft, Topics Ready, Copy Ready, Approved, Archived). Actions: OPEN, ARCHIVE.
 - **Archived Projects:** Hidden behind "View Archive." Archived projects cannot be edited but can be restored (delete optional/future).
 
 ---
 
 ## 4. 🔄 Scribe Workflow Overview (3 Stages)
 Each project moves through these stages; each step must be explicitly approved before advancing:
-1. **Stage A: Product Data** — enter product and SKU details.
-2. **Stage B: Topic Generation** — Scribe generates 5 topics from customer questions.
-3. **Stage C: Amazon Content Generation** — Scribe generates titles, bullets, descriptions, backend keywords per SKU.
+1. **Stage A: Product Data** — enter product and SKU details, including locale selection for AI generation.
+2. **Stage B: Topic Ideas** — Scribe proposes up to 8 question-first topics per SKU using the project's locale; the user selects and orders 5 that will feed copy.
+3. **Stage C: Amazon Content Generation** — Scribe generates titles, bullets, descriptions, backend keywords per SKU in the project's locale. **Status (2025-11-28, EST): shipped backend + UI; attribute prefs UI is minimal and will be polished.**
 
 ---
 
@@ -53,7 +53,8 @@ Each project moves through these stages; each step must be explicitly approved b
 ---
 
 ### 5.2 Step A1 — Create New Project
-- **Inputs:** Project Name, Marketplaces (US, CA, MX), Category, Sub-Category.
+- **Inputs:** Project Name, Locale (dropdown: en-US, en-CA, en-GB, en-AU, fr-CA, fr-FR, es-MX, es-ES, de-DE, it-IT, pt-BR, nl-NL), Category, Sub-Category.
+- **Locale Behavior:** Selected at project creation only (immutable); controls language/dialect for AI-generated content in Stages B & C. Uses BCP 47 locale codes (e.g., en-US for American English, en-GB for British English, fr-CA for Canadian French).
 - **Action:** Save immediately to `scribe_projects` with `status = 'draft'`.
 
 ---
@@ -228,37 +229,85 @@ MHCP-CHI-01,BOFN13GKF,MiHIGH Cold Plunge Chiller,Technical and precise,30-year-o
 
 ---
 
-## 6. 🟩 Stage B — Topic Generation
+## 6. 🟩 Stage B — Topic Ideas
 
-> **Status:** Deferred. When enabled, topics are generated **per SKU only** (no shared topics).
+> **Status:** Implemented; per-SKU-only topics with selection are live. Pending full test plan execution (see `docs/18_scribe_test_plan.md`).
 
-**Step B1 — Generate Topics**
-- Generate exactly 5 topics per SKU.
-- Inputs: that SKU’s own keywords, customer questions, brand tone, target audience, supplied content, variant attributes, and words to avoid (no cross-SKU or shared data).
-- Backend: per-SKU prompt; insert 5 rows into `scribe_topics` with `sku_id` set for each topic.
-- Loading state with humorous messages.
+**Step B1 — Generate Topic Candidates**
+- Generate up to 8 candidate topics per SKU via an LLM.
+- Question-first: primarily use that SKU’s customer questions; also incorporate product name, brand tone, target audience, variant attributes, supplied content, keywords, and words_to_avoid (no cross-SKU or shared data).
+- Backend: per-SKU prompt; insert up to 8 rows into `scribe_topics` with `sku_id` set and `approved = false` by default; humorous loading state.
 
-**Step B2 — Review Topics**
-- Table: `| SKU | Topic 1 | Topic 2 | Topic 3 | Topic 4 | Topic 5 |`.
-- User edits inline, reorders, regenerates per SKU.
-- Approval (when re-enabled) advances the project to the Stage B completion status (`topics_generated`, reserved for future use).
+**Step B2 — Select & Order Topics**
+- User selects and orders up to 5 topics per SKU; selected topics are marked `approved = true`.
+- Stage B approval requires every SKU to have 5 selected topics; only selected topics (max 5 per SKU) feed Stage C copy generation.
+- Unselected candidates remain in `scribe_topics` with `approved = false` and are ignored by Stage C.
+
+**Stage B User Flow (when enabled)**
+- Generate topics (per-project or per-SKU).
+- Review up to 8 candidates per SKU in a simple list.
+- Click to select/deselect topics (up to 5) and drag to reorder them.
+- Once every SKU has 5 selected topics, approve Stage B to move to Stage C.
 
 ---
 
-## 7. 🟥 Stage C — Amazon Content Generation
+## 7. 🟥 Stage C — Amazon Listing Copy
 
-> **Status:** Deferred. When enabled, all generated content is **per SKU only**.
+> **Status:** Ready for implementation; per-SKU only; gated on Stage B approval (`stage_b_approved`).
 
-**Step C1 — Choose Generation Method**
-- GENERATE SAMPLE (one SKU) or GENERATE ALL.
-- Backend (per SKU): uses that SKU’s topics (5), keywords, customer questions, supplied content, brand tone, target audience, variant attributes, and words to avoid; stores results in `scribe_generated_content` for that SKU.
-- Loading uses humor text.
+### Step C0 — Entry
+- Guard: if project is not `stage_b_approved`, show “Unlock Stage C after Stage B approval.”
 
-**Step C2 — Review and Approve Amazon Copy**
-- Per SKU: Title, 5 Bullets (editable list), Description, Backend Keywords.
-- Actions: edit inline, regenerate per section per SKU, approve per SKU.
-- Approval (when re-enabled) advances to the Stage C completion status (`copy_generated`, then `approved`, reserved for future use).
-- Output: CSV export includes all Stage C fields per SKU only (no shared fields).
+### Step C1 — First-Time Landing (Empty State)
+- Header: “Stage C: Amazon Listing Copy.”
+- Explainer: Scribe will generate per SKU: Title, 5 Bullets, Description, Backend Search Terms.
+- Actions:
+  - **Generate All SKUs** (primary) — enqueue copy generation for all SKUs.
+  - **Generate Sample (1 SKU)** (secondary) — enqueue for one SKU (default first SKU or selected).
+- Amazon rules summary (enforced in prompt/validation):
+  - Title: ≤ ~200 chars, no ALL CAPS/emojis/HTML.
+  - Bullets: exactly 5; no HTML/emojis; no medical/prohibited claims; avoid attribute spam.
+  - Description: plain text; safe claims only.
+  - Backend Keywords: 249-byte limit; no ASINs/competitor brands; avoid repeating title/bullets.
+- Empty state: “Ready to generate Amazon listings? Start with ‘Generate Sample’ to preview one SKU, or ‘Generate All’ to process all SKUs.”
+
+### Step C2 — Review & Edit (After Generation)
+- SKU selector/swatches: simple buttons per SKU; one active at a time; optional small status (Generated/Edited/Missing/Approved).
+- Left panel (Editor for active SKU):
+  - Title input + “Regenerate Title.”
+  - Bullets (5 inputs) + “Regenerate Bullets.”
+  - Description textarea + “Regenerate Description.”
+  - Backend Keywords textarea with byte counter (249-byte limit) + “Regenerate Backend Keywords.”
+  - Save (PATCH generated content; bump version).
+  - Per-SKU approve toggle removed; project approval just requires generated content for all SKUs.
+- Right panel (Mini Amazon PDP preview, read-only):
+  - Shows Title, 5 bullets, Description, Backend Keywords (collapsible).
+  - Updates after Save (no live binding needed); show brief “Generating…” / “Saving…” states.
+- Attribute Usage (optional, small panel):
+  - Toggle/link: “Attribute Usage ›”.
+  - Mode: ( ) Let Scribe decide (default) / (•) Use my selections.
+  - For each variant attribute (e.g., Color: Red; Size: Large; Material: Cotton), checkboxes: Title / Bullets / Description / Backend Keywords.
+  - Store preferences lightweight per SKU (e.g., JSON on SKU) and pass to prompt; no heavy matrix/table.
+
+### Step C3 — Approve Stage C
+- Button: “Approve Stage C.”
+- Guard: all SKUs have generated content; per-SKU approvals not required.
+- On success: set project status to `stage_c_approved` (final `approved` remains reserved).
+
+### Stage C Prompt (Output Shape)
+```json
+{
+  "title": "...",
+  "bullets": ["...", "...", "...", "...", "..."],
+  "description": "...",
+  "backend_keywords": "..."
+}
+```
+- Inputs: product name, SKU/ASIN, brand tone, target audience, supplied content, variant attributes, 5 approved topics (title + 3 bullets each), keywords, questions, words_to_avoid, attribute usage prefs.
+- Guardrails: exactly 5 bullets; title length cap; backend keyword 249-byte cap; Amazon-safe language; avoid forbidden words/claims; prompt_version stored per generation; regenerations use latest prompt unless locked per version.
+
+### CSV
+- Export includes Stage C fields per SKU (column order): `sku_code, asin, product_name, brand_tone, target_audience, supplied_content, words_to_avoid, [variant_attrs], keywords, questions, topics, title, bullet_1..5, description, backend_keywords`. No Stage C import in v1.
 
 ---
 
@@ -283,12 +332,15 @@ CREATE TABLE scribe_projects (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   created_by uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
   name text NOT NULL,
-  marketplaces text[] NOT NULL DEFAULT '{}',
+  locale text NOT NULL DEFAULT 'en-US',
   category text,
   sub_category text,
   status text NOT NULL DEFAULT 'draft',
   created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT scribe_projects_locale_check
+    CHECK (locale IN ('en-US', 'en-CA', 'en-GB', 'en-AU', 'fr-CA', 'fr-FR',
+                      'es-MX', 'es-ES', 'de-DE', 'it-IT', 'pt-BR', 'nl-NL'))
 );
 ```
 
@@ -296,7 +348,7 @@ CREATE TABLE scribe_projects (
 - `id` — UUID primary key.
 - `created_by` — Foreign key to `profiles.id` (owner).
 - `name` — Project name.
-- `marketplaces` — Array of marketplace codes (e.g., `['US', 'CA', 'MX']`).
+- `locale` — BCP 47 locale code (e.g., `en-US`, `fr-CA`). Controls language/dialect for AI-generated content in Stages B & C. Immutable after project creation.
 - `category` — Optional category (e.g., "Home & Garden").
 - `sub_category` — Optional sub-category.
 - `status` — `draft | stage_a_approved | archived` (future: see appendix).
@@ -487,7 +539,7 @@ CREATE TABLE scribe_topics (
 - `id` — UUID primary key.
 - `project_id` — Foreign key to `scribe_projects.id`.
 - `sku_id` — Foreign key to `scribe_skus.id` (**required, never null**).
-- `topic_index` — Topic number (1–5).
+- `topic_index` — Topic number (1–8 stored; up to 5 approved feed Stage C).
 - `title` — Topic title.
 - `description` — Optional description.
 - `generated_by` — `llm` or `human`.
@@ -738,6 +790,7 @@ CREATE TABLE scribe_generation_jobs (
   - Variant attribute columns (one per attribute)
   - `keywords` (pipe-separated)
   - `questions` (pipe-separated)
+  - `topics` (pipe-separated, approved topics only, ordered by topic_index, max 5)
   - Stage C fields: `title`, `bullet_1`–`bullet_5`, `description`, `backend_keywords`
 
 #### 13.9.2 Import
@@ -754,7 +807,7 @@ CREATE TABLE scribe_generation_jobs (
 
 - Max 50 SKUs per project.
 - Max 10 keywords per SKU.
-- Exactly 5 topics per SKU/project.
+- Up to 8 topics stored per SKU; 5 selected topics required per SKU for Stage B approval and Stage C eligibility.
 - Exactly 5 bullets per SKU.
 - Title length limits and backend keyword byte limits enforced; return validation_error.
 - Standard validation error envelope: `{"error": {"code": "validation_error", "message": "..."}}`.
@@ -854,8 +907,8 @@ DELETE FROM scribe_customer_questions WHERE sku_id IS NULL;
 
 ## 16. 🔮 Future Stages (Reserved Statuses)
 
-- When Stage B is re-enabled, APPROVE TOPICS will advance projects to `topics_generated`.
-- When Stage C is re-enabled, APPROVE COPY will advance projects to `copy_generated`, and final approval to `approved`.
+- When Stage B is re-enabled, APPROVE TOPICS will advance projects to `stage_b_approved`.
+- When Stage C is re-enabled, APPROVE COPY will advance projects to `stage_c_approved`, and final approval to `approved`.
 - These statuses are reserved but not reachable in the current Stage A–only release.
 
 ---

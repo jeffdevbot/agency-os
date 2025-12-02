@@ -1,6 +1,6 @@
 # Project Status — Agency OS
 
-_Last updated: 2025-11-26_
+_Last updated: 2025-11-28 (EST)_
 
 ## How to Use This File
 - Skim **Quick Recap**, **Recent Accomplishments**, and **Next Priorities** before coding.
@@ -21,6 +21,18 @@ _Last updated: 2025-11-26_
 Agency OS consolidates internal tools (Ngram, The Operator, Creative Brief) behind a shared Next.js frontend, FastAPI backend, and Supabase auth stack deployed on Render. Supabase handles SSO (Google) plus the shared database, while the worker service manages nightly syncs and other heavy jobs. **Amazon Composer is deprecated** and will be replaced by the new **Scribe** project (simpler, more focused listing/content generation). Composer code and data are frozen pending decommission.
 
 ## Recent Accomplishments
+- **2025-11-29 (EST)**
+  - **Scribe Stage navigation/approval guard fixes ✅:** Normalized status handling across stepper and stage components so refreshes land on the correct stage, navigation/next buttons unlock when later stages are approved, and Stage A buttons no longer show misleading locked states when downstream stages are approved.
+- **2025-11-28 (EST)**
+- **Scribe Stage C shipped (backend + UI) ✅:** Generate/regenerate/approve/edit routes live with gates/limits, job runner wired, Stage C fields in CSV export, Stage C UI added (empty state, per-SKU editor, regenerate, version, approval gate). Attribute prefs stored/passed; UI toggle is minimal and needs further polish. Usage logs now tag stage; `scribe_generated_content.sku_id` unique index added. RLS bug on PATCH fixed. Unapprove endpoints added for Stage B/C; UI locks editing when approved; export CTA added to Stage C (CSV includes dynamic variant attrs and Stage C fields). Stage A edits lock when later stages are approved.
+- **Scribe CSV export fixes ✅:** Fixed column misalignment caused by unquoted fields containing commas (e.g., "Friendly, casual, approachable") and special characters (em dashes). Applied RFC 4180 CSV formatting with proper field quoting, quote escaping, newline stripping, and UTF-8 BOM (`\uFEFF`) for Excel compatibility. Fixed both server-side export route and client-side Download Template function.
+- **Scribe variant attribute values persistence fixed ✅:** Resolved 500 error preventing variant values (Color, Size) from saving. Root cause was `onConflict` parameter incompatibility with remote Supabase constraint naming. Replaced native `upsert()` with manual check-then-update-or-insert logic to avoid constraint name issues entirely. Values now persist correctly across page refreshes and appear in CSV exports.
+- **2025-11-27**
+  - **Scribe Stage C spec ready (docs)** ✅: PRD, implementation plan, schema, prompt/orchestration, and test plan updated for Stage C (copy generation). Added micro-tasks, clarified gates/limits (title ~200, bullets=5, backend keywords 249 bytes), default full regenerate, attribute prefs lightweight, and approval flow. Composer tests quarantined; Scribe tests passing.
+- **2025-11-27**
+  - **Scribe Stage B tests passing** ✅: Added Stage B gate, job, CSV edge, RLS/limits telemetry tests (Vitest). Composer test suites quarantined (deprecated). Generate-copy/import tests in place with placeholders until Stage C routes ship.
+- **2025-11-27**
+  - **Scribe Stage B refinements** ✅: Updated topics prompt to 3-bullet descriptions, UI renders bullets, token usage logging wired (`scribe_usage_logs` per LLM call), status names aligned to `stage_a_approved`/`stage_b_approved`/`stage_c_approved` across frontend/API, and Stage B test plan refreshed.
 - **2025-11-27**
   - **Scribe Stage A polished & CSV upsert** ✅: Rebuilt Stage A to grouped per-SKU blocks with scalar modules, inline multi-value lists, copy-from, inline attribute delete, and per-SKU approve/unapprove. CSV import now upserts by `sku_code`, patches scalars/words, replaces keywords/questions, strips bullets, and is quote-aware to avoid duplicate SKUs. Export renamed to Download Template. Frontend keeps local state (no wipe on add/delete) and hides spurious errors. PRD/implementation plan updated to match approve/unapprove and import upsert semantics.
 - **2025-11-26**
@@ -60,10 +72,10 @@ Agency OS consolidates internal tools (Ngram, The Operator, Creative Brief) behi
 - **2025-11-13** – Added Supabase-aware Next.js middleware to guard `/ngram`, ensuring logged-out users are redirected to the login screen before hitting protected pages.
 
 ## Next Priorities
-- **Scribe Slice 2 (Stage A data)**: Implement SKUs/variant attributes/keywords/questions APIs + UI with apply-to-all, limits, and Stage A approval; add tests.
-- Plan and execute **Composer decommission**: Supabase cleanup (tables/types/functions), env var removal, Render routes/pages removal. Take backups before dropping any schema.
-- Deploy backend-core + refreshed frontend to Render, validate env vars (usage logging, Supabase secrets, OpenAI keys) and ensure `/ngram` works end-to-end in production.
-- Scope the Operator Milestone 1 UI shell so it can host the chat + context panes described in `docs/02_the_operator_prd.md`, even if data is mocked at first.
+- **Scribe Stage C polish**: Attribute prefs overrides UI, small UX polish, and any remaining E2E smoke. Leave full regenerate-only until scoped.
+- **Scribe QA pass**: Run updated Stage C tests per `docs/18_scribe_test_plan.md`; validate CSV export with Stage C fields; sanity-check RLS after schema changes.
+- **Composer decommission plan**: Execute `docs/17_composer_deprecation_plan.md` when Scribe B/C are stable (UI flag-off, code/schema cleanup with backups).
+- **Deploy & verify**: Push latest frontend with Stage C; confirm usage logging, OpenAI envs, and `/ngram` still healthy in Render.
 
 ## Documentation Map (Quick Reference)
 - `docs/00_agency_os_architecture.md` — High-level blueprint for the Render services, Supabase auth setup, and domain migration strategy. Start here for infra questions or when onboarding collaborators.

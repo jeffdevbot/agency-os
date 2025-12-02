@@ -1,12 +1,19 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createSupabaseRouteClient } from "@/lib/supabase/serverClient";
+import { isSupportedLocale, type ScribeLocale } from "@/lib/scribe/locales";
 
-type ScribeProjectStatus = "draft" | "stage_a_approved" | "archived";
+type ScribeProjectStatus =
+  | "draft"
+  | "stage_a_approved"
+  | "stage_b_approved"
+  | "stage_c_approved"
+  | "approved"
+  | "archived";
 
 interface ProjectRow {
   id: string;
   name: string;
-  marketplaces: string[] | null;
+  locale: string | null;
   category: string | null;
   sub_category: string | null;
   status: string;
@@ -21,12 +28,17 @@ const parseIntParam = (value: string | null, fallback: number) => {
 };
 
 const isStatus = (value: string): value is ScribeProjectStatus =>
-  value === "draft" || value === "stage_a_approved" || value === "archived";
+  value === "draft" ||
+  value === "stage_a_approved" ||
+  value === "stage_b_approved" ||
+  value === "stage_c_approved" ||
+  value === "approved" ||
+  value === "archived";
 
 const mapProjectRow = (row: ProjectRow) => ({
   id: row.id,
   name: row.name,
-  marketplaces: row.marketplaces ?? [],
+  locale: isSupportedLocale(row.locale) ? row.locale : "en-US",
   category: row.category,
   subCategory: row.sub_category,
   status: isStatus(row.status) ? row.status : null,
@@ -53,7 +65,7 @@ export async function GET(request: NextRequest) {
 
   const { data, error, count } = await supabase
     .from("scribe_projects")
-    .select("id, name, marketplaces, category, sub_category, status, created_at, updated_at", { count: "exact" })
+    .select("id, name, locale, category, sub_category, status, created_at, updated_at", { count: "exact" })
     .eq("created_by", session.user.id)
     .order(sort, { ascending: false, nullsFirst: false })
     .range(from, to);
@@ -77,7 +89,7 @@ export async function GET(request: NextRequest) {
 
 interface CreateProjectPayload {
   name?: string;
-  marketplaces?: string[];
+  locale?: string;
   category?: string | null;
   subCategory?: string | null;
 }
@@ -94,6 +106,7 @@ export async function POST(request: NextRequest) {
 
   const payload = (await request.json()) as CreateProjectPayload;
   const name = payload.name?.trim();
+  const locale: ScribeLocale = isSupportedLocale(payload.locale) ? payload.locale : "en-US";
 
   if (!name) {
     return NextResponse.json(
@@ -108,7 +121,7 @@ export async function POST(request: NextRequest) {
     .from("scribe_projects")
     .insert({
       name,
-      marketplaces: payload.marketplaces ?? [],
+      locale,
       category: payload.category ?? null,
       sub_category: payload.subCategory ?? null,
       status: "draft",
@@ -116,7 +129,7 @@ export async function POST(request: NextRequest) {
       created_at: now,
       updated_at: now,
     })
-    .select("id, name, marketplaces, category, sub_category, status, created_at, updated_at")
+    .select("id, name, locale, category, sub_category, status, created_at, updated_at")
     .single();
 
   if (error || !data) {

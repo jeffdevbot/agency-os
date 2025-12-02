@@ -2,14 +2,21 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { getBrowserSupabaseClient } from "@/lib/supabaseClient";
+import { LOCALE_LABELS, SUPPORTED_LOCALES } from "@/lib/scribe/locales";
 import type { Session } from "@supabase/supabase-js";
 
-type ScribeProjectStatus = "draft" | "topics_generated" | "copy_generated" | "approved" | "archived";
+type ScribeProjectStatus =
+  | "draft"
+  | "stage_a_approved"
+  | "stage_b_approved"
+  | "stage_c_approved"
+  | "approved"
+  | "archived";
 
 interface ScribeProjectSummary {
   id: string;
   name: string;
-  marketplaces: string[];
+  locale: string;
   category: string | null;
   subCategory: string | null;
   status: ScribeProjectStatus | null;
@@ -26,8 +33,9 @@ interface ProjectListResponse {
 
 const STATUS_LABELS: Record<ScribeProjectStatus, string> = {
   draft: "Draft",
-  topics_generated: "Topics Ready",
-  copy_generated: "Copy Ready",
+  stage_a_approved: "Stage A Approved",
+  stage_b_approved: "Stage B Approved",
+  stage_c_approved: "Stage C Approved",
   approved: "Approved",
   archived: "Archived",
 };
@@ -48,7 +56,7 @@ export default function ScribeDashboardPage() {
   const pageSize = 20;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [form, setForm] = useState({ name: "", marketplaces: "" });
+  const [form, setForm] = useState({ name: "", locale: "en-US" });
   const [formError, setFormError] = useState<string | null>(null);
   const [formLoading, setFormLoading] = useState(false);
   const [refreshTick, setRefreshTick] = useState(0);
@@ -102,22 +110,17 @@ export default function ScribeDashboardPage() {
     setFormLoading(true);
     setFormError(null);
     try {
-      const marketplaces =
-        form.marketplaces
-          .split(",")
-          .map((v) => v.trim())
-          .filter(Boolean) ?? [];
       const res = await fetch("/api/scribe/projects", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, marketplaces }),
+        body: JSON.stringify({ name, locale: form.locale }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body?.error?.message ?? "Failed to create project");
       }
       await res.json();
-      setForm({ name: "", marketplaces: "" });
+      setForm({ name: "", locale: "en-US" });
       setPage(1);
       setRefreshTick((t) => t + 1);
     } catch (err) {
@@ -178,13 +181,18 @@ export default function ScribeDashboardPage() {
             />
           </div>
           <div className="flex flex-1 flex-col gap-1">
-            <label className="text-xs font-medium text-slate-600">Marketplaces (comma-separated)</label>
-            <input
+            <label className="text-xs font-medium text-slate-600">Language / Marketplace</label>
+            <select
               className="rounded border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-slate-500 focus:outline-none"
-              placeholder="US, CA, MX"
-              value={form.marketplaces}
-              onChange={(e) => setForm((prev) => ({ ...prev, marketplaces: e.target.value }))}
-            />
+              value={form.locale}
+              onChange={(e) => setForm((prev) => ({ ...prev, locale: e.target.value }))}
+            >
+              {SUPPORTED_LOCALES.map((loc) => (
+                <option key={loc} value={loc}>
+                  {LOCALE_LABELS[loc]}
+                </option>
+              ))}
+            </select>
           </div>
           <button
             className="w-full rounded-2xl bg-[#0a6fd6] px-4 py-2 text-sm font-semibold text-white shadow-[0_15px_30px_rgba(10,111,214,0.35)] transition hover:bg-[#0959ab] disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
@@ -215,8 +223,8 @@ export default function ScribeDashboardPage() {
               <thead className="border-b border-slate-200 text-xs uppercase text-slate-500">
                 <tr>
                   <th className="py-2 pr-4">Name</th>
+                  <th className="py-2 pr-4">Locale</th>
                   <th className="py-2 pr-4">Status</th>
-                  <th className="py-2 pr-4">Marketplaces</th>
                   <th className="py-2 pr-4">Updated</th>
                   <th className="py-2 pr-4">Actions</th>
                 </tr>
@@ -233,10 +241,10 @@ export default function ScribeDashboardPage() {
                       </a>
                     </td>
                     <td className="py-2 pr-4 text-slate-700">
-                      {project.status ? STATUS_LABELS[project.status] : "—"}
+                      {LOCALE_LABELS[project.locale as keyof typeof LOCALE_LABELS] ?? project.locale ?? "—"}
                     </td>
                     <td className="py-2 pr-4 text-slate-700">
-                      {project.marketplaces?.length ? project.marketplaces.join(", ") : "—"}
+                      {project.status ? STATUS_LABELS[project.status] : "—"}
                     </td>
                     <td className="py-2 pr-4 text-slate-600">{formatDate(project.updatedAt)}</td>
                     <td className="py-2 pr-4">
