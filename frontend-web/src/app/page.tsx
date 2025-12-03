@@ -103,25 +103,47 @@ export default function Home() {
                 </p>
               </div>
 
-              <div className="grid gap-4 rounded-3xl bg-[#f7f8ff] p-5">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.3em] text-[#94a3b8]">
-                    Tools
-                  </p>
-                  <p className="text-base font-semibold text-[#0f172a]">
-                    N-Gram Processor
-                  </p>
-                  <p className="text-sm text-[#4c576f]">
-                    Upload Amazon search term reports to generate Monogram, Bigram, and
-                    Trigram insights.
-                  </p>
+              <div className="space-y-3">
+                <p className="text-xs font-semibold uppercase tracking-[0.3em] text-[#94a3b8]">
+                  Toolbox
+                </p>
+                <div className="grid grid-cols-1 gap-6 md:grid-cols-2 w-full mt-2">
+                  <div className="rounded-2xl bg-white/50 backdrop-blur border border-white/40 shadow-md hover:shadow-xl transition-all hover:-translate-y-0.5 p-6 flex flex-col gap-4">
+                    <div className="flex items-start gap-3">
+                      <span className="text-xl">📊</span>
+                      <div>
+                        <p className="text-base font-semibold text-[#0f172a]">N-Gram Processor</p>
+                        <p className="text-sm text-[#4c576f]">
+                          Turn messy keyword lists into clean, colour-coded n-gram insights—instantly.
+                        </p>
+                      </div>
+                    </div>
+                    <Link
+                      href="/ngram"
+                      className="flex items-center justify-between rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-[#0a6fd6] shadow transition hover:-translate-y-0.5 hover:shadow-lg"
+                    >
+                      Launch <span aria-hidden="true">→</span>
+                    </Link>
+                  </div>
+
+                  <div className="rounded-2xl bg-white/50 backdrop-blur border border-white/40 shadow-md hover:shadow-xl transition-all hover:-translate-y-0.5 p-6 flex flex-col gap-4">
+                    <div className="flex items-start gap-3">
+                      <span className="text-xl">📝</span>
+                      <div>
+                        <p className="text-base font-semibold text-[#0f172a]">Scribe</p>
+                        <p className="text-sm text-[#4c576f]">
+                          Feed your SKUs once and generate Amazon-ready titles, bullets, descriptions, and backend keywords in minutes.
+                        </p>
+                      </div>
+                    </div>
+                    <Link
+                      href="/scribe"
+                      className="flex items-center justify-between rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-[#0a6fd6] shadow transition hover:-translate-y-0.5 hover:shadow-lg"
+                    >
+                      Launch <span aria-hidden="true">→</span>
+                    </Link>
+                  </div>
                 </div>
-                <Link
-                  href="/ngram"
-                  className="flex items-center justify-between rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-[#0a6fd6] shadow transition hover:-translate-y-0.5 hover:shadow-lg"
-                >
-                  Open tool<span aria-hidden="true">→</span>
-                </Link>
               </div>
 
               <button
