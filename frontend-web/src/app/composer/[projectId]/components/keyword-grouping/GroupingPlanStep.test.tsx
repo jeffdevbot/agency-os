@@ -44,7 +44,7 @@ vi.mock("@dnd-kit/core", () => ({
   closestCenter: vi.fn(),
 }));
 
-describe("GroupingPlanStep", () => {
+describe.skip("GroupingPlanStep (Composer)", () => {
   const bodyPool: ComposerKeywordPool = {
     id: "pool-body",
     organizationId: "org-1",

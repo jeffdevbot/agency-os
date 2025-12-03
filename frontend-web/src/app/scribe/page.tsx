@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { getBrowserSupabaseClient } from "@/lib/supabaseClient";
 import { LOCALE_LABELS, SUPPORTED_LOCALES } from "@/lib/scribe/locales";
 import type { Session } from "@supabase/supabase-js";
+import { ScribeHeader } from "./components/ScribeHeader";
 
 type ScribeProjectStatus =
   | "draft"
@@ -160,137 +161,140 @@ export default function ScribeDashboardPage() {
   }
 
   return (
-    <div className="mx-auto flex max-w-6xl flex-col gap-8 px-6 py-10">
-      <header className="flex flex-col gap-2">
-        <h1 className="text-2xl font-semibold text-slate-900">Scribe Projects</h1>
-        <p className="text-sm text-slate-600">
-          Create and manage Scribe projects. Archived projects are read-only.
-        </p>
-      </header>
+    <div className="flex min-h-screen flex-col bg-slate-50">
+      <ScribeHeader />
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-6 py-10">
+        <header className="flex flex-col gap-2">
+          <h1 className="text-2xl font-semibold text-slate-900">Scribe Projects</h1>
+          <p className="text-sm text-slate-600">
+            Create and manage Scribe projects. Archived projects are read-only.
+          </p>
+        </header>
 
-      <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-        <h2 className="text-lg font-medium text-slate-900">Create Project</h2>
-        <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end">
-          <div className="flex flex-1 flex-col gap-1">
-            <label className="text-xs font-medium text-slate-600">Name *</label>
-            <input
-              className="rounded border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-slate-500 focus:outline-none"
-              placeholder="Project name"
-              value={form.name}
-              onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
-            />
-          </div>
-          <div className="flex flex-1 flex-col gap-1">
-            <label className="text-xs font-medium text-slate-600">Language / Marketplace</label>
-            <select
-              className="rounded border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-slate-500 focus:outline-none"
-              value={form.locale}
-              onChange={(e) => setForm((prev) => ({ ...prev, locale: e.target.value }))}
-            >
-              {SUPPORTED_LOCALES.map((loc) => (
-                <option key={loc} value={loc}>
-                  {LOCALE_LABELS[loc]}
-                </option>
-              ))}
-            </select>
-          </div>
-          <button
-            className="w-full rounded-2xl bg-[#0a6fd6] px-4 py-2 text-sm font-semibold text-white shadow-[0_15px_30px_rgba(10,111,214,0.35)] transition hover:bg-[#0959ab] disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
-            onClick={handleCreate}
-            disabled={formLoading}
-          >
-            {formLoading ? "Creating…" : "Create"}
-          </button>
-        </div>
-        {formError ? <p className="mt-2 text-xs text-red-600">{formError}</p> : null}
-      </section>
-
-      <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-lg font-medium text-slate-900">Projects</h2>
-          <div className="text-xs text-slate-500">
-            Page {page} of {totalPages} — {total} total
-          </div>
-        </div>
-        {error ? <p className="mb-3 text-sm text-red-600">{error}</p> : null}
-        {loading ? (
-          <p className="text-sm text-slate-600">Loading…</p>
-        ) : projects.length === 0 ? (
-          <p className="text-sm text-slate-600">No projects yet.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-left text-sm text-slate-800">
-              <thead className="border-b border-slate-200 text-xs uppercase text-slate-500">
-                <tr>
-                  <th className="py-2 pr-4">Name</th>
-                  <th className="py-2 pr-4">Locale</th>
-                  <th className="py-2 pr-4">Status</th>
-                  <th className="py-2 pr-4">Updated</th>
-                  <th className="py-2 pr-4">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {projects.map((project) => (
-                  <tr key={project.id} className="border-b border-slate-100">
-                    <td className="py-2 pr-4 font-medium text-slate-900">
-                      <a
-                        href={`/scribe/${project.id}`}
-                        className="text-[#0a6fd6] underline-offset-2 hover:underline"
-                      >
-                        {project.name}
-                      </a>
-                    </td>
-                    <td className="py-2 pr-4 text-slate-700">
-                      {LOCALE_LABELS[project.locale as keyof typeof LOCALE_LABELS] ?? project.locale ?? "—"}
-                    </td>
-                    <td className="py-2 pr-4 text-slate-700">
-                      {project.status ? STATUS_LABELS[project.status] : "—"}
-                    </td>
-                    <td className="py-2 pr-4 text-slate-600">{formatDate(project.updatedAt)}</td>
-                    <td className="py-2 pr-4">
-                      {project.status === "archived" ? (
-                        <button
-                          className="rounded border border-slate-300 px-3 py-1 text-xs font-medium text-slate-800 hover:bg-slate-50"
-                          onClick={() => mutateProject(project.id, "restore").catch((err) => setError(err.message))}
-                        >
-                          Restore
-                        </button>
-                      ) : (
-                        <button
-                          className="rounded border border-red-200 bg-red-50 px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-100"
-                          onClick={() => mutateProject(project.id, "archive").catch((err) => setError(err.message))}
-                        >
-                          Archive
-                        </button>
-                      )}
-                    </td>
-                  </tr>
+        <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+          <h2 className="text-lg font-medium text-slate-900">Create Project</h2>
+          <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end">
+            <div className="flex flex-1 flex-col gap-1">
+              <label className="text-xs font-medium text-slate-600">Name *</label>
+              <input
+                className="rounded border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-slate-500 focus:outline-none"
+                placeholder="Project name"
+                value={form.name}
+                onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
+              />
+            </div>
+            <div className="flex flex-1 flex-col gap-1">
+              <label className="text-xs font-medium text-slate-600">Language / Marketplace</label>
+              <select
+                className="rounded border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-slate-500 focus:outline-none"
+                value={form.locale}
+                onChange={(e) => setForm((prev) => ({ ...prev, locale: e.target.value }))}
+              >
+                {SUPPORTED_LOCALES.map((loc) => (
+                  <option key={loc} value={loc}>
+                    {LOCALE_LABELS[loc]}
+                  </option>
                 ))}
-              </tbody>
-            </table>
+              </select>
+            </div>
+            <button
+              className="w-full rounded-2xl bg-[#0a6fd6] px-4 py-2 text-sm font-semibold text-white shadow-[0_15px_30px_rgba(10,111,214,0.35)] transition hover:bg-[#0959ab] disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+              onClick={handleCreate}
+              disabled={formLoading || !form.name.trim()}
+            >
+              {formLoading ? "Creating…" : "Create"}
+            </button>
           </div>
-        )}
+          {formError ? <p className="mt-2 text-xs text-red-600">{formError}</p> : null}
+        </section>
 
-        <div className="mt-4 flex items-center gap-3 text-sm text-slate-700">
-          <button
-            className="rounded border border-slate-300 px-3 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-50"
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            disabled={page <= 1}
-          >
-            Prev
-          </button>
-          <span>
-            Page {page} / {totalPages}
-          </span>
-          <button
-            className="rounded border border-slate-300 px-3 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-50"
-            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            disabled={page >= totalPages}
-          >
-            Next
-          </button>
-        </div>
-      </section>
+        <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-lg font-medium text-slate-900">Projects</h2>
+            <div className="text-xs text-slate-500">
+              Page {page} of {totalPages} — {total} total
+            </div>
+          </div>
+          {error ? <p className="mb-3 text-sm text-red-600">{error}</p> : null}
+          {loading ? (
+            <p className="text-sm text-slate-600">Loading…</p>
+          ) : projects.length === 0 ? (
+            <p className="text-sm text-slate-600">No projects yet.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-left text-sm text-slate-800">
+                <thead className="border-b border-slate-200 text-xs uppercase text-slate-500">
+                  <tr>
+                    <th className="py-2 pr-4">Name</th>
+                    <th className="py-2 pr-4">Locale</th>
+                    <th className="py-2 pr-4">Status</th>
+                    <th className="py-2 pr-4">Updated</th>
+                    <th className="py-2 pr-4">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {projects.map((project) => (
+                    <tr key={project.id} className="border-b border-slate-100">
+                      <td className="py-2 pr-4 font-medium text-slate-900">
+                        <a
+                          href={`/scribe/${project.id}`}
+                          className="text-[#0a6fd6] underline-offset-2 hover:underline"
+                        >
+                          {project.name}
+                        </a>
+                      </td>
+                      <td className="py-2 pr-4 text-slate-700">
+                        {LOCALE_LABELS[project.locale as keyof typeof LOCALE_LABELS] ?? project.locale ?? "—"}
+                      </td>
+                      <td className="py-2 pr-4 text-slate-700">
+                        {project.status ? STATUS_LABELS[project.status] : "—"}
+                      </td>
+                      <td className="py-2 pr-4 text-slate-600">{formatDate(project.updatedAt)}</td>
+                      <td className="py-2 pr-4">
+                        {project.status === "archived" ? (
+                          <button
+                            className="rounded border border-slate-300 px-3 py-1 text-xs font-medium text-slate-800 hover:bg-slate-50"
+                            onClick={() => mutateProject(project.id, "restore").catch((err) => setError(err.message))}
+                          >
+                            Restore
+                          </button>
+                        ) : (
+                          <button
+                            className="rounded border border-red-200 bg-red-50 px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-100"
+                            onClick={() => mutateProject(project.id, "archive").catch((err) => setError(err.message))}
+                          >
+                            Archive
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <div className="mt-4 flex items-center gap-3 text-sm text-slate-700">
+            <button
+              className="rounded border border-slate-300 px-3 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page <= 1}
+            >
+              Prev
+            </button>
+            <span>
+              Page {page} / {totalPages}
+            </span>
+            <button
+              className="rounded border border-slate-300 px-3 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page >= totalPages}
+            >
+              Next
+            </button>
+          </div>
+        </section>
+      </div>
     </div>
   );
 }

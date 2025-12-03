@@ -13,8 +13,7 @@ interface TopicRow {
   title: string;
   description: string | null;
   generated_by: string | null;
-  approved: boolean;
-  approved_at: string | null;
+  selected: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -27,8 +26,7 @@ const mapTopicRow = (row: TopicRow) => ({
   title: row.title,
   description: row.description,
   generatedBy: row.generated_by,
-  approved: row.approved,
-  approvedAt: row.approved_at,
+  selected: row.selected,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
 });

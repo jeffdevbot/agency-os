@@ -6,10 +6,7 @@ const isUuid = (value: unknown): value is string =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 
 interface UpdateTopicPayload {
-  title?: string;
-  description?: string;
-  topicIndex?: number;
-  approved?: boolean;
+  selected?: boolean;
 }
 
 export async function PATCH(
@@ -38,120 +35,95 @@ export async function PATCH(
   } = await supabase.auth.getSession();
 
   if (!session) {
-    return NextResponse.json({ error: { code: "unauthorized", message: "Unauthorized" } }, { status: 401 });
+    return NextResponse.json(
+      { error: { code: "unauthorized", message: "Unauthorized" } },
+      { status: 401 },
+    );
   }
 
   // Parse request body
-  let payload: UpdateTopicPayload;
-  try {
-    payload = (await request.json()) as UpdateTopicPayload;
-  } catch {
+  const body = (await request.json()) as UpdateTopicPayload;
+  const { selected } = body;
+
+  if (typeof selected !== "boolean") {
     return NextResponse.json(
-      { error: { code: "validation_error", message: "Invalid request body" } },
+      { error: { code: "validation_error", message: "selected must be a boolean" } },
       { status: 400 },
     );
   }
 
-  // Verify project ownership
-  const { data: project, error: fetchError } = await supabase
+  // Verify project ownership and get topic
+  const { data: project, error: projectError } = await supabase
     .from("scribe_projects")
-    .select("id, status, created_by")
+    .select("id, created_by")
     .eq("id", projectId)
     .eq("created_by", session.user.id)
     .single();
 
-  if (fetchError || !project) {
-    const status = fetchError?.code === "PGRST116" ? 404 : 500;
+  if (projectError || !project) {
     return NextResponse.json(
-      { error: { code: "not_found", message: fetchError?.message ?? "Project not found" } },
-      { status },
+      { error: { code: "not_found", message: "Project not found" } },
+      { status: 404 },
     );
   }
 
-  if (project.status === "archived") {
-    return NextResponse.json(
-      { error: { code: "forbidden", message: "Archived projects are read-only" } },
-      { status: 403 },
-    );
-  }
-
-  // Fetch existing topic
-  const { data: existingTopic, error: topicFetchError } = await supabase
+  // Get the topic and verify it belongs to this project
+  const { data: topic, error: topicError } = await supabase
     .from("scribe_topics")
-    .select("id, project_id, sku_id, approved")
+    .select("id, sku_id, project_id")
     .eq("id", topicId)
     .eq("project_id", projectId)
     .single();
 
-  if (topicFetchError || !existingTopic) {
-    const status = topicFetchError?.code === "PGRST116" ? 404 : 500;
+  if (topicError || !topic) {
     return NextResponse.json(
-      { error: { code: "not_found", message: topicFetchError?.message ?? "Topic not found" } },
-      { status },
+      { error: { code: "not_found", message: "Topic not found" } },
+      { status: 404 },
     );
   }
 
-  // If approving a topic, check that SKU doesn't already have 5 approved topics
-  if (payload.approved === true && !existingTopic.approved) {
-    const { count, error: countError } = await supabase
+  // If selecting a topic, verify the SKU doesn't already have 5 selected
+  if (selected) {
+    const { data: selectedTopics, error: countError } = await supabase
       .from("scribe_topics")
-      .select("*", { count: "exact", head: true })
-      .eq("sku_id", existingTopic.sku_id)
-      .eq("approved", true);
+      .select("id")
+      .eq("sku_id", topic.sku_id)
+      .eq("selected", true);
 
     if (countError) {
       return NextResponse.json(
-        { error: { code: "server_error", message: countError.message } },
+        { error: { code: "internal_error", message: "Failed to check topic count" } },
         { status: 500 },
       );
     }
 
-    if ((count ?? 0) >= 5) {
+    // Allow if this topic is already selected, or if count is less than 5
+    if (selectedTopics && selectedTopics.length >= 5 && !selectedTopics.find((t) => t.id === topicId)) {
       return NextResponse.json(
-        { error: { code: "validation_error", message: "SKU already has 5 approved topics" } },
+        { error: { code: "validation_error", message: "Maximum 5 topics can be selected per SKU" } },
         { status: 400 },
       );
     }
   }
 
-  // Build update object
-  const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
-
-  if (payload.title !== undefined) updates.title = payload.title.trim();
-  if (payload.description !== undefined) updates.description = payload.description?.trim() || null;
-  if (payload.topicIndex !== undefined) updates.topic_index = payload.topicIndex;
-  if (payload.approved !== undefined) {
-    updates.approved = payload.approved;
-    updates.approved_at = payload.approved ? new Date().toISOString() : null;
-  }
-
-  // Update topic
-  const { data, error } = await supabase
+  // Update the topic
+  const { data: updatedTopic, error: updateError } = await supabase
     .from("scribe_topics")
-    .update(updates)
+    .update({ selected, updated_at: new Date().toISOString() })
     .eq("id", topicId)
-    .eq("project_id", projectId)
-    .select("*")
+    .select()
     .single();
 
-  if (error || !data) {
+  if (updateError || !updatedTopic) {
     return NextResponse.json(
-      { error: { code: "server_error", message: error?.message ?? "Failed to update topic" } },
+      { error: { code: "internal_error", message: "Failed to update topic" } },
       { status: 500 },
     );
   }
 
   return NextResponse.json({
-    id: data.id,
-    projectId: data.project_id,
-    skuId: data.sku_id,
-    topicIndex: data.topic_index,
-    title: data.title,
-    description: data.description,
-    generatedBy: data.generated_by,
-    approved: data.approved,
-    approvedAt: data.approved_at,
-    createdAt: data.created_at,
-    updatedAt: data.updated_at,
+    id: updatedTopic.id,
+    selected: updatedTopic.selected,
+    skuId: updatedTopic.sku_id,
   });
 }

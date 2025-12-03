@@ -55,14 +55,7 @@ export async function POST(
     );
   }
 
-  // Check preconditions: project must be at least stage_a_approved
-  if (project.status === "draft") {
-    return NextResponse.json(
-      { error: { code: "validation_error", message: "Approve Stage A before generating topics" } },
-      { status: 409 },
-    );
-  }
-
+  // Only prevent generation on archived projects
   if (project.status === "archived") {
     return NextResponse.json(
       { error: { code: "forbidden", message: "Archived projects are read-only" } },

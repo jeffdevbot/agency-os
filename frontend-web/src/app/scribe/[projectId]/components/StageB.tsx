@@ -1,407 +1,409 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import clsx from "clsx";
+import { useParams, useRouter } from "next/navigation";
+import { ScribeHeader } from "../../components/ScribeHeader";
+import { ScribeProgressTracker } from "../../components/ScribeProgressTracker";
+import { DirtyStateWarning } from "./DirtyStateWarning";
+import { SkuTopicsCard } from "./SkuTopicsCard";
 
-interface Topic {
-  id: string;
-  projectId: string;
-  skuId: string;
-  topicIndex: number;
-  title: string;
-  description: string | null;
-  generatedBy: string | null;
-  approved: boolean;
-  approvedAt: string | null;
-  createdAt: string;
-  updatedAt: string;
+interface Project {
+    id: string;
+    name: string;
 }
 
 interface Sku {
-  id: string;
-  skuCode: string;
-  productName: string | null;
+    id: string;
+    skuCode: string;
+    productName: string | null;
+    updatedAt: string;
 }
 
-interface StageBProps {
-  projectId: string;
-  skus: Sku[];
-  projectStatus: string | null;
-  onApprove: () => void;
-  onUnapprove: () => void;
-  approveLoading: boolean;
+interface Topic {
+    id: string;
+    skuId: string;
+    topicIndex: number;
+    title: string;
+    description: string | null;
+    selected: boolean;
 }
 
-function normalizeStageStatus(status: string | null | undefined): string {
-  const value = typeof status === "string" ? status.toLowerCase() : "draft";
-  if (value === "stage_a_approved") return "stage_a_approved";
-  if (value === "stage_b_approved") return "stage_b_approved";
-  if (value === "stage_c_approved") return "stage_c_approved";
-  if (value === "approved") return "approved";
-  if (value === "archived") return "archived";
-  return "draft";
-}
+export function StageB() {
+    const params = useParams();
+    const router = useRouter();
+    const projectId = params.projectId as string;
 
-export default function StageB({
-  projectId,
-  skus,
-  projectStatus,
-  onApprove,
-  onUnapprove,
-  approveLoading,
-}: StageBProps) {
-  const normalizedStatus = normalizeStageStatus(projectStatus);
-  const [topics, setTopics] = useState<Record<string, Topic[]>>({});
-  const [loading, setLoading] = useState(false);
-  const [regeneratingSkus, setRegeneratingSkus] = useState<Set<string>>(new Set());
-  const [generatingAll, setGeneratingAll] = useState(false);
-  const isStageLocked =
-    normalizedStatus === "stage_b_approved" ||
-    normalizedStatus === "stage_c_approved" ||
-    normalizedStatus === "approved";
-  const canUnapproveB = normalizedStatus === "stage_b_approved";
-  const isLockedByLaterStage = normalizedStatus === "stage_c_approved" || normalizedStatus === "approved";
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const [project, setProject] = useState<Project | null>(null);
+    const [skus, setSkus] = useState<Sku[]>([]);
+    const [topicsBySku, setTopicsBySku] = useState<Record<string, Topic[]>>({});
+    const [generating, setGenerating] = useState(false);
+    const [isDirty, setIsDirty] = useState(false);
 
-  // Load topics for all SKUs
-  useEffect(() => {
-    const loadTopics = async () => {
-      setLoading(true);
-      try {
-        const topicsBySku: Record<string, Topic[]> = {};
+    useEffect(() => {
+        loadData();
+    }, [projectId]);
 
-        for (const sku of skus) {
-          const res = await fetch(`/api/scribe/projects/${projectId}/topics?skuId=${sku.id}`);
-          if (res.ok) {
-            const data = (await res.json()) as Topic[];
-            topicsBySku[sku.id] = data;
-          }
+    const loadData = async () => {
+        setLoading(true);
+        setError(null);
+
+        try {
+            // Fetch project
+            const projectRes = await fetch(`/api/scribe/projects/${projectId}`);
+            if (!projectRes.ok) throw new Error("Failed to load project");
+            const projectData = await projectRes.json();
+            setProject(projectData);
+
+            // Fetch SKUs
+            const skusRes = await fetch(`/api/scribe/projects/${projectId}/skus`);
+            if (!skusRes.ok) throw new Error("Failed to load SKUs");
+            const skusData = await skusRes.json();
+            setSkus(skusData);
+
+            // Fetch topics
+            const topicsRes = await fetch(`/api/scribe/projects/${projectId}/topics`);
+            if (topicsRes.ok) {
+                const topicsData = await topicsRes.json();
+                console.log("📊 Loaded topics from API:", topicsData.map((t: any) => ({
+                    id: t.id,
+                    skuId: t.skuId,
+                    title: t.title,
+                    selected: t.selected
+                })));
+
+                // Group topics by SKU
+                const grouped: Record<string, Topic[]> = {};
+                topicsData.forEach((topic: any) => {
+                    if (!grouped[topic.skuId]) grouped[topic.skuId] = [];
+                    grouped[topic.skuId].push({
+                        id: topic.id,
+                        skuId: topic.skuId,
+                        topicIndex: topic.topicIndex,
+                        title: topic.title,
+                        description: topic.description,
+                        selected: topic.selected ?? false,
+                    });
+                });
+
+                // Sort topics by index
+                Object.keys(grouped).forEach((skuId) => {
+                    grouped[skuId].sort((a, b) => a.topicIndex - b.topicIndex);
+                });
+
+                console.log("📦 Grouped topics by SKU:", Object.fromEntries(
+                    Object.entries(grouped).map(([skuId, topics]) => [
+                        skuId,
+                        topics.map(t => ({ id: t.id, selected: t.selected, title: t.title }))
+                    ])
+                ));
+
+                setTopicsBySku(grouped);
+
+                // Check dirty state
+                checkDirtyState(skusData, topicsData);
+            }
+        } catch (err) {
+            setError(err instanceof Error ? err.message : "Failed to load data");
+        } finally {
+            setLoading(false);
         }
-
-        setTopics(topicsBySku);
-      } catch (error) {
-        console.error("Failed to load topics:", error);
-      } finally {
-        setLoading(false);
-      }
     };
 
-    if (skus.length > 0) {
-      void loadTopics();
-    }
-  }, [projectId, skus]);
+    const checkDirtyState = (skusData: Sku[], topicsData: any[]) => {
+        // Check if any SKU was updated after topics were generated
+        if (topicsData.length === 0) {
+            setIsDirty(false);
+            return;
+        }
 
-  const toggleTopicApproval = async (skuId: string, topicId: string, currentApproved: boolean) => {
-    if (isStageLocked) return; // lock editing when Stage B (or later) is approved
-    const skuTopics = topics[skuId] || [];
-    const approvedCount = skuTopics.filter((t) => t.approved).length;
+        // Get the most recent topic creation time
+        const latestTopicTime = topicsData.reduce((latest, topic) => {
+            const topicTime = new Date(topic.createdAt).getTime();
+            return Math.max(latest, topicTime);
+        }, 0);
 
-    // Prevent approving more than 5
-    if (!currentApproved && approvedCount >= 5) {
-      alert("You can only select up to 5 topics per SKU");
-      return;
-    }
+        // Check if any SKU was updated after that
+        const hasNewerSku = skusData.some((sku) => {
+            const skuUpdateTime = new Date(sku.updatedAt).getTime();
+            return skuUpdateTime > latestTopicTime;
+        });
 
-    try {
-      const res = await fetch(`/api/scribe/projects/${projectId}/topics/${topicId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ approved: !currentApproved }),
-      });
+        setIsDirty(hasNewerSku);
+    };
 
-      if (res.ok) {
-        const updated = (await res.json()) as Topic;
-        setTopics((prev) => ({
-          ...prev,
-          [skuId]: prev[skuId]?.map((t) => (t.id === topicId ? updated : t)) || [],
+    const handleGenerateTopics = async () => {
+        if (skus.length === 0) {
+            alert("Please add SKUs in Stage A before generating topics");
+            return;
+        }
+
+        setGenerating(true);
+        setError(null);
+
+        try {
+            const res = await fetch(`/api/scribe/projects/${projectId}/generate-topics`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({}), // Empty body generates for all SKUs
+            });
+
+            if (!res.ok) {
+                const errorData = await res.json();
+                throw new Error(errorData.error?.message || "Failed to generate topics");
+            }
+
+            const { jobId } = await res.json();
+
+            // Poll for job completion (simple polling)
+            await pollJobStatus(jobId);
+
+            // Reload topics
+            await loadData();
+
+            setIsDirty(false);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : "Failed to generate topics");
+        } finally {
+            setGenerating(false);
+        }
+    };
+
+    const pollJobStatus = async (jobId: string): Promise<void> => {
+        return new Promise((resolve, reject) => {
+            const interval = setInterval(async () => {
+                try {
+                    const res = await fetch(`/api/scribe/jobs/${jobId}`);
+                    if (!res.ok) {
+                        clearInterval(interval);
+                        reject(new Error("Failed to check job status"));
+                        return;
+                    }
+
+                    const job = await res.json();
+
+                    if (job.status === "succeeded") {
+                        clearInterval(interval);
+                        resolve();
+                    } else if (job.status === "failed") {
+                        clearInterval(interval);
+                        reject(new Error(job.error_message || "Job failed"));
+                    }
+                } catch (err) {
+                    clearInterval(interval);
+                    reject(err);
+                }
+            }, 2000); // Poll every 2 seconds
+
+            // Timeout after 5 minutes
+            setTimeout(() => {
+                clearInterval(interval);
+                reject(new Error("Job timed out"));
+            }, 300000);
+        });
+    };
+
+    const handleToggleTopic = async (skuId: string, topicId: string) => {
+        // First, get current state to calculate newSelected BEFORE setState
+        const skuTopics = topicsBySku[skuId] || [];
+        const topic = skuTopics.find((t) => t.id === topicId);
+        const selectedCount = skuTopics.filter((t) => t.selected).length;
+
+        if (!topic) {
+            console.error("❌ Topic not found:", topicId);
+            return;
+        }
+
+        // Don't allow selecting more than 5
+        if (!topic.selected && selectedCount >= 5) {
+            alert("You can only select up to 5 topics per SKU");
+            return;
+        }
+
+        const newSelected = !topic.selected;
+        console.log("🔍 Toggle Debug:", {
+            skuId,
+            topicId,
+            currentSelected: topic.selected,
+            newSelected,
+            selectedCount,
+        });
+
+        // Optimistic update
+        setTopicsBySku((prev) => ({
+            ...prev,
+            [skuId]: prev[skuId].map((t) =>
+                t.id === topicId ? { ...t, selected: newSelected } : t
+            ),
         }));
-      }
-    } catch (error) {
-      console.error("Failed to update topic:", error);
-    }
-  };
 
-  const handleRegenerate = async (skuId: string) => {
-    setRegeneratingSkus((prev) => new Set(prev).add(skuId));
+        // Save to backend
+        console.log("📤 Sending PATCH with selected:", newSelected);
+        try {
+            const res = await fetch(`/api/scribe/projects/${projectId}/topics/${topicId}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ selected: newSelected }),
+            });
 
-    try {
-      const res = await fetch(`/api/scribe/projects/${projectId}/skus/${skuId}/regenerate-topics`, {
-        method: "POST",
-      });
+            if (!res.ok) {
+                const errorData = await res.json();
+                throw new Error(errorData.error?.message || "Failed to save topic selection");
+            }
 
-      if (res.ok) {
-        const { jobId } = (await res.json()) as { jobId: string };
-
-        // Poll job status
-        await pollJobStatus(jobId, skuId);
-      }
-    } catch (error) {
-      console.error("Failed to regenerate topics:", error);
-      setRegeneratingSkus((prev) => {
-        const next = new Set(prev);
-        next.delete(skuId);
-        return next;
-      });
-    }
-  };
-
-  const pollJobStatus = async (jobId: string, skuId: string) => {
-    const poll = async (): Promise<void> => {
-      const res = await fetch(`/api/scribe/jobs/${jobId}`);
-      if (!res.ok) return;
-
-      const job = (await res.json()) as { status: string };
-
-      if (job.status === "succeeded") {
-        // Reload topics for this SKU
-        const topicsRes = await fetch(`/api/scribe/projects/${projectId}/topics?skuId=${skuId}`);
-        if (topicsRes.ok) {
-          const data = (await topicsRes.json()) as Topic[];
-          setTopics((prev) => ({ ...prev, [skuId]: data }));
+            const responseData = await res.json();
+            console.log("📥 PATCH response:", responseData);
+        } catch (err) {
+            console.error("❌ PATCH error:", err);
+            // Revert optimistic update on error
+            setTopicsBySku((prev) => ({
+                ...prev,
+                [skuId]: prev[skuId].map((t) =>
+                    t.id === topicId ? { ...t, selected: !newSelected } : t
+                ),
+            }));
+            setError(err instanceof Error ? err.message : "Failed to save topic selection");
         }
-        setRegeneratingSkus((prev) => {
-          const next = new Set(prev);
-          next.delete(skuId);
-          return next;
-        });
-      } else if (job.status === "failed") {
-        alert("Topic generation failed. Please try again.");
-        setRegeneratingSkus((prev) => {
-          const next = new Set(prev);
-          next.delete(skuId);
-          return next;
-        });
-      } else if (job.status === "queued" || job.status === "running") {
-        // Continue polling
-        setTimeout(() => void poll(), 2000);
-      }
     };
 
-    await poll();
-  };
+    const handleNext = () => {
+        // Check if all SKUs have 5 topics selected
+        const allSkusReady = skus.every((sku) => {
+            const topics = topicsBySku[sku.id] || [];
+            const selectedCount = topics.filter((t) => t.selected).length;
+            return selectedCount === 5;
+        });
 
-  const handleGenerateAll = async () => {
-    setGeneratingAll(true);
-
-    try {
-      const res = await fetch(`/api/scribe/projects/${projectId}/generate-topics`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}), // Empty body = all SKUs
-      });
-
-      if (res.ok) {
-        const { jobId } = (await res.json()) as { jobId: string };
-
-        // Poll job status for all SKUs
-        await pollJobStatusForAll(jobId);
-      } else {
-        const errorBody = await res.json().catch(() => ({}));
-        alert(`Failed to start topic generation: ${errorBody.error?.message || "Unknown error"}`);
-        setGeneratingAll(false);
-      }
-    } catch (error) {
-      console.error("Failed to generate all topics:", error);
-      alert("Failed to start topic generation. Please try again.");
-      setGeneratingAll(false);
-    }
-  };
-
-  const pollJobStatusForAll = async (jobId: string) => {
-    const poll = async (): Promise<void> => {
-      const res = await fetch(`/api/scribe/jobs/${jobId}`);
-      if (!res.ok) {
-        setGeneratingAll(false);
-        return;
-      }
-
-      const job = (await res.json()) as { status: string };
-
-      if (job.status === "succeeded") {
-        // Reload topics for all SKUs
-        const topicsBySku: Record<string, Topic[]> = {};
-        for (const sku of skus) {
-          const topicsRes = await fetch(`/api/scribe/projects/${projectId}/topics?skuId=${sku.id}`);
-          if (topicsRes.ok) {
-            const data = (await topicsRes.json()) as Topic[];
-            topicsBySku[sku.id] = data;
-          }
+        if (!allSkusReady) {
+            alert("Please select exactly 5 topics for each SKU before proceeding");
+            return;
         }
-        setTopics(topicsBySku);
-        setGeneratingAll(false);
-      } else if (job.status === "failed") {
-        alert("Topic generation failed for some SKUs. You can regenerate individual SKUs as needed.");
-        setGeneratingAll(false);
-      } else if (job.status === "queued" || job.status === "running") {
-        // Continue polling
-        setTimeout(() => void poll(), 2000);
-      }
+
+        router.push(`/scribe/${projectId}/stage-c`);
     };
 
-    await poll();
-  };
-
-  // Check if all SKUs have exactly 5 approved topics
-  const canApprove = skus.every((sku) => {
-    const skuTopics = topics[sku.id] || [];
-    const approvedCount = skuTopics.filter((t) => t.approved).length;
-    return approvedCount === 5;
-  });
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <p className="text-sm text-slate-600">Loading topics...</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex flex-col gap-6">
-      {/* Loading Banner */}
-      {generatingAll && (
-        <div className="rounded-2xl border-2 border-blue-300 bg-blue-50 p-4">
-          <div className="flex items-center gap-3">
-            <div className="h-5 w-5 animate-spin rounded-full border-2 border-blue-600 border-t-transparent"></div>
-            <p className="text-sm font-semibold text-blue-900">
-              Generating topics for all SKUs... This may take up to a minute.
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Action Toolbar */}
-      <div className="flex items-center justify-between gap-4">
-        <button
-          className="rounded-2xl bg-[#0a6fd6] px-6 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-[#0959ab] disabled:cursor-not-allowed disabled:opacity-50"
-          onClick={handleGenerateAll}
-          disabled={generatingAll || regeneratingSkus.size > 0 || isStageLocked}
-        >
-          {generatingAll ? "Generating All..." : "Generate All Topics"}
-        </button>
-
-        <button
-          className={clsx(
-            "rounded-2xl px-6 py-3 text-sm font-semibold text-white shadow-lg transition disabled:cursor-not-allowed disabled:opacity-50",
-            canUnapproveB ? "bg-slate-600 hover:bg-slate-500" : "bg-emerald-600 hover:bg-emerald-500",
-          )}
-          onClick={canUnapproveB ? onUnapprove : onApprove}
-          disabled={
-            generatingAll ||
-            approveLoading ||
-            isLockedByLaterStage ||
-            (!canUnapproveB && !canApprove)
-          }
-        >
-          {approveLoading
-            ? canUnapproveB
-              ? "Unapproving..."
-              : "Approving..."
-            : canUnapproveB
-              ? "Unapprove Stage B"
-              : isLockedByLaterStage
-                ? "Stage B Locked"
-                : "Approve Stage B"}
-        </button>
-      </div>
-
-      {skus.map((sku) => {
-        const skuTopics = topics[sku.id] || [];
-        const approvedCount = skuTopics.filter((t) => t.approved).length;
-        const isRegenerating = regeneratingSkus.has(sku.id);
-
+    if (loading) {
         return (
-          <div key={sku.id} className="rounded-2xl border-2 border-slate-300 bg-white p-6 shadow-lg">
-            {/* SKU Header */}
-            <div className="mb-4 flex items-center justify-between border-b border-slate-200 pb-4">
-              <div>
-                <h3 className="text-lg font-semibold text-slate-900">
-                  SKU: {sku.skuCode}
-                </h3>
-                {sku.productName && (
-                  <p className="text-sm text-slate-600">{sku.productName}</p>
-                )}
-              </div>
-              <div className="flex items-center gap-3">
-                <span
-                  className={clsx(
-                    "text-sm font-semibold",
-                    approvedCount === 5 ? "text-emerald-600" : "text-slate-600"
-                  )}
-                >
-                  Selected: {approvedCount} / 5 required
-                </span>
-                <button
-                  className="rounded-2xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                  onClick={() => handleRegenerate(sku.id)}
-                  disabled={isRegenerating || generatingAll || isStageLocked}
-                >
-                  {isRegenerating ? "Regenerating..." : "Regenerate"}
-                </button>
-              </div>
+            <div className="flex min-h-screen flex-col bg-slate-50">
+                <ScribeHeader />
+                <div className="flex flex-1 items-center justify-center">
+                    <p className="text-slate-600">Loading...</p>
+                </div>
             </div>
-
-            {/* Topics List */}
-            {skuTopics.length === 0 ? (
-              <div className="py-8 text-center">
-                <p className="text-sm text-slate-600">No topics generated yet.</p>
-                <button
-                  className="mt-4 rounded-2xl bg-[#0a6fd6] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0959ab] disabled:cursor-not-allowed disabled:opacity-50"
-                  onClick={() => handleRegenerate(sku.id)}
-                  disabled={isRegenerating || generatingAll || isStageLocked}
-                >
-                  {isRegenerating ? "Regenerating..." : "Generate Topics"}
-                </button>
-              </div>
-            ) : (
-              <div className="flex flex-col gap-3">
-                {skuTopics.map((topic) => (
-                  <div
-                    key={topic.id}
-                    className={clsx(
-                      "rounded-lg border p-4 transition-all",
-                      topic.approved
-                        ? "border-emerald-300 bg-emerald-50"
-                        : "border-slate-200 bg-white hover:border-slate-300",
-                      isStageLocked && "cursor-not-allowed opacity-50"
-                    )}
-                  >
-                    <div className="flex items-start gap-3">
-                      <input
-                        type="checkbox"
-                        checked={topic.approved}
-                        onChange={() => {
-                          if (isStageLocked) return;
-                          void toggleTopicApproval(sku.id, topic.id, topic.approved);
-                        }}
-                        className="mt-1 h-5 w-5 cursor-pointer rounded border-slate-300 text-emerald-600 focus:ring-2 focus:ring-emerald-500"
-                        disabled={isStageLocked}
-                      />
-                      <div className="flex-1">
-                        <h4 className="font-semibold text-slate-900">{topic.title}</h4>
-                        {topic.description && (
-                          <div className="mt-1 text-sm text-slate-600">
-                            {topic.description.includes("\n") ? (
-                              <ul className="list-disc pl-4">
-                                {topic.description.split("\n").map((line, idx) => (
-                                  <li key={idx}>{line.replace(/^•\s*/, "")}</li>
-                                ))}
-                              </ul>
-                            ) : (
-                              <p>{topic.description}</p>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                      <span className="text-xs text-slate-500">#{topic.topicIndex}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
         );
-      })}
+    }
 
-    </div>
-  );
+    if (error && !topicsBySku) {
+        return (
+            <div className="flex min-h-screen flex-col bg-slate-50">
+                <ScribeHeader />
+                <div className="flex flex-1 items-center justify-center">
+                    <p className="text-red-600">{error}</p>
+                </div>
+            </div>
+        );
+    }
+
+    const hasTopics = Object.keys(topicsBySku).length > 0;
+    const allSkusHaveTopics = skus.every((sku) => topicsBySku[sku.id]?.length > 0);
+
+    return (
+        <div className="flex min-h-screen flex-col bg-slate-50">
+            <ScribeHeader />
+            <ScribeProgressTracker
+                currentStage="B"
+                stageAComplete={skus.length > 0}
+                stageBComplete={false}
+                stageCComplete={false}
+                onNavigate={(stage) => {
+                    if (stage === "A") router.push(`/scribe/${projectId}`);
+                    if (stage === "C") router.push(`/scribe/${projectId}/stage-c`);
+                }}
+            />
+
+            <div className="mx-auto w-full max-w-6xl px-6 py-8">
+                {/* Dirty State Warning */}
+                {isDirty && hasTopics && (
+                    <DirtyStateWarning
+                        message="Stage A data has changed since topics were generated"
+                        onRegenerate={handleGenerateTopics}
+                        regenerating={generating}
+                    />
+                )}
+
+                {/* Error Message */}
+                {error && (
+                    <div className="mb-6 rounded-lg border border-red-200 bg-red-50 p-4">
+                        <p className="text-sm text-red-800">{error}</p>
+                    </div>
+                )}
+
+                {/* Empty State - No Topics Generated */}
+                {!hasTopics && (
+                    <div className="flex flex-col items-center justify-center py-16">
+                        <h2 className="mb-2 text-2xl font-semibold text-slate-800">
+                            Generate Topics
+                        </h2>
+                        <p className="mb-6 text-center text-slate-600">
+                            Generate up to 8 topic ideas for each SKU based on your inputs from Stage A
+                        </p>
+                        <button
+                            onClick={handleGenerateTopics}
+                            disabled={generating || skus.length === 0}
+                            className="rounded-lg bg-[#0a6fd6] px-6 py-3 text-sm font-medium text-white shadow-sm hover:bg-[#0959ab] disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                            {generating ? "Generating..." : "Generate Topics"}
+                        </button>
+                        {skus.length === 0 && (
+                            <p className="mt-4 text-sm text-red-600">
+                                Please add SKUs in Stage A before generating topics
+                            </p>
+                        )}
+                    </div>
+                )}
+
+                {/* Topics Display */}
+                {hasTopics && (
+                    <>
+                        <div className="mb-6 rounded-lg border border-slate-200 bg-white p-4">
+                            <h2 className="mb-2 text-lg font-semibold text-slate-800">
+                                Select Topics
+                            </h2>
+                            <p className="text-sm text-slate-600">
+                                Select exactly 5 topics for each SKU. Not happy with the results? Go back to Stage A to refine your inputs—topics are heavily influenced by the questions you provide. Edit your data, return here, and regenerate for different results.
+                            </p>
+                        </div>
+
+                        <div className="space-y-6">
+                            {skus.map((sku) => (
+                                <SkuTopicsCard
+                                    key={sku.id}
+                                    sku={sku}
+                                    topics={topicsBySku[sku.id] || []}
+                                    onToggleTopic={(topicId) => handleToggleTopic(sku.id, topicId)}
+                                />
+                            ))}
+                        </div>
+
+                        {/* Navigation Buttons */}
+                        <div className="mt-8 flex items-center justify-between">
+                            <button
+                                onClick={() => router.push(`/scribe/${projectId}`)}
+                                className="rounded-lg border border-slate-300 bg-white px-6 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                            >
+                                Previous
+                            </button>
+                            <button
+                                onClick={handleNext}
+                                className="rounded-lg bg-[#0a6fd6] px-6 py-2 text-sm font-medium text-white shadow-sm hover:bg-[#0959ab]"
+                            >
+                                Next
+                            </button>
+                        </div>
+                    </>
+                )}
+            </div>
+        </div>
+    );
 }

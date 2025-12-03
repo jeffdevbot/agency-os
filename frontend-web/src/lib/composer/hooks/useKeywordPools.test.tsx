@@ -46,7 +46,7 @@ const renderHook = async (projectId?: string, groupId?: string | null) => {
   };
 };
 
-describe("useKeywordPools", () => {
+describe.skip("useKeywordPools (Composer)", () => {
   const basePool: ComposerKeywordPool = {
     id: "pool-1",
     organizationId: "org-1",

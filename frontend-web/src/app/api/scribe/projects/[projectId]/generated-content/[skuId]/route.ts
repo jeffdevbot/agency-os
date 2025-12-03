@@ -228,19 +228,7 @@ export async function PATCH(
     );
   }
 
-  // Gate: require stage_b_approved or stage_c_approved
-  if (project.status !== "stage_b_approved" && project.status !== "stage_c_approved") {
-    return NextResponse.json(
-      {
-        error: {
-          code: "validation_error",
-          message: "Stage B must be approved before editing generated content",
-        },
-      },
-      { status: 400 },
-    );
-  }
-
+  // Only prevent editing on archived projects
   if (project.status === "archived") {
     return NextResponse.json(
       { error: { code: "forbidden", message: "Archived projects are read-only" } },
@@ -263,12 +251,12 @@ export async function PATCH(
     );
   }
 
-  // Gate: require exactly 5 approved topics
+  // Gate: require exactly 5 selected topics
   const { count, error: countError } = await supabase
     .from("scribe_topics")
     .select("*", { count: "exact", head: true })
     .eq("sku_id", skuId)
-    .eq("approved", true);
+    .eq("selected", true);
 
   if (countError) {
     return NextResponse.json(
@@ -282,7 +270,7 @@ export async function PATCH(
       {
         error: {
           code: "validation_error",
-          message: "SKU must have exactly 5 approved topics before editing generated content",
+          message: "SKU must have exactly 5 selected topics before editing generated content",
         },
       },
       { status: 400 },

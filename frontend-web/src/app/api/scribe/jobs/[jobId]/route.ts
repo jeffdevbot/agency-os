@@ -10,7 +10,6 @@ export async function GET(
   context: { params: Promise<{ jobId?: string }> },
 ) {
   const { jobId } = await context.params;
-
   if (!isUuid(jobId)) {
     return NextResponse.json(
       { error: { code: "validation_error", message: "invalid job id" } },
@@ -27,32 +26,32 @@ export async function GET(
     return NextResponse.json({ error: { code: "unauthorized", message: "Unauthorized" } }, { status: 401 });
   }
 
-  // Fetch job with owner verification via project
-  const { data: job, error: fetchError } = await supabase
+  // Fetch job
+  const { data: job, error } = await supabase
     .from("scribe_generation_jobs")
     .select("id, project_id, job_type, status, payload, error_message, created_at, completed_at")
     .eq("id", jobId)
     .single();
 
-  if (fetchError || !job) {
-    const status = fetchError?.code === "PGRST116" ? 404 : 500;
+  if (error || !job) {
+    const status = error?.code === "PGRST116" ? 404 : 500;
     return NextResponse.json(
-      { error: { code: "not_found", message: fetchError?.message ?? "Job not found" } },
+      { error: { code: "not_found", message: error?.message ?? "Job not found" } },
       { status },
     );
   }
 
-  // Verify ownership via project
+  // Verify the job belongs to a project owned by the user
   const { data: project, error: projectError } = await supabase
     .from("scribe_projects")
-    .select("id, created_by")
+    .select("id")
     .eq("id", job.project_id)
     .eq("created_by", session.user.id)
     .single();
 
   if (projectError || !project) {
     return NextResponse.json(
-      { error: { code: "forbidden", message: "Access denied" } },
+      { error: { code: "forbidden", message: "Forbidden" } },
       { status: 403 },
     );
   }

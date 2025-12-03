@@ -46,7 +46,7 @@ const buildPrompt = (skuData: SkuData, locale: string): string => {
       .map(([key, value]) => `${key}=${value}`)
       .join(" | ") || "None";
 
-  return `You are an Amazon listing strategist. Generate 1–8 distinct, short, high-intent topic angles for this SKU. These will be shown to the user, who will select the best 5 for Stage C copy generation.
+  return `You are an Amazon listing strategist. Generate exactly 7-8 distinct, short, high-intent topic angles for this SKU. These will be shown to the user, who will select the best 5 for Stage C copy generation.
 
 LANGUAGE: Generate all output in ${locale}. Use locale-specific spelling/phrasing. Do NOT translate product/brand names or keywords; keep those as provided. Use measurements/units as supplied.
 
@@ -116,6 +116,10 @@ export const generateTopicsForSku = async (skuData: SkuData, locale: string): Pr
 
   if (topics.length === 0) {
     throw new Error("No topics generated");
+  }
+
+  if (topics.length < 7) {
+    throw new Error(`Expected 7-8 topics, but only ${topics.length} were generated`);
   }
 
   return {

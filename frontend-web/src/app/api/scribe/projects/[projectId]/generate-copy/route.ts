@@ -55,19 +55,7 @@ export async function POST(
     );
   }
 
-  // Gate: require stage_b_approved or stage_c_approved
-  if (project.status !== "stage_b_approved" && project.status !== "stage_c_approved") {
-    return NextResponse.json(
-      {
-        error: {
-          code: "validation_error",
-          message: "Stage B must be approved before generating copy",
-        },
-      },
-      { status: 400 },
-    );
-  }
-
+  // Only prevent generation on archived projects
   if (project.status === "archived") {
     return NextResponse.json(
       { error: { code: "forbidden", message: "Archived projects are read-only" } },
@@ -125,13 +113,13 @@ export async function POST(
     targetSkus = skus;
   }
 
-  // Validate each target SKU has 5 approved topics
+  // Validate each target SKU has 5 selected topics
   for (const sku of targetSkus) {
     const { count, error: countError } = await supabase
       .from("scribe_topics")
       .select("*", { count: "exact", head: true })
       .eq("sku_id", sku.id)
-      .eq("approved", true);
+      .eq("selected", true);
 
     if (countError) {
       return NextResponse.json(
@@ -145,7 +133,7 @@ export async function POST(
         {
           error: {
             code: "validation_error",
-            message: "All target SKUs must have exactly 5 approved topics before generating copy",
+            message: "All target SKUs must have exactly 5 selected topics before generating copy",
           },
         },
         { status: 400 },

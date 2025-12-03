@@ -69,9 +69,13 @@ export async function GET(
 }
 
 interface CreateSkuPayload {
-  skuCode?: string;
+  sku_code?: string;
   asin?: string | null;
-  productName?: string | null;
+  product_name?: string | null;
+  brand_tone?: string | null;
+  target_audience?: string | null;
+  words_to_avoid?: string[] | null;
+  supplied_content?: string | null;
 }
 
 export async function POST(
@@ -84,7 +88,7 @@ export async function POST(
   }
 
   const payload = (await request.json()) as CreateSkuPayload;
-  const skuCode = payload.skuCode?.trim() ?? "";
+  const skuCode = payload.sku_code?.trim() ?? "";
 
   const supabase = await createSupabaseRouteClient();
   const {
@@ -120,7 +124,11 @@ export async function POST(
       project_id: projectId,
       sku_code: skuCode,
       asin: payload.asin?.trim() || null,
-      product_name: payload.productName?.trim() || null,
+      product_name: payload.product_name?.trim() || null,
+      brand_tone: payload.brand_tone?.trim() || null,
+      target_audience: payload.target_audience?.trim() || null,
+      words_to_avoid: payload.words_to_avoid || null,
+      supplied_content: payload.supplied_content?.trim() || null,
       sort_order: (count ?? 0) + 1,
       created_at: now,
       updated_at: now,

@@ -259,9 +259,9 @@ export const processCopyJob = async (jobId: string): Promise<void> => {
     throw new Error(`Project not found: ${projectId}`);
   }
 
-  // Gate: re-validate project status is stage_b_approved or stage_c_approved
-  if (project.status !== "stage_b_approved" && project.status !== "stage_c_approved") {
-    throw new Error(`Project status must be stage_b_approved or stage_c_approved (current: ${project.status})`);
+  // Gate: reject archived projects only
+  if (project.status === "archived") {
+    throw new Error("Archived projects are read-only");
   }
 
   const userId = project.created_by;
@@ -378,32 +378,32 @@ const processSkuCopy = async (
     }
   }
 
-  // Gate: re-validate exactly 5 approved topics exist
+  // Gate: re-validate exactly 5 selected topics exist
   const { count: topicCount, error: topicCountError } = await supabase
     .from("scribe_topics")
     .select("*", { count: "exact", head: true })
     .eq("sku_id", skuId)
-    .eq("approved", true);
+    .eq("selected", true);
 
   if (topicCountError) {
     throw new Error(`Failed to validate topics: ${topicCountError.message}`);
   }
 
   if ((topicCount ?? 0) !== 5) {
-    throw new Error(`SKU must have exactly 5 approved topics (found ${topicCount ?? 0})`);
+    throw new Error(`SKU must have exactly 5 selected topics (found ${topicCount ?? 0})`);
   }
 
-  // Fetch approved topics (exactly 5 required)
-  const { data: approvedTopics, error: topicsError } = await supabase
+  // Fetch selected topics (exactly 5 required)
+  const { data: selectedTopics, error: topicsError } = await supabase
     .from("scribe_topics")
     .select("title, description")
     .eq("sku_id", skuId)
-    .eq("approved", true)
+    .eq("selected", true)
     .order("topic_index", { ascending: true })
     .limit(5);
 
-  if (topicsError || !approvedTopics || approvedTopics.length !== 5) {
-    throw new Error(`SKU must have exactly 5 approved topics (found ${approvedTopics?.length || 0})`);
+  if (topicsError || !selectedTopics || selectedTopics.length !== 5) {
+    throw new Error(`SKU must have exactly 5 selected topics (found ${selectedTopics?.length || 0})`);
   }
 
   // Parse attribute preferences from SKU (defaults to undefined for auto mode)
@@ -422,7 +422,7 @@ const processSkuCopy = async (
       keywords: (keywords ?? []).map((k) => k.keyword),
       questions: (questions ?? []).map((q) => q.question),
       variantAttributes,
-      approvedTopics: approvedTopics.map((t) => ({
+      approvedTopics: selectedTopics.map((t) => ({
         title: t.title,
         description: t.description || "",
       })),

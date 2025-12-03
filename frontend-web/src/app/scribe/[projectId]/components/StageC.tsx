@@ -1,813 +1,624 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import clsx from "clsx";
+import { useParams, useRouter } from "next/navigation";
+import { ScribeHeader } from "../../components/ScribeHeader";
+import { ScribeProgressTracker } from "../../components/ScribeProgressTracker";
+import { AttributePreferencesCard } from "./AttributePreferencesCard";
+import { AmazonProductCard } from "./AmazonProductCard";
+import { EditGeneratedContentPanel } from "./EditGeneratedContentPanel";
+import { DirtyStateWarning } from "./DirtyStateWarning";
 
-interface GeneratedContent {
-  id: string;
-  projectId: string;
-  skuId: string;
-  version: number;
-  title: string;
-  bullets: string[];
-  description: string;
-  backendKeywords: string;
-  modelUsed: string | null;
-  promptVersion: string | null;
-  approved: boolean;
-  approvedAt: string | null;
-  createdAt: string;
-  updatedAt: string;
+interface Project {
+    id: string;
+    name: string;
+    locale: string;
 }
-
-type AttributePreferences = {
-  mode?: "auto" | "overrides";
-  rules?: Record<string, { sections: ("title" | "bullets" | "description" | "backend_keywords")[] }>;
-} | null;
 
 interface Sku {
-  id: string;
-  skuCode: string;
-  productName: string | null;
-  attributePreferences?: AttributePreferences;
+    id: string;
+    skuCode: string;
+    productName: string | null;
+    updatedAt?: string;
 }
 
-interface StageCProps {
-  projectId: string;
-  projectStatus: string | null;
-  skus: Sku[];
-  onApprove: () => void;
-  onUnapprove: () => void;
-  onExport: () => void;
-  exportLoading: boolean;
-  approveLoading: boolean;
-  isArchived: boolean;
+interface VariantAttribute {
+    id: string;
+    name: string;
+    slug: string;
+    sort_order: number;
 }
 
-export default function StageC({
-  projectId,
-  projectStatus,
-  skus,
-  onApprove,
-  onUnapprove,
-  onExport,
-  exportLoading,
-  approveLoading,
-  isArchived,
-}: StageCProps) {
-  const normalizeStageStatus = (status: string | null | undefined): string => {
-    const value = typeof status === "string" ? status.toLowerCase() : "draft";
-    if (value === "stage_a_approved") return "stage_a_approved";
-    if (value === "stage_b_approved") return "stage_b_approved";
-    if (value === "stage_c_approved") return "stage_c_approved";
-    if (value === "approved") return "approved";
-    if (value === "archived") return "archived";
-    return "draft";
-  };
-  const normalizedStatus = normalizeStageStatus(projectStatus);
-  const [contents, setContents] = useState<Record<string, GeneratedContent | null>>({});
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [generatingAll, setGeneratingAll] = useState(false);
-  const [generatingSample, setGeneratingSample] = useState(false);
-  const [regeneratingSkus, setRegeneratingSkus] = useState<Set<string>>(new Set());
-  const [editingSkus, setEditingSkus] = useState<Record<string, Partial<GeneratedContent>>>({});
-  const [savingSkus, setSavingSkus] = useState<Set<string>>(new Set());
-  const [bulkPrefs, setBulkPrefs] = useState<AttributePreferences>({ mode: "auto" });
-  const [savingAllPrefs, setSavingAllPrefs] = useState(false);
-  const [variantAttributes, setVariantAttributes] = useState<{ id: string; name: string }[]>([]);
-  const [attrsLoading, setAttrsLoading] = useState(false);
-  const [lastSavedPrefsKey, setLastSavedPrefsKey] = useState<string>("");
-  const [attrPrefsOpen, setAttrPrefsOpen] = useState<Record<string, boolean>>({});
+interface GeneratedContent {
+    id: string;
+    skuId: string;
+    title: string;
+    bullets: string[];
+    description: string;
+    backendKeywords: string;
+    updatedAt: string;
+}
 
-  const isStageUnlocked =
-    normalizedStatus === "stage_b_approved" ||
-    normalizedStatus === "stage_c_approved" ||
-    normalizedStatus === "approved";
-  const isLocked = !isStageUnlocked;
-  const isStageCLocked = normalizedStatus === "stage_c_approved" || normalizedStatus === "approved";
-  const canUnapproveC = normalizedStatus === "stage_c_approved";
-  const isLockedByApproved = normalizedStatus === "approved";
-  const canExport = normalizedStatus === "stage_c_approved" || normalizedStatus === "approved";
+export function StageC() {
+    const params = useParams();
+    const router = useRouter();
+    const projectId = params.projectId as string;
 
-  // Load generated content for all SKUs
-  useEffect(() => {
-    const loadContents = async () => {
-      setLoading(true);
-      try {
-        const contentBySku: Record<string, GeneratedContent | null> = {};
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const [project, setProject] = useState<Project | null>(null);
+    const [skus, setSkus] = useState<Sku[]>([]);
+    const [variantAttributes, setVariantAttributes] = useState<VariantAttribute[]>([]);
+    const [contentBySku, setContentBySku] = useState<Record<string, GeneratedContent>>({});
+    const [generating, setGenerating] = useState(false);
+    const [generatingType, setGeneratingType] = useState<'sample' | 'all' | null>(null);
+    const [expandedSkus, setExpandedSkus] = useState<Set<string>>(new Set());
+    const [editingSkuId, setEditingSkuId] = useState<string | null>(null);
+    const [isDirty, setIsDirty] = useState(false);
+    const [exporting, setExporting] = useState(false);
+
+    useEffect(() => {
+        loadData();
+    }, [projectId]);
+
+    const loadData = async () => {
+        setLoading(true);
+        setError(null);
+
+        try {
+            // Fetch project
+            const projectRes = await fetch(`/api/scribe/projects/${projectId}`);
+            if (!projectRes.ok) throw new Error("Failed to load project");
+            const projectData = await projectRes.json();
+            setProject({
+                id: projectData.id,
+                name: projectData.name,
+                locale: projectData.locale || "en-US",
+            });
+
+            // Fetch SKUs
+            const skusRes = await fetch(`/api/scribe/projects/${projectId}/skus`);
+            if (!skusRes.ok) throw new Error("Failed to load SKUs");
+            const skusData = await skusRes.json();
+            setSkus(skusData);
+
+            // Fetch variant attributes
+            const attrsRes = await fetch(`/api/scribe/projects/${projectId}/variant-attributes`);
+            if (attrsRes.ok) {
+                const attrsData = await attrsRes.json();
+                setVariantAttributes(attrsData);
+            }
+
+            // Fetch topics for dirty-state checks
+            const topicsRes = await fetch(`/api/scribe/projects/${projectId}/topics`);
+            const topicsData = topicsRes.ok ? await topicsRes.json() : [];
+
+            // Fetch generated content for all SKUs
+            const contentMap: Record<string, GeneratedContent> = {};
+            await Promise.all(
+                skusData.map(async (sku: Sku) => {
+                    try {
+                        const contentRes = await fetch(
+                            `/api/scribe/projects/${projectId}/generated-content/${sku.id}`
+                        );
+                        if (contentRes.ok) {
+                            const content = await contentRes.json();
+                            contentMap[sku.id] = content;
+                        }
+                    } catch (err) {
+                        // SKU doesn't have content yet, that's OK
+                    }
+                })
+            );
+
+            setContentBySku(contentMap);
+            setIsDirty(calculateDirtyState(skusData, topicsData, contentMap));
+
+            // Expand first SKU if it has content
+            if (skusData.length > 0 && contentMap[skusData[0].id]) {
+                setExpandedSkus(new Set([skusData[0].id]));
+            }
+        } catch (err) {
+            setError(err instanceof Error ? err.message : "Failed to load data");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleGenerateSample = async () => {
+        if (skus.length === 0) {
+            alert("Please add SKUs in Stage A before generating content");
+            return;
+        }
+
+        // Validate topics before generation
+        try {
+            await validateTopics();
+        } catch (err) {
+            alert(err instanceof Error ? err.message : "Validation failed");
+            return;
+        }
+
+        setGenerating(true);
+        setGeneratingType('sample');
+        setError(null);
+
+        try {
+            const res = await fetch(`/api/scribe/projects/${projectId}/generate-copy`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ mode: "sample", skuIds: [skus[0].id] }),
+            });
+
+            if (!res.ok) {
+                const errorData = await res.json();
+                throw new Error(errorData.error?.message || "Failed to generate sample");
+            }
+
+            const { jobId } = await res.json();
+
+            // Poll for job completion
+            await pollJobStatus(jobId);
+
+            // Reload content
+            await loadData();
+        } catch (err) {
+            setError(err instanceof Error ? err.message : "Failed to generate sample");
+        } finally {
+            setGenerating(false);
+            setGeneratingType(null);
+        }
+    };
+
+    const handleGenerateAll = async (options?: { force?: boolean }) => {
+        const force = options?.force ?? false;
+        if (skus.length === 0) {
+            alert("Please add SKUs in Stage A before generating content");
+            return;
+        }
+
+        // Validate topics before generation
+        try {
+            await validateTopics();
+        } catch (err) {
+            alert(err instanceof Error ? err.message : "Validation failed");
+            return;
+        }
+
+        setGenerating(true);
+        setGeneratingType('all');
+        setError(null);
+
+        try {
+            // Determine which SKUs to generate for:
+            // - force=true (dirty state) → all SKUs
+            // - default → only SKUs without content
+            const targetSkuIds = force
+                ? skus.map((sku) => sku.id)
+                : skus.filter((sku) => !contentBySku[sku.id]).map((sku) => sku.id);
+
+            if (targetSkuIds.length === 0) {
+                alert("All SKUs already have generated content. Use Regenerate to recreate content for specific SKUs.");
+                setGenerating(false);
+                setGeneratingType(null);
+                return;
+            }
+
+            const res = await fetch(`/api/scribe/projects/${projectId}/generate-copy`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ mode: "all", skuIds: targetSkuIds }),
+            });
+
+            if (!res.ok) {
+                const errorData = await res.json();
+                throw new Error(errorData.error?.message || "Failed to generate content");
+            }
+
+            const { jobId } = await res.json();
+
+            // Poll for job completion
+            await pollJobStatus(jobId);
+
+            // Reload content
+            await loadData();
+        } catch (err) {
+            setError(err instanceof Error ? err.message : "Failed to generate content");
+        } finally {
+            setGenerating(false);
+            setGeneratingType(null);
+        }
+    };
+
+    const validateTopics = async () => {
+        const topicsRes = await fetch(`/api/scribe/projects/${projectId}/topics`);
+        if (!topicsRes.ok) {
+            throw new Error("Failed to load topics for validation");
+        }
+
+        const topics = await topicsRes.json();
 
         for (const sku of skus) {
-          const res = await fetch(`/api/scribe/projects/${projectId}/generated-content/${sku.id}`);
-          if (res.ok) {
-            const data = (await res.json()) as GeneratedContent;
-            contentBySku[sku.id] = data;
-          } else if (res.status === 404) {
-            contentBySku[sku.id] = null;
-          }
+            const skuTopics = topics.filter((t: any) => t.skuId === sku.id);
+            const selectedCount = skuTopics.filter((t: any) => t.selected).length;
+            if (selectedCount !== 5) {
+                throw new Error(`Please select exactly 5 topics for each SKU in Stage B. SKU "${sku.skuCode}" has ${selectedCount} selected.`);
+            }
         }
-
-        setContents(contentBySku);
-      } catch (err) {
-        console.error("Failed to load generated content:", err);
-      } finally {
-        setLoading(false);
-      }
     };
 
-    if (skus.length > 0) {
-      void loadContents();
-    }
-  }, [projectId, skus]);
+    const handleRegenerateSku = async (skuId: string) => {
+        setGenerating(true);
+        setError(null);
 
-  const handleGenerateAll = async () => {
-    setGeneratingAll(true);
-    setError(null);
+        try {
+            const res = await fetch(`/api/scribe/projects/${projectId}/generate-copy`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ mode: "all", skuIds: [skuId] }),
+            });
 
-    try {
-      const res = await fetch(`/api/scribe/projects/${projectId}/generate-copy`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: "all" }),
-      });
-
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body?.error?.message ?? "Failed to generate copy");
-      }
-
-      const { jobId } = (await res.json()) as { jobId: string };
-      await pollJobStatus(jobId, null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to generate copy");
-      setGeneratingAll(false);
-    }
-  };
-
-  const handleGenerateSample = async () => {
-    if (skus.length === 0) return;
-
-    setGeneratingSample(true);
-    setError(null);
-
-    try {
-      const res = await fetch(`/api/scribe/projects/${projectId}/generate-copy`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: "sample", skuIds: [skus[0].id] }),
-      });
-
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body?.error?.message ?? "Failed to generate sample");
-      }
-
-      const { jobId } = (await res.json()) as { jobId: string };
-      await pollJobStatus(jobId, skus[0].id);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to generate sample");
-      setGeneratingSample(false);
-    }
-  };
-
-  const handleRegenerate = async (skuId: string) => {
-    setRegeneratingSkus((prev) => new Set(prev).add(skuId));
-    setError(null);
-
-    try {
-      const res = await fetch(`/api/scribe/projects/${projectId}/skus/${skuId}/regenerate-copy`, {
-        method: "POST",
-      });
-
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body?.error?.message ?? "Failed to regenerate copy");
-      }
-
-      const { jobId } = (await res.json()) as { jobId: string };
-      await pollJobStatus(jobId, skuId);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to regenerate copy");
-      setRegeneratingSkus((prev) => {
-        const next = new Set(prev);
-        next.delete(skuId);
-        return next;
-      });
-    }
-  };
-
-  const pollJobStatus = async (jobId: string, skuId: string | null) => {
-    const poll = async (): Promise<void> => {
-      const res = await fetch(`/api/scribe/jobs/${jobId}`);
-      if (!res.ok) return;
-
-      const job = (await res.json()) as { status: string };
-
-      if (job.status === "succeeded") {
-        // Reload content for affected SKUs
-        if (skuId) {
-          await reloadContent(skuId);
-          setRegeneratingSkus((prev) => {
-            const next = new Set(prev);
-            next.delete(skuId);
-            return next;
-          });
-        } else {
-          // Reload all SKUs
-          for (const sku of skus) {
-            await reloadContent(sku.id);
-          }
-          setGeneratingAll(false);
-          setGeneratingSample(false);
-        }
-      } else if (job.status === "failed") {
-        setError("Generation failed. Please try again.");
-        setGeneratingAll(false);
-        setGeneratingSample(false);
-        if (skuId) {
-          setRegeneratingSkus((prev) => {
-            const next = new Set(prev);
-            next.delete(skuId);
-            return next;
-          });
-        }
-      } else if (job.status === "queued" || job.status === "running") {
-        setTimeout(() => void poll(), 2000);
-      }
-    };
-
-    await poll();
-  };
-
-  const reloadContent = async (skuId: string) => {
-    const res = await fetch(`/api/scribe/projects/${projectId}/generated-content/${skuId}`);
-    if (res.ok) {
-      const data = (await res.json()) as GeneratedContent;
-      setContents((prev) => ({ ...prev, [skuId]: data }));
-      setEditingSkus((prev) => ({ ...prev, [skuId]: data }));
-    }
-  };
-
-  const handleSave = async (skuId: string) => {
-    const edits = editingSkus[skuId];
-    if (!edits) return;
-
-    setSavingSkus((prev) => new Set(prev).add(skuId));
-    setError(null);
-
-    try {
-      const body: Partial<{
-        title: string;
-        bullets: string[];
-        description: string;
-        backend_keywords: string;
-      }> = {};
-      if (edits.title !== undefined) body.title = edits.title;
-      if (edits.bullets !== undefined) body.bullets = edits.bullets;
-      if (edits.description !== undefined) body.description = edits.description;
-      if (edits.backendKeywords !== undefined) body.backend_keywords = edits.backendKeywords;
-
-      const res = await fetch(`/api/scribe/projects/${projectId}/generated-content/${skuId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-
-      if (!res.ok) {
-        const responseBody = await res.json().catch(() => ({}));
-        throw new Error(responseBody?.error?.message ?? "Failed to save");
-      }
-
-      const updated = (await res.json()) as GeneratedContent;
-      setContents((prev) => ({ ...prev, [skuId]: updated }));
-      setEditingSkus((prev) => ({ ...prev, [skuId]: updated }));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save");
-    } finally {
-      setSavingSkus((prev) => {
-        const next = new Set(prev);
-        next.delete(skuId);
-        return next;
-      });
-    }
-  };
-
-  const updateEditField = (
-    skuId: string,
-    field: keyof GeneratedContent,
-    value: GeneratedContent[keyof GeneratedContent],
-  ) => {
-    setEditingSkus((prev) => ({
-      ...prev,
-      [skuId]: {
-        ...(prev[skuId] || contents[skuId] || {}),
-        [field]: value,
-      },
-    }));
-  };
-
-  const handleSaveAttrPrefsAll = async (prefs: AttributePreferences) => {
-    if (!prefs) return;
-    setSavingAllPrefs(true);
-    setError(null);
-    try {
-      await Promise.all(
-        skus.map((sku) =>
-          fetch(`/api/scribe/projects/${projectId}/skus/${sku.id}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ attribute_preferences: prefs }),
-          }).then((res) => {
             if (!res.ok) {
-              return res.json().then((body) => {
-                throw new Error(body?.error?.message ?? "Failed to save preferences");
-              });
+                const errorData = await res.json();
+                throw new Error(errorData.error?.message || "Failed to regenerate content");
             }
-            return res;
-          }),
-        ),
-      );
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save preferences");
-    } finally {
-      setSavingAllPrefs(false);
-    }
-  };
 
-  useEffect(() => {
-    if (skus.length > 0) {
-      const firstPrefs = skus[0].attributePreferences;
-      setBulkPrefs(firstPrefs ?? { mode: "auto" });
-    }
-  }, [skus]);
+            const { jobId } = await res.json();
 
-  // Load variant attributes for checkbox rendering
-  useEffect(() => {
-    const loadAttrs = async () => {
-      setAttrsLoading(true);
-      try {
-        const res = await fetch(`/api/scribe/projects/${projectId}/variant-attributes`);
-        if (!res.ok) {
-          throw new Error("Failed to load variant attributes");
+            // Poll for job completion
+            await pollJobStatus(jobId);
+
+            // Reload content
+            await loadData();
+        } catch (err) {
+            setError(err instanceof Error ? err.message : "Failed to regenerate content");
+        } finally {
+            setGenerating(false);
         }
-        const rows = (await res.json()) as { id: string; name: string }[];
-        setVariantAttributes(rows || []);
-      } catch (err) {
-        // prefer non-blocking: show no attrs if fetch fails
-        setVariantAttributes([]);
-        console.error(err);
-      } finally {
-        setAttrsLoading(false);
-      }
     };
-    void loadAttrs();
-  }, [projectId]);
 
-  // Persist bulk prefs when they change (avoid duplicate saves)
-  useEffect(() => {
-    const nextKey = JSON.stringify(bulkPrefs ?? {});
-    if (nextKey === lastSavedPrefsKey) return;
-    setLastSavedPrefsKey(nextKey);
-    if (bulkPrefs) void handleSaveAttrPrefsAll(bulkPrefs);
-  }, [bulkPrefs, lastSavedPrefsKey]);
+    const pollJobStatus = async (jobId: string): Promise<void> => {
+        return new Promise((resolve, reject) => {
+            const interval = setInterval(async () => {
+                try {
+                    const res = await fetch(`/api/scribe/jobs/${jobId}`);
+                    if (!res.ok) {
+                        clearInterval(interval);
+                        reject(new Error("Failed to check job status"));
+                        return;
+                    }
 
-  // Initialize editing state for each SKU
-  useEffect(() => {
-    const initial: Record<string, Partial<GeneratedContent>> = {};
-    Object.entries(contents).forEach(([skuId, content]) => {
-      if (content) {
-        initial[skuId] = content;
-      }
-    });
-    setEditingSkus(initial);
-  }, [contents]);
+                    const job = await res.json();
 
-  const hasAnyContent = Object.values(contents).some((c) => c !== null);
-  const canApprove = skus.every((sku) => contents[sku.id] !== null);
+                    if (job.status === "succeeded") {
+                        clearInterval(interval);
+                        resolve();
+                    } else if (job.status === "failed") {
+                        clearInterval(interval);
+                        reject(new Error(job.error_message || "Job failed"));
+                    }
+                } catch (err) {
+                    clearInterval(interval);
+                    reject(err);
+                }
+            }, 2000); // Poll every 2 seconds
 
-  if (isLocked) {
-    return (
-      <div className="flex flex-col items-center justify-center gap-4 rounded-2xl border-2 border-slate-300 bg-slate-50 py-16">
-        <p className="text-lg font-semibold text-slate-700">Stage C is locked</p>
-        <p className="text-sm text-slate-600">Unlock Stage C after Stage B approval</p>
-      </div>
-    );
-  }
+            // Timeout after 5 minutes
+            setTimeout(() => {
+                clearInterval(interval);
+                reject(new Error("Job timed out"));
+            }, 300000);
+        });
+    };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <p className="text-sm text-slate-600">Loading generated content...</p>
-      </div>
-    );
-  }
-
-  // Empty state
-  if (!hasAnyContent) {
-    return (
-      <div className="flex flex-col gap-6">
-        {error && (
-          <div className="rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
-        )}
-
-        <div className="rounded-2xl border-2 border-slate-300 bg-white p-8">
-          <h3 className="mb-4 text-xl font-semibold text-slate-900">Stage C: Copy Generation</h3>
-          <div className="mb-6 space-y-2 text-sm text-slate-600">
-            <p>
-              Generate Amazon listing content (title, bullets, description, backend keywords) based on your approved
-              topics from Stage B.
-            </p>
-            <p className="font-semibold">Requirements:</p>
-            <ul className="list-disc pl-6">
-              <li>Title: Max 200 characters</li>
-              <li>Bullets: Exactly 5 bullets, max 500 characters each</li>
-              <li>Description: Max 2000 characters</li>
-              <li>Backend Keywords: Max 249 bytes</li>
-            </ul>
-          </div>
-
-          <div className="flex gap-3">
-            <button
-              className="rounded-2xl bg-[#0a6fd6] px-6 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-[#0959ab] disabled:cursor-not-allowed disabled:opacity-50"
-              onClick={handleGenerateAll}
-              disabled={generatingAll || isArchived || isStageCLocked}
-            >
-              {generatingAll ? "Generating..." : "Generate All"}
-            </button>
-            <button
-              className="rounded-2xl border border-slate-300 px-6 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-              onClick={handleGenerateSample}
-              disabled={generatingSample || skus.length === 0 || isArchived || isStageCLocked}
-            >
-              {generatingSample ? "Generating..." : "Generate Sample (First SKU)"}
-            </button>
-          </div>
-
-          {/* Attribute preferences can be set before first generation */}
-          {skus.length > 0 && !isArchived && (
-            <div className="mt-8 space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-semibold text-slate-800">Attribute Preferences</p>
-                  <p className="text-xs text-slate-600">
-                    Decide how variant attributes should be used in copy before you generate.
-                  </p>
-                </div>
-              </div>
-              <div className="rounded-lg border border-dashed border-slate-300 bg-white p-3 shadow-sm">
-                <p className="text-sm font-semibold text-slate-800">Attribute Preferences (All SKUs)</p>
-                <p className="text-xs text-slate-600">Applies everywhere when you generate.</p>
-                <div className="mt-3">
-                  <AttributePreferencesControl
-                    currentPrefs={bulkPrefs}
-                    onChange={(prefs) => {
-                      setBulkPrefs(prefs);
-                      void handleSaveAttrPrefsAll(prefs);
-                    }}
-                    variantAttributes={variantAttributes}
-                    loading={attrsLoading}
-                    disabled={isStageCLocked}
-                  />
-                </div>
-                {savingAllPrefs && <p className="mt-2 text-xs text-slate-500">Saving…</p>}
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex flex-col gap-6">
-      {/* Bulk Attribute Preferences (always visible when SKUs exist) */}
-      {skus.length > 0 && !isArchived && (
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          {savingAllPrefs && <p className="text-xs text-slate-500 text-right">Saving…</p>}
-          <AttributePreferencesControl
-            currentPrefs={bulkPrefs}
-            onChange={(prefs) => {
-              const prevKey = JSON.stringify(bulkPrefs ?? {});
-              const nextKey = JSON.stringify(prefs ?? {});
-              if (prevKey === nextKey) return;
-              setBulkPrefs(prefs);
-            }}
-            variantAttributes={variantAttributes}
-            loading={attrsLoading}
-            disabled={isStageCLocked}
-          />
-        </div>
-      )}
-
-      {/* Approve / Unapprove Toolbar */}
-      {!isArchived && (
-        <div className="flex justify-end gap-3">
-          {canExport && (
-            <button
-              className="rounded-2xl border border-slate-300 px-6 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-              onClick={onExport}
-              disabled={exportLoading}
-            >
-              {exportLoading ? "Exporting..." : "Export CSV"}
-            </button>
-          )}
-          <button
-            className={clsx(
-              "rounded-2xl px-6 py-3 text-sm font-semibold text-white shadow-lg transition disabled:cursor-not-allowed disabled:opacity-50",
-              canUnapproveC ? "bg-slate-600 hover:bg-slate-500" : "bg-emerald-600 hover:bg-emerald-500",
-            )}
-            onClick={canUnapproveC ? onUnapprove : onApprove}
-            disabled={
-              approveLoading ||
-              isLockedByApproved ||
-              (!canUnapproveC && (!canApprove || isStageCLocked))
+    const handleToggleExpanded = (skuId: string) => {
+        setExpandedSkus((prev) => {
+            const newSet = new Set(prev);
+            if (newSet.has(skuId)) {
+                newSet.delete(skuId);
+            } else {
+                newSet.add(skuId);
             }
-          >
-            {approveLoading
-              ? canUnapproveC
-                ? "Unapproving..."
-                : "Approving..."
-              : canUnapproveC
-                ? "Unapprove Stage C"
-                : isLockedByApproved
-                  ? "Stage C Locked"
-                  : "Approve Stage C"}
-          </button>
-        </div>
-      )}
+            return newSet;
+        });
+    };
 
-      {error && (
-        <div className="rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
-      )}
+    const handleEditContent = (skuId: string) => {
+        setEditingSkuId(skuId);
+    };
 
-      {skus.map((sku) => {
-        const content = contents[sku.id];
-        const editing = editingSkus[sku.id] || content || {};
-        const isRegenerating = regeneratingSkus.has(sku.id);
-        const isSaving = savingSkus.has(sku.id);
-        const attrPrefsExpanded = attrPrefsOpen[sku.id] ?? false;
+    const handleSaveEdit = async (
+        skuId: string,
+        updates: { title: string; bullets: string[]; description: string }
+    ) => {
+        try {
+            const res = await fetch(`/api/scribe/projects/${projectId}/generated-content/${skuId}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(updates),
+            });
 
+            if (!res.ok) {
+                const errorData = await res.json();
+                throw new Error(errorData.error?.message || "Failed to save changes");
+            }
+
+            // Reload content
+            await loadData();
+            setEditingSkuId(null);
+        } catch (err) {
+            alert(err instanceof Error ? err.message : "Failed to save changes");
+        }
+    };
+
+    const handleExportCsv = async () => {
+        setExporting(true);
+        setError(null);
+
+        try {
+            const res = await fetch(`/api/scribe/projects/${projectId}/export-copy`);
+            if (!res.ok) {
+                let message = "Failed to export CSV";
+                try {
+                    const body = await res.json();
+                    message = body?.error?.message || message;
+                } catch (_err) {
+                    // ignore parse errors
+                }
+                throw new Error(message);
+            }
+
+            const blob = await res.blob();
+            const disposition = res.headers.get("Content-Disposition");
+            const filenameMatch = disposition?.match(/filename=\"?([^\";]+)\"?/);
+            const filename = filenameMatch?.[1] || "scribe_export.csv";
+
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.URL.revokeObjectURL(url);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : "Failed to export CSV");
+        } finally {
+            setExporting(false);
+        }
+    };
+
+    const calculateDirtyState = (
+        skusData: Sku[],
+        topicsData: any[],
+        contentMap: Record<string, GeneratedContent>
+    ) => {
+        const hasAnyContent = Object.keys(contentMap).length > 0;
+        if (!hasAnyContent) return false;
+
+        const topicsLatestBySku: Record<string, number> = {};
+        topicsData.forEach((topic: any) => {
+            const topicTime = new Date(
+                topic.updatedAt || topic.updated_at || topic.createdAt || topic.created_at || 0
+            ).getTime();
+            if (!topicsLatestBySku[topic.skuId] || topicTime > topicsLatestBySku[topic.skuId]) {
+                topicsLatestBySku[topic.skuId] = topicTime;
+            }
+        });
+
+        return skusData.some((sku) => {
+            const content = contentMap[sku.id];
+            if (!content) return false;
+
+            const contentTime = new Date(
+                content.updatedAt ||
+                (content as any).updated_at ||
+                (content as any).createdAt ||
+                (content as any).created_at ||
+                0
+            ).getTime();
+            const skuUpdateTime = new Date(
+                (sku as any).updatedAt ||
+                (sku as any).updated_at ||
+                0
+            ).getTime();
+            const topicTime = topicsLatestBySku[sku.id] || 0;
+
+            return (skuUpdateTime && skuUpdateTime > contentTime) || (topicTime && topicTime > contentTime);
+        });
+    };
+
+    if (loading) {
         return (
-          <div key={sku.id} className="rounded-2xl border-2 border-slate-300 bg-white shadow-lg">
-            {/* SKU Header */}
-            <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
-              <div>
-                <h3 className="text-lg font-semibold text-slate-900">SKU: {sku.skuCode}</h3>
-                {sku.productName && <p className="text-sm text-slate-600">{sku.productName}</p>}
-                {content && (
-                  <p className="text-xs text-slate-500">
-                    Version {content.version} • Updated {new Date(content.updatedAt).toLocaleString()}
-                  </p>
+            <div className="flex min-h-screen flex-col bg-slate-50">
+                <ScribeHeader />
+                <div className="flex flex-1 items-center justify-center">
+                    <p className="text-slate-600">Loading...</p>
+                </div>
+            </div>
+        );
+    }
+
+    if (error && Object.keys(contentBySku).length === 0) {
+        return (
+            <div className="flex min-h-screen flex-col bg-slate-50">
+                <ScribeHeader />
+                <div className="flex flex-1 items-center justify-center">
+                    <p className="text-red-600">{error}</p>
+                </div>
+            </div>
+        );
+    }
+
+    const hasContent = Object.keys(contentBySku).length > 0;
+    const hasSample = skus.length > 0 && contentBySku[skus[0].id];
+
+    return (
+        <div className="flex min-h-screen flex-col bg-slate-50">
+            <ScribeHeader />
+            <ScribeProgressTracker
+                currentStage="C"
+                stageAComplete={skus.length > 0}
+                stageBComplete={false}
+                stageCComplete={hasContent}
+                onNavigate={(stage) => {
+                    if (stage === "A") router.push(`/scribe/${projectId}`);
+                    if (stage === "B") router.push(`/scribe/${projectId}/stage-b`);
+                }}
+            />
+
+            <div className="mx-auto w-full max-w-6xl px-6 py-8">
+                {/* Page Heading */}
+                <div className="mb-8">
+                    <h1 className="text-2xl font-semibold text-slate-800">Amazon Content Creation</h1>
+                    <p className="mt-1 text-sm text-slate-600">
+                        Generate product titles, bullet points, descriptions, and backend keywords for Amazon listings.
+                    </p>
+                </div>
+
+                {/* Generation Control Box */}
+                <div className="mb-6 rounded-lg border border-slate-200 bg-white">
+                    {/* Dirty State Warning */}
+                    {isDirty && hasContent && (
+                        <div className="border-b border-slate-200 p-4">
+                            <DirtyStateWarning
+                                message="Inputs or topics changed since content was generated"
+                                onRegenerate={() => handleGenerateAll({ force: true })}
+                                regenerating={generating}
+                            />
+                        </div>
+                    )}
+
+                    {/* Attribute Preferences Card */}
+                    {variantAttributes.length > 0 && (
+                        <AttributePreferencesCard
+                            projectId={projectId}
+                            skus={skus}
+                            variantAttributes={variantAttributes}
+                        />
+                    )}
+
+                    {/* Generation Buttons */}
+                    <div className={variantAttributes.length > 0 ? "border-t border-slate-200 p-6" : "p-6"}>
+                        <div className="flex items-center gap-4">
+                            <button
+                                onClick={handleGenerateSample}
+                                disabled={generating || skus.length === 0}
+                                className="rounded-lg bg-[#0a6fd6] px-6 py-3 text-sm font-medium text-white shadow-sm hover:bg-[#0959ab] disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                                {generatingType === 'sample' ? "Generating..." : hasSample ? "Regenerate Sample" : "Generate Sample (1 SKU)"}
+                            </button>
+                            <button
+                                onClick={() => handleGenerateAll({ force: isDirty })}
+                                disabled={generating || skus.length === 0}
+                                className={`rounded-lg px-6 py-3 text-sm font-medium shadow-sm disabled:cursor-not-allowed disabled:opacity-50 ${hasSample
+                                    ? "bg-[#0a6fd6] text-white hover:bg-[#0959ab]"
+                                    : "border border-[#0a6fd6] bg-white text-[#0a6fd6] hover:bg-slate-50"
+                                    }`}
+                            >
+                                {generatingType === 'all'
+                                    ? "Generating..."
+                                    : isDirty
+                                        ? "Regenerate All"
+                                        : `Generate All (${skus.length} SKUs)`}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Error Message */}
+                {error && (
+                    <div className="mb-6 rounded-lg border border-red-200 bg-red-50 p-4">
+                        <p className="text-sm text-red-800">{error}</p>
+                    </div>
                 )}
-              </div>
-              <div className="flex items-center gap-3">
-                {!isArchived && (
-                  <>
-                    <button
-                      className="rounded-2xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                      onClick={() => setAttrPrefsOpen((prev) => ({ ...prev, [sku.id]: !attrPrefsExpanded }))}
-                      disabled={isRegenerating || isStageCLocked}
-                    >
-                      {attrPrefsExpanded ? "Hide Prefs" : "Attribute Prefs"}
-                    </button>
-                    <button
-                      className="rounded-2xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                      onClick={() => handleRegenerate(sku.id)}
-                      disabled={isRegenerating || isStageCLocked}
-                    >
-                      {isRegenerating ? "Regenerating..." : "Regenerate"}
-                    </button>
-                  </>
+
+                {/* Empty State - No Content Generated */}
+                {!hasContent && (
+                    <div className="rounded-lg border border-slate-200 bg-white p-12 text-center">
+                        <h3 className="mb-2 text-lg font-semibold text-slate-800">
+                            No Content Generated Yet
+                        </h3>
+                        <p className="text-sm text-slate-600">
+                            Start by generating a sample for one SKU to preview the output,<br />
+                            then generate for all SKUs when you're ready.
+                        </p>
+                    </div>
                 )}
-              </div>
+
+                {/* After Sample/Full Generation */}
+                {hasContent && (
+                    <>
+                        {/* Generate All Button (shown after sample or full generation) */}
+                        <div className="mb-6 flex items-center justify-between">
+                            <div>
+                                <h2 className="text-lg font-semibold text-slate-800">Generated Content</h2>
+                                <p className="text-sm text-slate-600">
+                                    {Object.keys(contentBySku).length} of {skus.length} SKUs have generated content
+                                </p>
+                            </div>
+                            {!generating && Object.keys(contentBySku).length < skus.length && (
+                                <button
+                                    onClick={handleGenerateAll}
+                                    className="rounded-lg bg-[#0a6fd6] px-6 py-2 text-sm font-medium text-white shadow-sm hover:bg-[#0959ab]"
+                                >
+                                    Generate All
+                                </button>
+                            )}
+                            {generating && (
+                                <span className="text-sm text-slate-600">Generating...</span>
+                            )}
+                        </div>
+
+                        {/* Amazon Product Cards */}
+                        <div className="space-y-6">
+                            {skus.map((sku, index) => {
+                                const content = contentBySku[sku.id];
+                                if (!content) return null;
+
+                                return (
+                                    <AmazonProductCard
+                                        key={sku.id}
+                                        sku={sku}
+                                        content={content}
+                                        isExpanded={expandedSkus.has(sku.id)}
+                                        onToggleExpand={() => handleToggleExpanded(sku.id)}
+                                        onEdit={() => handleEditContent(sku.id)}
+                                        onRegenerate={() => handleRegenerateSku(sku.id)}
+                                    />
+                                );
+                            })}
+                        </div>
+
+                        {/* Navigation Buttons */}
+                        <div className="mt-8 flex items-center justify-between">
+                            <button
+                                onClick={() => router.push(`/scribe/${projectId}/stage-b`)}
+                                className="rounded-lg border border-slate-300 bg-white px-6 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                            >
+                                Previous
+                            </button>
+                            <button
+                                onClick={handleExportCsv}
+                                disabled={exporting}
+                                className="rounded-lg bg-[#0a6fd6] px-6 py-2 text-sm font-medium text-white shadow-sm hover:bg-[#0959ab] disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                                {exporting ? "Exporting..." : "Export CSV"}
+                            </button>
+                        </div>
+                    </>
+                )}
             </div>
 
-            {/* Content */}
-            {content ? (
-              <div className="space-y-4 px-6 py-4">
-                {/* Title */}
-                <div>
-                  <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">
-                    Title (max 200 chars)
-                  </label>
-                  <input
-                    className="w-full rounded border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none disabled:bg-slate-100"
-                    value={editing.title || ""}
-                    onChange={(e) => updateEditField(sku.id, "title", e.target.value)}
-                    maxLength={200}
-                    disabled={isArchived || isStageCLocked}
-                  />
-                  <p className="mt-1 text-xs text-slate-500">{(editing.title || "").length} / 200</p>
-                </div>
-
-                {/* Bullets */}
-                <div>
-                  <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">
-                    Bullets (exactly 5, max 500 chars each)
-                  </label>
-                  {(editing.bullets || []).map((bullet, idx) => (
-                    <div key={idx} className="mb-2">
-                      <textarea
-                        className="w-full rounded border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none disabled:bg-slate-100"
-                        value={bullet}
-                        onChange={(e) => {
-                          const newBullets = [...(editing.bullets || [])];
-                          newBullets[idx] = e.target.value;
-                          updateEditField(sku.id, "bullets", newBullets);
-                        }}
-                        rows={3}
-                        maxLength={500}
-                        disabled={isArchived || isStageCLocked}
-                      />
-                      <p className="mt-1 text-xs text-slate-500">
-                        Bullet {idx + 1}: {bullet.length} / 500
-                      </p>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Description */}
-                <div>
-                  <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">
-                    Description (max 2000 chars)
-                  </label>
-                  <textarea
-                    className="w-full rounded border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none disabled:bg-slate-100"
-                    value={editing.description || ""}
-                    onChange={(e) => updateEditField(sku.id, "description", e.target.value)}
-                    rows={6}
-                    maxLength={2000}
-                    disabled={isArchived || isStageCLocked}
-                  />
-                  <p className="mt-1 text-xs text-slate-500">{(editing.description || "").length} / 2000</p>
-                </div>
-
-                {/* Backend Keywords */}
-                <div>
-                  <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">
-                    Backend Keywords (max 249 bytes)
-                  </label>
-                  <textarea
-                    className="w-full rounded border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none disabled:bg-slate-100"
-                    value={editing.backendKeywords || ""}
-                    onChange={(e) => updateEditField(sku.id, "backendKeywords", e.target.value)}
-                    rows={3}
-                    disabled={isArchived || isStageCLocked}
-                  />
-                  <p className="mt-1 text-xs text-slate-500">
-                    {new TextEncoder().encode(editing.backendKeywords || "").length} / 249 bytes
-                  </p>
-                </div>
-
-                {/* Save Button */}
-                {!isArchived && (
-                  <div className="flex justify-end">
-                    <button
-                      className="rounded-2xl bg-emerald-600 px-6 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
-                      onClick={() => handleSave(sku.id)}
-                      disabled={isSaving || isStageCLocked}
-                    >
-                      {isSaving ? "Saving..." : "Save Changes"}
-                    </button>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="px-6 py-8 text-center">
-                <p className="text-sm text-slate-600">No content generated yet.</p>
-                {!isArchived && (
-                  <button
-                    className="mt-4 rounded-2xl bg-[#0a6fd6] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0959ab] disabled:cursor-not-allowed disabled:opacity-50"
-                    onClick={() => handleRegenerate(sku.id)}
-                    disabled={isRegenerating || isStageCLocked}
-                  >
-                    {isRegenerating ? "Generating..." : "Generate Copy"}
-                  </button>
-                )}
-              </div>
+            {/* Edit Panel */}
+            {editingSkuId && contentBySku[editingSkuId] && (
+                <EditGeneratedContentPanel
+                    skuId={editingSkuId}
+                    content={contentBySku[editingSkuId]}
+                    onSave={handleSaveEdit}
+                    onClose={() => setEditingSkuId(null)}
+                />
             )}
-          </div>
-        );
-      })}
-
-    </div>
-  );
-}
-
-const SECTION_LABELS: { key: "title" | "bullets" | "description" | "backend_keywords"; label: string }[] = [
-  { key: "title", label: "Title" },
-  { key: "bullets", label: "Bullets" },
-  { key: "description", label: "Description" },
-  { key: "backend_keywords", label: "Backend Keywords" },
-];
-
-function AttributePreferencesControl({
-  currentPrefs,
-  onChange,
-  variantAttributes,
-  loading,
-  disabled = false,
-}: {
-  currentPrefs?: AttributePreferences;
-  onChange: (prefs: AttributePreferences) => void;
-  variantAttributes: { id: string; name: string }[];
-  loading?: boolean;
-  disabled?: boolean;
-}) {
-  const [mode, setMode] = useState<"auto" | "overrides">(currentPrefs?.mode || "auto");
-  const [rules, setRules] = useState<Record<string, { sections: ("title" | "bullets" | "description" | "backend_keywords")[] }>>(
-    currentPrefs?.rules || {},
-  );
-
-  useEffect(() => {
-    const nextMode = currentPrefs?.mode || "auto";
-    const nextRules = currentPrefs?.rules || {};
-    const nextRulesKey = JSON.stringify(nextRules);
-    setMode((prev) => (prev === nextMode ? prev : nextMode));
-    setRules((prev) => {
-      const prevKey = JSON.stringify(prev || {});
-      return prevKey === nextRulesKey ? prev : nextRules;
-    });
-  }, [currentPrefs]);
-
-  const toggleSection = (attrName: string, section: (typeof SECTION_LABELS)[number]["key"], checked: boolean) => {
-    const existing = rules[attrName]?.sections || [];
-    const nextSections = checked ? Array.from(new Set([...existing, section])) : existing.filter((s) => s !== section);
-    const next = { ...rules };
-    if (nextSections.length === 0) {
-      delete next[attrName];
-    } else {
-      next[attrName] = { sections: nextSections };
-    }
-    setRules(next);
-    if (mode === "overrides") {
-      onChange({ mode: "overrides", rules: next });
-    }
-  };
-
-  const isOverrides = mode === "overrides";
-
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-4">
-        <label className="flex items-center gap-2">
-          <input
-            type="radio"
-            checked={mode === "auto"}
-            onChange={() => {
-              setMode("auto");
-              onChange({ mode: "auto" });
-            }}
-            className="h-4 w-4 text-blue-600"
-            disabled={disabled}
-          />
-          <span className="text-sm text-slate-700">Auto (smart defaults)</span>
-        </label>
-        <label className="flex items-center gap-2">
-          <input
-            type="radio"
-            checked={mode === "overrides"}
-            onChange={() => {
-              setMode("overrides");
-              onChange({ mode: "overrides", rules });
-            }}
-            className="h-4 w-4 text-blue-600"
-            disabled={disabled}
-          />
-          <span className="text-sm text-slate-700">Overrides (choose sections)</span>
-        </label>
-      </div>
-
-      {loading ? (
-        <p className="text-xs text-slate-500">Loading attributes…</p>
-      ) : variantAttributes.length === 0 ? (
-        <p className="text-xs text-slate-500">No variant attributes yet. Add attributes in Stage A to target them here.</p>
-      ) : isOverrides ? (
-        <div className="space-y-3 rounded border border-slate-200 bg-white p-3">
-          {variantAttributes.map((attr) => {
-            const selectedSections = rules[attr.name]?.sections || [];
-            return (
-              <div key={attr.id} className="flex flex-col gap-2 border-b border-slate-100 pb-3 last:border-b-0 last:pb-0">
-                <p className="text-sm font-semibold text-slate-800">{attr.name}</p>
-                <div className="flex flex-wrap gap-3">
-                  {SECTION_LABELS.map((section) => (
-                    <label key={section.key} className="flex items-center gap-2 text-sm text-slate-700">
-                      <input
-                        type="checkbox"
-                        checked={selectedSections.includes(section.key)}
-                        onChange={(e) => toggleSection(attr.name, section.key, e.target.checked)}
-                        disabled={!isOverrides || disabled}
-                        className="h-4 w-4 text-blue-600"
-                      />
-                      <span>{section.label}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-            );
-          })}
         </div>
-      ) : null}
-    </div>
-  );
+    );
 }

@@ -75,19 +75,7 @@ export async function POST(
     );
   }
 
-  // Gate: require stage_b_approved
-  if (project.status !== "stage_b_approved" && project.status !== "stage_c_approved") {
-    return NextResponse.json(
-      {
-        error: {
-          code: "validation_error",
-          message: "Stage B must be approved before generating copy",
-        },
-      },
-      { status: 400 },
-    );
-  }
-
+  // Only prevent regeneration on archived projects
   if (project.status === "archived") {
     return NextResponse.json(
       { error: { code: "forbidden", message: "Archived projects are read-only" } },
