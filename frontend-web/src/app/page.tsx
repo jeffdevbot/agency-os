@@ -78,11 +78,11 @@ export default function Home() {
       </div>
 
       <div className="flex flex-1 items-center justify-center px-4 pb-16">
-        <div className="w-full max-w-md space-y-4 text-center">
+        <div className="w-full max-w-4xl space-y-4 text-center">
           <p className="text-xs font-semibold uppercase tracking-[0.5em] text-[#4c576f]">
             Agency OS
           </p>
-          <div className="rounded-3xl bg-white/95 p-8 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur">
+          <div className="rounded-3xl bg-white/95 p-10 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur">
             {authLoading ? (
               <div className="flex min-h-[220px] flex-col items-center justify-center space-y-3 text-sm text-[#4c576f]">
                 <span className="text-base font-semibold text-[#0f172a]">
@@ -103,17 +103,17 @@ export default function Home() {
                 </p>
               </div>
 
-              <div className="space-y-3">
+              <div className="space-y-4">
                 <p className="text-xs font-semibold uppercase tracking-[0.3em] text-[#94a3b8]">
                   Toolbox
                 </p>
-                <div className="grid grid-cols-1 gap-6 md:grid-cols-2 w-full mt-2">
-                  <div className="rounded-2xl bg-white/50 backdrop-blur border border-white/40 shadow-md hover:shadow-xl transition-all hover:-translate-y-0.5 p-6 flex flex-col gap-4">
+                <div className="grid grid-cols-1 gap-7 md:grid-cols-2 w-full mt-2">
+                  <div className="rounded-2xl bg-white/50 backdrop-blur border border-white/40 shadow-md hover:shadow-xl transition-all hover:-translate-y-0.5 p-7 flex flex-col gap-4 text-left">
                     <div className="flex items-start gap-3">
-                      <span className="text-xl">📊</span>
-                      <div>
-                        <p className="text-base font-semibold text-[#0f172a]">N-Gram Processor</p>
-                        <p className="text-sm text-[#4c576f]">
+                      <span className="text-2xl">📊</span>
+                      <div className="space-y-1">
+                        <p className="text-lg font-semibold text-[#0f172a]">N-Gram Processor</p>
+                        <p className="text-base leading-relaxed text-[#4c576f]">
                           Turn messy keyword lists into clean, colour-coded n-gram insights—instantly.
                         </p>
                       </div>
@@ -126,12 +126,12 @@ export default function Home() {
                     </Link>
                   </div>
 
-                  <div className="rounded-2xl bg-white/50 backdrop-blur border border-white/40 shadow-md hover:shadow-xl transition-all hover:-translate-y-0.5 p-6 flex flex-col gap-4">
+                  <div className="rounded-2xl bg-white/50 backdrop-blur border border-white/40 shadow-md hover:shadow-xl transition-all hover:-translate-y-0.5 p-7 flex flex-col gap-4 text-left">
                     <div className="flex items-start gap-3">
-                      <span className="text-xl">📝</span>
-                      <div>
-                        <p className="text-base font-semibold text-[#0f172a]">Scribe</p>
-                        <p className="text-sm text-[#4c576f]">
+                      <span className="text-2xl">📝</span>
+                      <div className="space-y-1">
+                        <p className="text-lg font-semibold text-[#0f172a]">Scribe</p>
+                        <p className="text-base leading-relaxed text-[#4c576f]">
                           Feed your SKUs once and generate Amazon-ready titles, bullets, descriptions, and backend keywords in minutes.
                         </p>
                       </div>
