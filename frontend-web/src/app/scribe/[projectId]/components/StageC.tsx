@@ -559,7 +559,7 @@ export function StageC() {
                             </div>
                             {!generating && Object.keys(contentBySku).length < skus.length && (
                                 <button
-                                    onClick={handleGenerateAll}
+                                    onClick={() => handleGenerateAll()}
                                     className="rounded-lg bg-[#0a6fd6] px-6 py-2 text-sm font-medium text-white shadow-sm hover:bg-[#0959ab]"
                                 >
                                     Generate All
