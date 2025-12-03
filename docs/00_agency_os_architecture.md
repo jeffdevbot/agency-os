@@ -1,7 +1,7 @@
-# Agency OS: Master Architecture & Strategy
+# Ecomlabs Tools: Master Architecture & Strategy (formerly “Agency OS”)
 
 ## 1. Executive Summary
-**Agency OS** (`tools.ecomlabs.ca`) is a unified internal platform designed to consolidate our agency's operational tools. It replaces standalone subdomains (like `ngram.ecomlabs.ca`) with a central dashboard, single sign-on (SSO), and role-based access control.
+**Ecomlabs Tools** (`tools.ecomlabs.ca`) is the unified internal platform that consolidates our operational tools. It replaces standalone subdomains (like `ngram.ecomlabs.ca`) with a central dashboard, single sign-on (SSO), and role-based access control. “Agency OS” was the internal codename; use Ecomlabs Tools in user-facing copy.
 
 The goal is to move from "scripts and spreadsheets" to "integrated software" that streamlines:
 1.  Ad Data Analysis (Ngram).

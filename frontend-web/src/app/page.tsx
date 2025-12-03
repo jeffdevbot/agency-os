@@ -67,15 +67,16 @@ export default function Home() {
 
   return (
     <main className="flex min-h-screen flex-col bg-gradient-to-br from-[#eaf2ff] via-[#dce8ff] to-[#cddcf8]">
-      <div className="flex w-full flex-col items-center gap-2 px-6 py-8 text-sm font-semibold text-[#1f2937]">
-        <div className="text-2xl font-bold tracking-tight">
-          <span className="text-[#0f172a]">Ecom</span>
-          <span className="text-[#0a6fd6]">labs</span>
+      <header className="border-b border-slate-200 bg-white px-6 py-4 shadow-sm">
+        <div className="mx-auto flex max-w-6xl items-baseline gap-3">
+          <h1 className="text-xl font-bold tracking-tight text-slate-900">
+            ECOMLABS TOOLS
+          </h1>
+          <span className="text-sm text-slate-500">
+            N-Gram Processor and Scribe are live.
+          </span>
         </div>
-        <span className="text-xs uppercase tracking-[0.4em] text-[#4c576f]">
-          Internal Access
-        </span>
-      </div>
+      </header>
 
       <div className="flex flex-1 items-center justify-center px-4 pb-16">
         <div className="w-full max-w-5xl space-y-4 text-center">

@@ -1,14 +1,18 @@
-# Agency OS
+# Ecomlabs Tools (formerly “Agency OS”)
 
-Agency OS is a unified internal platform for EcomLabs that consolidates scattered tooling—ad analytics, SOP ops, content creation, and creative briefing—into a single authenticated dashboard at `tools.ecomlabs.ca`. The current repo is documentation-first: the `docs/` folder captures the architecture, PRDs, and migration plans that guide the upcoming implementation, plus any open questions. Start here before writing code so new services land in the correct Render/Supabase topology.
+Ecomlabs Tools is the internal platform that consolidates our ad analytics, SOP ops, content creation, and creative briefing into a single authenticated dashboard at `tools.ecomlabs.ca`. The `docs/` folder captures the architecture, PRDs, and migration plans that guide the implementation. “Agency OS” was the internal codename; use “Ecomlabs Tools” in user-facing copy.
 
 ## Documentation map
 
 ### Core Architecture
-- `docs/00_agency_os_architecture.md` — master architecture: Render services (`frontend-web`, `backend-core`, `worker-sync`), Supabase auth, and the migration path off of `ngram.ecomlabs.ca`.
-- `docs/01_ngram_migration.md` — the "Split and Lift" plan for porting the existing Ngram analyzer into the Agency OS frontend/backend pattern.
+- `docs/00_agency_os_architecture.md` — master architecture: Render services (`frontend-web`, `backend-core`, `worker-sync`), Supabase auth, and the migration path off of `ngram.ecomlabs.ca`. Notes the “Agency OS” codename but current branding is Ecomlabs Tools.
+- `docs/01_ngram_migration.md` — the "Split and Lift" plan for porting the existing Ngram analyzer into the Ecomlabs Tools frontend/backend pattern.
 
-### Active Tools
+### Live Tools
+- N-Gram Processor — https://tools.ecomlabs.ca/ngram (upload Search Term Reports → Monogram/Bigram/Trigram Excel export).
+- Scribe — https://tools.ecomlabs.ca/scribe (Stage A/B/C Amazon copy generation).
+
+### Other Specs
 - `docs/02_the_operator_prd.md` — PRD for The Operator, the AI-driven ClickUp command center and SOP canonization workflow.
 - `docs/03_admin_settings_prd.md` — Admin-only configurator that manages users, clients, ClickUp spaces, and staffing assignments (RBAC backbone for the rest of the OS).
 - `docs/12_scribe_prd.md` — **[NEW]** Scribe: Amazon listing content generator (3-stage workflow: Product Data → Topics → Copy). **Replaces Composer.**
