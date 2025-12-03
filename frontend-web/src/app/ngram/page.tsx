@@ -80,19 +80,16 @@ export default function NgramPage() {
 
   return (
     <div className="flex min-h-screen flex-col bg-gradient-to-br from-[#eaf2ff] via-[#dce8ff] to-[#cddcf8]">
-      <header className="border-b border-slate-200 bg-white px-6 py-4 shadow-sm">
+      <header className="border-b border-slate-200 bg-white px-6 py-5 shadow-sm">
         <div className="mx-auto flex max-w-6xl flex-col gap-1">
-          <div className="flex items-baseline gap-3">
-            <h1 className="text-xl font-bold tracking-tight text-slate-900">ECOMLABS TOOLS</h1>
-            <span className="text-sm text-slate-500">N-Gram Processor</span>
-          </div>
+          <h1 className="text-xl font-bold tracking-tight text-slate-900">N-Gram Processor</h1>
           <p className="text-sm text-slate-600">
             Upload your Search Term Report to generate an Excel workbook with Monogram, Bigram, and Trigram analysis for each campaign.
           </p>
         </div>
       </header>
 
-      <div className="flex flex-1 items-start justify-center px-4 pb-16">
+      <div className="flex flex-1 items-start justify-center px-4 pb-16 pt-10">
         <div className="w-full max-w-2xl rounded-3xl bg-white/95 p-8 shadow-[0_30px_80px_rgba(10,59,130,0.15)]">
           <div
             onDragOver={(e) => e.preventDefault()}
