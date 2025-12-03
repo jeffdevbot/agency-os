@@ -78,7 +78,7 @@ export default function Home() {
       </div>
 
       <div className="flex flex-1 items-center justify-center px-4 pb-16">
-        <div className="w-full max-w-4xl space-y-4 text-center">
+        <div className="w-full max-w-5xl space-y-4 text-center">
           <p className="text-xs font-semibold uppercase tracking-[0.5em] text-[#4c576f]">
             Agency OS
           </p>
@@ -107,8 +107,8 @@ export default function Home() {
                 <p className="text-xs font-semibold uppercase tracking-[0.3em] text-[#94a3b8]">
                   Toolbox
                 </p>
-                <div className="grid grid-cols-1 gap-7 md:grid-cols-2 w-full mt-2">
-                  <div className="rounded-2xl bg-white/50 backdrop-blur border border-white/40 shadow-md hover:shadow-xl transition-all hover:-translate-y-0.5 p-7 flex flex-col gap-4 text-left">
+                <div className="grid grid-cols-1 gap-8 md:grid-cols-2 w-full mt-2">
+                  <div className="rounded-2xl bg-white/50 backdrop-blur border border-white/40 shadow-md hover:shadow-xl transition-all hover:-translate-y-0.5 p-8 flex flex-col gap-5 text-left">
                     <div className="flex items-start gap-3">
                       <span className="text-2xl">📊</span>
                       <div className="space-y-1">
@@ -126,7 +126,7 @@ export default function Home() {
                     </Link>
                   </div>
 
-                  <div className="rounded-2xl bg-white/50 backdrop-blur border border-white/40 shadow-md hover:shadow-xl transition-all hover:-translate-y-0.5 p-7 flex flex-col gap-4 text-left">
+                  <div className="rounded-2xl bg-white/50 backdrop-blur border border-white/40 shadow-md hover:shadow-xl transition-all hover:-translate-y-0.5 p-8 flex flex-col gap-5 text-left">
                     <div className="flex items-start gap-3">
                       <span className="text-2xl">📝</span>
                       <div className="space-y-1">
