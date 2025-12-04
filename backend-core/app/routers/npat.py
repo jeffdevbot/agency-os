@@ -178,13 +178,13 @@ async def collect_negatives(
         # Get campaign name from cell B1
         campaign_name = sheet["B1"].value or sheet.title
 
-        # Find last row with data in NE/NP column (AA) - data starts at row 7
-        last_ne_row = _last_non_empty(sheet, "AA", 7)
+        # Find last row with data in NE/NP column (Q) - data starts at row 7
+        last_ne_row = _last_non_empty(sheet, "Q", 7)
 
         negatives = []
-        # Read ASINs marked "NE" in column AA (starting from row 7)
+        # Read ASINs marked "NE" in column Q (starting from row 7)
         for i in range(7, last_ne_row + 1):
-            flag = sheet[f"AA{i}"].value
+            flag = sheet[f"Q{i}"].value
             if (flag or "").strip().upper() == "NE":
                 asin = sheet[f"A{i}"].value
                 if asin in (None, ""):
@@ -232,7 +232,7 @@ async def collect_negatives(
             per_campaign[str(campaign_name)] = negatives
 
     if not per_campaign:
-        raise HTTPException(status_code=400, detail="No NE markings found. Please mark ASINs as 'NE' in column AA before uploading.")
+        raise HTTPException(status_code=400, detail="No NE markings found. Please mark ASINs as 'NE' in column Q before uploading.")
 
     # Generate negatives summary Excel
     rows_out = [[

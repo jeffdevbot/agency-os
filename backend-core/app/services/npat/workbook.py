@@ -212,7 +212,7 @@ def build_npat_workbook(campaign_items: List[Dict], app_version: str):
             vlookup_explain_fmt = book.add_format({"italic": True, "font_size": 9, "font_color": "#666666", "align": "left"})
             h10_explain_fmt = book.add_format({"italic": True, "font_size": 9, "font_color": "#666666", "align": "left"})
             ws.write_string(4, 10, "← Auto-calculated from H10 data →", vlookup_explain_fmt)
-            ws.write_string(4, 16, "← Paste H10 ASIN Grabber CSV here (copy B3 → search Amazon → run H10 → paste)", h10_explain_fmt)
+            ws.write_string(4, 19, "← Paste H10 ASIN Grabber CSV here (copy B3 → search Amazon → run H10 → paste)", h10_explain_fmt)
 
             # Row 6: Column headers
             main_headers = [
@@ -237,22 +237,22 @@ def build_npat_workbook(campaign_items: List[Dict], app_version: str):
                 "Review Count",  # P
             ]
 
-            h10_paste_headers = [
-                "Product Details",  # Q
-                "ASIN",  # R
-                "URL",  # S
-                "Image URL",  # T
-                "Brand",  # U
-                "Origin",  # V
-                "Price $",  # W
-                "BSR",  # X
-                "Ratings",  # Y
-                "Review Count",  # Z
+            action_headers = [
+                "NE/NP",  # Q
+                "Comments",  # R
             ]
 
-            action_headers = [
-                "NE/NP",  # AA
-                "Comments",  # AB
+            h10_paste_headers = [
+                "Product Details",  # T
+                "ASIN",  # U
+                "URL",  # V
+                "Image URL",  # W
+                "Brand",  # X
+                "Origin",  # Y
+                "Price $",  # Z
+                "BSR",  # AA
+                "Ratings",  # AB
+                "Review Count",  # AC
             ]
 
             # Write main headers (A-J) - blue background
@@ -273,13 +273,15 @@ def build_npat_workbook(campaign_items: List[Dict], app_version: str):
             for j, h in enumerate(vlookup_headers):
                 ws.write_string(5, 10 + j, h, vlookup_header_fmt)
 
-            # Write H10 paste zone headers (Q-Z) - blue background
-            for j, h in enumerate(h10_paste_headers):
-                ws.write_string(5, 16 + j, h, h10_zone_header_fmt)
-
-            # Write action column headers (AA-AB) - grey background
+            # Write action column headers (Q-R) - grey background
             for j, h in enumerate(action_headers):
-                ws.write_string(5, 26 + j, h, grey_hdr_fmt)
+                ws.write_string(5, 16 + j, h, grey_hdr_fmt)
+
+            # Column S is blank (spacer)
+
+            # Write H10 paste zone headers (T-AC) - blue background
+            for j, h in enumerate(h10_paste_headers):
+                ws.write_string(5, 19 + j, h, h10_zone_header_fmt)
 
             # Row 7+: Data rows (start=6 because enumerate is 0-indexed, so first row is index 6 = Excel row 7)
             # Note: asins_df already loaded above for pipe string generation
@@ -298,26 +300,28 @@ def build_npat_workbook(campaign_items: List[Dict], app_version: str):
                 ws.write_number(i, 8, float(row_data.CPC), zebra_currency_fmt if is_zebra else currency_fmt)
                 ws.write_number(i, 9, float(row_data.ACOS), zebra_pct_fmt if is_zebra else pct_fmt)
 
-                # Columns K-P: Auto-populated VLOOKUP fields (use INDEX/MATCH to lookup from H10 data)
-                # K: Product Details - =IFERROR(INDEX($Q$7:$Q$5000,MATCH($A7,$R$7:$R$5000,0)),"")
-                ws.write_formula(i, 10, f'=IFERROR(INDEX($Q$7:$Q$5000,MATCH($A{i+1},$R$7:$R$5000,0)),"")', zebra_text_fmt if is_zebra else text_fmt)
-                # L: URL - =IFERROR(INDEX($S$7:$S$5000,MATCH($A7,$R$7:$R$5000,0)),"")
-                ws.write_formula(i, 11, f'=IFERROR(INDEX($S$7:$S$5000,MATCH($A{i+1},$R$7:$R$5000,0)),"")', zebra_text_fmt if is_zebra else text_fmt)
-                # M: Price $ - =IFERROR(INDEX($W$7:$W$5000,MATCH($A7,$R$7:$R$5000,0)),"")
-                ws.write_formula(i, 12, f'=IFERROR(INDEX($W$7:$W$5000,MATCH($A{i+1},$R$7:$R$5000,0)),"")', zebra_text_fmt if is_zebra else text_fmt)
-                # N: BSR - =IFERROR(INDEX($X$7:$X$5000,MATCH($A7,$R$7:$R$5000,0)),"")
-                ws.write_formula(i, 13, f'=IFERROR(INDEX($X$7:$X$5000,MATCH($A{i+1},$R$7:$R$5000,0)),"")', zebra_text_fmt if is_zebra else text_fmt)
-                # O: Ratings - =IFERROR(INDEX($Y$7:$Y$5000,MATCH($A7,$R$7:$R$5000,0)),"")
-                ws.write_formula(i, 14, f'=IFERROR(INDEX($Y$7:$Y$5000,MATCH($A{i+1},$R$7:$R$5000,0)),"")', zebra_text_fmt if is_zebra else text_fmt)
-                # P: Review Count - =IFERROR(INDEX($Z$7:$Z$5000,MATCH($A7,$R$7:$R$5000,0)),"")
-                ws.write_formula(i, 15, f'=IFERROR(INDEX($Z$7:$Z$5000,MATCH($A{i+1},$R$7:$R$5000,0)),"")', zebra_text_fmt if is_zebra else text_fmt)
+                # Columns K-P: Auto-populated VLOOKUP fields (use INDEX/MATCH to lookup from H10 data in columns T-AC)
+                # K: Product Details - =IFERROR(INDEX($T$7:$T$5000,MATCH($A7,$U$7:$U$5000,0)),"")
+                ws.write_formula(i, 10, f'=IFERROR(INDEX($T$7:$T$5000,MATCH($A{i+1},$U$7:$U$5000,0)),"")', zebra_text_fmt if is_zebra else text_fmt)
+                # L: URL - =IFERROR(INDEX($V$7:$V$5000,MATCH($A7,$U$7:$U$5000,0)),"")
+                ws.write_formula(i, 11, f'=IFERROR(INDEX($V$7:$V$5000,MATCH($A{i+1},$U$7:$U$5000,0)),"")', zebra_text_fmt if is_zebra else text_fmt)
+                # M: Price $ - =IFERROR(INDEX($Z$7:$Z$5000,MATCH($A7,$U$7:$U$5000,0)),"")
+                ws.write_formula(i, 12, f'=IFERROR(INDEX($Z$7:$Z$5000,MATCH($A{i+1},$U$7:$U$5000,0)),"")', zebra_text_fmt if is_zebra else text_fmt)
+                # N: BSR - =IFERROR(INDEX($AA$7:$AA$5000,MATCH($A7,$U$7:$U$5000,0)),"")
+                ws.write_formula(i, 13, f'=IFERROR(INDEX($AA$7:$AA$5000,MATCH($A{i+1},$U$7:$U$5000,0)),"")', zebra_text_fmt if is_zebra else text_fmt)
+                # O: Ratings - =IFERROR(INDEX($AB$7:$AB$5000,MATCH($A7,$U$7:$U$5000,0)),"")
+                ws.write_formula(i, 14, f'=IFERROR(INDEX($AB$7:$AB$5000,MATCH($A{i+1},$U$7:$U$5000,0)),"")', zebra_text_fmt if is_zebra else text_fmt)
+                # P: Review Count - =IFERROR(INDEX($AC$7:$AC$5000,MATCH($A7,$U$7:$U$5000,0)),"")
+                ws.write_formula(i, 15, f'=IFERROR(INDEX($AC$7:$AC$5000,MATCH($A{i+1},$U$7:$U$5000,0)),"")', zebra_text_fmt if is_zebra else text_fmt)
 
-                # Columns Q-Z: H10 paste zone (leave blank for user to paste H10 data)
+                # Columns Q-R: Action columns (empty for user input)
+                ws.write_string(i, 16, "", zebra_text_fmt if is_zebra else text_fmt)  # NE/NP
+                ws.write_string(i, 17, "", zebra_text_fmt if is_zebra else text_fmt)  # Comments
+
+                # Column S: Blank spacer
+
+                # Columns T-AC: H10 paste zone (leave blank for user to paste H10 data)
                 # User will paste: Product Details, ASIN, URL, Image URL, Brand, Origin, Price $, BSR, Ratings, Review Count
-
-                # Columns AA-AB: Action columns (empty for user input)
-                ws.write_string(i, 26, "", zebra_text_fmt if is_zebra else text_fmt)  # NE/NP
-                ws.write_string(i, 27, "", zebra_text_fmt if is_zebra else text_fmt)  # Comments
 
             # Set column widths
             ws.set_column("A:A", 15)  # ASIN
@@ -329,18 +333,19 @@ def build_npat_workbook(campaign_items: List[Dict], app_version: str):
             ws.set_column("N:N", 12)  # VLOOKUP: BSR
             ws.set_column("O:O", 10)  # VLOOKUP: Ratings
             ws.set_column("P:P", 12)  # VLOOKUP: Review Count
-            ws.set_column("Q:Q", 50)  # H10: Product Details
-            ws.set_column("R:R", 15)  # H10: ASIN
-            ws.set_column("S:S", 40)  # H10: URL
-            ws.set_column("T:T", 40)  # H10: Image URL
-            ws.set_column("U:U", 20)  # H10: Brand
-            ws.set_column("V:V", 15)  # H10: Origin
-            ws.set_column("W:W", 12)  # H10: Price $
-            ws.set_column("X:X", 12)  # H10: BSR
-            ws.set_column("Y:Y", 10)  # H10: Ratings
-            ws.set_column("Z:Z", 12)  # H10: Review Count
-            ws.set_column("AA:AA", 10)  # NE/NP
-            ws.set_column("AB:AB", 30)  # Comments
+            ws.set_column("Q:Q", 10)  # NE/NP
+            ws.set_column("R:R", 30)  # Comments
+            ws.set_column("S:S", 3)  # Spacer column
+            ws.set_column("T:T", 50)  # H10: Product Details
+            ws.set_column("U:U", 15)  # H10: ASIN
+            ws.set_column("V:V", 40)  # H10: URL
+            ws.set_column("W:W", 40)  # H10: Image URL
+            ws.set_column("X:X", 20)  # H10: Brand
+            ws.set_column("Y:Y", 15)  # H10: Origin
+            ws.set_column("Z:Z", 12)  # H10: Price $
+            ws.set_column("AA:AA", 12)  # H10: BSR
+            ws.set_column("AB:AB", 10)  # H10: Ratings
+            ws.set_column("AC:AC", 12)  # H10: Review Count
 
             # Freeze panes at row 6 (headers always visible)
             ws.freeze_panes(6, 0)
