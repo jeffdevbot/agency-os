@@ -80,11 +80,11 @@ export default function NgramPage() {
 
   return (
     <div className="flex min-h-screen flex-col bg-gradient-to-br from-[#eaf2ff] via-[#dce8ff] to-[#cddcf8]">
-      <header className="border-b border-slate-200 bg-white px-6 py-5 shadow-sm">
-        <div className="mx-auto flex max-w-6xl flex-col gap-1">
-          <h1 className="text-xl font-bold tracking-tight text-slate-900">N-Gram Processor</h1>
-          <p className="text-sm text-slate-600">
-            Upload your Search Term Report to generate an Excel workbook with Monogram, Bigram, and Trigram analysis for each campaign.
+      <header className="border-b border-slate-200 bg-white px-6 py-4 shadow-sm">
+        <div className="mx-auto flex max-w-6xl items-baseline gap-3">
+          <h1 className="text-xl font-bold tracking-tight text-slate-900">N-GRAM PROCESSOR</h1>
+          <p className="text-sm text-slate-500">
+            Upload your Search Term Report and export campaign n-gram insights.
           </p>
         </div>
       </header>
