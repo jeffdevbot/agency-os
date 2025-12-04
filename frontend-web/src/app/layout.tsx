@@ -13,9 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Agency OS — Secure Sign In",
-  description:
-    "Authenticate with Supabase to access the Agency OS dashboard and internal tools.",
+  title: "Ecomlabs Tools — Secure Sign In",
+  description: "Sign in to access the Ecomlabs Tools dashboard and internal tools.",
 };
 
 export default function RootLayout({
