@@ -39,10 +39,13 @@ class Settings:
         "http://localhost:3000",
     ]
     allowed = os.getenv("BACKEND_ALLOWED_ORIGINS")
-    if allowed:
-      self.allowed_origins = [origin.strip() for origin in allowed.split(",") if origin.strip()]
-    else:
-      self.allowed_origins = default_allowed
+    extra = [origin.strip() for origin in allowed.split(",") if origin.strip()] if allowed else []
+    # Always include defaults to avoid CORS regressions even if env is set
+    dedup = []
+    for origin in default_allowed + extra:
+      if origin not in dedup:
+        dedup.append(origin)
+    self.allowed_origins = dedup
 
     self.usage_logging_enabled = os.getenv("ENABLE_USAGE_LOGGING", "0") == "1"
 
