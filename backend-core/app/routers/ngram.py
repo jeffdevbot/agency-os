@@ -5,6 +5,9 @@ import time
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
 from fastapi.responses import FileResponse
 
+import csv
+import tempfile
+
 from ..auth import require_user
 from ..config import settings
 from ..usage_logging import usage_logger
@@ -14,6 +17,7 @@ from ..services.ngram import (
     derive_category,
     build_workbook,
 )
+from openpyxl import load_workbook
 
 router = APIRouter(prefix="/ngram", tags=["ngram"])
 
@@ -126,4 +130,72 @@ async def process_report(
         workbook_path,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         filename=dl_name,
+    )
+
+
+@router.post("/collect", response_class=FileResponse)
+async def collect_negatives(
+    file: UploadFile = File(...),
+    user=Depends(require_user),
+):
+    # Parse a filled workbook and extract NE keywords plus scratchpad mono/bi/tri
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
+        tmp_path = tmp.name
+        tmp.write(await file.read())
+    await file.close()
+
+    try:
+        wb = load_workbook(tmp_path, data_only=True)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Unable to read workbook: {exc}") from exc
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+    rows_out = [["Campaign", "NE Keywords", "Monogram", "Bigram", "Trigram"]]
+
+    for sheet in wb.worksheets:
+        if sheet.title in {"Summary", "NE Summary"}:
+            continue
+        campaign_name = sheet["B1"].value or sheet.title
+        max_row = sheet.max_row
+        # NE keywords from search term table (AN with AT = "NE")
+        for i in range(6, max_row + 1):
+            flag = sheet[f"AT{i}"].value
+            term = sheet[f"AN{i}"].value
+            if (flag or "").strip().upper() == "NE" and term:
+                rows_out.append([campaign_name, str(term), "", "", ""])
+        # Scratchpad mono/bi/tri
+        for i in range(6, max_row + 1):
+            mono = sheet[f"AX{i}"].value
+            bi = sheet[f"AY{i}"].value
+            tri = sheet[f"AZ{i}"].value
+            if mono or bi or tri:
+                rows_out.append([campaign_name, "", str(mono) if mono else "", str(bi) if bi else "", str(tri) if tri else ""])
+
+    if len(rows_out) == 1:
+        raise HTTPException(status_code=400, detail="No NE or scratchpad entries found.")
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".csv", mode="w", newline="") as out_tmp:
+        out_path = out_tmp.name
+        writer = csv.writer(out_tmp)
+        writer.writerows(rows_out)
+
+    usage_logger.log(
+        {
+            "user_id": user.get("sub"),
+            "user_email": user.get("email"),
+            "file_name": file.filename,
+            "status": "success",
+            "rows_emitted": len(rows_out) - 1,
+            "app_version": settings.app_version,
+        }
+    )
+
+    return FileResponse(
+        out_path,
+        media_type="text/csv",
+        filename=f"{os.path.splitext(file.filename)[0]}_negatives.csv",
     )

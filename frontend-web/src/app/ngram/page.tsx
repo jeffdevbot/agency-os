@@ -13,12 +13,20 @@ export default function NgramPage() {
   const supabase = useMemo(() => getBrowserSupabaseClient(), []);
   const [uploading, setUploading] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedFilledFile, setSelectedFilledFile] = useState<File | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [collectError, setCollectError] = useState<string | null>(null);
+  const [collecting, setCollecting] = useState(false);
 
   const handleFileChange = useCallback((file: File | null) => {
     setSelectedFile(file);
     setError(null);
+  }, []);
+
+  const handleFilledFileChange = useCallback((file: File | null) => {
+    setSelectedFilledFile(file);
+    setCollectError(null);
   }, []);
 
   const handleDrop = useCallback((event: React.DragEvent<HTMLDivElement>) => {
@@ -28,6 +36,17 @@ export default function NgramPage() {
       handleFileChange(file);
     }
   }, [handleFileChange]);
+
+  const handleFilledDrop = useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      const file = event.dataTransfer.files[0];
+      if (file) {
+        handleFilledFileChange(file);
+      }
+    },
+    [handleFilledFileChange]
+  );
 
   const startUpload = useCallback(async () => {
     if (!selectedFile || uploading) {
@@ -78,6 +97,55 @@ export default function NgramPage() {
     }
   }, [selectedFile, supabase, uploading]);
 
+  const startCollect = useCallback(async () => {
+    if (!selectedFilledFile || collecting) {
+      return;
+    }
+    setCollecting(true);
+    setCollectError(null);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token;
+      if (!accessToken) {
+        setCollectError("Please sign in again.");
+        setCollecting(false);
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append("file", selectedFilledFile);
+
+      const response = await fetch(`${BACKEND_URL}/ngram/collect`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const detail = await response.json().catch(() => undefined);
+        throw new Error(detail?.detail || "Collect failed");
+      }
+
+      const blob = await response.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = downloadUrl;
+      a.download = `${selectedFilledFile.name.replace(/\.[^.]+$/, "")}_negatives.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(downloadUrl);
+      setToast("Negatives file downloaded");
+      setTimeout(() => setToast(null), 3000);
+    } catch (collectErr) {
+      setCollectError(collectErr instanceof Error ? collectErr.message : "Collect failed");
+    } finally {
+      setCollecting(false);
+    }
+  }, [collecting, selectedFilledFile, supabase]);
+
   return (
     <div className="flex min-h-screen flex-col bg-gradient-to-br from-[#eaf2ff] via-[#dce8ff] to-[#cddcf8]">
       <header className="border-b border-slate-200 bg-white px-6 py-4 shadow-sm">
@@ -90,7 +158,14 @@ export default function NgramPage() {
       </header>
 
       <div className="flex flex-1 items-start justify-center px-4 pb-16 pt-10">
-        <div className="w-full max-w-2xl rounded-3xl bg-white/95 p-8 shadow-[0_30px_80px_rgba(10,59,130,0.15)]">
+        <div className="w-full max-w-4xl space-y-8 rounded-3xl bg-white/95 p-8 shadow-[0_30px_80px_rgba(10,59,130,0.15)]">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-[#94a3b8]">Step 1</p>
+            <h2 className="mt-1 text-lg font-semibold text-[#0f172a]">Generate the N-Gram workbook</h2>
+            <p className="text-sm text-[#4c576f]">
+              Upload your Search Term Report to create the campaign workbook with mono/bi/tri tables and NE scratchpads.
+            </p>
+          </div>
           <div
             onDragOver={(e) => e.preventDefault()}
             onDrop={handleDrop}
@@ -127,6 +202,51 @@ export default function NgramPage() {
               {error}
             </p>
           )}
+
+          <div className="mt-10 border-t border-slate-200 pt-8">
+            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-[#94a3b8]">Step 2</p>
+            <h2 className="mt-1 text-lg font-semibold text-[#0f172a]">Upload the filled workbook to collect negatives</h2>
+            <p className="text-sm text-[#4c576f]">
+              After your team marks NE and fills the scratchpads, upload the completed workbook to export a single negatives CSV per campaign.
+            </p>
+
+            <div
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={handleFilledDrop}
+              className="mt-4 rounded-2xl border border-dashed border-[#c7d8f5] bg-[#f7faff] p-10 text-center"
+            >
+              <p className="text-base font-semibold text-[#0f172a]">Drag & drop your completed workbook</p>
+              <p className="text-sm text-[#4c576f]">(.xlsx)</p>
+              <div className="mt-4 flex flex-col items-center gap-3">
+                <label className="cursor-pointer rounded-full bg-white px-5 py-2 text-sm font-semibold text-[#0a6fd6] shadow">
+                  <input
+                    type="file"
+                    accept=".xlsx"
+                    className="hidden"
+                    onChange={(e) => handleFilledFileChange(e.target.files?.[0] ?? null)}
+                  />
+                  Browse files
+                </label>
+                <p className="text-xs text-[#94a3b8]">
+                  {selectedFilledFile ? selectedFilledFile.name : "No file selected"}
+                </p>
+              </div>
+            </div>
+
+            <button
+              onClick={startCollect}
+              disabled={!selectedFilledFile || collecting}
+              className="mt-6 w-full rounded-2xl bg-[#0a6fd6] px-4 py-3 text-sm font-semibold text-white shadow-[0_15px_30px_rgba(10,111,214,0.35)] transition hover:bg-[#0959ab] disabled:cursor-not-allowed disabled:bg-[#b7cbea]"
+            >
+              {collecting ? "Collecting…" : "Download negatives CSV"}
+            </button>
+
+            {collectError && (
+              <p className="mt-4 rounded-xl border border-[#f87171]/40 bg-[#fee2e2] px-4 py-3 text-sm text-[#991b1b]">
+                {collectError}
+              </p>
+            )}
+          </div>
         </div>
       </div>
 
