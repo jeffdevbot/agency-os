@@ -44,9 +44,9 @@ def _build_ne_summary_formula(sheet_infos: list[tuple[str, str]]) -> str:
         # Bounded ranges to avoid Excel repair issues with full-column spills
         ne_term_range = f"{sheet_ref}!AN$6:AN$5000"
         ne_flag_range = f"{sheet_ref}!AT$6:AT$5000"
-        mono_range = f"{sheet_ref}!AX$7:AX$2000"
-        bi_range = f"{sheet_ref}!AY$7:AY$2000"
-        tri_range = f"{sheet_ref}!AZ$7:AZ$2000"
+        mono_range = f"{sheet_ref}!AX$6:AX$5000"
+        bi_range = f"{sheet_ref}!AY$6:AY$5000"
+        tri_range = f"{sheet_ref}!AZ$6:AZ$5000"
         parts.append(
             f"_xlfn.FILTER(CHOOSE({{1,2,3,4,5}},"
             f"{camp_literal},{ne_term_range},\"\",\"\",\"\"),"
