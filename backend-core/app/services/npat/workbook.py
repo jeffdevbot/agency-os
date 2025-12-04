@@ -198,10 +198,13 @@ def build_npat_workbook(campaign_items: List[Dict], app_version: str):
             # Row 2: Back to Summary link
             ws.write_url(1, 0, "internal:'Summary'!A1", back_fmt, "← Back to Summary")
 
-            # Row 3: ASIN pipe string formula
+            # Row 3: ASIN pipe string (pre-computed in Python, not a formula)
             ws.write_string(2, 0, "ASINs for H10:", bold_fmt)
-            # Use _xlfn.TEXTJOIN prefix for Excel compatibility (older versions need this)
-            ws.write_formula(2, 1, '=_xlfn.TEXTJOIN("|",TRUE,A7:A5000)', pipe_string_fmt)
+            # Generate pipe-delimited ASIN string from data
+            asins_df = item["asins"]
+            asin_list = asins_df["ASIN"].tolist()
+            asin_pipe_string = "|".join(asin_list)
+            ws.write_string(2, 1, asin_pipe_string, pipe_string_fmt)
 
             # Row 4: Blank
 
@@ -259,7 +262,7 @@ def build_npat_workbook(campaign_items: List[Dict], app_version: str):
             ws.write_string(5, 12, "1. Copy ASIN string from B3 → 2. Search Amazon → 3. Run H10 ASIN Grabber → 4. Paste data here", text_fmt)
 
             # Row 7+: Data rows (start=6 because enumerate is 0-indexed, so first row is index 6 = Excel row 7)
-            asins_df = item["asins"]
+            # Note: asins_df already loaded above for pipe string generation
             for i, row_data in enumerate(asins_df.itertuples(index=False), start=6):
                 is_zebra = (i - 6) % 2 == 1
 
