@@ -25,6 +25,11 @@ Agency OS consolidates internal tools (Ngram, The Operator, Creative Brief) behi
   - **Scribe Stage C CSV Export & Dirty Regenerate ✅:** Implemented `/api/scribe/projects/[projectId]/export-copy` with dynamic attribute columns, padded bullets, backend keyword cleanup, and filename convention; wired Stage C Export button with loading/error handling. Dirty-state now forces full regenerate-all when stale.
   - **Scribe Test Coverage Expanded ✅:** Added API tests for export-copy, generate-copy, generated-content GET/PATCH, topics selection cap, and regenerate-copy; added UI tests for SkuTopicsCard. Composer test suites quarantined via `describe.skip` to keep CI lean. StageC component tests remain skipped with a note (jsdom brittle; covered by API/UI elsewhere). Full `npm run test:run` passing (except intentional skips).
 - **2025-12-04 (EST)**
+  - **N-Gram Two-Step Negatives Flow ✅:** Refreshed `/ngram` UI into two clear cards (generate workbook, then upload filled workbook to download negatives summary), added playful loading states, and delivered a new collector that outputs a formatted NE summary (Excel) without Excel repair dialogs. Collector now zips mono/bi/tri per campaign and ignores scratchpad to avoid duplicates.
+  - **N-PAT PRD & Plan Ready ✅:** Authored `docs/03_npat_prd.md` (ASIN-only inverse of N-Gram with H10 enrichment) and `docs/03_npat_plan.md` (micro-task plan). PRD aligns with N-Gram conventions: uppercase ASIN pipe strings, 40MB cap, full metrics in negatives summary, H10 paste schema documented.
+  - **Scribe Stage C Export CSV Shipped ✅:** Added `/api/scribe/projects/[projectId]/export-copy` to stream Amazon-ready CSV including SKU/Product/ASIN, custom attributes, title, bullets 1-5, description, and backend keywords (space-delimited). UI Export button now downloads with loading/error handling and filename `scribe_<project-slug>_amazon_content_<timestamp>.csv`.
+  - **Scribe Stage C Dirty-State Regenerate Fix ✅:** Dirty banner now forces full regeneration instead of blocking when all SKUs already have content; Generate All toggles to “Regenerate All” when stale.
+- **2025-12-03 (EST)**
   - **Scribe Stage C Export CSV Shipped ✅:** Added `/api/scribe/projects/[projectId]/export-copy` to stream Amazon-ready CSV including SKU/Product/ASIN, custom attributes, title, bullets 1-5, description, and backend keywords (space-delimited). UI Export button now downloads with loading/error handling and filename `scribe_<project-slug>_amazon_content_<timestamp>.csv`.
   - **Scribe Stage C Dirty-State Regenerate Fix ✅:** Dirty banner now forces full regeneration instead of blocking when all SKUs already have content; Generate All toggles to “Regenerate All” when stale.
 - **2025-12-03 (EST)**
@@ -91,7 +96,8 @@ Agency OS consolidates internal tools (Ngram, The Operator, Creative Brief) behi
 - **Scribe Lite Implementation**: Build the new "Wizard" UI (Inputs -> Topics -> Output) based on the Scribe Lite PRD and upcoming UI specs.
 - **Scribe Lite QA**: Verify the new flow against the canonical API reference.
 - **Composer decommission plan**: Execute `docs/17_composer_deprecation_plan.md` when Scribe B/C are stable (UI flag-off, code/schema cleanup with backups).
-- **Deploy & verify**: Push latest frontend with Stage C; confirm usage logging, OpenAI envs, and `/ngram` still healthy in Render.
+- **N-Gram**: Monitor two-step negatives summary in prod; validate Render timeouts and file-size handling on large STRs.
+- **N-PAT**: Start implementation per `docs/03_npat_plan.md` (router, parser, workbook, frontend two-step).
 
 ## Documentation Map (Quick Reference)
 - `docs/00_agency_os_architecture.md` — High-level blueprint for the Render services, Supabase auth setup, and domain migration strategy. Start here for infra questions or when onboarding collaborators.

@@ -7,9 +7,10 @@ Ecomlabs Tools is the internal platform that consolidates our ad analytics, SOP 
 ### Core Architecture
 - `docs/00_agency_os_architecture.md` — master architecture: Render services (`frontend-web`, `backend-core`, `worker-sync`), Supabase auth, and the migration path off of `ngram.ecomlabs.ca`. Notes the “Agency OS” codename but current branding is Ecomlabs Tools.
 - `docs/01_ngram_migration.md` — the "Split and Lift" plan for porting the existing Ngram analyzer into the Ecomlabs Tools frontend/backend pattern.
+- `docs/03_npat_prd.md` — N-PAT PRD (ASIN-only inverse of N-Gram with Helium10 enrichment) and `docs/03_npat_plan.md` (micro-task plan).
 
 ### Live Tools
-- N-Gram Processor — https://tools.ecomlabs.ca/ngram (upload Search Term Reports → Monogram/Bigram/Trigram Excel export).
+- N-Gram Processor — https://tools.ecomlabs.ca/ngram (two-step flow: generate workbook, then upload filled workbook to download a formatted negatives summary).
 - Scribe — https://tools.ecomlabs.ca/scribe (Stage A/B/C Amazon copy generation).
 
 ### Other Specs
