@@ -174,12 +174,31 @@ async def collect_negatives(
             _last_non_empty(sheet, "AY", 7),
             _last_non_empty(sheet, "AZ", 7),
         )
+        last_mono_row = _last_non_empty(sheet, "K", 7)  # Monogram NE/NP column
+        last_bi_row = _last_non_empty(sheet, "X", 7)   # Bigram NE/NP column
+        last_tri_row = _last_non_empty(sheet, "AK", 7)  # Trigram NE/NP column
         # NE keywords from search term table (AN with AT = "NE")
         for i in range(2, last_ne_row + 1):
             flag = sheet[f"AT{i}"].value
             term = sheet[f"AN{i}"].value
             if (flag or "").strip().upper() == "NE" and term not in (None, ""):
                 rows_out.append([campaign_name, str(term), "", "", ""])
+        # Monogram/Bigram/Trigram NE/NP column flags
+        for i in range(7, last_mono_row + 1):
+            flag = sheet[f"K{i}"].value
+            gram = sheet[f"A{i}"].value
+            if (flag or "").strip().upper() in {"NE", "NP"} and gram not in (None, ""):
+                rows_out.append([campaign_name, "", str(gram), "", ""])
+        for i in range(7, last_bi_row + 1):
+            flag = sheet[f"X{i}"].value
+            gram = sheet[f"N{i}"].value
+            if (flag or "").strip().upper() in {"NE", "NP"} and gram not in (None, ""):
+                rows_out.append([campaign_name, "", "", str(gram), ""])
+        for i in range(7, last_tri_row + 1):
+            flag = sheet[f"AK{i}"].value
+            gram = sheet[f"AA{i}"].value
+            if (flag or "").strip().upper() in {"NE", "NP"} and gram not in (None, ""):
+                rows_out.append([campaign_name, "", "", "", str(gram)])
         # Scratchpad mono/bi/tri
         for i in range(7, last_sp_row + 1):
             mono = sheet[f"AX{i}"].value
