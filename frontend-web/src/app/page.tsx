@@ -78,9 +78,6 @@ export default function Home() {
 
       <div className="flex flex-1 items-center justify-center px-4 pb-16">
         <div className="w-full max-w-5xl space-y-4 text-center">
-          <p className="text-xs font-semibold uppercase tracking-[0.5em] text-[#4c576f]">
-            Agency OS
-          </p>
           <div className="rounded-3xl bg-white/95 p-10 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur">
             {authLoading ? (
               <div className="flex min-h-[220px] flex-col items-center justify-center space-y-3 text-sm text-[#4c576f]">
@@ -97,15 +94,10 @@ export default function Home() {
                 <p className="text-3xl font-semibold text-[#0f172a]">
                   Hello {firstName ?? "there"} 👋
                 </p>
-                <p className="text-sm text-[#4c576f]">
-                  You&apos;re signed in to Agency OS as {friendlyName}.
-                </p>
+                <p className="text-sm text-[#4c576f]">What are you working on today?</p>
               </div>
 
               <div className="space-y-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.3em] text-[#94a3b8]">
-                  Toolbox
-                </p>
                 <div className="grid grid-cols-1 gap-8 md:grid-cols-2 w-full mt-2">
                   <div className="rounded-2xl bg-white/50 backdrop-blur border border-white/40 shadow-md hover:shadow-xl transition-all hover:-translate-y-0.5 p-8 flex flex-col gap-5 text-left">
                     <div className="flex items-start gap-3">
