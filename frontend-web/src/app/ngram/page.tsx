@@ -158,62 +158,66 @@ export default function NgramPage() {
       </header>
 
       <div className="flex flex-1 items-start justify-center px-4 pb-16 pt-10">
-        <div className="w-full max-w-4xl space-y-8 rounded-3xl bg-white/95 p-8 shadow-[0_30px_80px_rgba(10,59,130,0.15)]">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-[#94a3b8]">Step 1</p>
-            <h2 className="mt-1 text-lg font-semibold text-[#0f172a]">Generate the N-Gram workbook</h2>
-            <p className="text-sm text-[#4c576f]">
-              Upload your Search Term Report to create the campaign workbook with mono/bi/tri tables and NE scratchpads.
-            </p>
-          </div>
-          <div
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={handleDrop}
-            className="rounded-2xl border border-dashed border-[#c7d8f5] bg-[#f7faff] p-10 text-center"
-          >
-            <p className="text-base font-semibold text-[#0f172a]">Drag & drop your Search Term Report</p>
-            <p className="text-sm text-[#4c576f]">(.xlsx, .xls, .csv)</p>
-            <div className="mt-4 flex flex-col items-center gap-3">
-              <label className="cursor-pointer rounded-full bg-white px-5 py-2 text-sm font-semibold text-[#0a6fd6] shadow">
-                <input
-                  type="file"
-                  accept=".xlsx,.xls,.csv"
-                  className="hidden"
-                  onChange={(e) => handleFileChange(e.target.files?.[0] ?? null)}
-                />
-                Browse files
-              </label>
-              <p className="text-xs text-[#94a3b8]">
-                {selectedFile ? selectedFile.name : "No file selected"}
+        <div className="w-full max-w-5xl space-y-10">
+          <div className="rounded-3xl bg-white/95 p-8 shadow-[0_30px_80px_rgba(10,59,130,0.15)]">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.25em] text-[#94a3b8]">Step 1</p>
+              <h2 className="mt-1 text-lg font-semibold text-[#0f172a]">Generate the N-Gram workbook</h2>
+              <p className="text-sm text-[#4c576f]">
+                Upload your Search Term Report to create the campaign workbook with mono/bi/tri tables and NE scratchpads.
               </p>
             </div>
+            <div
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={handleDrop}
+              className="mt-6 rounded-2xl border border-dashed border-[#c7d8f5] bg-[#f7faff] p-10 text-center"
+            >
+              <p className="text-base font-semibold text-[#0f172a]">Drag & drop your Search Term Report</p>
+              <p className="text-sm text-[#4c576f]">(.xlsx, .xls, .csv)</p>
+              <div className="mt-4 flex flex-col items-center gap-3">
+                <label className="cursor-pointer rounded-full bg-white px-5 py-2 text-sm font-semibold text-[#0a6fd6] shadow">
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls,.csv"
+                    className="hidden"
+                    onChange={(e) => handleFileChange(e.target.files?.[0] ?? null)}
+                  />
+                  Browse files
+                </label>
+                <p className="text-xs text-[#94a3b8]">
+                  {selectedFile ? selectedFile.name : "No file selected"}
+                </p>
+              </div>
+            </div>
+
+            <button
+              onClick={startUpload}
+              disabled={!selectedFile || uploading}
+              className="mt-6 w-full rounded-2xl bg-[#0a6fd6] px-4 py-3 text-sm font-semibold text-white shadow-[0_15px_30px_rgba(10,111,214,0.35)] transition hover:bg-[#0959ab] disabled:cursor-not-allowed disabled:bg-[#b7cbea]"
+            >
+              {uploading ? "Processing…" : "Generate Report"}
+            </button>
+
+            {error && (
+              <p className="mt-4 rounded-xl border border-[#f87171]/40 bg-[#fee2e2] px-4 py-3 text-sm text-[#991b1b]">
+                {error}
+              </p>
+            )}
           </div>
 
-          <button
-            onClick={startUpload}
-            disabled={!selectedFile || uploading}
-            className="mt-8 w-full rounded-2xl bg-[#0a6fd6] px-4 py-3 text-sm font-semibold text-white shadow-[0_15px_30px_rgba(10,111,214,0.35)] transition hover:bg-[#0959ab] disabled:cursor-not-allowed disabled:bg-[#b7cbea]"
-          >
-            {uploading ? "Processing…" : "Generate Report"}
-          </button>
-
-          {error && (
-            <p className="mt-4 rounded-xl border border-[#f87171]/40 bg-[#fee2e2] px-4 py-3 text-sm text-[#991b1b]">
-              {error}
-            </p>
-          )}
-
-          <div className="mt-10 border-t border-slate-200 pt-8">
-            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-[#94a3b8]">Step 2</p>
-            <h2 className="mt-1 text-lg font-semibold text-[#0f172a]">Upload the filled workbook to collect negatives</h2>
-            <p className="text-sm text-[#4c576f]">
-              After your team marks NE and fills the scratchpads, upload the completed workbook to export a single negatives CSV per campaign.
-            </p>
+          <div className="rounded-3xl bg-white/95 p-8 shadow-[0_30px_80px_rgba(10,59,130,0.15)]">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.25em] text-[#94a3b8]">Step 2</p>
+              <h2 className="mt-1 text-lg font-semibold text-[#0f172a]">Upload the filled workbook to collect negatives</h2>
+              <p className="text-sm text-[#4c576f]">
+                After your team marks NE and fills the scratchpads, upload the completed workbook to export a single negatives summary per campaign.
+              </p>
+            </div>
 
             <div
               onDragOver={(e) => e.preventDefault()}
               onDrop={handleFilledDrop}
-              className="mt-4 rounded-2xl border border-dashed border-[#c7d8f5] bg-[#f7faff] p-10 text-center"
+              className="mt-6 rounded-2xl border border-dashed border-[#c7d8f5] bg-[#f7faff] p-10 text-center"
             >
               <p className="text-base font-semibold text-[#0f172a]">Drag & drop your completed workbook</p>
               <p className="text-sm text-[#4c576f]">(.xlsx)</p>
