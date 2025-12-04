@@ -41,15 +41,21 @@ def _build_ne_summary_formula(sheet_infos: list[tuple[str, str]]) -> str:
     for sheet_name, campaign_name in sheet_infos:
         sheet_ref = _quote_sheet_name(sheet_name)
         camp_literal = _excel_str_literal(campaign_name)
+        # Bounded ranges to avoid Excel repair issues with full-column spills
+        ne_term_range = f"{sheet_ref}!AN$6:AN$5000"
+        ne_flag_range = f"{sheet_ref}!AT$6:AT$5000"
+        mono_range = f"{sheet_ref}!AX$7:AX$2000"
+        bi_range = f"{sheet_ref}!AY$7:AY$2000"
+        tri_range = f"{sheet_ref}!AZ$7:AZ$2000"
         parts.append(
             f"_xlfn.FILTER(CHOOSE({{1,2,3,4,5}},"
-            f"{camp_literal},{sheet_ref}!AN:AN,\"\",\"\",\"\"),"
-            f"({sheet_ref}!AT:AT=\"NE\")*({sheet_ref}!AN:AN<>\"\"),\"\")"
+            f"{camp_literal},{ne_term_range},\"\",\"\",\"\"),"
+            f"({ne_flag_range}=\"NE\")*({ne_term_range}<>\"\"),\"\")"
         )
         parts.append(
             f"_xlfn.FILTER(CHOOSE({{1,2,3,4,5}},"
-            f"{camp_literal},\"\",{sheet_ref}!AX:AX,{sheet_ref}!AY:AY,{sheet_ref}!AZ:AZ),"
-            f"({sheet_ref}!AX:AX<>\"\")+({sheet_ref}!AY:AY<>\"\")+({sheet_ref}!AZ:AZ<>\"\"),\"\")"
+            f"{camp_literal},\"\",{mono_range},{bi_range},{tri_range}),"
+            f"({mono_range}<>\"\")+({bi_range}<>\"\")+({tri_range}<>\"\"),\"\")"
         )
     if not parts:
         return '""'
