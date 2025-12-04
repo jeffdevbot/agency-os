@@ -25,6 +25,16 @@ export default function NgramPage() {
     "Engaging hyperdrive motivator",
     "Adjusting recoil patterns",
     "Recalibrating arc reactor output",
+    "Aligning gravimetric sensors",
+    "Spooling up quantum drives",
+    "Optimizing warp field coils",
+    "Balancing plasma manifolds",
+    "Coaxing polaron emitters",
+    "Tuning tachyon relays",
+    "Stabilizing inertial dampers",
+    "Charging chroniton capacitors",
+    "Syncing subspace beacons",
+    "Polishing dilithium matrix",
   ]);
 
   useEffect(() => {
@@ -37,7 +47,7 @@ export default function NgramPage() {
     const id = setInterval(() => {
       idx = (idx + 1) % phrasesRef.current.length;
       setUploadStatus(phrasesRef.current[idx]);
-    }, 1400);
+    }, 4200);
     return () => clearInterval(id);
   }, [uploading]);
 
