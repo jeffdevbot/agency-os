@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getBrowserSupabaseClient } from "@/lib/supabaseClient";
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
@@ -18,6 +18,28 @@ export default function NgramPage() {
   const [error, setError] = useState<string | null>(null);
   const [collectError, setCollectError] = useState<string | null>(null);
   const [collecting, setCollecting] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState("Generate Report");
+  const phrasesRef = useRef([
+    "Reticulating splines",
+    "Calibrating flux capacitors",
+    "Engaging hyperdrive motivator",
+    "Adjusting recoil patterns",
+    "Recalibrating arc reactor output",
+  ]);
+
+  useEffect(() => {
+    if (!uploading) {
+      setUploadStatus("Generate Report");
+      return;
+    }
+    let idx = 0;
+    setUploadStatus(phrasesRef.current[idx]);
+    const id = setInterval(() => {
+      idx = (idx + 1) % phrasesRef.current.length;
+      setUploadStatus(phrasesRef.current[idx]);
+    }, 1400);
+    return () => clearInterval(id);
+  }, [uploading]);
 
   const handleFileChange = useCallback((file: File | null) => {
     setSelectedFile(file);
@@ -193,9 +215,11 @@ export default function NgramPage() {
             <button
               onClick={startUpload}
               disabled={!selectedFile || uploading}
-              className="mt-6 w-full rounded-2xl bg-[#0a6fd6] px-4 py-3 text-sm font-semibold text-white shadow-[0_15px_30px_rgba(10,111,214,0.35)] transition hover:bg-[#0959ab] disabled:cursor-not-allowed disabled:bg-[#b7cbea]"
+              className={`mt-6 w-full rounded-2xl px-4 py-3 text-sm font-semibold text-white shadow-[0_15px_30px_rgba(10,111,214,0.35)] transition hover:bg-[#0959ab] disabled:cursor-not-allowed disabled:bg-[#b7cbea] ${
+                uploading ? "bg-[#0a6fd6] ring-2 ring-offset-2 ring-[#8cc7ff] animate-pulse" : "bg-[#0a6fd6]"
+              }`}
             >
-              {uploading ? "Processing…" : "Generate Report"}
+              {uploading ? uploadStatus : "Generate Report"}
             </button>
 
             {error && (
