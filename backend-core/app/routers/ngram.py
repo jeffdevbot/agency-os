@@ -1,5 +1,6 @@
 import os
 import tempfile
+import itertools
 import time
 
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
@@ -154,7 +155,7 @@ async def collect_negatives(
         except OSError:
             pass
 
-    rows_out = [["Campaign", "NE Keywords", "Monogram", "Bigram", "Trigram"]]
+    per_campaign: dict[str, dict[str, list[str]]] = {}
 
     def _last_non_empty(sheet, col: str, start_row: int) -> int:
         max_row = sheet.max_row
@@ -168,6 +169,10 @@ async def collect_negatives(
         if sheet.title in {"Summary", "NE Summary"}:
             continue
         campaign_name = sheet["B1"].value or sheet.title
+        bucket = per_campaign.setdefault(
+            str(campaign_name),
+            {"ne": [], "mono": [], "bi": [], "tri": []},
+        )
         last_ne_row = _last_non_empty(sheet, "AT", 2)
         last_mono_row = _last_non_empty(sheet, "K", 7)  # Monogram NE/NP column
         last_bi_row = _last_non_empty(sheet, "X", 7)   # Bigram NE/NP column
@@ -177,23 +182,32 @@ async def collect_negatives(
             flag = sheet[f"AT{i}"].value
             term = sheet[f"AN{i}"].value
             if (flag or "").strip().upper() == "NE" and term not in (None, ""):
-                rows_out.append([campaign_name, str(term), "", "", ""])
+                bucket["ne"].append(str(term))
         # Monogram/Bigram/Trigram NE/NP column flags
         for i in range(7, last_mono_row + 1):
             flag = sheet[f"K{i}"].value
             gram = sheet[f"A{i}"].value
             if (flag or "").strip().upper() in {"NE", "NP"} and gram not in (None, ""):
-                rows_out.append([campaign_name, "", str(gram), "", ""])
+                bucket["mono"].append(str(gram))
         for i in range(7, last_bi_row + 1):
             flag = sheet[f"X{i}"].value
             gram = sheet[f"N{i}"].value
             if (flag or "").strip().upper() in {"NE", "NP"} and gram not in (None, ""):
-                rows_out.append([campaign_name, "", "", str(gram), ""])
+                bucket["bi"].append(str(gram))
         for i in range(7, last_tri_row + 1):
             flag = sheet[f"AK{i}"].value
             gram = sheet[f"AA{i}"].value
             if (flag or "").strip().upper() in {"NE", "NP"} and gram not in (None, ""):
-                rows_out.append([campaign_name, "", "", "", str(gram)])
+                bucket["tri"].append(str(gram))
+
+    rows_out = [["Campaign", "NE Keywords", "Monogram", "Bigram", "Trigram"]]
+    for campaign_name, data in per_campaign.items():
+        if not (data["ne"] or data["mono"] or data["bi"] or data["tri"]):
+            continue
+        for ne, mono, bi, tri in itertools.zip_longest(
+            data["ne"], data["mono"], data["bi"], data["tri"], fillvalue=""
+        ):
+            rows_out.append([campaign_name, ne, mono, bi, tri])
 
     if len(rows_out) == 1:
         raise HTTPException(status_code=400, detail="No NE or scratchpad entries found.")
