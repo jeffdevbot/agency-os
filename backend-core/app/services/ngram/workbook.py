@@ -31,6 +31,32 @@ def _quote_sheet_name(name: str) -> str:
     return f"'{escaped}'"
 
 
+def _excel_str_literal(text: str) -> str:
+    # Escape double quotes for Excel formulas and wrap in quotes
+    return '"' + str(text).replace('"', '""') + '"'
+
+
+def _build_ne_summary_formula(sheet_infos: list[tuple[str, str]]) -> str:
+    parts: list[str] = []
+    for sheet_name, campaign_name in sheet_infos:
+        sheet_ref = _quote_sheet_name(sheet_name)
+        camp_literal = _excel_str_literal(campaign_name)
+        parts.append(
+            f"FILTER(CHOOSE({{1,2,3,4,5}},"
+            f"{camp_literal},{sheet_ref}!AN:AN,\"\",\"\",\"\"),"
+            f"({sheet_ref}!AT:AT=\"NE\")*({sheet_ref}!AN:AN<>\"\"),\"\")"
+        )
+        parts.append(
+            f"FILTER(CHOOSE({{1,2,3,4,5}},"
+            f"{camp_literal},\"\",{sheet_ref}!AX:AX,{sheet_ref}!AY:AY,{sheet_ref}!AZ:AZ),"
+            f"({sheet_ref}!AX:AX<>\"\")+({sheet_ref}!AY:AY<>\"\")+({sheet_ref}!AZ:AZ<>\"\"),\"\")"
+        )
+    if not parts:
+        return '""'
+    joined = ",".join(parts)
+    return f"LET(all,VSTACK({joined}),IF(ROWS(all)=0,\"\",all))"
+
+
 def make_unique_sheet_name(name: str, used_lower: set) -> str:
     name = re.sub(r"[:\\\/\?\*\[\]]", " ", str(name))
     name = re.sub(r"\s+", " ", name).strip() or "Sheet"
@@ -212,6 +238,23 @@ def build_workbook(campaign_items: List[Dict], app_version: str):
                 summary_ws.set_row(r, None, zebra_fmt)
             r += 1
         summary_ws.autofilter(0, 0, last_data_row, len(sum_headers) - 1)
+
+    # NE Summary sheet: dynamic view of NE search terms and scratchpad mono/bi/tri
+    ne_summary_ws = book.add_worksheet("NE Summary")
+    writer.sheets["NE Summary"] = ne_summary_ws
+    ne_hdr_fmt = book.add_format(
+        {"bold": True, "bg_color": "#0066CC", "font_color": "#FFFFFF", "border": 1, "align": "center", "valign": "vcenter"}
+    )
+    ne_cols = ["Campaign", "NE Keywords", "Monogram", "Bigram", "Trigram"]
+    for j, col_name in enumerate(ne_cols):
+        ne_summary_ws.write_string(0, j, col_name, ne_hdr_fmt)
+    sheet_infos = [(item["sheet_name"], item["campaign_name"]) for item in campaign_items]
+    ne_formula = _build_ne_summary_formula(sheet_infos)
+    ne_summary_ws.write_formula(1, 0, ne_formula)
+    ne_summary_ws.set_column("A:A", 50)
+    ne_summary_ws.set_column("B:B", 60)
+    ne_summary_ws.set_column("C:E", 30)
+    ne_summary_ws.freeze_panes(1, 0)
 
     gc.collect()
     return out_path
