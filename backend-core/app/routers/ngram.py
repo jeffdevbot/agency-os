@@ -5,7 +5,6 @@ import time
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
 from fastapi.responses import FileResponse
 
-import csv
 import tempfile
 
 from ..auth import require_user
@@ -18,6 +17,7 @@ from ..services.ngram import (
     build_workbook,
 )
 from openpyxl import load_workbook
+import xlsxwriter
 
 router = APIRouter(prefix="/ngram", tags=["ngram"])
 
@@ -156,32 +156,73 @@ async def collect_negatives(
 
     rows_out = [["Campaign", "NE Keywords", "Monogram", "Bigram", "Trigram"]]
 
+    def _last_non_empty(sheet, col: str, start_row: int) -> int:
+        max_row = sheet.max_row
+        for i in range(max_row, start_row - 1, -1):
+            val = sheet[f"{col}{i}"].value
+            if val not in (None, ""):
+                return i
+        return start_row - 1
+
     for sheet in wb.worksheets:
         if sheet.title in {"Summary", "NE Summary"}:
             continue
         campaign_name = sheet["B1"].value or sheet.title
-        max_row = sheet.max_row
+        last_ne_row = _last_non_empty(sheet, "AT", 6)
+        last_sp_row = max(
+            _last_non_empty(sheet, "AX", 7),
+            _last_non_empty(sheet, "AY", 7),
+            _last_non_empty(sheet, "AZ", 7),
+        )
         # NE keywords from search term table (AN with AT = "NE")
-        for i in range(6, max_row + 1):
+        for i in range(6, last_ne_row + 1):
             flag = sheet[f"AT{i}"].value
             term = sheet[f"AN{i}"].value
-            if (flag or "").strip().upper() == "NE" and term:
+            if (flag or "").strip().upper() == "NE" and term not in (None, ""):
                 rows_out.append([campaign_name, str(term), "", "", ""])
         # Scratchpad mono/bi/tri
-        for i in range(6, max_row + 1):
+        for i in range(7, last_sp_row + 1):
             mono = sheet[f"AX{i}"].value
             bi = sheet[f"AY{i}"].value
             tri = sheet[f"AZ{i}"].value
-            if mono or bi or tri:
-                rows_out.append([campaign_name, "", str(mono) if mono else "", str(bi) if bi else "", str(tri) if tri else ""])
+            if mono not in (None, "") or bi not in (None, "") or tri not in (None, ""):
+                rows_out.append(
+                    [
+                        campaign_name,
+                        "",
+                        str(mono) if mono not in (None, "") else "",
+                        str(bi) if bi not in (None, "") else "",
+                        str(tri) if tri not in (None, "") else "",
+                    ]
+                )
 
     if len(rows_out) == 1:
         raise HTTPException(status_code=400, detail="No NE or scratchpad entries found.")
 
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".csv", mode="w", newline="") as out_tmp:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as out_tmp:
         out_path = out_tmp.name
-        writer = csv.writer(out_tmp)
-        writer.writerows(rows_out)
+
+    workbook = xlsxwriter.Workbook(out_path)
+    ws = workbook.add_worksheet("NE Summary")
+    header_fmt = workbook.add_format(
+        {"bold": True, "bg_color": "#0066CC", "font_color": "#FFFFFF", "border": 1, "align": "center", "valign": "vcenter"}
+    )
+    zebra_fmt = workbook.add_format({"bg_color": "#F2F2F2"})
+    border_fmt = workbook.add_format({"border": 1})
+
+    for j, col_name in enumerate(rows_out[0]):
+        ws.write_string(0, j, col_name, header_fmt)
+
+    for r, row_vals in enumerate(rows_out[1:], start=1):
+        fmt = zebra_fmt if r % 2 == 0 else border_fmt
+        for c, val in enumerate(row_vals):
+            ws.write(r, c, val, fmt)
+
+    ws.set_column("A:A", 50)
+    ws.set_column("B:B", 60)
+    ws.set_column("C:E", 30)
+    ws.freeze_panes(1, 0)
+    workbook.close()
 
     usage_logger.log(
         {
@@ -196,6 +237,6 @@ async def collect_negatives(
 
     return FileResponse(
         out_path,
-        media_type="text/csv",
-        filename=f"{os.path.splitext(file.filename)[0]}_negatives.csv",
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        filename=f"{os.path.splitext(file.filename)[0]}_negatives.xlsx",
     )
