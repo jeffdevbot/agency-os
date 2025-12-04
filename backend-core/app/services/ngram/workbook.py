@@ -48,19 +48,19 @@ def _build_ne_summary_formula(sheet_infos: list[tuple[str, str]]) -> str:
         bi_range = f"{sheet_ref}!AY$6:AY$5000"
         tri_range = f"{sheet_ref}!AZ$6:AZ$5000"
         parts.append(
-            f"_xlfn.FILTER(CHOOSE({{1,2,3,4,5}},"
+            f"FILTER(CHOOSE({{1,2,3,4,5}},"
             f"{camp_literal},{ne_term_range},\"\",\"\",\"\"),"
             f"({ne_flag_range}=\"NE\")*({ne_term_range}<>\"\"),\"\")"
         )
         parts.append(
-            f"_xlfn.FILTER(CHOOSE({{1,2,3,4,5}},"
+            f"FILTER(CHOOSE({{1,2,3,4,5}},"
             f"{camp_literal},\"\",{mono_range},{bi_range},{tri_range}),"
             f"({mono_range}<>\"\")+({bi_range}<>\"\")+({tri_range}<>\"\"),\"\")"
         )
     if not parts:
         return '""'
     joined = ",".join(parts)
-    return f"_xlfn.LET(_all,_xlfn.VSTACK({joined}),IF(ROWS(_all)=0,\"\",_all))"
+    return f"LET(_all,VSTACK({joined}),IF(ROWS(_all)=0,\"\",_all))"
 
 
 def make_unique_sheet_name(name: str, used_lower: set) -> str:
@@ -177,8 +177,8 @@ def build_workbook(campaign_items: List[Dict], app_version: str):
         for j, col_name in enumerate(ne_cols):
             ne_summary_ws.write_string(0, j, col_name, ne_hdr_fmt)
         sheet_infos = [(item["sheet_name"], item["campaign_name"]) for item in campaign_items]
-        ne_formula = _build_ne_summary_formula(sheet_infos)
-        ne_summary_ws.write_formula(1, 0, ne_formula)
+    ne_formula = _build_ne_summary_formula(sheet_infos)
+    ne_summary_ws.write_formula(1, 0, ne_formula)
         ne_summary_ws.set_column("A:A", 50)
         ne_summary_ws.set_column("B:B", 60)
         ne_summary_ws.set_column("C:E", 30)
