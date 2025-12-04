@@ -161,6 +161,23 @@ def build_workbook(campaign_items: List[Dict], app_version: str):
             item["sheet_name"] = sheet_name
             sheet_name_map[item["campaign_name"]] = sheet_name
 
+        # NE Summary sheet immediately after Summary
+        ne_summary_ws = book.add_worksheet("NE Summary")
+        writer.sheets["NE Summary"] = ne_summary_ws
+        ne_hdr_fmt = book.add_format(
+            {"bold": True, "bg_color": "#0066CC", "font_color": "#FFFFFF", "border": 1, "align": "center", "valign": "vcenter"}
+        )
+        ne_cols = ["Campaign", "NE Keywords", "Monogram", "Bigram", "Trigram"]
+        for j, col_name in enumerate(ne_cols):
+            ne_summary_ws.write_string(0, j, col_name, ne_hdr_fmt)
+        sheet_infos = [(item["sheet_name"], item["campaign_name"]) for item in campaign_items]
+        ne_formula = _build_ne_summary_formula(sheet_infos)
+        ne_summary_ws.write_formula(1, 0, ne_formula)
+        ne_summary_ws.set_column("A:A", 50)
+        ne_summary_ws.set_column("B:B", 60)
+        ne_summary_ws.set_column("C:E", 30)
+        ne_summary_ws.freeze_panes(1, 0)
+
         for item in campaign_items:
             cname = item["campaign_name"]
             cat_raw = item["category_raw"]
@@ -238,23 +255,6 @@ def build_workbook(campaign_items: List[Dict], app_version: str):
                 summary_ws.set_row(r, None, zebra_fmt)
             r += 1
         summary_ws.autofilter(0, 0, last_data_row, len(sum_headers) - 1)
-
-        # NE Summary sheet: dynamic view of NE search terms and scratchpad mono/bi/tri
-        ne_summary_ws = book.add_worksheet("NE Summary")
-        writer.sheets["NE Summary"] = ne_summary_ws
-        ne_hdr_fmt = book.add_format(
-            {"bold": True, "bg_color": "#0066CC", "font_color": "#FFFFFF", "border": 1, "align": "center", "valign": "vcenter"}
-        )
-        ne_cols = ["Campaign", "NE Keywords", "Monogram", "Bigram", "Trigram"]
-        for j, col_name in enumerate(ne_cols):
-            ne_summary_ws.write_string(0, j, col_name, ne_hdr_fmt)
-        sheet_infos = [(item["sheet_name"], item["campaign_name"]) for item in campaign_items]
-        ne_formula = _build_ne_summary_formula(sheet_infos)
-        ne_summary_ws.write_formula(1, 0, ne_formula)
-        ne_summary_ws.set_column("A:A", 50)
-        ne_summary_ws.set_column("B:B", 60)
-        ne_summary_ws.set_column("C:E", 30)
-        ne_summary_ws.freeze_panes(1, 0)
 
     gc.collect()
     return out_path
