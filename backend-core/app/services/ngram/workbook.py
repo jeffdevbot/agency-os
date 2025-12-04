@@ -42,19 +42,19 @@ def _build_ne_summary_formula(sheet_infos: list[tuple[str, str]]) -> str:
         sheet_ref = _quote_sheet_name(sheet_name)
         camp_literal = _excel_str_literal(campaign_name)
         parts.append(
-            f"FILTER(CHOOSE({{1,2,3,4,5}},"
+            f"_xlfn.FILTER(CHOOSE({{1,2,3,4,5}},"
             f"{camp_literal},{sheet_ref}!AN:AN,\"\",\"\",\"\"),"
             f"({sheet_ref}!AT:AT=\"NE\")*({sheet_ref}!AN:AN<>\"\"),\"\")"
         )
         parts.append(
-            f"FILTER(CHOOSE({{1,2,3,4,5}},"
+            f"_xlfn.FILTER(CHOOSE({{1,2,3,4,5}},"
             f"{camp_literal},\"\",{sheet_ref}!AX:AX,{sheet_ref}!AY:AY,{sheet_ref}!AZ:AZ),"
             f"({sheet_ref}!AX:AX<>\"\")+({sheet_ref}!AY:AY<>\"\")+({sheet_ref}!AZ:AZ<>\"\"),\"\")"
         )
     if not parts:
         return '""'
     joined = ",".join(parts)
-    return f"LET(all,VSTACK({joined}),IF(ROWS(all)=0,\"\",all))"
+    return f"_xlfn.LET(_all,_xlfn.VSTACK({joined}),IF(ROWS(_all)=0,\"\",_all))"
 
 
 def make_unique_sheet_name(name: str, used_lower: set) -> str:
