@@ -168,14 +168,14 @@ async def collect_negatives(
         if sheet.title in {"Summary", "NE Summary"}:
             continue
         campaign_name = sheet["B1"].value or sheet.title
-        last_ne_row = _last_non_empty(sheet, "AT", 6)
+        last_ne_row = _last_non_empty(sheet, "AT", 2)
         last_sp_row = max(
             _last_non_empty(sheet, "AX", 7),
             _last_non_empty(sheet, "AY", 7),
             _last_non_empty(sheet, "AZ", 7),
         )
         # NE keywords from search term table (AN with AT = "NE")
-        for i in range(6, last_ne_row + 1):
+        for i in range(2, last_ne_row + 1):
             flag = sheet[f"AT{i}"].value
             term = sheet[f"AN{i}"].value
             if (flag or "").strip().upper() == "NE" and term not in (None, ""):

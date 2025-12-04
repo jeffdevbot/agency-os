@@ -132,7 +132,7 @@ export default function NgramPage() {
       const downloadUrl = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = downloadUrl;
-      a.download = `${selectedFilledFile.name.replace(/\.[^.]+$/, "")}_negatives.csv`;
+      a.download = `${selectedFilledFile.name.replace(/\.[^.]+$/, "")}_negatives.xlsx`;
       document.body.appendChild(a);
       a.click();
       a.remove();
