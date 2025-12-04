@@ -169,11 +169,6 @@ async def collect_negatives(
             continue
         campaign_name = sheet["B1"].value or sheet.title
         last_ne_row = _last_non_empty(sheet, "AT", 2)
-        last_sp_row = max(
-            _last_non_empty(sheet, "AX", 7),
-            _last_non_empty(sheet, "AY", 7),
-            _last_non_empty(sheet, "AZ", 7),
-        )
         last_mono_row = _last_non_empty(sheet, "K", 7)  # Monogram NE/NP column
         last_bi_row = _last_non_empty(sheet, "X", 7)   # Bigram NE/NP column
         last_tri_row = _last_non_empty(sheet, "AK", 7)  # Trigram NE/NP column
@@ -199,21 +194,6 @@ async def collect_negatives(
             gram = sheet[f"AA{i}"].value
             if (flag or "").strip().upper() in {"NE", "NP"} and gram not in (None, ""):
                 rows_out.append([campaign_name, "", "", "", str(gram)])
-        # Scratchpad mono/bi/tri
-        for i in range(7, last_sp_row + 1):
-            mono = sheet[f"AX{i}"].value
-            bi = sheet[f"AY{i}"].value
-            tri = sheet[f"AZ{i}"].value
-            if mono not in (None, "") or bi not in (None, "") or tri not in (None, ""):
-                rows_out.append(
-                    [
-                        campaign_name,
-                        "",
-                        str(mono) if mono not in (None, "") else "",
-                        str(bi) if bi not in (None, "") else "",
-                        str(tri) if tri not in (None, "") else "",
-                    ]
-                )
 
     if len(rows_out) == 1:
         raise HTTPException(status_code=400, detail="No NE or scratchpad entries found.")
