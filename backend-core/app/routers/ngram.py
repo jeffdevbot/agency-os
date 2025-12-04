@@ -206,8 +206,8 @@ async def collect_negatives(
     header_fmt = workbook.add_format(
         {"bold": True, "bg_color": "#0066CC", "font_color": "#FFFFFF", "border": 1, "align": "center", "valign": "vcenter"}
     )
-    zebra_fmt = workbook.add_format({"bg_color": "#F2F2F2"})
     border_fmt = workbook.add_format({"border": 1})
+    zebra_fmt = workbook.add_format({"bg_color": "#F2F2F2", "border": 1})
 
     for j, col_name in enumerate(rows_out[0]):
         ws.write_string(0, j, col_name, header_fmt)

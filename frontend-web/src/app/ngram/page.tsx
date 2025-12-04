@@ -238,7 +238,7 @@ export default function NgramPage() {
               disabled={!selectedFilledFile || collecting}
               className="mt-6 w-full rounded-2xl bg-[#0a6fd6] px-4 py-3 text-sm font-semibold text-white shadow-[0_15px_30px_rgba(10,111,214,0.35)] transition hover:bg-[#0959ab] disabled:cursor-not-allowed disabled:bg-[#b7cbea]"
             >
-              {collecting ? "Collecting…" : "Download negatives CSV"}
+              {collecting ? "Collecting…" : "Download Negatives Summary"}
             </button>
 
             {collectError && (
