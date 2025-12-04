@@ -178,13 +178,13 @@ async def collect_negatives(
         # Get campaign name from cell B1
         campaign_name = sheet["B1"].value or sheet.title
 
-        # Find last row with data in NE/NP column (AB) - data starts at row 7
-        last_ne_row = _last_non_empty(sheet, "AB", 7)
+        # Find last row with data in NE/NP column (AA) - data starts at row 7
+        last_ne_row = _last_non_empty(sheet, "AA", 7)
 
         negatives = []
-        # Read ASINs marked "NE" in column AB (starting from row 7)
+        # Read ASINs marked "NE" in column AA (starting from row 7)
         for i in range(7, last_ne_row + 1):
-            flag = sheet[f"AB{i}"].value
+            flag = sheet[f"AA{i}"].value
             if (flag or "").strip().upper() == "NE":
                 asin = sheet[f"A{i}"].value
                 if asin in (None, ""):
@@ -201,17 +201,22 @@ async def collect_negatives(
                 cpc = sheet[f"I{i}"].value or 0
                 acos = sheet[f"J{i}"].value or 0
 
-                # Read enrichment data (columns W-AA)
-                title = sheet[f"W{i}"].value or ""
-                brand = sheet[f"X{i}"].value or ""
-                price = sheet[f"Y{i}"].value or ""
-                rating = sheet[f"Z{i}"].value or ""
-                reviews = sheet[f"AA{i}"].value or ""
+                # Read enrichment data (columns K-P - auto-populated from H10)
+                product_details = sheet[f"K{i}"].value or ""
+                url = sheet[f"L{i}"].value or ""
+                price = sheet[f"M{i}"].value or ""
+                bsr = sheet[f"N{i}"].value or ""
+                rating = sheet[f"O{i}"].value or ""
+                reviews = sheet[f"P{i}"].value or ""
 
                 negatives.append({
                     "asin": str(asin),
-                    "title": str(title),
-                    "brand": str(brand),
+                    "product_details": str(product_details),
+                    "url": str(url),
+                    "price": str(price),
+                    "bsr": str(bsr),
+                    "rating": str(rating),
+                    "reviews": str(reviews),
                     "impression": impression,
                     "click": click,
                     "spend": spend,
@@ -227,14 +232,18 @@ async def collect_negatives(
             per_campaign[str(campaign_name)] = negatives
 
     if not per_campaign:
-        raise HTTPException(status_code=400, detail="No NE markings found. Please mark ASINs as 'NE' in column AB before uploading.")
+        raise HTTPException(status_code=400, detail="No NE markings found. Please mark ASINs as 'NE' in column AA before uploading.")
 
     # Generate negatives summary Excel
     rows_out = [[
         "Campaign",
         "ASIN",
-        "Product Title",
-        "Brand",
+        "Product Details",
+        "URL",
+        "Price $",
+        "BSR",
+        "Ratings",
+        "Review Count",
         "Impression",
         "Click",
         "Spend",
@@ -251,8 +260,12 @@ async def collect_negatives(
             rows_out.append([
                 campaign_name,
                 neg["asin"],
-                neg["title"],
-                neg["brand"],
+                neg["product_details"],
+                neg["url"],
+                neg["price"],
+                neg["bsr"],
+                neg["rating"],
+                neg["reviews"],
                 neg["impression"],
                 neg["click"],
                 neg["spend"],
@@ -292,43 +305,47 @@ async def collect_negatives(
         is_zebra = r % 2 == 0
         base_fmt = zebra_fmt if is_zebra else border_fmt
 
-        # Campaign, ASIN, Title, Brand (text)
-        for c in range(4):
+        # Campaign, ASIN, Product Details, URL, Price $, BSR, Ratings, Review Count (text)
+        for c in range(8):
             ws.write(r, c, row_vals[c], base_fmt)
 
         # Impression, Click (numbers)
-        ws.write_number(r, 4, float(row_vals[4] or 0), zebra_number_fmt if is_zebra else number_fmt)
-        ws.write_number(r, 5, float(row_vals[5] or 0), zebra_number_fmt if is_zebra else number_fmt)
+        ws.write_number(r, 8, float(row_vals[8] or 0), zebra_number_fmt if is_zebra else number_fmt)
+        ws.write_number(r, 9, float(row_vals[9] or 0), zebra_number_fmt if is_zebra else number_fmt)
 
         # Spend (currency)
-        ws.write_number(r, 6, float(row_vals[6] or 0), zebra_currency_fmt if is_zebra else currency_fmt)
+        ws.write_number(r, 10, float(row_vals[10] or 0), zebra_currency_fmt if is_zebra else currency_fmt)
 
         # Order 14d (number)
-        ws.write_number(r, 7, float(row_vals[7] or 0), zebra_number_fmt if is_zebra else number_fmt)
+        ws.write_number(r, 11, float(row_vals[11] or 0), zebra_number_fmt if is_zebra else number_fmt)
 
         # Sales 14d (currency)
-        ws.write_number(r, 8, float(row_vals[8] or 0), zebra_currency_fmt if is_zebra else currency_fmt)
+        ws.write_number(r, 12, float(row_vals[12] or 0), zebra_currency_fmt if is_zebra else currency_fmt)
 
         # CTR, CVR (percentage)
-        ws.write_number(r, 9, float(row_vals[9] or 0), zebra_pct_fmt if is_zebra else pct_fmt)
-        ws.write_number(r, 10, float(row_vals[10] or 0), zebra_pct_fmt if is_zebra else pct_fmt)
+        ws.write_number(r, 13, float(row_vals[13] or 0), zebra_pct_fmt if is_zebra else pct_fmt)
+        ws.write_number(r, 14, float(row_vals[14] or 0), zebra_pct_fmt if is_zebra else pct_fmt)
 
         # CPC (currency)
-        ws.write_number(r, 11, float(row_vals[11] or 0), zebra_currency_fmt if is_zebra else currency_fmt)
+        ws.write_number(r, 15, float(row_vals[15] or 0), zebra_currency_fmt if is_zebra else currency_fmt)
 
         # ACOS (percentage)
-        ws.write_number(r, 12, float(row_vals[12] or 0), zebra_pct_fmt if is_zebra else pct_fmt)
+        ws.write_number(r, 16, float(row_vals[16] or 0), zebra_pct_fmt if is_zebra else pct_fmt)
 
     # Set column widths
     ws.set_column("A:A", 50)  # Campaign
     ws.set_column("B:B", 15)  # ASIN
-    ws.set_column("C:C", 60)  # Product Title
-    ws.set_column("D:D", 20)  # Brand
-    ws.set_column("E:F", 12)  # Impression, Click
-    ws.set_column("G:G", 12)  # Spend
-    ws.set_column("H:H", 12)  # Order 14d
-    ws.set_column("I:I", 12)  # Sales 14d
-    ws.set_column("J:M", 10)  # CTR, CVR, CPC, ACOS
+    ws.set_column("C:C", 50)  # Product Details
+    ws.set_column("D:D", 40)  # URL
+    ws.set_column("E:E", 12)  # Price $
+    ws.set_column("F:F", 12)  # BSR
+    ws.set_column("G:G", 10)  # Ratings
+    ws.set_column("H:H", 12)  # Review Count
+    ws.set_column("I:J", 12)  # Impression, Click
+    ws.set_column("K:K", 12)  # Spend
+    ws.set_column("L:L", 12)  # Order 14d
+    ws.set_column("M:M", 12)  # Sales 14d
+    ws.set_column("N:Q", 10)  # CTR, CVR, CPC, ACOS
 
     ws.freeze_panes(1, 0)
     workbook.close()
