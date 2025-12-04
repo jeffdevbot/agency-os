@@ -177,8 +177,8 @@ def build_workbook(campaign_items: List[Dict], app_version: str):
         for j, col_name in enumerate(ne_cols):
             ne_summary_ws.write_string(0, j, col_name, ne_hdr_fmt)
         sheet_infos = [(item["sheet_name"], item["campaign_name"]) for item in campaign_items]
-    ne_formula = _build_ne_summary_formula(sheet_infos)
-    ne_summary_ws.write_formula(1, 0, ne_formula)
+        ne_formula = _build_ne_summary_formula(sheet_infos)
+        ne_summary_ws.write_formula(1, 0, ne_formula)
         ne_summary_ws.set_column("A:A", 50)
         ne_summary_ws.set_column("B:B", 60)
         ne_summary_ws.set_column("C:E", 30)
