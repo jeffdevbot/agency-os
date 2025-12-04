@@ -178,12 +178,12 @@ async def collect_negatives(
         # Get campaign name from cell B1
         campaign_name = sheet["B1"].value or sheet.title
 
-        # Find last row with data in NE/NP column (AB)
-        last_ne_row = _last_non_empty(sheet, "AB", 6)
+        # Find last row with data in NE/NP column (AB) - data starts at row 7
+        last_ne_row = _last_non_empty(sheet, "AB", 7)
 
         negatives = []
-        # Read ASINs marked "NE" in column AB
-        for i in range(6, last_ne_row + 1):
+        # Read ASINs marked "NE" in column AB (starting from row 7)
+        for i in range(7, last_ne_row + 1):
             flag = sheet[f"AB{i}"].value
             if (flag or "").strip().upper() == "NE":
                 asin = sheet[f"A{i}"].value

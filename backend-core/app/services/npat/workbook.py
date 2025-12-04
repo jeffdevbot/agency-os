@@ -182,6 +182,8 @@ def build_npat_workbook(campaign_items: List[Dict], app_version: str):
             row += 1
 
         # Create campaign sheets
+        back_fmt = book.add_format({"color": "#666666", "italic": True, "underline": 1})
+
         for item in campaign_items:
             sheet_name = item["sheet_name"]
             ws = book.add_worksheet(sheet_name)
@@ -190,16 +192,20 @@ def build_npat_workbook(campaign_items: List[Dict], app_version: str):
             # Row 1: Campaign name
             ws.write_string(0, 0, "Campaign:", bold_fmt)
             ws.write_string(0, 1, str(item["campaign_name"]), wrap_fmt)
+            ws.set_row(0, 24)
+            ws.set_column(1, 1, 60)
 
-            # Row 2: ASIN pipe string formula
-            ws.write_string(1, 0, "ASINs for H10:", bold_fmt)
-            # Formula: =TEXTJOIN("|",TRUE,UPPER(A6:A5000))
-            # But ASINs are already uppercase from parser, so just A6:A5000
-            ws.write_formula(1, 1, "=TEXTJOIN(\"|\",TRUE,A6:A5000)", pipe_string_fmt)
+            # Row 2: Back to Summary link
+            ws.write_url(1, 0, "internal:'Summary'!A1", back_fmt, "← Back to Summary")
 
-            # Row 3: Blank
+            # Row 3: ASIN pipe string formula
+            ws.write_string(2, 0, "ASINs for H10:", bold_fmt)
+            # Use _xlfn.TEXTJOIN prefix for Excel compatibility (older versions need this)
+            ws.write_formula(2, 1, '=_xlfn.TEXTJOIN("|",TRUE,A7:A5000)', pipe_string_fmt)
 
-            # Row 4: Column headers
+            # Row 4: Blank
+
+            # Row 5: Column headers
             headers = [
                 "ASIN",  # A
                 "Impression",  # B
@@ -237,25 +243,25 @@ def build_npat_workbook(campaign_items: List[Dict], app_version: str):
 
             for j, h in enumerate(headers):
                 if j < 10:  # Main metrics (A-J)
-                    ws.write_string(3, j, h, header_fmt)
+                    ws.write_string(4, j, h, header_fmt)
                 elif j == 10:  # Spacer (K)
                     pass
                 elif j == 11:  # Separator (L)
-                    ws.write_string(3, j, h, grey_hdr_fmt)
+                    ws.write_string(4, j, h, grey_hdr_fmt)
                 elif j >= 12 and j <= 21:  # H10 paste zone (M-V)
-                    ws.write_string(3, j, h, h10_zone_header_fmt)
+                    ws.write_string(4, j, h, h10_zone_header_fmt)
                 elif j >= 22 and j <= 26:  # VLOOKUP enrichment (W-AA)
-                    ws.write_string(3, j, h, header_fmt)
+                    ws.write_string(4, j, h, header_fmt)
                 elif j >= 27:  # Action columns (AB-AC)
-                    ws.write_string(3, j, h, grey_hdr_fmt)
+                    ws.write_string(4, j, h, grey_hdr_fmt)
 
-            # Row 5: Instructions for H10 paste zone
-            ws.write_string(4, 12, "1. Copy ASIN string from B2 → 2. Search Amazon → 3. Run H10 ASIN Grabber → 4. Paste data here", text_fmt)
+            # Row 6: Instructions for H10 paste zone
+            ws.write_string(5, 12, "1. Copy ASIN string from B3 → 2. Search Amazon → 3. Run H10 ASIN Grabber → 4. Paste data here", text_fmt)
 
-            # Row 6+: Data rows
+            # Row 7+: Data rows (start=6 because enumerate is 0-indexed, so first row is index 6 = Excel row 7)
             asins_df = item["asins"]
-            for i, row_data in enumerate(asins_df.itertuples(index=False), start=5):
-                is_zebra = (i - 5) % 2 == 1
+            for i, row_data in enumerate(asins_df.itertuples(index=False), start=6):
+                is_zebra = (i - 6) % 2 == 1
 
                 # Column A: ASIN
                 ws.write_string(i, 0, str(row_data.ASIN), zebra_text_fmt if is_zebra else text_fmt)
@@ -280,16 +286,16 @@ def build_npat_workbook(campaign_items: List[Dict], app_version: str):
                 # Columns M-V: H10 paste zone (user fills manually, leave blank)
 
                 # Columns W-AA: VLOOKUP enrichment formulas
-                # Title: =IFERROR(VLOOKUP($A6,$M$6:$V$5000,2,FALSE),"")
-                ws.write_formula(i, 22, f'=IFERROR(VLOOKUP($A{i+1},$M$6:$V$5000,2,FALSE),"")', zebra_text_fmt if is_zebra else text_fmt)
-                # Brand: =IFERROR(VLOOKUP($A6,$M$6:$V$5000,3,FALSE),"")
-                ws.write_formula(i, 23, f'=IFERROR(VLOOKUP($A{i+1},$M$6:$V$5000,3,FALSE),"")', zebra_text_fmt if is_zebra else text_fmt)
-                # Price: =IFERROR(VLOOKUP($A6,$M$6:$V$5000,4,FALSE),"")
-                ws.write_formula(i, 24, f'=IFERROR(VLOOKUP($A{i+1},$M$6:$V$5000,4,FALSE),"")', zebra_text_fmt if is_zebra else text_fmt)
-                # Rating: =IFERROR(VLOOKUP($A6,$M$6:$V$5000,5,FALSE),"")
-                ws.write_formula(i, 25, f'=IFERROR(VLOOKUP($A{i+1},$M$6:$V$5000,5,FALSE),"")', zebra_text_fmt if is_zebra else text_fmt)
-                # Reviews: =IFERROR(VLOOKUP($A6,$M$6:$V$5000,6,FALSE),"")
-                ws.write_formula(i, 26, f'=IFERROR(VLOOKUP($A{i+1},$M$6:$V$5000,6,FALSE),"")', zebra_text_fmt if is_zebra else text_fmt)
+                # Title: =IFERROR(VLOOKUP($A7,$M$7:$V$5000,2,FALSE),"")
+                ws.write_formula(i, 22, f'=IFERROR(VLOOKUP($A{i+1},$M$7:$V$5000,2,FALSE),"")', zebra_text_fmt if is_zebra else text_fmt)
+                # Brand: =IFERROR(VLOOKUP($A7,$M$7:$V$5000,3,FALSE),"")
+                ws.write_formula(i, 23, f'=IFERROR(VLOOKUP($A{i+1},$M$7:$V$5000,3,FALSE),"")', zebra_text_fmt if is_zebra else text_fmt)
+                # Price: =IFERROR(VLOOKUP($A7,$M$7:$V$5000,4,FALSE),"")
+                ws.write_formula(i, 24, f'=IFERROR(VLOOKUP($A{i+1},$M$7:$V$5000,4,FALSE),"")', zebra_text_fmt if is_zebra else text_fmt)
+                # Rating: =IFERROR(VLOOKUP($A7,$M$7:$V$5000,5,FALSE),"")
+                ws.write_formula(i, 25, f'=IFERROR(VLOOKUP($A{i+1},$M$7:$V$5000,5,FALSE),"")', zebra_text_fmt if is_zebra else text_fmt)
+                # Reviews: =IFERROR(VLOOKUP($A7,$M$7:$V$5000,6,FALSE),"")
+                ws.write_formula(i, 26, f'=IFERROR(VLOOKUP($A{i+1},$M$7:$V$5000,6,FALSE),"")', zebra_text_fmt if is_zebra else text_fmt)
 
                 # Columns AB-AC: Action columns (empty for user input)
                 ws.write_string(i, 27, "", zebra_text_fmt if is_zebra else text_fmt)  # NE/NP
@@ -311,8 +317,8 @@ def build_npat_workbook(campaign_items: List[Dict], app_version: str):
             ws.set_column("AB:AB", 10)  # NE/NP
             ws.set_column("AC:AC", 30)  # Comments
 
-            # Freeze panes at row 5 (headers always visible)
-            ws.freeze_panes(5, 0)
+            # Freeze panes at row 6 (headers always visible)
+            ws.freeze_panes(6, 0)
 
             # Set zoom
             ws.set_zoom(90)
