@@ -141,8 +141,8 @@ async def collect_negatives(
     """
     Extract negatives summary from filled N-PAT workbook.
 
-    Reads ASINs marked "NE" in column AB, extracts enrichment data
-    from columns W-AA, and generates formatted negatives summary.
+    Reads ASINs marked "NE" in column Q and generates simple
+    2-column summary (Campaign, NE ASIN) matching N-Gram pattern.
     """
     with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
         tmp_path = tmp.name
@@ -159,8 +159,8 @@ async def collect_negatives(
         except OSError:
             pass
 
-    # Per-campaign negative ASINs with enrichment
-    per_campaign: dict[str, list[dict]] = {}
+    # Per-campaign negative ASINs (simple list)
+    per_campaign: dict[str, list[str]] = {}
 
     def _last_non_empty(sheet, col: str, start_row: int) -> int:
         """Find last non-empty row in column."""
@@ -189,44 +189,7 @@ async def collect_negatives(
                 asin = sheet[f"A{i}"].value
                 if asin in (None, ""):
                     continue
-
-                # Read original metrics (columns B-J)
-                impression = sheet[f"B{i}"].value or 0
-                click = sheet[f"C{i}"].value or 0
-                spend = sheet[f"D{i}"].value or 0
-                order_14d = sheet[f"E{i}"].value or 0
-                sales_14d = sheet[f"F{i}"].value or 0
-                ctr = sheet[f"G{i}"].value or 0
-                cvr = sheet[f"H{i}"].value or 0
-                cpc = sheet[f"I{i}"].value or 0
-                acos = sheet[f"J{i}"].value or 0
-
-                # Read enrichment data (columns K-P - auto-populated from H10)
-                product_details = sheet[f"K{i}"].value or ""
-                url = sheet[f"L{i}"].value or ""
-                price = sheet[f"M{i}"].value or ""
-                bsr = sheet[f"N{i}"].value or ""
-                rating = sheet[f"O{i}"].value or ""
-                reviews = sheet[f"P{i}"].value or ""
-
-                negatives.append({
-                    "asin": str(asin),
-                    "product_details": str(product_details),
-                    "url": str(url),
-                    "price": str(price),
-                    "bsr": str(bsr),
-                    "rating": str(rating),
-                    "reviews": str(reviews),
-                    "impression": impression,
-                    "click": click,
-                    "spend": spend,
-                    "order_14d": order_14d,
-                    "sales_14d": sales_14d,
-                    "ctr": ctr,
-                    "cvr": cvr,
-                    "cpc": cpc,
-                    "acos": acos,
-                })
+                negatives.append(str(asin))
 
         if negatives:
             per_campaign[str(campaign_name)] = negatives
@@ -234,48 +197,12 @@ async def collect_negatives(
     if not per_campaign:
         raise HTTPException(status_code=400, detail="No NE markings found. Please mark ASINs as 'NE' in column Q before uploading.")
 
-    # Generate negatives summary Excel
-    rows_out = [[
-        "Campaign",
-        "ASIN",
-        "Product Details",
-        "URL",
-        "Price $",
-        "BSR",
-        "Ratings",
-        "Review Count",
-        "Impression",
-        "Click",
-        "Spend",
-        "Order 14d",
-        "Sales 14d",
-        "CTR",
-        "CVR",
-        "CPC",
-        "ACOS",
-    ]]
+    # Generate negatives summary Excel (simple 2-column format matching N-Gram)
+    rows_out = [["Campaign", "NE ASIN"]]
 
-    for campaign_name, negatives in per_campaign.items():
-        for neg in negatives:
-            rows_out.append([
-                campaign_name,
-                neg["asin"],
-                neg["product_details"],
-                neg["url"],
-                neg["price"],
-                neg["bsr"],
-                neg["rating"],
-                neg["reviews"],
-                neg["impression"],
-                neg["click"],
-                neg["spend"],
-                neg["order_14d"],
-                neg["sales_14d"],
-                neg["ctr"],
-                neg["cvr"],
-                neg["cpc"],
-                neg["acos"],
-            ])
+    for campaign_name, asins in per_campaign.items():
+        for asin in asins:
+            rows_out.append([campaign_name, asin])
 
     with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as out_tmp:
         out_path = out_tmp.name
@@ -283,69 +210,26 @@ async def collect_negatives(
     workbook = xlsxwriter.Workbook(out_path)
     ws = workbook.add_worksheet("NE Summary")
 
-    # Define formats
+    # Define formats (simple, matching N-Gram)
     header_fmt = workbook.add_format(
         {"bold": True, "bg_color": "#0066CC", "font_color": "#FFFFFF", "border": 1, "align": "center", "valign": "vcenter"}
     )
     border_fmt = workbook.add_format({"border": 1})
     zebra_fmt = workbook.add_format({"bg_color": "#F2F2F2", "border": 1})
-    number_fmt = workbook.add_format({"border": 1, "num_format": "#,##0", "align": "center"})
-    zebra_number_fmt = workbook.add_format({"bg_color": "#F2F2F2", "border": 1, "num_format": "#,##0", "align": "center"})
-    currency_fmt = workbook.add_format({"border": 1, "num_format": "$#,##0.00"})
-    zebra_currency_fmt = workbook.add_format({"bg_color": "#F2F2F2", "border": 1, "num_format": "$#,##0.00"})
-    pct_fmt = workbook.add_format({"border": 1, "num_format": "0.00%"})
-    zebra_pct_fmt = workbook.add_format({"bg_color": "#F2F2F2", "border": 1, "num_format": "0.00%"})
 
     # Write headers
     for j, col_name in enumerate(rows_out[0]):
         ws.write_string(0, j, col_name, header_fmt)
 
-    # Write data rows
+    # Write data rows (simple text format)
     for r, row_vals in enumerate(rows_out[1:], start=1):
-        is_zebra = r % 2 == 0
-        base_fmt = zebra_fmt if is_zebra else border_fmt
-
-        # Campaign, ASIN, Product Details, URL, Price $, BSR, Ratings, Review Count (text)
-        for c in range(8):
-            ws.write(r, c, row_vals[c], base_fmt)
-
-        # Impression, Click (numbers)
-        ws.write_number(r, 8, float(row_vals[8] or 0), zebra_number_fmt if is_zebra else number_fmt)
-        ws.write_number(r, 9, float(row_vals[9] or 0), zebra_number_fmt if is_zebra else number_fmt)
-
-        # Spend (currency)
-        ws.write_number(r, 10, float(row_vals[10] or 0), zebra_currency_fmt if is_zebra else currency_fmt)
-
-        # Order 14d (number)
-        ws.write_number(r, 11, float(row_vals[11] or 0), zebra_number_fmt if is_zebra else number_fmt)
-
-        # Sales 14d (currency)
-        ws.write_number(r, 12, float(row_vals[12] or 0), zebra_currency_fmt if is_zebra else currency_fmt)
-
-        # CTR, CVR (percentage)
-        ws.write_number(r, 13, float(row_vals[13] or 0), zebra_pct_fmt if is_zebra else pct_fmt)
-        ws.write_number(r, 14, float(row_vals[14] or 0), zebra_pct_fmt if is_zebra else pct_fmt)
-
-        # CPC (currency)
-        ws.write_number(r, 15, float(row_vals[15] or 0), zebra_currency_fmt if is_zebra else currency_fmt)
-
-        # ACOS (percentage)
-        ws.write_number(r, 16, float(row_vals[16] or 0), zebra_pct_fmt if is_zebra else pct_fmt)
+        fmt = zebra_fmt if r % 2 == 0 else border_fmt
+        for c, val in enumerate(row_vals):
+            ws.write(r, c, val, fmt)
 
     # Set column widths
     ws.set_column("A:A", 50)  # Campaign
-    ws.set_column("B:B", 15)  # ASIN
-    ws.set_column("C:C", 50)  # Product Details
-    ws.set_column("D:D", 40)  # URL
-    ws.set_column("E:E", 12)  # Price $
-    ws.set_column("F:F", 12)  # BSR
-    ws.set_column("G:G", 10)  # Ratings
-    ws.set_column("H:H", 12)  # Review Count
-    ws.set_column("I:J", 12)  # Impression, Click
-    ws.set_column("K:K", 12)  # Spend
-    ws.set_column("L:L", 12)  # Order 14d
-    ws.set_column("M:M", 12)  # Sales 14d
-    ws.set_column("N:Q", 10)  # CTR, CVR, CPC, ACOS
+    ws.set_column("B:B", 15)  # NE ASIN
 
     ws.freeze_panes(1, 0)
     workbook.close()
