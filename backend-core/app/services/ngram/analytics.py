@@ -30,7 +30,12 @@ PALETTE = [
     "#F28E2B",
 ]
 
-TOKEN_RE = re.compile(r"[^\w\s-]+", re.UNICODE)
+# Preserve common e-commerce characters:
+# - Hyphens: -
+# - Quotes: " ' (for measurements like 10", 5')
+# - Symbols: ® © ™ ° (brand marks and measurements)
+# - Common chars: & + # (product names)
+TOKEN_RE = re.compile(r"[^\w\s\-\"'®©™°&+#]+", re.UNICODE)
 
 
 def clean_query_str(q: str) -> str:

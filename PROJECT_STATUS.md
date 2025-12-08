@@ -1,6 +1,6 @@
 # Project Status — Agency OS
 
-_Last updated: 2025-12-03 (EST)_
+_Last updated: 2025-12-08 (EST)_
 
 ## How to Use This File
 - Skim **Quick Recap**, **Recent Accomplishments**, and **Next Priorities** before coding.
@@ -21,6 +21,8 @@ _Last updated: 2025-12-03 (EST)_
 Agency OS consolidates internal tools (Ngram, The Operator, Creative Brief) behind a shared Next.js frontend, FastAPI backend, and Supabase auth stack deployed on Render. Supabase handles SSO (Google) plus the shared database, while the worker service manages nightly syncs and other heavy jobs. **Amazon Composer is deprecated** and will be replaced by the new **Scribe** project (simpler, more focused listing/content generation). **Scribe is currently being rebuilt ("Scribe Lite")** to simplify the UX, with legacy code archived.
 
 ## Recent Accomplishments
+- **2025-12-08 (EST)**
+  - **N-Gram Special Character Preservation Fix ✅:** Fixed token cleaning logic in `backend-core/app/services/ngram/analytics.py` to preserve important e-commerce characters that were previously being stripped. Updated `TOKEN_RE` regex to preserve measurement symbols (`"` for inches, `'` for feet, `°` for degrees), brand symbols (`™`, `®`, `©`), and common product name characters (`&`, `+`, `#`). This fixes the reported issue where `10" gold shelf brackets` was incorrectly tokenized as `['10', 'gold', 'shelf', 'brackets']` instead of `['10"', 'gold', 'shelf', 'brackets']`. Added comprehensive test suite (`backend-core/tests/test_ngram_analytics.py`) with 23 test cases covering special characters, Unicode support (verified `ñ`, `é`, `ü`, Japanese characters still work), and edge cases. All existing Unicode letter support preserved via `re.UNICODE` flag.
 - **2025-12-04 (EST)**
   - **Scribe Stage C CSV Export & Dirty Regenerate ✅:** Implemented `/api/scribe/projects/[projectId]/export-copy` with dynamic attribute columns, padded bullets, backend keyword cleanup, and filename convention; wired Stage C Export button with loading/error handling. Dirty-state now forces full regenerate-all when stale.
   - **Scribe Test Coverage Expanded ✅:** Added API tests for export-copy, generate-copy, generated-content GET/PATCH, topics selection cap, and regenerate-copy; added UI tests for SkuTopicsCard. Composer test suites quarantined via `describe.skip` to keep CI lean. StageC component tests remain skipped with a note (jsdom brittle; covered by API/UI elsewhere). Full `npm run test:run` passing (except intentional skips).
