@@ -30,6 +30,7 @@
   - STR: Search Term, Match Type, Campaign, Impressions, Clicks, Cost/Spend, Conversions/Orders, Sales (7-day), Currency (if present).
   - Bulk (SP campaigns tab): Campaign Name/ID, Ad Group Name/ID, Entity, Match Type, Keyword/Targeting, Spend/Cost, Sales, Clicks, Impressions, Status/State, Max CPC/Default Bid, Product/Ad Type, Portfolio (optional), ASIN/SKU (optional).
 - Output: JSON with raw numerics (frontend formats). Currency assumed USD v0.1.
+  - Currency: detect from file column (e.g., Currency/Currency Code); include `currency_code` in JSON for frontend formatting ($/€/£).
 
 ### Precomputed Views (schemas)
 - `overview`: `{ spend: float, sales: float, acos: float (0-1), roas: float, impressions: float, clicks: float, orders: float, ad_type_mix: [{ type, spend, percentage }] }`
@@ -131,7 +132,20 @@
 ---
 
 ## Currency Handling
-- Detect currency symbols/headers for USD ($), EUR (€), GBP (£); default to USD if undetectable. Send raw numerics; frontend formats with symbol.
+- Detect currency symbols/headers for USD ($), EUR (€), GBP (£); default to USD if undetectable. Send raw numerics; frontend formats with symbol. For bulk/STR with Currency/Currency Code, pass `currency_code` in JSON metadata.
+
+---
+
+## Budget Utilization Logic (Budget Cappers)
+- Build CampaignID → Daily Budget map from Entity='Campaign' rows.
+- Sum Spend for non-Campaign rows per CampaignID (avoid double counting).
+- Assume 60-day bulk span unless date parsing indicates otherwise; compute `avg_daily_spend = total_spend / days_in_range`. Utilization = avg_daily_spend / daily_budget.
+- Flag campaigns with utilization > 0.9; include roas if available; output only flagged rows.
+
+---
+
+## Date Range Validation
+- Read Start/End dates from STR and Bulk. If date ranges differ by >24h, set `date_range_mismatch: true` in overview JSON and surface a yellow alert in the frontend (“Warning: File date ranges do not match. Analysis may be skewed.”)
 
 ---
 
@@ -145,10 +159,12 @@
 
 ## Testing (to add)
 - Schema validation: fuzzy matching maps required columns for STR and Bulk; errors on missing criticals.
-- Currency detection: selects $, €, £ correctly when present.
+- Currency detection: selects $, €, £ correctly when present; currency_code passed through for formatting.
 - View JSON shape: all view keys present; numeric fields populated; empty states handled.
 - Memory guard: oversize files ( >40MB) and memory cap (~512MB) return friendly errors (adjust after perf tests).
 - Tool-calling: AI requests invalid view_id → no tool call; responds with guidance.
+- Budget cappers: budget/utilization computed correctly and filtered.
+- Date-range mismatch: warn when Bulk/STR ranges differ by >24h.
 
 ---
 
@@ -157,3 +173,4 @@
 - STR/Bulk column mapping finalized from provided samples (update required-list if needed).
 - Branded vs generic matching rules refinement (exact word boundaries vs contains).
 - Optional future: GPT-5.1 Responses API pilot behind a flag; current default stays on the existing OpenAI chat integration used by Scribe.
+- Date-range validation: Read Start/End dates from STR and Bulk; if ranges differ by >24h, set `date_range_mismatch: true` in overview JSON and surface a yellow alert in the frontend.
