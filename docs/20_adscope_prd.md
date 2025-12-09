@@ -16,7 +16,7 @@
 ## 2) Tech Stack
 - Frontend: React, Tailwind, shadcn/ui, Framer Motion, Recharts (charts).
 - Backend: Python FastAPI, Pandas.
-- AI: OpenAI (GPT-4o+) with tool calling.
+- AI: OpenAI (reuse existing Scribe integration; GPT-4o+ chat/tool-calling). Future: evaluate GPT-5.1 Responses API behind a feature flag.
 - Hosting: Render (frontend + backend).
 - Auth: Supabase JWT guard (match existing tools).
 
@@ -70,6 +70,7 @@
 - Bulk/STR required columns, header rows, tab names, and parsing rules.
 - Budget cap detection logic based on available columns.
 - Branded vs generic matching rules refinement (exact word boundaries vs contains).
+- Optional future: GPT-5.1 Responses API pilot behind a flag; current default stays on the existing OpenAI chat integration used by Scribe.
 
 ---
 
