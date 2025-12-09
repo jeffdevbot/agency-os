@@ -67,14 +67,16 @@ def parse_campaign_name(campaign_name: Any) -> dict[str, str]:
 
     Format: Portfolio | Ad Type | Targeting | Sub-Type | Variant
 
+    Note: Portfolio position [0] is ignored since PortfolioName comes from report column.
+    Only positions [1-4] are extracted (AdType, Targeting, SubType, Variant).
+
     Rules:
     - Split by " | " (space-pipe-space)
-    - If no pipe, treat whole string as Portfolio
     - Extra parts beyond position 4 are ignored
     - Underscores/hyphens within tokens are preserved
     - Handles NaN/None values by returning empty strings
 
-    Returns dict with keys: Portfolio, AdType, Targeting, SubType, Variant
+    Returns dict with keys: AdType, Targeting, SubType, Variant
     """
     # Convert to string and handle NaN/None
     if campaign_name is None or (isinstance(campaign_name, float) and pd.isna(campaign_name)):
@@ -85,7 +87,6 @@ def parse_campaign_name(campaign_name: Any) -> dict[str, str]:
     # If empty after conversion, return empty dict
     if not campaign_name:
         return {
-            "Portfolio": "",
             "AdType": "",
             "Targeting": "",
             "SubType": "",
@@ -94,8 +95,8 @@ def parse_campaign_name(campaign_name: Any) -> dict[str, str]:
 
     parts = [p.strip() for p in campaign_name.split(" | ")]
 
+    # Parse only positions [1-4] since [0] is portfolio (already in PortfolioName column)
     result = {
-        "Portfolio": parts[0] if len(parts) > 0 else "",
         "AdType": parts[1] if len(parts) > 1 else "",
         "Targeting": parts[2] if len(parts) > 2 else "",
         "SubType": parts[3] if len(parts) > 3 else "",
@@ -183,17 +184,17 @@ def read_campaign_report(file_name: str, buf: bytes) -> tuple[pd.DataFrame, str]
     # Parse Time column to datetime (UTC)
     df["Time"] = pd.to_datetime(df["Time"], errors="coerce", utc=True)
 
-    # Parse campaign names into hierarchy components
+    # Parse campaign names into hierarchy components (AdType, Targeting, SubType, Variant)
+    # Note: ProfileName and PortfolioName come from report columns, not parsed
     parsed_names = df["CampaignName"].apply(parse_campaign_name)
-    df["Portfolio"] = parsed_names.apply(lambda x: x["Portfolio"])
     df["AdType"] = parsed_names.apply(lambda x: x["AdType"])
     df["Targeting"] = parsed_names.apply(lambda x: x["Targeting"])
     df["SubType"] = parsed_names.apply(lambda x: x["SubType"])
     df["Variant"] = parsed_names.apply(lambda x: x["Variant"])
 
-    # Remove rows with invalid Time or empty campaign names
+    # Remove rows with invalid Time or empty portfolio names
     df = df[df["Time"].notna()]
-    df = df[df["Portfolio"].str.strip() != ""]
+    df = df[df["PortfolioName"].astype(str).str.strip() != ""]
 
     return df, currency_symbol
 
@@ -219,16 +220,16 @@ def read_campaign_report_path(path: str, original_name: str) -> tuple[pd.DataFra
     # Parse Time column to datetime (UTC)
     df["Time"] = pd.to_datetime(df["Time"], errors="coerce", utc=True)
 
-    # Parse campaign names into hierarchy components
+    # Parse campaign names into hierarchy components (AdType, Targeting, SubType, Variant)
+    # Note: ProfileName and PortfolioName come from report columns, not parsed
     parsed_names = df["CampaignName"].apply(parse_campaign_name)
-    df["Portfolio"] = parsed_names.apply(lambda x: x["Portfolio"])
     df["AdType"] = parsed_names.apply(lambda x: x["AdType"])
     df["Targeting"] = parsed_names.apply(lambda x: x["Targeting"])
     df["SubType"] = parsed_names.apply(lambda x: x["SubType"])
     df["Variant"] = parsed_names.apply(lambda x: x["Variant"])
 
-    # Remove rows with invalid Time or empty campaign names
+    # Remove rows with invalid Time or empty portfolio names
     df = df[df["Time"].notna()]
-    df = df[df["Portfolio"].str.strip() != ""]
+    df = df[df["PortfolioName"].astype(str).str.strip() != ""]
 
     return df, currency_symbol
