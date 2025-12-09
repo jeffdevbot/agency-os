@@ -14,6 +14,9 @@ export function PosthogProvider() {
       capture_pageview: true,
       capture_pageleave: true,
     });
+    if (typeof window !== "undefined") {
+      (window as any).posthog = posthog;
+    }
   }, []);
 
   return null;

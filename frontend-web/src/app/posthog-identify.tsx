@@ -10,7 +10,7 @@ export function PosthogIdentify() {
       const supabase = getBrowserSupabaseClient();
       const { data } = await supabase.auth.getSession();
       const user = data.session?.user;
-      if (!user || !posthog.__loaded) return;
+      if (!user) return;
 
       const displayName =
         (user.user_metadata && (user.user_metadata.full_name || user.user_metadata.name)) ||
