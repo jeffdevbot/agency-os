@@ -93,3 +93,25 @@
   - Optional/blank if missing: `asin` ["ASIN (Informational only)", "ASIN", "Ad ID"], `sku` ["SKU"], `keyword` ["Keyword Text", "Targeting Expression"]
   - Clean numerics (spend, sales, clicks, impressions).
   - Raise on missing criticals; keep optional as blank.
+
+---
+
+## Addendum: Bulk Excel Ingestion (Multi-Tab)
+
+- **Sheets:** Bulk file may have multiple tabs (e.g., “Portfolios”, “Sponsored Products Campaigns”, “RAS Campaigns”). Do not assume “Sheet1”.
+- **Selection heuristic:** Scan visible sheets; pick the sheet containing critical headers (at minimum `Entity`, `Campaign ID`, `Spend`, `Sales`). If multiple qualify, prefer sheet named “Sponsored Products Campaigns” or “Sponsored Products”. If none, error: “Could not find a sheet with Entity, Spend, and Sales columns.”
+- **Schema (Sponsored Products Campaigns tab):** Apply fuzzy matching:
+  - `entity`: ['Entity']
+  - `product`: ['Product']
+  - `campaign_name`: ['Campaign Name']
+  - `ad_group_name`: ['Ad Group Name']
+  - `match_type`: ['Match Type']
+  - `spend`: ['Spend']
+  - `sales`: ['Sales', '7 Day Total Sales'] (keep fuzzy “Sales” contains)
+  - `clicks`: ['Clicks']
+  - `impressions`: ['Impressions']
+  - `asin`: ['ASIN (Informational only)', 'ASIN']
+  - `sku`: ['SKU']
+  - `keyword`: ['Keyword Text', 'Targeting Expression']
+- **Cleaning:** Convert spend/sales/clicks/impressions to numeric (strip $, commas; treat non-numeric like “-” as 0). Keep rows unfiltered initially (Campaign rows for budget; Ad Group rows for spend/sales; Product Ad rows for ASIN; Keyword rows for match/keyword).
+- **RAS tab:** Present but not primary; prioritize Sponsored Products tab by heuristic. If future logic needs RAS, add a specific mapper.
