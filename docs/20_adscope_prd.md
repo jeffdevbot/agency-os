@@ -26,11 +26,11 @@
 - Endpoint: `POST /audit` (multipart: bulk_file, str_file, brand_keywords text).
 - Limits: 40MB per file; if `df.memory_usage().sum()` > ~512MB, return friendly error (“File too large…reduce date range to 30 days”).
 - Ephemeral: No DB writes; clear data after request; temp files removed.
-- Parsing: Clean numerics; branded vs generic via keyword contains (case-insensitive). Required columns TBD upon sample files.
+- Parsing: Clean numerics; branded vs generic via keyword contains (case-insensitive). Required columns derived from provided STR/Bulk samples; fuzzy matching handles header variants.
 - Output: JSON with raw numerics (frontend formats). Currency assumed USD v0.1.
 
 ### Precomputed Views (schemas)
-- `overview`: `{ spend: float, sales: float, acos: float (0-1), roas: float, ad_type_mix: [{ type, spend, percentage }] }`
+- `overview`: `{ spend: float, sales: float, acos: float (0-1), roas: float, impressions: float, clicks: float, orders: float, ad_type_mix: [{ type, spend, percentage }] }`
 - `money_pits`: top 20% by spend, max 50, sorted spend desc: `[{ asin, product_name, spend, sales, acos }]`
 - `waste_bin`: spend > 50, sales = 0, max 100, sorted spend desc: `[{ search_term, spend, clicks }]`
 - `brand_analysis`: `{ branded: { spend, sales, acos }, generic: { spend, sales, acos } }`
@@ -44,11 +44,12 @@
 ## 4) Frontend (React)
 - Screen 1 (Ingest): Two distinct dropzones (Bulk .xlsx, STR .csv), Brand Keywords input, “Run Audit” disabled during processing with spinner/status. Errors shown in red alert under dropzones (invalid type, missing columns, >40MB, memory).
 - Screen 2 (IDE workspace): Dark “VS Code” style. Left chat (messages, input, quick chips), right canvas swaps views with Framer Motion. Global state holds audit JSON + `activeCanvasView`.
-- Views: Overview cards/pie; Reusable TableView for money_pits/waste_bin/leaderboard; BrandAnalysis stacked bar; GroupedChart for match_types/placements; Budget cappers list.
+- Views: Overview cards/pie/funnel; Reusable TableView for money_pits/waste_bin/leaderboard; BrandAnalysis stacked bar; GroupedChart for match_types/placements; Budget cappers list.
 - Empty state: Keep tab, render “No data” message inside the canvas.
 
 ### Formatting (frontend)
 - Currency: `$1,234.56` (2 dp), Percent: `12.5%` (1–2 dp), Large ints with thousands/compact for charts.
+- Overview visuals: KPI cards (Spend, Sales, ACOS with thresholds: <15% blue/good; 15–30% yellow/ok; >30% red/high), ROAS neutral; ad type donut with fixed palette (e.g., SP #3b82f6, SB #8b5cf6, SD #f97316, default gray); funnel bars for impressions/clicks/orders (render even when zero; show labels).
 
 ---
 
