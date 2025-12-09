@@ -1,6 +1,6 @@
 # Product Requirement Document: AdScope (v0.1)
 
-**Goal:** Upload Bulk .xlsx + Search Term Report .csv (+ brand keywords), run in-memory Python audit, return one JSON payload with precomputed views; render in a dark “VS Code”-style UI with chat-driven view switching. Ephemeral: no DB writes; data cleared after request.
+**Goal:** Upload Bulk .xlsx + Search Term Report .csv (+ brand keywords), run in-memory Python audit, return one JSON payload with precomputed views; render in a dark “VS Code”-style UI with chat-driven view switching. Ephemeral: no DB writes; data cleared after request. No database tables; JSON schemas only.
 
 ---
 
@@ -116,3 +116,32 @@
   - `keyword`: ['Keyword Text', 'Targeting Expression']
 - **Cleaning:** Convert spend/sales/clicks/impressions to numeric (strip $, commas; treat non-numeric like “-” as 0). Keep rows unfiltered initially (Campaign rows for budget; Ad Group rows for spend/sales; Product Ad rows for ASIN; Keyword rows for match/keyword).
 - **RAS tab:** Present but not primary; prioritize Sponsored Products tab by heuristic. If future logic needs RAS, add a specific mapper.
+
+---
+
+## Currency Handling
+- Detect currency symbols/headers for USD ($), EUR (€), GBP (£); default to USD if undetectable. Send raw numerics; frontend formats with symbol.
+
+---
+
+## UX/Patterns
+- Two-file upload pattern is intentional (Bulk + STR) with two distinct dropzones.
+- Response is JSON (precomputed views) to support chat-driven canvas swapping (distinct from Excel exporters in other tools).
+- Theme is dark/IDE-style (intentional departure from light themes).
+
+---
+
+## Testing (to add)
+- Schema validation: fuzzy matching maps required columns for STR and Bulk; errors on missing criticals.
+- Currency detection: selects $, €, £ correctly when present.
+- View JSON shape: all view keys present; numeric fields populated; empty states handled.
+- Memory guard: oversize files ( >40MB) and memory cap (~512MB) return friendly errors (adjust after perf tests).
+- Tool-calling: AI requests invalid view_id → no tool call; responds with guidance.
+
+---
+
+## Open Items
+- Budget cap detection logic (columns/thresholds from Bulk).
+- STR/Bulk column mapping finalized from provided samples (update required-list if needed).
+- Branded vs generic matching rules refinement (exact word boundaries vs contains).
+- Optional future: GPT-5.1 Responses API pilot behind a flag; current default stays on the existing OpenAI chat integration used by Scribe.
