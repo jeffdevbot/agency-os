@@ -171,7 +171,7 @@ export const groupKeywords = async (
       durationMs: result.durationMs,
     };
 
-    const aiResponse = parseJSONResponse<AIGroupResponse>(result.content);
+    const aiResponse = parseJSONResponse<AIGroupResponse>(result.content ?? "{}");
 
     if (!aiResponse.groups || !Array.isArray(aiResponse.groups)) {
       throw new Error("Invalid AI response: missing 'groups' array");
