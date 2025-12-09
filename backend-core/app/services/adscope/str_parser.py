@@ -149,6 +149,14 @@ def parse_str_file(
     rename_map = {v: k for k, v in col_map.items()}
     df = df.rename(columns=rename_map)
 
+    # Fallback: if spend is still missing, try to find a column with "spend" in the name that is not ROAS/ACOS
+    if "spend" not in df.columns:
+        for col in df.columns:
+            norm = _normalize_header(col)
+            if "spend" in norm and "roas" not in norm and "acos" not in norm and "returnonadvertising" not in norm:
+                df = df.rename(columns={col: "spend"})
+                break
+
     # Clean numeric columns
     numeric_cols = ["spend", "sales", "impressions", "clicks"]
     if "orders" in df.columns:
