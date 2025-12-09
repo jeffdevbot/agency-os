@@ -101,7 +101,7 @@ export const generateTopicsForSku = async (skuData: SkuData, locale: string): Pr
   });
 
   // Parse JSON response
-  const parsedResponse = parseJSONResponse<TopicsResponse>(result.content);
+  const parsedResponse = parseJSONResponse<TopicsResponse>(result.content ?? "{}");
 
   if (!parsedResponse.topics || !Array.isArray(parsedResponse.topics)) {
     throw new Error("Invalid topics response: missing topics array");

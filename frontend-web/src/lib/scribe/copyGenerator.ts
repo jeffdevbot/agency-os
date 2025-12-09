@@ -146,7 +146,7 @@ export const generateCopyForSku = async (data: SkuCopyData, locale: string): Pro
   });
 
   // Parse JSON response
-  const parsedResponse = parseJSONResponse<CopyResponse>(result.content);
+  const parsedResponse = parseJSONResponse<CopyResponse>(result.content ?? "{}");
 
   // Validate response structure
   if (!parsedResponse.title || !parsedResponse.bullets || !parsedResponse.description || !parsedResponse.backend_keywords) {
