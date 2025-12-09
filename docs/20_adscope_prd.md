@@ -71,3 +71,25 @@
 - Budget cap detection logic based on available columns.
 - Branded vs generic matching rules refinement (exact word boundaries vs contains).
 
+---
+
+## Addendum: Schema Validation (Fuzzy Matching)
+
+- **Strategy:** Map columns via internal_key → candidate headers list; if no exact match, use keyword/fuzzy matching (e.g., contains "Sales" AND "7 Day"). If a critical column is missing, raise a clear `ReportValidationError`.
+- **Search Term Report (STR):** Required fields
+  - `search_term`: ["Customer Search Term", "Query", "Search Term"]
+  - `spend`: ["Spend", "Cost"]
+  - `sales`: fuzzy (contains "Sales" and "7 Day"; fallback any "Sales")
+  - Clean numerics (strip $ ,), fillna(0).
+- **Bulk Operations File:** Required fields
+  - `entity`: ["Entity", "Record Type"]
+  - `product`: ["Product", "Ad Product"]
+  - `campaign_name`: ["Campaign Name", "Campaign"]
+  - `match_type`: ["Match Type"]
+  - `spend`: ["Spend", "Cost"]
+  - `sales`: ["Sales", "7 Day Total Sales", "14 Day Total Sales"]; fallback fuzzy contains "Sales"
+  - `clicks`: ["Clicks"]
+  - `impressions`: ["Impressions"]
+  - Optional/blank if missing: `asin` ["ASIN (Informational only)", "ASIN", "Ad ID"], `sku` ["SKU"], `keyword` ["Keyword Text", "Targeting Expression"]
+  - Clean numerics (spend, sales, clicks, impressions).
+  - Raise on missing criticals; keep optional as blank.
