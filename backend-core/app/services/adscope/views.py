@@ -7,6 +7,24 @@ import numpy as np
 from datetime import timedelta
 
 
+def _normalize_header(value: str) -> str:
+    """Lowercase + strip non-alphanumerics for tolerant matching."""
+    return "".join(ch for ch in str(value).lower() if ch.isalnum())
+
+
+def _ensure_required_column(df: pd.DataFrame, target: str) -> pd.DataFrame:
+    """
+    If a column normalizes to the target, rename it to the target so downstream logic doesn't KeyError.
+    """
+    if target in df.columns:
+        return df
+
+    for col in df.columns:
+        if _normalize_header(col) == _normalize_header(target):
+            df = df.rename(columns={col: target})
+            break
+    return df
+
 def compute_overview(bulk_df: pd.DataFrame, str_df: pd.DataFrame) -> dict[str, Any]:
     """Compute overview metrics."""
     # Use STR for top-level metrics (more accurate)
@@ -565,12 +583,17 @@ def compute_all_views(
 ) -> dict[str, Any]:
     """Compute all 13 views."""
     # Basic column sanity checks to surface clear errors instead of KeyErrors
+    for required in ["spend", "sales", "impressions", "clicks"]:
+        str_df = _ensure_required_column(str_df, required)
+    for required in ["spend", "sales"]:
+        bulk_df = _ensure_required_column(bulk_df, required)
+
     missing_str = [col for col in ["spend", "sales", "impressions", "clicks"] if col not in str_df.columns]
     missing_bulk = [col for col in ["spend", "sales"] if col not in bulk_df.columns]
     if missing_str:
-        raise ValueError(f"STR missing required columns: {missing_str}")
+        raise ValueError(f"STR missing required columns: {missing_str}. Found STR columns: {list(str_df.columns)}")
     if missing_bulk:
-        raise ValueError(f"Bulk file missing required columns: {missing_bulk}")
+        raise ValueError(f"Bulk file missing required columns: {missing_bulk}. Found Bulk columns: {list(bulk_df.columns)}")
 
     return {
         "overview": compute_overview(bulk_df, str_df),
