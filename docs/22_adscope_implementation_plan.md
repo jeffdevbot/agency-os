@@ -12,12 +12,13 @@ Context: AdScope is a stateless audit tool for Amazon Ads. It ingests a Bulk Exc
 
 2) Ingest Service: STR Parsing
 - Use schemas from `docs/21_adscope_schema.md`. Implement fuzzy matching for required fields (search_term, spend, sales, impressions, clicks, match_type, campaign, dates, currency).
-- Clean numerics (strip $, commas), parse dates (start/end), classify branded vs generic (brand keywords).
+- Clean numerics rigorously: strip $/commas; replace non-numeric (‘-’, ‘NaN’, ‘null’) with 0 before math; parse dates (start/end); classify branded vs generic (brand keywords).
 - Add n-gram tokenizer (1-gram, 2-gram) over Customer Search Term for n_grams view.
 
 3) Ingest Service: Bulk Parsing (Multi-tab Excel)
 - Use tab selection heuristic: prefer “Sponsored Products Campaigns”/“Sponsored Products”, or first tab containing critical headers (Entity, Campaign ID, Spend, Sales); prefer explicitly named “Bulk Sheet”/“Search Terms” if present. Warn on fallback.
 - Use schemas from `docs/21_adscope_schema.md` for Sponsored Products Campaigns. Apply fuzzy mapping for entity, product, campaign/ad group, match_type, keyword/targeting, spend, sales, clicks, impressions, bids, placement, state, ASIN/SKU, targeting type, dates, currency.
+- Clean numerics rigorously: strip $/commas; replace non-numeric (‘-’, ‘NaN’, ‘null’) with 0 before math.
 - Do not filter rows; preserve campaign/adgroup/keyword/product ad rows for later grouping.
 - Detect currency_code from currency columns; default USD.
 
@@ -54,19 +55,22 @@ Context: AdScope is a stateless audit tool for Amazon Ads. It ingests a Bulk Exc
 
 ## Frontend (Next.js + Tailwind + shadcn + Recharts + Framer Motion)
 
-1) Auth & Layout
+1) Testing/Contract First
+- Create `mocks/audit_response.json` that mirrors the full schema (all views, empty states, flags, currency_code) to serve as the FE/BE contract. Use it to render UI before wiring the API.
+
+2) Auth & Layout
 - Keep Supabase auth guard; global layout with PostHog init/identify (already present). Dark IDE theme consistent with other tools’ gradient cards style adapted to dark.
 
-2) Ingest Screen
+3) Ingest Screen
 - Two dropzones (Bulk .xlsx, STR .csv/.xlsx), brand keywords input. “Run Audit” disabled during upload; show spinner/status. Show errors in red alert. Pass both files + brand keywords to `/audit`.
 
-3) State & Data
+4) State & Data
 - Store audit JSON + `activeCanvasView`, `warnings` (e.g., date_range_mismatch), `currency_code`. Ensure initial view = overview; handle empty states per view.
 
-4) Overview View
+5) Overview View
 - KPI cards (Spend, Sales, ACOS with thresholds, ROAS). Donut for ad_type_mix with fixed colors (SP #3b82f6, SB #8b5cf6, SD #f97316, default gray). Funnel bars for impressions/clicks/orders. Targeting mix progress bar (manual vs auto). Date-range mismatch alert if flagged.
 
-5) Deep Views (render on demand)
+6) Deep Views (render on demand)
 - money_pits: table with thumbnail (derive URL), ASIN/product, spend/sales/acos, state badge; sort enabled first then spend.
 - waste_bin: table of terms spend>50 & sales=0.
 - brand_analysis: stacked/side bars branded vs generic.
@@ -81,10 +85,10 @@ Context: AdScope is a stateless audit tool for Amazon Ads. It ingests a Bulk Exc
 - price_sensitivity: scatter avg_price vs CVR.
 - zombies: stat/list of zero-impression ad groups.
 
-6) Tool Calling
+7) Tool Calling
 - `change_canvas_view(view_id: string)` with allowed IDs from PRD. Guard invalid IDs (no-op + chat message).
 
-7) Testing (Frontend)
+8) Testing (Frontend)
 - Validate render with mock JSON: overview, each view, empty states, currency formatting from `currency_code`, state badges, thumbnails fallback, warnings display.
 
 ---
