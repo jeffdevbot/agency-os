@@ -33,14 +33,14 @@
   - Currency: detect from file column (e.g., Currency/Currency Code); include `currency_code` in JSON for frontend formatting ($/€/£).
 
 ### Precomputed Views (schemas)
-- `overview`: `{ spend: float, sales: float, acos: float (0-1), roas: float, impressions: float, clicks: float, orders: float, ad_type_mix: [{ type, spend, percentage }] }`
-- `money_pits`: top 20% by spend, max 50, sorted spend desc: `[{ asin, product_name, spend, sales, acos }]`
+- `overview`: `{ spend: float, sales: float, acos: float (0-1), roas: float, impressions: float, clicks: float, orders: float, ad_type_mix: [{ type, spend, percentage }], targeting_mix: { manual_spend: float, auto_spend: float, manual_percent: float } }`
+- `money_pits`: top 20% by spend, max 50, sorted spend desc: `[{ asin, product_name, spend, sales, acos, state? }]`
 - `waste_bin`: spend > 50, sales = 0, max 100, sorted spend desc: `[{ search_term, spend, clicks }]`
 - `brand_analysis`: `{ branded: { spend, sales, acos }, generic: { spend, sales, acos } }`
 - `match_types`: sorted spend desc: `[{ type, spend, sales, acos, cpc }]`
 - `placements`: standard 3 placements: `[{ placement, spend, acos, cpc }]`
-- `keyword_leaderboard`: `{ winners: [{ text, match_type, campaign, spend, sales, roas }], losers: [{ text, match_type, campaign, spend, sales, roas }] }` (winners = top 10 by sales; losers = top 10 by spend with ROAS < 2)
-- `budget_cappers`: list with utilization > 0.9: `[{ campaign_name, daily_budget, avg_daily_spend, utilization, roas }]`
+- `keyword_leaderboard`: `{ winners: [{ text, match_type, campaign, spend, sales, roas, state? }], losers: [{ text, match_type, campaign, spend, sales, roas, state? }] }` (winners = top 10 by sales; losers = top 10 by spend with ROAS < 2)
+- `budget_cappers`: list with utilization > 0.9: `[{ campaign_name, daily_budget, avg_daily_spend, utilization, roas, state? }]`
 - `campaign_scatter`: `[{ id, name, spend, acos, ad_type }]`
 - `n_grams`: `[{ gram, type, spend, sales, acos, count }]` (type = 1-gram, 2-gram)
 - `duplicates`: `[{ keyword, match_type, campaign_count, campaigns }]`
@@ -157,6 +157,13 @@
 
 ---
 
+## V1.1 Polish & Visual Context
+- **Product thumbnails:** For ASIN-based tables (e.g., money_pits), render a 40x40 rounded image using URL pattern `https://images-na.ssl-images-amazon.com/images/P/{asin}.01._THUMB_.jpg`; fallback to a generic icon if load fails.
+- **State badges:** Include `state` (enabled/paused/archived mapped from Bulk “State”) on money_pits, budget_cappers, keyword_leaderboard. Frontend badges: green dot for enabled; gray ring for paused/archived. Default sorting: enabled first, then spend.
+- **Targeting mix:** Compute CampaignID → Targeting Type (Manual/Auto) from Campaign rows; sum spend per type and add to `overview.targeting_mix`. Frontend shows a progress bar (“Targeting Control”) with manual vs auto percent; tooltip notes high auto spend (>30%) suggests low optimization.
+
+---
+
 ## Testing (to add)
 - Schema validation: fuzzy matching maps required columns for STR and Bulk; errors on missing criticals.
 - Currency detection: selects $, €, £ correctly when present; currency_code passed through for formatting.
@@ -165,6 +172,7 @@
 - Tool-calling: AI requests invalid view_id → no tool call; responds with guidance.
 - Budget cappers: budget/utilization computed correctly and filtered.
 - Date-range mismatch: warn when Bulk/STR ranges differ by >24h.
+- V1.1 polish: thumbnails render with fallback; state badges map correctly and sort enabled first; targeting mix sums match Backend.
 
 ---
 
