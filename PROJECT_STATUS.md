@@ -1,6 +1,6 @@
 # Project Status — Agency OS
 
-_Last updated: 2025-12-09 (EST)_
+_Last updated: 2025-12-10 (EST)_
 
 ## How to Use This File
 - Skim **Quick Recap**, **Recent Accomplishments**, and **Next Priorities** before coding.
@@ -21,6 +21,8 @@ _Last updated: 2025-12-09 (EST)_
 Agency OS consolidates internal tools (Ngram, The Operator, Creative Brief) behind a shared Next.js frontend, FastAPI backend, and Supabase auth stack deployed on Render. Supabase handles SSO (Google) plus the shared database, while the worker service manages nightly syncs and other heavy jobs. **Amazon Composer is deprecated** and will be replaced by the new **Scribe** project (simpler, more focused listing/content generation). **Scribe is currently being rebuilt ("Scribe Lite")** to simplify the UX, with legacy code archived.
 
 ## Recent Accomplishments
+- **2025-12-10 (EST)**
+  - **AdScope Backend/Frontend Landing (testable) 🚀:** Added FastAPI router `/adscope/audit` with memory/file caps, fuzzy bulk/STR parsing (header-row scan), date-range mismatch warning, and all 13 precomputed views; hardened optional-column handling (placements/price sensitivity/zombies) and inclusive budget cap date span. Frontend `/adscope` now has ingest UI, dark workspace with all view tabs, mock JSON contract, and server-side chat proxy (no client key leakage). Bulk tab selection prioritizes SP Campaigns per schema. Ready for Render trial; broader test suite still pending.
 - **2025-12-09 (EST)**
   - **Root Keyword Analysis Tool Shipped ✅:** Added full backend router `/root/process` with parsing (row-9 Campaign Report, currency detection), week bucketing (UTC Sunday–Saturday, 4 weeks), hierarchical aggregation (Profile → Portfolio → Ad Type → Targeting → Sub-Type → Variant), and formatted Excel workbook (header band, zebra banding, 7 metrics × 4 weeks, currency-aware). New frontend page `/root-keywords` mirrors N-Gram/N-PAT styling with drag/drop upload and auth; PRD and micro-task plan captured in `docs/18_root_keyword_analysis_prd.md` and `docs/19_root_keyword_analysis_plan.md`.
 - **2025-12-08 (EST)**

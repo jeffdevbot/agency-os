@@ -1,0 +1,299 @@
+{
+  "currency_code": "USD",
+  "date_range_mismatch": false,
+  "warnings": [],
+  "views": {
+    "overview": {
+      "spend": 12500.50,
+      "sales": 45000.75,
+      "acos": 0.278,
+      "roas": 3.60,
+      "impressions": 150000,
+      "clicks": 2500,
+      "orders": 350,
+      "ad_type_mix": [
+        {
+          "type": "Sponsored Products",
+          "spend": 8500.25,
+          "percentage": 0.68
+        },
+        {
+          "type": "Sponsored Brands",
+          "spend": 3000.15,
+          "percentage": 0.24
+        },
+        {
+          "type": "Sponsored Display",
+          "spend": 1000.10,
+          "percentage": 0.08
+        }
+      ],
+      "targeting_mix": {
+        "manual_spend": 7500.30,
+        "auto_spend": 5000.20,
+        "manual_percent": 0.60
+      }
+    },
+    "money_pits": [
+      {
+        "asin": "B08X1234AB",
+        "product_name": "",
+        "spend": 1500.00,
+        "sales": 500.00,
+        "acos": 3.0,
+        "state": "enabled"
+      },
+      {
+        "asin": "B08X5678CD",
+        "product_name": "",
+        "spend": 1200.00,
+        "sales": 400.00,
+        "acos": 3.0,
+        "state": "enabled"
+      }
+    ],
+    "waste_bin": [
+      {
+        "search_term": "cheap knockoff product",
+        "spend": 250.00,
+        "clicks": 100
+      },
+      {
+        "search_term": "irrelevant search term",
+        "spend": 150.00,
+        "clicks": 75
+      }
+    ],
+    "brand_analysis": {
+      "branded": {
+        "spend": 5000.00,
+        "sales": 22000.00,
+        "acos": 0.227
+      },
+      "generic": {
+        "spend": 7500.50,
+        "sales": 23000.75,
+        "acos": 0.326
+      }
+    },
+    "match_types": [
+      {
+        "type": "Broad",
+        "spend": 6000.00,
+        "sales": 20000.00,
+        "acos": 0.30,
+        "cpc": 2.40
+      },
+      {
+        "type": "Phrase",
+        "spend": 4000.00,
+        "sales": 15000.00,
+        "acos": 0.267,
+        "cpc": 2.00
+      },
+      {
+        "type": "Exact",
+        "spend": 2500.50,
+        "sales": 10000.75,
+        "acos": 0.250,
+        "cpc": 1.50
+      }
+    ],
+    "placements": [
+      {
+        "placement": "Top of Search",
+        "spend": 6000.00,
+        "acos": 0.25,
+        "cpc": 3.00
+      },
+      {
+        "placement": "Product Pages",
+        "spend": 4500.00,
+        "acos": 0.30,
+        "cpc": 2.25
+      },
+      {
+        "placement": "Rest of Search",
+        "spend": 2000.50,
+        "acos": 0.28,
+        "cpc": 1.75
+      }
+    ],
+    "keyword_leaderboard": {
+      "winners": [
+        {
+          "text": "best widget 2024",
+          "match_type": "Exact",
+          "campaign": "Main Campaign - Exact",
+          "spend": 500.00,
+          "sales": 3000.00,
+          "roas": 6.0,
+          "state": "enabled"
+        },
+        {
+          "text": "premium widget",
+          "match_type": "Phrase",
+          "campaign": "Main Campaign - Phrase",
+          "spend": 400.00,
+          "sales": 2400.00,
+          "roas": 6.0,
+          "state": "enabled"
+        }
+      ],
+      "losers": [
+        {
+          "text": "cheap widget",
+          "match_type": "Broad",
+          "campaign": "Discovery Campaign",
+          "spend": 300.00,
+          "sales": 150.00,
+          "roas": 0.5,
+          "state": "enabled"
+        },
+        {
+          "text": "widget alternative",
+          "match_type": "Broad",
+          "campaign": "Discovery Campaign",
+          "spend": 250.00,
+          "sales": 200.00,
+          "roas": 0.8,
+          "state": "paused"
+        }
+      ]
+    },
+    "budget_cappers": [
+      {
+        "campaign_name": "High Volume Campaign",
+        "daily_budget": 100.00,
+        "avg_daily_spend": 95.00,
+        "utilization": 0.95,
+        "roas": 4.5,
+        "state": "enabled"
+      },
+      {
+        "campaign_name": "Black Friday Campaign",
+        "daily_budget": 200.00,
+        "avg_daily_spend": 185.00,
+        "utilization": 0.925,
+        "roas": 3.8,
+        "state": "enabled"
+      }
+    ],
+    "campaign_scatter": [
+      {
+        "id": "camp_001",
+        "name": "Main Campaign - Exact",
+        "spend": 3000.00,
+        "acos": 0.25,
+        "ad_type": "Sponsored Products"
+      },
+      {
+        "id": "camp_002",
+        "name": "Discovery Campaign",
+        "spend": 2500.00,
+        "acos": 0.35,
+        "ad_type": "Sponsored Products"
+      },
+      {
+        "id": "camp_003",
+        "name": "Brand Defense",
+        "spend": 2000.00,
+        "acos": 0.20,
+        "ad_type": "Sponsored Brands"
+      }
+    ],
+    "n_grams": [
+      {
+        "gram": "widget",
+        "type": "1-gram",
+        "spend": 2500.00,
+        "sales": 10000.00,
+        "acos": 0.25,
+        "count": 150
+      },
+      {
+        "gram": "best widget",
+        "type": "2-gram",
+        "spend": 1500.00,
+        "sales": 7500.00,
+        "acos": 0.20,
+        "count": 45
+      },
+      {
+        "gram": "premium",
+        "type": "1-gram",
+        "spend": 1200.00,
+        "sales": 6000.00,
+        "acos": 0.20,
+        "count": 80
+      }
+    ],
+    "duplicates": [
+      {
+        "keyword": "widget",
+        "match_type": "Broad",
+        "campaign_count": 3,
+        "campaigns": [
+          "Main Campaign",
+          "Discovery Campaign",
+          "Competitor Campaign"
+        ]
+      },
+      {
+        "keyword": "best widget",
+        "match_type": "Phrase",
+        "campaign_count": 2,
+        "campaigns": [
+          "Main Campaign",
+          "Brand Defense"
+        ]
+      }
+    ],
+    "portfolios": [
+      {
+        "name": "Main Products",
+        "spend": 8000.00,
+        "sales": 32000.00,
+        "acos": 0.25
+      },
+      {
+        "name": "New Launches",
+        "spend": 3000.00,
+        "sales": 9000.00,
+        "acos": 0.333
+      },
+      {
+        "name": "Brand Defense",
+        "spend": 1500.50,
+        "sales": 4000.75,
+        "acos": 0.375
+      }
+    ],
+    "price_sensitivity": [
+      {
+        "asin": "B08X1234AB",
+        "avg_price": 49.99,
+        "cvr": 0.08
+      },
+      {
+        "asin": "B08X5678CD",
+        "avg_price": 29.99,
+        "cvr": 0.12
+      },
+      {
+        "asin": "B08X9012EF",
+        "avg_price": 79.99,
+        "cvr": 0.05
+      }
+    ],
+    "zombies": {
+      "total_active_ad_groups": 45,
+      "zombie_count": 8,
+      "zombie_list": [
+        "Main Campaign / Ad Group 1",
+        "Discovery Campaign / Ad Group 3",
+        "Competitor Campaign / Ad Group 5"
+      ]
+    }
+  }
+}

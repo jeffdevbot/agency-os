@@ -3,8 +3,27 @@ export interface ChatMessage {
   content: string;
 }
 
+export interface ToolCall {
+  id: string;
+  type: "function";
+  function: {
+    name: string;
+    arguments: string;
+  };
+}
+
+export interface Tool {
+  type: "function";
+  function: {
+    name: string;
+    description: string;
+    parameters: Record<string, unknown>;
+  };
+}
+
 export interface ChatCompletionResult {
-  content: string;
+  content: string | null;
+  toolCalls?: ToolCall[];
   tokensIn: number;
   tokensOut: number;
   tokensTotal: number;
@@ -35,20 +54,28 @@ const callOpenAIHttp = async (
   model: string,
   temperature: number,
   maxTokens?: number,
+  tools?: Tool[],
 ): Promise<ChatCompletionResult> => {
   const startTime = Date.now();
+
+  const requestBody: Record<string, unknown> = {
+    model,
+    messages,
+    temperature,
+    max_tokens: maxTokens,
+  };
+
+  if (tools && tools.length > 0) {
+    requestBody.tools = tools;
+  }
+
   const response = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${getApiKey()}`,
     },
-    body: JSON.stringify({
-      model,
-      messages,
-      temperature,
-      max_tokens: maxTokens,
-    }),
+    body: JSON.stringify(requestBody),
   });
 
   const durationMs = Date.now() - startTime;
@@ -61,14 +88,19 @@ const callOpenAIHttp = async (
   }
 
   const data = (await response.json()) as {
-    choices: Array<{ message?: { content?: string } }>;
+    choices: Array<{
+      message?: {
+        content?: string | null;
+        tool_calls?: ToolCall[];
+      }
+    }>;
     usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
     model: string;
   };
 
   const choice = data.choices?.[0];
-  if (!choice?.message?.content) {
-    throw new Error("No content in OpenAI response");
+  if (!choice?.message) {
+    throw new Error("No message in OpenAI response");
   }
 
   const tokensIn = data.usage?.prompt_tokens ?? 0;
@@ -76,7 +108,8 @@ const callOpenAIHttp = async (
   const tokensTotal = data.usage?.total_tokens ?? tokensIn + tokensOut;
 
   return {
-    content: choice.message.content,
+    content: choice.message.content ?? null,
+    toolCalls: choice.message.tool_calls,
     tokensIn,
     tokensOut,
     tokensTotal,
@@ -91,11 +124,18 @@ export const createChatCompletion = async (
     model?: string;
     temperature?: number;
     maxTokens?: number;
+    tools?: Tool[];
   },
 ): Promise<ChatCompletionResult> => {
   const model = options?.model || getDefaultModel();
   try {
-    return await callOpenAIHttp(messages, model, options?.temperature ?? 0.7, options?.maxTokens);
+    return await callOpenAIHttp(
+      messages,
+      model,
+      options?.temperature ?? 0.7,
+      options?.maxTokens,
+      options?.tools,
+    );
   } catch (error) {
     console.error('[DEBUG] Primary model call failed:', {
       model,

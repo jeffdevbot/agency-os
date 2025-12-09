@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
-from .routers import ngram, npat, root
+from .routers import ngram, npat, root, adscope
 
 app = FastAPI(
     title=settings.app_name,
@@ -21,6 +21,7 @@ app.add_middleware(
 app.include_router(ngram.router)
 app.include_router(npat.router)
 app.include_router(root.router)
+app.include_router(adscope.router)
 
 
 @app.get("/healthz")
