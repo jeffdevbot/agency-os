@@ -63,19 +63,28 @@ def build_root_workbook(
             "font_size": 9,
         })
 
-        # Zebra striping colors
-        zebra_colors = ["#d9e1f2", "#fce4d6", "#ffffff"]
+        # Row background colors per level
+        level_bg = {
+            "ProfileName": "#3a3838",   # dark
+            "PortfolioName": "#d9e1f2",  # blue-ish
+            "AdType": "#fce4d6",         # peach
+            "Targeting": "#ffffff",
+            "SubType": "#ffffff",
+            "Variant": "#ffffff",
+        }
 
         # Format caches to avoid per-row format creation
-        hierarchy_fmt_cache: dict[tuple[str, str], Any] = {}
-        number_fmt_cache: dict[str, Any] = {}
-        currency_fmt_cache: dict[str, Any] = {}
-        percent_fmt_cache: dict[str, Any] = {}
+        hierarchy_fmt_cache: dict[tuple[str, str, str | None], Any] = {}
+        number_fmt_cache: dict[tuple[str, str | None], Any] = {}
+        currency_fmt_cache: dict[tuple[str, str | None], Any] = {}
+        percent_fmt_cache: dict[tuple[str, str | None], Any] = {}
 
-        def get_hierarchy_fmt(bg_color: str, style: str):
-            key = (bg_color, style)
+        def get_hierarchy_fmt(bg_color: str, style: str, font_color: str | None = None):
+            key = (bg_color, style, font_color)
             if key not in hierarchy_fmt_cache:
                 fmt = {"align": "left", "valign": "vcenter", "bg_color": bg_color}
+                if font_color:
+                    fmt["font_color"] = font_color
                 if style == "bold":
                     fmt["bold"] = True
                 elif style == "italic_bold":
@@ -84,26 +93,32 @@ def build_root_workbook(
                 hierarchy_fmt_cache[key] = workbook.add_format(fmt)
             return hierarchy_fmt_cache[key]
 
-        def get_number_fmt(bg_color: str):
-            if bg_color not in number_fmt_cache:
-                number_fmt_cache[bg_color] = workbook.add_format(
-                    {"num_format": "#,##0", "align": "center", "bg_color": bg_color}
-                )
-            return number_fmt_cache[bg_color]
+        def get_number_fmt(bg_color: str, font_color: str | None = None):
+            key = (bg_color, font_color)
+            if key not in number_fmt_cache:
+                fmt = {"num_format": "#,##0", "align": "center", "bg_color": bg_color}
+                if font_color:
+                    fmt["font_color"] = font_color
+                number_fmt_cache[key] = workbook.add_format(fmt)
+            return number_fmt_cache[key]
 
-        def get_currency_fmt(bg_color: str):
-            if bg_color not in currency_fmt_cache:
-                currency_fmt_cache[bg_color] = workbook.add_format(
-                    {"num_format": f"{currency_symbol}#,##0.00", "align": "center", "bg_color": bg_color}
-                )
-            return currency_fmt_cache[bg_color]
+        def get_currency_fmt(bg_color: str, font_color: str | None = None):
+            key = (bg_color, font_color)
+            if key not in currency_fmt_cache:
+                fmt = {"num_format": f"{currency_symbol}#,##0.00", "align": "center", "bg_color": bg_color}
+                if font_color:
+                    fmt["font_color"] = font_color
+                currency_fmt_cache[key] = workbook.add_format(fmt)
+            return currency_fmt_cache[key]
 
-        def get_percent_fmt(bg_color: str):
-            if bg_color not in percent_fmt_cache:
-                percent_fmt_cache[bg_color] = workbook.add_format(
-                    {"num_format": "0.00%", "align": "center", "bg_color": bg_color}
-                )
-            return percent_fmt_cache[bg_color]
+        def get_percent_fmt(bg_color: str, font_color: str | None = None):
+            key = (bg_color, font_color)
+            if key not in percent_fmt_cache:
+                fmt = {"num_format": "0.00%", "align": "center", "bg_color": bg_color}
+                if font_color:
+                    fmt["font_color"] = font_color
+                percent_fmt_cache[key] = workbook.add_format(fmt)
+            return percent_fmt_cache[key]
 
         # Build header rows (rows 0-2)
         _build_header_rows(ws, workbook, week_buckets, header_fmt, date_fmt)
@@ -116,21 +131,10 @@ def build_root_workbook(
 
         # Write data rows (starting from row 3)
         current_row = 3
-        current_block = -1  # will increment on first AdType
-        adtype_color_map: dict[tuple, str] = {}
-        default_color = zebra_colors[0]
 
         for node in nodes:
-            # Determine AdType block color
-            adtype_path = tuple(node.full_path[:3]) if len(node.full_path) >= 3 else None
-            if node.level == "AdType":
-                current_block = (current_block + 1) % len(zebra_colors)
-                adtype_color_map[adtype_path] = zebra_colors[current_block]
-
-            if adtype_path and adtype_path in adtype_color_map:
-                bg_color = adtype_color_map[adtype_path]
-            else:
-                bg_color = default_color
+            bg_color = level_bg.get(node.level, "#ffffff")
+            font_color = "white" if node.level == "ProfileName" else None
 
             # Determine hierarchy style
             if node.level in {"ProfileName", "PortfolioName"}:
@@ -140,10 +144,10 @@ def build_root_workbook(
             else:
                 style = "normal"
 
-            row_number_fmt = get_number_fmt(bg_color)
-            row_currency_fmt = get_currency_fmt(bg_color)
-            row_percent_fmt = get_percent_fmt(bg_color)
-            row_hierarchy_fmt = get_hierarchy_fmt(bg_color, style)
+            row_number_fmt = get_number_fmt(bg_color, font_color)
+            row_currency_fmt = get_currency_fmt(bg_color, font_color)
+            row_percent_fmt = get_percent_fmt(bg_color, font_color)
+            row_hierarchy_fmt = get_hierarchy_fmt(bg_color, style, font_color)
 
             # Write hierarchy label
             ws.write_string(current_row, 0, node.get_display_label(), row_hierarchy_fmt)
@@ -164,7 +168,9 @@ def build_root_workbook(
             ]:
                 # Write 4 weeks for this metric (most recent first: week 1, 2, 3, 4)
                 for week_num in [1, 2, 3, 4]:
-                    if week_num in node.metrics_by_week:
+                    if node.level == "ProfileName":
+                        ws.write_blank(current_row, col_idx, None, metric_format)
+                    elif week_num in node.metrics_by_week:
                         value = node.metrics_by_week[week_num].get(metric_key, 0.0)
                         ws.write_number(current_row, col_idx, value, metric_format)
                     else:
