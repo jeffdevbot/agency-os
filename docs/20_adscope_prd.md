@@ -26,7 +26,9 @@
 - Endpoint: `POST /audit` (multipart: bulk_file, str_file, brand_keywords text).
 - Limits: 40MB per file; if `df.memory_usage().sum()` > ~512MB, return friendly error (“File too large…reduce date range to 30 days”).
 - Ephemeral: No DB writes; clear data after request; temp files removed.
-- Parsing: Clean numerics; branded vs generic via keyword contains (case-insensitive). Required columns derived from provided STR/Bulk samples; fuzzy matching handles header variants.
+- Parsing: Clean numerics; branded vs generic via keyword contains (case-insensitive). Required columns derived from provided STR/Bulk samples; fuzzy matching handles header variants. Minimum required columns:
+  - STR: Search Term, Match Type, Campaign, Impressions, Clicks, Cost/Spend, Conversions/Orders, Sales (7-day), Currency (if present).
+  - Bulk (SP campaigns tab): Campaign Name/ID, Ad Group Name/ID, Entity, Match Type, Keyword/Targeting, Spend/Cost, Sales, Clicks, Impressions, Status/State, Max CPC/Default Bid, Product/Ad Type, Portfolio (optional), ASIN/SKU (optional).
 - Output: JSON with raw numerics (frontend formats). Currency assumed USD v0.1.
 
 ### Precomputed Views (schemas)
@@ -63,6 +65,7 @@
 - Persona: “Senior Ad Auditor” — direct, data-driven.
 - Tool: `change_canvas_view(view_id: str)`; allowed: `['overview','money_pits','waste_bin','brand_analysis','match_types','placements','keyword_leaderboard','budget_cappers','campaign_scatter','n_grams','duplicates','portfolios','price_sensitivity','zombies']`.
 - Guardrail: If user asks for a non-existent view, do NOT call tool; explain it’s unavailable and suggest closest existing view.
+- Guardrail decision tree: If question can be answered by existing view + filter, use that. Else if it matches a common hidden view, compute once and cache for the session. Else if estimated cost < limits (max 500 rows, max 3 grouping dimensions, ~5s budget), compute ad hoc; otherwise, offer alternative guidance.
 
 ---
 
@@ -107,7 +110,7 @@
 ## Addendum: Bulk Excel Ingestion (Multi-Tab)
 
 - **Sheets:** Bulk file may have multiple tabs (e.g., “Portfolios”, “Sponsored Products Campaigns”, “RAS Campaigns”). Do not assume “Sheet1”.
-- **Selection heuristic:** Scan visible sheets; pick the sheet containing critical headers (at minimum `Entity`, `Campaign ID`, `Spend`, `Sales`). If multiple qualify, prefer sheet named “Sponsored Products Campaigns” or “Sponsored Products”. If none, error: “Could not find a sheet with Entity, Spend, and Sales columns.”
+- **Selection heuristic:** Scan visible sheets; pick the sheet containing critical headers (at minimum `Entity`, `Campaign ID`, `Spend`, `Sales`). If multiple qualify, prefer sheet named “Sponsored Products Campaigns” or “Sponsored Products”. If none, error: “Could not find a sheet with Entity, Spend, and Sales columns.” If a tab explicitly named “Bulk Sheet”/“Search Terms” exists, prefer it; otherwise use first matching tab and surface a warning.
 - **Schema (Sponsored Products Campaigns tab):** Apply fuzzy matching:
   - `entity`: ['Entity']
   - `product`: ['Product']
@@ -135,6 +138,7 @@
 - Two-file upload pattern is intentional (Bulk + STR) with two distinct dropzones.
 - Response is JSON (precomputed views) to support chat-driven canvas swapping (distinct from Excel exporters in other tools).
 - Theme is dark/IDE-style (intentional departure from light themes).
+- Hidden views: precompute Tier 1 (core views listed above). Tier 2 common hidden views (match_types, keyword_leaderboard, budget_cappers, campaign_scatter, n_grams, duplicates, portfolios, price_sensitivity, zombies) available on demand and cached for session. Ad-hoc requests must respect limits (max 500 rows, max 3 grouping dimensions, ~5s).
 
 ---
 
