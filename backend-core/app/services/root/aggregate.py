@@ -30,19 +30,28 @@ class HierarchyNode:
     def get_display_label(self) -> str:
         """Get the display label for Excel output."""
         if self.level == "ProfileName":
+            # Profile: just the profile name
             return self.label
         elif self.level == "PortfolioName":
-            # Show just portfolio name
+            # Portfolio: just the portfolio name with indent
             return f"  {self.label}"
-        elif self.level == "AdType":
-            return f"    {self.label}"
-        elif self.level == "Targeting":
-            return f"      {self.label}"
-        elif self.level == "SubType":
-            return f"        {self.label}"
-        elif self.level == "Variant":
-            # Variant shows full pipe-separated path
-            return f"          {' | '.join(self.full_path)}"
+        else:
+            # AdType onwards: show cumulative path from Portfolio
+            # Path format: Portfolio | AdType | Targeting | SubType | Variant
+            # Skip ProfileName (position 0), start from PortfolioName (position 1)
+            path_from_portfolio = self.full_path[1:]  # Skip ProfileName
+            path_str = ' | '.join(path_from_portfolio)
+
+            # Apply indentation based on level
+            if self.level == "AdType":
+                return f"    {path_str}"
+            elif self.level == "Targeting":
+                return f"      {path_str}"
+            elif self.level == "SubType":
+                return f"        {path_str}"
+            elif self.level == "Variant":
+                return f"          {path_str}"
+
         return self.label
 
     def calculate_rates(self):
