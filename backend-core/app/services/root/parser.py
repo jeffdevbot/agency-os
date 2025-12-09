@@ -61,7 +61,7 @@ def detect_currency_symbol(df: pd.DataFrame) -> str:
     return max(counts, key=counts.get)
 
 
-def parse_campaign_name(campaign_name: str) -> dict[str, str]:
+def parse_campaign_name(campaign_name: Any) -> dict[str, str]:
     """
     Parse campaign name into hierarchy components using " | " delimiter.
 
@@ -72,9 +72,26 @@ def parse_campaign_name(campaign_name: str) -> dict[str, str]:
     - If no pipe, treat whole string as Portfolio
     - Extra parts beyond position 4 are ignored
     - Underscores/hyphens within tokens are preserved
+    - Handles NaN/None values by returning empty strings
 
     Returns dict with keys: Portfolio, AdType, Targeting, SubType, Variant
     """
+    # Convert to string and handle NaN/None
+    if campaign_name is None or (isinstance(campaign_name, float) and pd.isna(campaign_name)):
+        campaign_name = ""
+    else:
+        campaign_name = str(campaign_name).strip()
+
+    # If empty after conversion, return empty dict
+    if not campaign_name:
+        return {
+            "Portfolio": "",
+            "AdType": "",
+            "Targeting": "",
+            "SubType": "",
+            "Variant": "",
+        }
+
     parts = [p.strip() for p in campaign_name.split(" | ")]
 
     result = {
@@ -174,8 +191,9 @@ def read_campaign_report(file_name: str, buf: bytes) -> tuple[pd.DataFrame, str]
     df["SubType"] = parsed_names.apply(lambda x: x["SubType"])
     df["Variant"] = parsed_names.apply(lambda x: x["Variant"])
 
-    # Remove rows with invalid Time
+    # Remove rows with invalid Time or empty campaign names
     df = df[df["Time"].notna()]
+    df = df[df["Portfolio"].str.strip() != ""]
 
     return df, currency_symbol
 
@@ -209,7 +227,8 @@ def read_campaign_report_path(path: str, original_name: str) -> tuple[pd.DataFra
     df["SubType"] = parsed_names.apply(lambda x: x["SubType"])
     df["Variant"] = parsed_names.apply(lambda x: x["Variant"])
 
-    # Remove rows with invalid Time
+    # Remove rows with invalid Time or empty campaign names
     df = df[df["Time"].notna()]
+    df = df[df["Portfolio"].str.strip() != ""]
 
     return df, currency_symbol
