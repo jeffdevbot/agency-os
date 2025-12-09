@@ -163,73 +163,37 @@ def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def read_campaign_report(file_name: str, buf: bytes) -> tuple[pd.DataFrame, str]:
-    """
-    Read and parse Campaign Report from buffer.
-
-    Returns:
-        Tuple of (parsed dataframe, detected currency symbol)
-    """
-    df = _load_dataframe(buf, file_name)
+def _prepare_dataframe(df: pd.DataFrame) -> tuple[pd.DataFrame, str]:
+    """Shared normalization, cleaning, currency detection, and parsing pipeline."""
     df = _normalize_columns(df)
 
-    # Detect currency symbol BEFORE cleaning numeric columns
     currency_symbol = detect_currency_symbol(df)
 
-    # Clean numeric columns
     for col in NUMERIC_COLS:
         if col in df.columns:
             df[col] = clean_numeric(df[col])
 
-    # Parse Time column to datetime (UTC)
     df["Time"] = pd.to_datetime(df["Time"], errors="coerce", utc=True)
 
-    # Parse campaign names into hierarchy components (AdType, Targeting, SubType, Variant)
-    # Note: ProfileName and PortfolioName come from report columns, not parsed
     parsed_names = df["CampaignName"].apply(parse_campaign_name)
     df["AdType"] = parsed_names.apply(lambda x: x["AdType"])
     df["Targeting"] = parsed_names.apply(lambda x: x["Targeting"])
     df["SubType"] = parsed_names.apply(lambda x: x["SubType"])
     df["Variant"] = parsed_names.apply(lambda x: x["Variant"])
 
-    # Remove rows with invalid Time or empty portfolio names
     df = df[df["Time"].notna()]
     df = df[df["PortfolioName"].astype(str).str.strip() != ""]
 
     return df, currency_symbol
+
+
+def read_campaign_report(file_name: str, buf: bytes) -> tuple[pd.DataFrame, str]:
+    """Read and parse Campaign Report from buffer."""
+    df = _load_dataframe(buf, file_name)
+    return _prepare_dataframe(df)
 
 
 def read_campaign_report_path(path: str, original_name: str) -> tuple[pd.DataFrame, str]:
-    """
-    Read and parse Campaign Report from file path.
-
-    Returns:
-        Tuple of (parsed dataframe, detected currency symbol)
-    """
+    """Read and parse Campaign Report from file path."""
     df = _load_dataframe_path(path, original_name)
-    df = _normalize_columns(df)
-
-    # Detect currency symbol BEFORE cleaning numeric columns
-    currency_symbol = detect_currency_symbol(df)
-
-    # Clean numeric columns
-    for col in NUMERIC_COLS:
-        if col in df.columns:
-            df[col] = clean_numeric(df[col])
-
-    # Parse Time column to datetime (UTC)
-    df["Time"] = pd.to_datetime(df["Time"], errors="coerce", utc=True)
-
-    # Parse campaign names into hierarchy components (AdType, Targeting, SubType, Variant)
-    # Note: ProfileName and PortfolioName come from report columns, not parsed
-    parsed_names = df["CampaignName"].apply(parse_campaign_name)
-    df["AdType"] = parsed_names.apply(lambda x: x["AdType"])
-    df["Targeting"] = parsed_names.apply(lambda x: x["Targeting"])
-    df["SubType"] = parsed_names.apply(lambda x: x["SubType"])
-    df["Variant"] = parsed_names.apply(lambda x: x["Variant"])
-
-    # Remove rows with invalid Time or empty portfolio names
-    df = df[df["Time"].notna()]
-    df = df[df["PortfolioName"].astype(str).str.strip() != ""]
-
-    return df, currency_symbol
+    return _prepare_dataframe(df)

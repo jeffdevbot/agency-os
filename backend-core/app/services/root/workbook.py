@@ -63,35 +63,47 @@ def build_root_workbook(
             "font_size": 9,
         })
 
-        # Hierarchy column format
-        hierarchy_fmt = workbook.add_format({
-            "align": "left",
-            "valign": "vcenter",
-        })
-
-        hierarchy_bold_fmt = workbook.add_format({
-            "align": "left",
-            "valign": "vcenter",
-            "bold": True,
-        })
-
-        hierarchy_italic_bold_fmt = workbook.add_format({
-            "align": "left",
-            "valign": "vcenter",
-            "bold": True,
-            "italic": True,
-        })
-
-        # Data formats
-        number_fmt = workbook.add_format({"num_format": "#,##0", "align": "center"})
-        currency_fmt = workbook.add_format({
-            "num_format": f"{currency_symbol}#,##0.00",
-            "align": "center",
-        })
-        percent_fmt = workbook.add_format({"num_format": "0.00%", "align": "center"})
-
-        # Zebra striping formats (alternating row colors)
+        # Zebra striping colors
         zebra_colors = ["#d9e1f2", "#fce4d6", "#ffffff"]
+
+        # Format caches to avoid per-row format creation
+        hierarchy_fmt_cache: dict[tuple[str, str], Any] = {}
+        number_fmt_cache: dict[str, Any] = {}
+        currency_fmt_cache: dict[str, Any] = {}
+        percent_fmt_cache: dict[str, Any] = {}
+
+        def get_hierarchy_fmt(bg_color: str, style: str):
+            key = (bg_color, style)
+            if key not in hierarchy_fmt_cache:
+                fmt = {"align": "left", "valign": "vcenter", "bg_color": bg_color}
+                if style == "bold":
+                    fmt["bold"] = True
+                elif style == "italic_bold":
+                    fmt["bold"] = True
+                    fmt["italic"] = True
+                hierarchy_fmt_cache[key] = workbook.add_format(fmt)
+            return hierarchy_fmt_cache[key]
+
+        def get_number_fmt(bg_color: str):
+            if bg_color not in number_fmt_cache:
+                number_fmt_cache[bg_color] = workbook.add_format(
+                    {"num_format": "#,##0", "align": "center", "bg_color": bg_color}
+                )
+            return number_fmt_cache[bg_color]
+
+        def get_currency_fmt(bg_color: str):
+            if bg_color not in currency_fmt_cache:
+                currency_fmt_cache[bg_color] = workbook.add_format(
+                    {"num_format": f"{currency_symbol}#,##0.00", "align": "center", "bg_color": bg_color}
+                )
+            return currency_fmt_cache[bg_color]
+
+        def get_percent_fmt(bg_color: str):
+            if bg_color not in percent_fmt_cache:
+                percent_fmt_cache[bg_color] = workbook.add_format(
+                    {"num_format": "0.00%", "align": "center", "bg_color": bg_color}
+                )
+            return percent_fmt_cache[bg_color]
 
         # Build header rows (rows 0-2)
         _build_header_rows(ws, workbook, week_buckets, header_fmt, date_fmt)
@@ -104,51 +116,34 @@ def build_root_workbook(
 
         # Write data rows (starting from row 3)
         current_row = 3
-        current_block = 0
-        last_adtype_path = None
+        current_block = -1  # will increment on first AdType
+        adtype_color_map: dict[tuple, str] = {}
+        default_color = zebra_colors[0]
 
         for node in nodes:
-            # Determine row format based on hierarchy level
-            if node.level == "ProfileName":
-                row_fmt = hierarchy_bold_fmt
-            elif node.level == "PortfolioName":
-                row_fmt = hierarchy_bold_fmt
-            elif node.level == "AdType":
-                row_fmt = hierarchy_italic_bold_fmt
-                # Change block color when AdType block changes (for visual grouping)
-                adtype_path = tuple(node.full_path[:3])  # Profile + Portfolio + AdType
-                if adtype_path != last_adtype_path:
-                    current_block = (current_block + 1) % len(zebra_colors)
-                    last_adtype_path = adtype_path
+            # Determine AdType block color
+            adtype_path = tuple(node.full_path[:3]) if len(node.full_path) >= 3 else None
+            if node.level == "AdType":
+                current_block = (current_block + 1) % len(zebra_colors)
+                adtype_color_map[adtype_path] = zebra_colors[current_block]
+
+            if adtype_path and adtype_path in adtype_color_map:
+                bg_color = adtype_color_map[adtype_path]
             else:
-                row_fmt = hierarchy_fmt
+                bg_color = default_color
 
-            # Get zebra color for this block
-            bg_color = zebra_colors[current_block]
+            # Determine hierarchy style
+            if node.level in {"ProfileName", "PortfolioName"}:
+                style = "bold"
+            elif node.level == "AdType":
+                style = "italic_bold"
+            else:
+                style = "normal"
 
-            # Create formats with background color for this row
-            row_number_fmt = workbook.add_format({
-                "num_format": "#,##0",
-                "align": "center",
-                "bg_color": bg_color,
-            })
-            row_currency_fmt = workbook.add_format({
-                "num_format": f"{currency_symbol}#,##0.00",
-                "align": "center",
-                "bg_color": bg_color,
-            })
-            row_percent_fmt = workbook.add_format({
-                "num_format": "0.00%",
-                "align": "center",
-                "bg_color": bg_color,
-            })
-            row_hierarchy_fmt = workbook.add_format({
-                "align": "left",
-                "valign": "vcenter",
-                "bg_color": bg_color,
-                "bold": row_fmt.bold,
-                "italic": row_fmt.italic if hasattr(row_fmt, "italic") else False,
-            })
+            row_number_fmt = get_number_fmt(bg_color)
+            row_currency_fmt = get_currency_fmt(bg_color)
+            row_percent_fmt = get_percent_fmt(bg_color)
+            row_hierarchy_fmt = get_hierarchy_fmt(bg_color, style)
 
             # Write hierarchy label
             ws.write_string(current_row, 0, node.get_display_label(), row_hierarchy_fmt)

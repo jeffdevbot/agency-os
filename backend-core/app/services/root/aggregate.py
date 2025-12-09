@@ -28,31 +28,10 @@ class HierarchyNode:
             )
 
     def get_display_label(self) -> str:
-        """Get the display label for Excel output."""
-        if self.level == "ProfileName":
-            # Profile: just the profile name
-            return self.label
-        elif self.level == "PortfolioName":
-            # Portfolio: just the portfolio name with indent
-            return f"  {self.label}"
-        else:
-            # AdType onwards: show cumulative path from Portfolio
-            # Path format: Portfolio | AdType | Targeting | SubType | Variant
-            # Skip ProfileName (position 0), start from PortfolioName (position 1)
-            path_from_portfolio = self.full_path[1:]  # Skip ProfileName
-            path_str = ' | '.join(path_from_portfolio)
-
-            # Apply indentation based on level
-            if self.level == "AdType":
-                return f"    {path_str}"
-            elif self.level == "Targeting":
-                return f"      {path_str}"
-            elif self.level == "SubType":
-                return f"        {path_str}"
-            elif self.level == "Variant":
-                return f"          {path_str}"
-
-        return self.label
+        """Get the display label for Excel output (pipe-separated path with indent)."""
+        path_str = " | ".join(self.full_path)
+        indent = "  " * (len(self.full_path) - 1)
+        return f"{indent}{path_str}"
 
     def calculate_rates(self):
         """Calculate CTR, CVR, CPC, ACoS for each week."""
@@ -102,6 +81,7 @@ def aggregate_hierarchy(df: pd.DataFrame, week_buckets: list[WeekBucket]) -> lis
 
     # Build hierarchical structure
     nodes: dict[tuple, HierarchyNode] = {}
+    children: dict[tuple, list[tuple]] = {}
 
     # Hierarchy levels in order
     levels = ["ProfileName", "PortfolioName", "AdType", "Targeting", "SubType", "Variant"]
@@ -109,29 +89,22 @@ def aggregate_hierarchy(df: pd.DataFrame, week_buckets: list[WeekBucket]) -> lis
     for _, row in df.iterrows():
         week_num = int(row["WeekNum"])
 
-        # Build path progressively
-        current_path = []
-        for i, level in enumerate(levels):
+        current_path: list[str] = []
+        for level in levels:
             value = str(row[level]).strip()
-
-            # Skip empty levels (but keep tracking path)
             if not value:
                 break
 
             current_path.append(value)
             node_key = tuple(current_path)
 
-            # Create node if it doesn't exist
             if node_key not in nodes:
-                # Full path for display
-                full_path = current_path.copy()
                 nodes[node_key] = HierarchyNode(
                     level=level,
                     label=value,
-                    full_path=full_path,
+                    full_path=current_path.copy(),
                 )
 
-            # Add metrics to this node
             metrics = {
                 "Impression": float(row["Impression"]),
                 "Click": float(row["Click"]),
@@ -142,18 +115,29 @@ def aggregate_hierarchy(df: pd.DataFrame, week_buckets: list[WeekBucket]) -> lis
             }
             nodes[node_key].add_metrics(week_num, metrics)
 
+    # Build parent-child relationships
+    for node_key in nodes.keys():
+        if len(node_key) == 1:
+            continue
+        parent = node_key[:-1]
+        if parent in nodes:
+            children.setdefault(parent, []).append(node_key)
+
     # Calculate rates for all nodes
     for node in nodes.values():
         node.calculate_rates()
 
-    # Sort nodes alphabetically within each hierarchy level
-    # Primary sort: depth (path length), Secondary sort: alphabetical by full path
-    sorted_nodes = sorted(
-        nodes.values(),
-        key=lambda n: (len(n.full_path), n.full_path),
-    )
+    def dfs(node_key: tuple, acc: list[HierarchyNode]):
+        acc.append(nodes[node_key])
+        for child in sorted(children.get(node_key, []), key=lambda k: nodes[k].label):
+            dfs(child, acc)
 
-    return sorted_nodes
+    ordered_nodes: list[HierarchyNode] = []
+    root_keys = [k for k in nodes.keys() if len(k) == 1]
+    for root in sorted(root_keys, key=lambda k: nodes[k].label):
+        dfs(root, ordered_nodes)
+
+    return ordered_nodes
 
 
 def get_stats(nodes: list[HierarchyNode]) -> dict[str, int]:
