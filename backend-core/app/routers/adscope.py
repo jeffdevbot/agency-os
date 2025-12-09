@@ -152,6 +152,11 @@ async def run_audit(
         # Compute all views
         try:
             views = compute_all_views(bulk_df, str_df, metadata)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=f"View computation failed: {exc}"
+            ) from exc
         except Exception as exc:
             raise HTTPException(
                 status_code=500,

@@ -564,6 +564,14 @@ def compute_all_views(
     metadata: dict[str, Any],
 ) -> dict[str, Any]:
     """Compute all 13 views."""
+    # Basic column sanity checks to surface clear errors instead of KeyErrors
+    missing_str = [col for col in ["spend", "sales", "impressions", "clicks"] if col not in str_df.columns]
+    missing_bulk = [col for col in ["spend", "sales"] if col not in bulk_df.columns]
+    if missing_str:
+        raise ValueError(f"STR missing required columns: {missing_str}")
+    if missing_bulk:
+        raise ValueError(f"Bulk file missing required columns: {missing_bulk}")
+
     return {
         "overview": compute_overview(bulk_df, str_df),
         "money_pits": compute_money_pits(bulk_df),
