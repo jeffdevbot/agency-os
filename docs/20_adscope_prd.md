@@ -34,17 +34,23 @@
 - `money_pits`: top 20% by spend, max 50, sorted spend desc: `[{ asin, product_name, spend, sales, acos }]`
 - `waste_bin`: spend > 50, sales = 0, max 100, sorted spend desc: `[{ search_term, spend, clicks }]`
 - `brand_analysis`: `{ branded: { spend, sales, acos }, generic: { spend, sales, acos } }`
-- `match_types`: sorted spend desc: `[{ type, spend, acos }]`
+- `match_types`: sorted spend desc: `[{ type, spend, sales, acos, cpc }]`
 - `placements`: standard 3 placements: `[{ placement, spend, acos, cpc }]`
-- `keyword_leaderboard`: `{ best: [{ keyword, match_type, spend, sales }], worst: [{ keyword, match_type, spend, clicks }] }` (best = top 50 by sales; worst = top 50 by spend with 0 sales)
-- `budget_cappers`: max 50: `[{ campaign_name, frequency_score (0-1) }]`
+- `keyword_leaderboard`: `{ winners: [{ text, match_type, campaign, spend, sales, roas }], losers: [{ text, match_type, campaign, spend, sales, roas }] }` (winners = top 10 by sales; losers = top 10 by spend with ROAS < 2)
+- `budget_cappers`: list with utilization > 0.9: `[{ campaign_name, daily_budget, avg_daily_spend, utilization, roas }]`
+- `campaign_scatter`: `[{ id, name, spend, acos, ad_type }]`
+- `n_grams`: `[{ gram, type, spend, sales, acos, count }]` (type = 1-gram, 2-gram)
+- `duplicates`: `[{ keyword, match_type, campaign_count, campaigns }]`
+- `portfolios`: `[{ name, spend, sales, acos }]`
+- `price_sensitivity`: `[{ asin, avg_price, cvr }]`
+- `zombies`: `{ total_active_ad_groups: int, zombie_count: int, zombie_list: [str] }`
 
 ---
 
 ## 4) Frontend (React)
 - Screen 1 (Ingest): Two distinct dropzones (Bulk .xlsx, STR .csv), Brand Keywords input, “Run Audit” disabled during processing with spinner/status. Errors shown in red alert under dropzones (invalid type, missing columns, >40MB, memory).
 - Screen 2 (IDE workspace): Dark “VS Code” style. Left chat (messages, input, quick chips), right canvas swaps views with Framer Motion. Global state holds audit JSON + `activeCanvasView`.
-- Views: Overview cards/pie/funnel; Reusable TableView for money_pits/waste_bin/leaderboard; BrandAnalysis stacked bar; GroupedChart for match_types/placements; Budget cappers list.
+- Views: Overview cards/pie/funnel (initial). Additional views summoned via AI/tool calls: money_pits, waste_bin, keyword_leaderboard, brand_analysis, match_types, placements, budget_cappers, campaign_scatter, n_grams, duplicates, portfolios, price_sensitivity, zombies. Recharts components: pie/donut, funnel bars, grouped bars, scatter, and tables.
 - Empty state: Keep tab, render “No data” message inside the canvas.
 
 ### Formatting (frontend)
@@ -55,7 +61,7 @@
 
 ## 5) AI Tooling
 - Persona: “Senior Ad Auditor” — direct, data-driven.
-- Tool: `change_canvas_view(view_id: str)`; allowed: `['overview','money_pits','waste_bin','brand_analysis','match_types','placements','keyword_leaderboard','budget_cappers']`.
+- Tool: `change_canvas_view(view_id: str)`; allowed: `['overview','money_pits','waste_bin','brand_analysis','match_types','placements','keyword_leaderboard','budget_cappers','campaign_scatter','n_grams','duplicates','portfolios','price_sensitivity','zombies']`.
 - Guardrail: If user asks for a non-existent view, do NOT call tool; explain it’s unavailable and suggest closest existing view.
 
 ---
