@@ -126,6 +126,7 @@
   - `keyword`: ['Keyword Text', 'Targeting Expression']
 - **Cleaning:** Convert spend/sales/clicks/impressions to numeric (strip $, commas; treat non-numeric like “-” as 0). Keep rows unfiltered initially (Campaign rows for budget; Ad Group rows for spend/sales; Product Ad rows for ASIN; Keyword rows for match/keyword).
 - **RAS tab:** Present but not primary; prioritize Sponsored Products tab by heuristic. If future logic needs RAS, add a specific mapper.
+- **Schema reference:** Tab names and observed headers captured in `docs/21_adscope_schema.md`; update as new exports appear.
 
 ---
 
