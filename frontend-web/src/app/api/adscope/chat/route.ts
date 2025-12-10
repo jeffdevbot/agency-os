@@ -99,8 +99,14 @@ function buildDataSummary(auditData: AuditResponse): string {
 - Duplicates: ${views.duplicates.length} keywords in multiple campaigns`;
 }
 
+import { createSupabaseServiceClient } from "@/lib/supabase/serverClient";
+import { logUsage } from "@/lib/ai/usageLogger";
+
 export async function POST(request: Request) {
   try {
+    const supabase = createSupabaseServiceClient();
+    const { data: { user } } = await supabase.auth.getUser();
+
     const body = await request.json().catch(() => null);
     if (!body || !body.userMessage || !body.auditData || !Array.isArray(body.conversationHistory)) {
       return NextResponse.json({ detail: "Invalid request body" }, { status: 400 });
@@ -135,6 +141,23 @@ export async function POST(request: Request) {
           console.error("Failed to parse tool call arguments:", e);
         }
       }
+    }
+
+    // Log usage if user is authenticated
+    if (user) {
+      await logUsage({
+        tool: "adscope",
+        userId: user.id,
+        projectId: undefined, // AdScope audits are currently ephemeral
+        promptTokens: result.tokensIn,
+        completionTokens: result.tokensOut,
+        totalTokens: result.tokensTotal,
+        model: result.model,
+        meta: {
+          has_audit_data: true,
+          switch_to_view: switchToView
+        }
+      });
     }
 
     const assistantMessage = result.content || "I've switched to that view for you.";

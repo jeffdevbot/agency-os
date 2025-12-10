@@ -1,7 +1,7 @@
 import { createSupabaseServiceClient } from "@/lib/supabase/serverClient";
 import { generateTopicsForSku } from "./topicsGenerator";
 import { generateCopyForSku } from "./copyGenerator";
-import { logUsage } from "./usageLogger";
+import { logUsage } from "@/lib/ai/usageLogger";
 
 interface JobPayload {
   projectId: string;
