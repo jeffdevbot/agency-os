@@ -58,7 +58,8 @@ export default function ScribeDashboardPage() {
   const [showArchived, setShowArchived] = useState(false);
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data, error }) => {
+    supabase.auth.getUser().then((res) => {
+      const { data, error } = res;
       if (!error) {
         setIsAuthenticated(!!data.user);
       }

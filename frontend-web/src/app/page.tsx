@@ -13,7 +13,8 @@ export default function Home() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data, error }) => {
+    supabase.auth.getUser().then((res) => {
+      const { data, error } = res;
       if (!error) {
         setUser(data.user ?? null);
       }
