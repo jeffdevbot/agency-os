@@ -99,12 +99,12 @@ function buildDataSummary(auditData: AuditResponse): string {
 - Duplicates: ${views.duplicates.length} keywords in multiple campaigns`;
 }
 
-import { createSupabaseServiceClient } from "@/lib/supabase/serverClient";
+import { createSupabaseRouteClient } from "@/lib/supabase/serverClient";
 import { logUsage } from "@/lib/ai/usageLogger";
 
 export async function POST(request: Request) {
   try {
-    const supabase = createSupabaseServiceClient();
+    const supabase = await createSupabaseRouteClient();
     const { data: { user } } = await supabase.auth.getUser();
 
     const body = await request.json().catch(() => null);
