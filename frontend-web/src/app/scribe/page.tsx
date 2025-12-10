@@ -58,13 +58,14 @@ export default function ScribeDashboardPage() {
   const [showArchived, setShowArchived] = useState(false);
 
   useEffect(() => {
-    supabase.auth.getUser().then((res) => {
-      const { data, error } = res;
+    const loadUser = async () => {
+      const { data, error } = await supabase.auth.getUser();
       if (!error) {
         setIsAuthenticated(!!data.user);
       }
       setSessionChecked(true);
-    });
+    };
+    loadUser();
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (_event: AuthChangeEvent) => {

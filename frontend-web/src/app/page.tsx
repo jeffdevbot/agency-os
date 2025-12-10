@@ -13,13 +13,14 @@ export default function Home() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    supabase.auth.getUser().then((res) => {
-      const { data, error } = res;
+    const loadUser = async () => {
+      const { data, error } = await supabase.auth.getUser();
       if (!error) {
         setUser(data.user ?? null);
       }
       setAuthLoading(false);
-    });
+    };
+    loadUser();
 
     const {
       data: { subscription },
