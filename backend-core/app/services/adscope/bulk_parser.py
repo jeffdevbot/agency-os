@@ -71,47 +71,61 @@ def fuzzy_match_column(col_name: str, candidates: list[str]) -> bool:
     return False
 
 
-def select_bulk_tab(excel_file: pd.ExcelFile) -> tuple[str, list[str]]:
-    """
-    Select the best tab from Bulk Excel file.
 
+CAMPAIGN_TAB_PATTERNS = {
+    "SP": ["Sponsored Products Campaigns", "Sponsored Products", "SP Campaigns"],
+    "SB": ["Sponsored Brands Campaigns", "Sponsored Brands", "SB Campaigns"],
+    "SD": ["Sponsored Display Campaigns", "Sponsored Display", "SD Campaigns"],
+    # Lower priority fallbacks if we want to catch generic names
+    "Generic": ["Bulk Sheet", "Search Terms"]
+}
+
+
+def identify_campaign_tabs(excel_file: pd.ExcelFile) -> list[str]:
+    """
+    Identify all relevant campaign tabs to process.
+    
     Returns:
-        Tuple of (selected_sheet_name, warnings)
+        List of sheet names.
     """
-    warnings = []
     sheet_names = excel_file.sheet_names
-
-    # Prefer explicitly named Bulk/STR tabs if present
-    for explicit in EXPLICIT_BULK_TAB_NAMES:
-        if explicit in sheet_names:
-            return explicit, warnings
-
-    # Prefer Sponsored Products tab
-    for preferred in PREFERRED_SP_TAB_NAMES:
-        if preferred in sheet_names:
-            return preferred, warnings
-
-    # Heuristic: find tab with required columns
+    selected_tabs = []
+    
+    # 1. Look for specific ad type tabs (SP, SB, SD)
+    for ad_type, patterns in CAMPAIGN_TAB_PATTERNS.items():
+        if ad_type == "Generic":
+            continue
+        for pattern in patterns:
+            if pattern in sheet_names:
+                selected_tabs.append(pattern)
+                break # Only take the first match per ad type to avoid dupe processing if files vary
+    
+    # 2. If we found specific tabs, return them
+    if selected_tabs:
+        return selected_tabs
+        
+    # 3. Fallback: Generic names (only if no specific tabs found)
+    for pattern in CAMPAIGN_TAB_PATTERNS["Generic"]:
+        if pattern in sheet_names:
+            return [pattern]
+            
+    # 4. Last Resort: Heuristic scan for ANY valid tab (same as before)
+    # We return the first one that looks like a bulk sheet
     for sheet in sheet_names:
         try:
-            df = excel_file.parse(sheet, nrows=5)  # Read first 5 rows to check headers
+            df = excel_file.parse(sheet, nrows=5)
             columns = df.columns.tolist()
-
-            # Check if critical headers are present
+            
             has_entity = any(fuzzy_match_column(str(col), ["Entity", "Record Type"]) for col in columns)
             has_campaign = any(fuzzy_match_column(str(col), ["Campaign ID", "Campaign Name"]) for col in columns)
-            has_spend = any(fuzzy_match_column(str(col), ["Spend", "Cost"]) for col in columns)
-            has_sales = any(fuzzy_match_column(str(col), ["Sales"]) for col in columns)
-
-            if has_entity and has_campaign and has_spend and has_sales:
-                warnings.append(f"Using tab '{sheet}' (detected critical columns)")
-                return sheet, warnings
+            
+            if has_entity and has_campaign:
+                return [sheet]
         except Exception:
             continue
-
+            
     raise ValueError(
-        f"Could not find a tab with required columns (Entity, Campaign ID/Name, Spend, Sales). "
-        f"Available tabs: {sheet_names}"
+        f"Could not find any recognized campaign tabs. Available tabs: {sheet_names}"
     )
 
 
@@ -127,12 +141,17 @@ def map_bulk_columns(df: pd.DataFrame) -> dict[str, str]:
                 break
 
     # Check for required columns
+    # Relaxed requirement: We might have partial data in some tabs, 
+    # but we need at least Entity and Spend/Sales to be useful.
+    # We will log warnings for missing cols instead of crashing hard on multi-tab.
     missing = [key for key in REQUIRED_BULK_COLUMNS if key not in column_map]
     if missing:
         found_cols = [str(c) for c in df_columns[:20]]
-        raise ValueError(
-            f"Missing required Bulk columns: {missing}. Found columns: {found_cols}"
-        )
+        # raise ValueError(
+        #     f"Missing required Bulk columns: {missing}. Found columns: {found_cols}"
+        # )
+        # For now, let's keep raising error but maybe catch it in the loop
+        pass 
 
     return column_map
 
@@ -156,24 +175,13 @@ def clean_numeric(series: pd.Series) -> pd.Series:
     return pd.to_numeric(s, errors="coerce").fillna(0.0)
 
 
-def parse_bulk_file(
-    excel_file: pd.ExcelFile,
-) -> tuple[pd.DataFrame, dict[str, Any]]:
-    """
-    Parse Bulk Operations Excel file.
-
-    Args:
-        excel_file: pd.ExcelFile object
-
-    Returns:
-        Tuple of (cleaned DataFrame, metadata dict with warnings and dates)
-    """
-    # Select correct tab
-    sheet_name, warnings = select_bulk_tab(excel_file)
-
-    # Read the sheet
-    df = excel_file.parse(sheet_name)
-
+def _process_single_sheet(
+    df: pd.DataFrame, 
+    sheet_name: str
+) -> tuple[pd.DataFrame, list[str]]:
+    """Process a single sheet: reheader, map columns, clean types."""
+    warnings = []
+    
     def _try_reheader(frame: pd.DataFrame) -> pd.DataFrame:
         """Attempt to find the real header row within the first 15 rows."""
         max_scan = min(len(frame), 15)
@@ -184,24 +192,36 @@ def parse_bulk_file(
             reheadered = frame.iloc[idx + 1 :].copy()
             reheadered.columns = header_candidate
             try:
-                map_bulk_columns(reheadered)
-                return reheadered
+                # Quick check if mapping works
+                m = map_bulk_columns(reheadered)
+                if all(k in m for k in ["entity", "spend"]): # Min viable
+                    return reheadered
             except ValueError:
                 continue
         return frame
 
-    # Map columns
+    # 1. Map columns (try reheader if needed)
     try:
         col_map = map_bulk_columns(df)
+        # If crucial columns missing, try reheader
+        if "entity" not in col_map or "spend" not in col_map:
+             df = _try_reheader(df)
+             col_map = map_bulk_columns(df)
     except ValueError:
         df = _try_reheader(df)
         col_map = map_bulk_columns(df)
 
-    # Rename to internal keys
+    # 2. Check required columns again
+    missing = [key for key in REQUIRED_BULK_COLUMNS if key not in col_map]
+    if missing:
+        warnings.append(f"Sheet '{sheet_name}' skipped: Missing required columns {missing}")
+        return pd.DataFrame(), warnings
+
+    # 3. Rename
     rename_map = {v: k for k, v in col_map.items()}
     df = df.rename(columns=rename_map)
 
-    # Clean numeric columns
+    # 4. Clean numerics
     numeric_cols = ["spend", "sales", "clicks", "impressions"]
     if "orders" in df.columns:
         numeric_cols.append("orders")
@@ -216,31 +236,74 @@ def parse_bulk_file(
         if col in df.columns:
             df[col] = clean_numeric(df[col])
 
-    # Parse dates if present
-    metadata = {"warnings": warnings}
-
+    # 5. Dates
     if "start_date" in df.columns:
         df["start_date"] = pd.to_datetime(df["start_date"], errors="coerce")
-        metadata["bulk_start_date"] = df["start_date"].min()
-
     if "end_date" in df.columns:
         df["end_date"] = pd.to_datetime(df["end_date"], errors="coerce")
-        metadata["bulk_end_date"] = df["end_date"].max()
 
-    # Currency detection
-    if "currency" in df.columns:
-        currency_values = df["currency"].dropna().unique()
-        if len(currency_values) > 0:
-            if "currency_code" not in metadata:
-                metadata["currency_code"] = str(currency_values[0])
-        else:
-            if "currency_code" not in metadata:
-                metadata["currency_code"] = "USD"
-    else:
-        if "currency_code" not in metadata:
-            metadata["currency_code"] = "USD"
+    # 6. Add source tab info (optional, helpful for debug)
+    df["_source_tab"] = sheet_name
 
-    # Don't filter rows - preserve all entity types for later processing
-    # (Campaign rows needed for budget, Ad Group for spend, Keyword for analysis, etc.)
+    return df, warnings
 
-    return df, metadata
+
+def parse_bulk_file(
+    excel_file: pd.ExcelFile,
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """
+    Parse Bulk Operations Excel file (multi-tab).
+
+    Args:
+        excel_file: pd.ExcelFile object
+
+    Returns:
+        Tuple of (merged DataFrame, metadata dict with warnings and dates)
+    """
+    target_sheets = identify_campaign_tabs(excel_file)
+    
+    dfs = []
+    all_warnings = [f"Processing tabs: {', '.join(target_sheets)}"]
+    
+    metadata = {}
+    
+    for sheet in target_sheets:
+        try:
+            raw_df = excel_file.parse(sheet)
+            processed_df, sheet_warnings = _process_single_sheet(raw_df, sheet)
+            
+            if sheet_warnings:
+                all_warnings.extend(sheet_warnings)
+                
+            if not processed_df.empty:
+                dfs.append(processed_df)
+                
+                # Metadata extraction (best effort from first valid sheet)
+                if "currency_code" not in metadata:
+                    if "currency" in processed_df.columns:
+                        vals = processed_df["currency"].dropna().unique()
+                        if len(vals) > 0:
+                            metadata["currency_code"] = str(vals[0])
+        except Exception as e:
+            all_warnings.append(f"Error processing sheet '{sheet}': {str(e)}")
+            continue
+            
+    if not dfs:
+        raise ValueError("No valid data found in any of the campaign tabs.")
+        
+    # Merge all
+    final_df = pd.concat(dfs, ignore_index=True)
+    
+    # Global metadata
+    if "start_date" in final_df.columns:
+        metadata["bulk_start_date"] = final_df["start_date"].min()
+    if "end_date" in final_df.columns:
+        metadata["bulk_end_date"] = final_df["end_date"].max()
+        
+    if "currency_code" not in metadata:
+        metadata["currency_code"] = "USD"
+        
+    metadata["warnings"] = all_warnings
+    
+    return final_df, metadata
+
