@@ -23,14 +23,6 @@ def _ensure_required_column(df: pd.DataFrame, target: str) -> pd.DataFrame:
         if _normalize_header(col) == _normalize_header(target):
             df = df.rename(columns={col: target})
             break
-    else:
-        # For spend specifically, fall back to any column containing "spend"
-        if target == "spend":
-            for col in df.columns:
-                norm = _normalize_header(col)
-                if "spend" in norm:
-                    df = df.rename(columns={col: target})
-                    break
     return df
 
 def compute_overview(bulk_df: pd.DataFrame, str_df: pd.DataFrame) -> dict[str, Any]:

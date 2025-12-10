@@ -65,6 +65,14 @@ def map_columns(df: pd.DataFrame) -> dict[str, str]:
                 column_map[internal_key] = df_col
                 break
 
+    # Extra spend detection: look for any column containing "spend" but not ROAS/ACOS
+    if "spend" not in column_map:
+        for df_col in df_columns:
+            norm = _normalize_header(df_col)
+            if "spend" in norm and "returnonadvertisingspend" not in norm and "roas" not in norm and "acos" not in norm:
+                column_map["spend"] = df_col
+                break
+
     # Check for required columns
     missing = [key for key in REQUIRED_STR_COLUMNS if key not in column_map]
     if missing:
