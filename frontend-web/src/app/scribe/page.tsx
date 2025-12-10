@@ -41,12 +41,6 @@ const STATUS_LABELS: Record<ScribeProjectStatus, string> = {
   archived: "Archived",
 };
 
-const formatDate = (value: string | null | undefined) => {
-  if (!value) return "—";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString();
-};
-
 export default function ScribeDashboardPage() {
   const supabase = useMemo(() => getBrowserSupabaseClient(), []);
   const [sessionChecked, setSessionChecked] = useState(false);
@@ -228,7 +222,6 @@ export default function ScribeDashboardPage() {
                     <th className="py-2 pr-4">Name</th>
                     <th className="py-2 pr-4">Locale</th>
                     <th className="py-2 pr-4">Status</th>
-                    <th className="py-2 pr-4">Updated</th>
                     <th className="py-2 pr-4">Actions</th>
                   </tr>
                 </thead>
@@ -249,7 +242,6 @@ export default function ScribeDashboardPage() {
                       <td className="py-2 pr-4 text-slate-700">
                         {project.status ? STATUS_LABELS[project.status] : "—"}
                       </td>
-                      <td className="py-2 pr-4 text-slate-600">{formatDate(project.updatedAt)}</td>
                       <td className="py-2 pr-4">
                         {project.status === "archived" ? (
                           <button
