@@ -66,10 +66,18 @@ def fuzzy_match_column(col_name: str, candidates: list[str]) -> bool:
         if cand_norm == "spend" and len(col_norm) > 5:
             if "return" in col_norm or "roas" in col_norm or "acos" in col_norm:
                 continue
+        # SYMMETRIC FIX: Prevent "Spend" column from matching compound "ROAS" candidate
+        if col_norm == "spend" and len(cand_norm) > 5:
+            if "return" in cand_norm or "roas" in cand_norm or "acos" in cand_norm:
+                continue
 
         # Prevent "cost" from matching CPC or other cost-per-X metrics
         if cand_norm == "cost" and len(col_norm) > 4:
             if "perclick" in col_norm or "cpc" in col_norm or "per" in col_norm:
+                continue
+        # SYMMETRIC FIX: Prevent "Cost" column from matching compound "CPC" candidate
+        if col_norm == "cost" and len(cand_norm) > 4:
+             if "perclick" in cand_norm or "cpc" in cand_norm or "per" in cand_norm:
                 continue
 
         # Prevent generic terms from matching overly specific compound metrics
