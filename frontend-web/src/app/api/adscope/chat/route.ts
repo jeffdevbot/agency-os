@@ -105,13 +105,7 @@ import { logUsage } from "@/lib/ai/usageLogger";
 export async function POST(request: Request) {
   try {
     const supabase = await createSupabaseRouteClient();
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
-
-    console.log("[AdScope Chat] User session check:", {
-      hasUser: !!user,
-      userId: user?.id,
-      userError: userError?.message,
-    });
+    const { data: { user } } = await supabase.auth.getUser();
 
     const body = await request.json().catch(() => null);
     if (!body || !body.userMessage || !body.auditData || !Array.isArray(body.conversationHistory)) {
@@ -151,13 +145,6 @@ export async function POST(request: Request) {
 
     // Log usage if user is authenticated
     if (user) {
-      console.log("[AdScope Chat] About to log usage:", {
-        userId: user.id,
-        tokensIn: result.tokensIn,
-        tokensOut: result.tokensOut,
-        model: result.model,
-      });
-
       await logUsage({
         tool: "adscope",
         userId: user.id,
@@ -171,10 +158,6 @@ export async function POST(request: Request) {
           switch_to_view: switchToView
         }
       });
-
-      console.log("[AdScope Chat] logUsage call completed");
-    } else {
-      console.warn("[AdScope Chat] Skipping usage logging - no user session");
     }
 
     const assistantMessage = result.content || "I've switched to that view for you.";

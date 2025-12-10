@@ -20,10 +20,7 @@ interface UsageLogParams {
  */
 export const logUsage = async (params: UsageLogParams): Promise<void> => {
     try {
-        console.log("[usageLogger] Starting logUsage for tool:", params.tool);
-
         const supabase = createSupabaseServiceClient();
-        console.log("[usageLogger] Service client created");
 
         // Construct payload, omitting undefined
         const payload: Record<string, unknown> = {
@@ -47,25 +44,16 @@ export const logUsage = async (params: UsageLogParams): Promise<void> => {
             payload.meta = params.meta;
         }
 
-        console.log("[usageLogger] Payload prepared:", JSON.stringify(payload, null, 2));
-
-        const { data, error } = await supabase.from("ai_token_usage").insert(payload);
+        const { error } = await supabase.from("ai_token_usage").insert(payload);
 
         if (error) {
-            console.error("[usageLogger] Supabase insert error:", {
-                message: error.message,
+            console.error("[usageLogger] Failed to log usage:", {
+                tool: params.tool,
+                error: error.message,
                 code: error.code,
-                details: error.details,
-                hint: error.hint,
             });
-        } else {
-            console.log("[usageLogger] Insert successful, data:", data);
         }
     } catch (error) {
-        console.error("[usageLogger] Caught exception:", {
-            error,
-            message: error instanceof Error ? error.message : String(error),
-            stack: error instanceof Error ? error.stack : undefined,
-        });
+        console.error("[usageLogger] Exception:", error instanceof Error ? error.message : String(error));
     }
 };
