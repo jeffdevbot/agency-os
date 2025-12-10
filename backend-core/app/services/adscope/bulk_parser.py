@@ -221,6 +221,10 @@ def _process_single_sheet(
     rename_map = {v: k for k, v in col_map.items()}
     df = df.rename(columns=rename_map)
 
+    # Clean Entity column (critical for filtering)
+    if "entity" in df.columns:
+        df["entity"] = df["entity"].astype(str).str.strip().str.title()
+
     # 4. Clean numerics
     numeric_cols = ["spend", "sales", "clicks", "impressions"]
     if "orders" in df.columns:
