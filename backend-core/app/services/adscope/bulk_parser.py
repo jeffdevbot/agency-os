@@ -62,12 +62,34 @@ def _normalize_header(value: str) -> str:
 
 
 def fuzzy_match_column(col_name: str, candidates: list[str]) -> bool:
-    """Check if column name matches any candidate (case-insensitive)."""
+    """
+    Check if column name matches any candidate (case-insensitive).
+    Includes protections against false positives (e.g. "Cost Type" matching "Cost").
+    """
     col_norm = _normalize_header(col_name)
+    
+    # First pass: exact match (normalized)
     for cand in candidates:
         cand_norm = _normalize_header(cand)
-        if col_norm == cand_norm or cand_norm in col_norm or col_norm in cand_norm:
+        if col_norm == cand_norm:
             return True
+
+    # Second pass: substring matching with exclusions
+    for cand in candidates:
+        cand_norm = _normalize_header(cand)
+        
+        # Prevent "Cost Type" / "Cost Model" from matching "Cost" (spend)
+        if cand_norm in ["cost", "spend"] and len(col_norm) > len(cand_norm):
+            if "type" in col_norm or "model" in col_norm:
+                continue
+                
+        # Prevent "Spend" from matching "ROAS" candidates (symmetric protection)
+        if col_norm == "spend" and ("roas" in cand_norm or "return" in cand_norm):
+            continue
+            
+        if cand_norm in col_norm or col_norm in cand_norm:
+            return True
+            
     return False
 
 
