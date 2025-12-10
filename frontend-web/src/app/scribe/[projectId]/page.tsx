@@ -147,22 +147,72 @@ export default function StageAPage() {
         }
     };
 
-    const handleDownloadCsv = () => {
-        const skuData = skus.map((sku) => ({
-            sku_code: sku.skuCode,
-            product_name: sku.productName,
-            asin: sku.asin,
-            brand_tone: sku.brandTone,
-            target_audience: sku.targetAudience,
-            supplied_content: sku.suppliedContent,
-            words_to_avoid: sku.wordsToAvoid,
-            keywords: [], // TODO: Fetch keywords
-            questions: [], // TODO: Fetch questions
-            customAttributes: {}, // TODO: Fetch custom attribute values
-        }));
+    const handleDownloadCsv = async () => {
+        try {
+            // Fetch all keywords and questions
+            const [keywordsRes, questionsRes] = await Promise.all([
+                fetch(`/api/scribe/projects/${projectId}/keywords`),
+                fetch(`/api/scribe/projects/${projectId}/questions`),
+            ]);
 
-        const csv = generateCsvTemplate(skuData, customAttributes);
-        downloadCsv(`${project?.name || "scribe"}_skus.csv`, csv);
+            const keywordsData = keywordsRes.ok ? await keywordsRes.json() : [];
+            const questionsData = questionsRes.ok ? await questionsRes.json() : [];
+
+            const keywordMap: Record<string, string[]> = {};
+            keywordsData.forEach((kw: any) => {
+                const skuId = kw.skuId || kw.sku_id;
+                if (!skuId) return;
+                keywordMap[skuId] = keywordMap[skuId] || [];
+                if (kw.keyword) keywordMap[skuId].push(kw.keyword);
+            });
+
+            const questionMap: Record<string, string[]> = {};
+            questionsData.forEach((q: any) => {
+                const skuId = q.skuId || q.sku_id;
+                if (!skuId) return;
+                questionMap[skuId] = questionMap[skuId] || [];
+                if (q.question) questionMap[skuId].push(q.question);
+            });
+
+            // Fetch custom attribute values per attribute
+            const attrValueMap: Record<string, Record<string, string>> = {};
+            await Promise.all(
+                variantAttributes.map(async (attr) => {
+                    try {
+                        const res = await fetch(`/api/scribe/projects/${projectId}/variant-attributes/${attr.id}/values`);
+                        if (!res.ok) return;
+                        const values = await res.json();
+                        values.forEach((v: any) => {
+                            const skuId = v.skuId || v.sku_id;
+                            if (!skuId) return;
+                            attrValueMap[skuId] = attrValueMap[skuId] || {};
+                            attrValueMap[skuId][attr.name] = v.value || "";
+                        });
+                    } catch (err) {
+                        console.error(`Error fetching values for ${attr.name}:`, err);
+                    }
+                })
+            );
+
+            const skuData = skus.map((sku) => ({
+                sku_code: sku.skuCode,
+                product_name: sku.productName,
+                asin: sku.asin,
+                brand_tone: sku.brandTone,
+                target_audience: sku.targetAudience,
+                supplied_content: sku.suppliedContent,
+                words_to_avoid: sku.wordsToAvoid,
+                keywords: keywordMap[sku.id] || [],
+                questions: questionMap[sku.id] || [],
+                customAttributes: attrValueMap[sku.id] || {},
+            }));
+
+            const csv = generateCsvTemplate(skuData, customAttributes);
+            downloadCsv(`${project?.name || "scribe"}_skus.csv`, csv);
+        } catch (err) {
+            console.error("Download CSV failed:", err);
+            alert(err instanceof Error ? err.message : "Failed to download CSV");
+        }
     };
 
     const handleUploadCsv = async (e: React.ChangeEvent<HTMLInputElement>) => {
