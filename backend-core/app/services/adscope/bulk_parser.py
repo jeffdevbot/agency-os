@@ -245,6 +245,21 @@ def _process_single_sheet(
     # 6. Add source tab info (optional, helpful for debug)
     df["_source_tab"] = sheet_name
 
+    # 7. Backfill "product" column if missing (critical for Ad Type Mix)
+    if "product" not in df.columns:
+        # Infer from sheet name patterns
+        normalized_sheet = sheet_name.lower()
+        if "sponsored products" in normalized_sheet:
+            df["product"] = "Sponsored Products"
+        elif "sponsored brands" in normalized_sheet:
+            df["product"] = "Sponsored Brands"
+        elif "sponsored display" in normalized_sheet:
+            df["product"] = "Sponsored Display"
+    
+    # 8. Backfill "entity" if missing (fallback specific to SD/SB sometimes)
+    # If we are in a known campaign tab but Entity is missing, assume Campaign rows if they look like it
+    # (Skipping for now to avoid over-engineering, focus on Product backfill)
+
     return df, warnings
 
 

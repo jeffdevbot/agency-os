@@ -27,18 +27,28 @@ def _ensure_required_column(df: pd.DataFrame, target: str) -> pd.DataFrame:
 
 def compute_overview(bulk_df: pd.DataFrame, str_df: pd.DataFrame) -> dict[str, Any]:
     """Compute overview metrics."""
-    # Use STR for top-level metrics (more accurate)
-    total_spend = float(str_df["spend"].sum())
-    total_sales = float(str_df["sales"].sum())
-    total_impressions = float(str_df["impressions"].sum())
-    total_clicks = float(str_df["clicks"].sum())
-    total_orders = float(str_df["orders"].sum()) if "orders" in str_df.columns else 0.0
+    # Use Bulk for top-level metrics to include all ad types (SP, SB, SD)
+    # Filter for Entity="Campaign" to avoid double counting
+    campaign_rows = bulk_df[bulk_df["entity"] == "Campaign"].copy()
+    
+    if not campaign_rows.empty:
+        total_spend = float(campaign_rows["spend"].sum())
+        total_sales = float(campaign_rows["sales"].sum())
+        total_impressions = float(campaign_rows["impressions"].sum())
+        total_clicks = float(campaign_rows["clicks"].sum())
+        total_orders = float(campaign_rows["orders"].sum()) if "orders" in campaign_rows.columns else 0.0
+    else:
+        # Fallback to STR if Bulk has no campaigns (unlikely but safe)
+        total_spend = float(str_df["spend"].sum())
+        total_sales = float(str_df["sales"].sum())
+        total_impressions = float(str_df["impressions"].sum())
+        total_clicks = float(str_df["clicks"].sum())
+        total_orders = float(str_df["orders"].sum()) if "orders" in str_df.columns else 0.0
 
     acos = total_spend / total_sales if total_sales > 0 else 0.0
     roas = total_sales / total_spend if total_spend > 0 else 0.0
 
     # Ad type mix from Bulk (Entity='Campaign' with Product column)
-    campaign_rows = bulk_df[bulk_df["entity"] == "Campaign"].copy()
     if "product" in campaign_rows.columns:
         ad_type_spend = campaign_rows.groupby("product")["spend"].sum().to_dict()
         total_campaign_spend = sum(ad_type_spend.values())
