@@ -55,6 +55,7 @@ export default function ScribeDashboardPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [formLoading, setFormLoading] = useState(false);
   const [refreshTick, setRefreshTick] = useState(0);
+  const [showArchived, setShowArchived] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }: { data: { session: Session | null } }) => {
@@ -136,6 +137,8 @@ export default function ScribeDashboardPage() {
     setRefreshTick((t) => t + 1);
   };
 
+  const activeProjects = projects.filter((p) => p.status !== "archived");
+  const archivedProjects = projects.filter((p) => p.status === "archived");
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   if (!sessionChecked) {
@@ -204,16 +207,28 @@ export default function ScribeDashboardPage() {
 
         <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
           <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-lg font-medium text-slate-900">Projects</h2>
+            <div className="flex items-center gap-3">
+              <h2 className="text-lg font-medium text-slate-900">
+                {showArchived ? "Archived Projects" : "Projects"}
+              </h2>
+              <button
+                className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                onClick={() => setShowArchived((prev) => !prev)}
+              >
+                {showArchived ? "View Active" : `View Archive (${archivedProjects.length})`}
+              </button>
+            </div>
             <div className="text-xs text-slate-500">
-              Page {page} of {totalPages} — {total} total
+              Page {page} of {totalPages} — {showArchived ? archivedProjects.length : activeProjects.length} shown
             </div>
           </div>
           {error ? <p className="mb-3 text-sm text-red-600">{error}</p> : null}
           {loading ? (
             <p className="text-sm text-slate-600">Loading…</p>
-          ) : projects.length === 0 ? (
-            <p className="text-sm text-slate-600">No projects yet.</p>
+          ) : (showArchived ? archivedProjects.length === 0 : activeProjects.length === 0) ? (
+            <p className="text-sm text-slate-600">
+              {showArchived ? "No archived projects." : "No projects yet."}
+            </p>
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full text-left text-sm text-slate-800">
@@ -226,7 +241,7 @@ export default function ScribeDashboardPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {projects.map((project) => (
+                  {(showArchived ? archivedProjects : activeProjects).map((project) => (
                     <tr key={project.id} className="border-b border-slate-100">
                       <td className="py-2 pr-4 font-medium text-slate-900">
                         <a
