@@ -25,14 +25,14 @@ export const logUsage = async (params: UsageLogParams): Promise<void> => {
         // Construct payload, omitting undefined
         const payload: Record<string, unknown> = {
             tool: params.tool,
-            project_id: params.projectId,
+            project_id: params.projectId ?? null,
             user_id: params.userId,
-            job_id: params.jobId,
-            sku_id: params.skuId,
-            prompt_tokens: params.promptTokens,
-            completion_tokens: params.completionTokens,
-            total_tokens: params.totalTokens,
-            model: params.model,
+            job_id: params.jobId ?? null,
+            sku_id: params.skuId ?? null,
+            prompt_tokens: params.promptTokens ?? null,
+            completion_tokens: params.completionTokens ?? null,
+            total_tokens: params.totalTokens ?? null,
+            model: params.model ?? null,
         };
 
         // Write stage to its own column, everything else to meta
