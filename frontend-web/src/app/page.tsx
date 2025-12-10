@@ -135,8 +135,7 @@ export default function Home() {
                     </Link>
                   </div>
 
-                  <div className="rounded-2xl bg-white/50 backdrop-blur border border-white/40 shadow-md p-8 flex flex-col gap-5 text-left relative overflow-hidden">
-                    <div className="absolute right-4 top-4 rounded-full bg-[#0a6fd6] px-3 py-1 text-xs font-semibold text-white shadow">Coming Soon</div>
+                  <div className="rounded-2xl bg-white/50 backdrop-blur border border-white/40 shadow-md hover:shadow-xl transition-all hover:-translate-y-0.5 p-8 flex flex-col gap-5 text-left">
                     <div className="flex items-start gap-3">
                       <span className="text-2xl">📝</span>
                       <div className="space-y-1">
@@ -146,9 +145,30 @@ export default function Home() {
                         </p>
                       </div>
                     </div>
-                    <div className="flex items-center justify-between rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-[#94a3b8] shadow">
-                      Coming Soon <span aria-hidden="true">→</span>
+                    <Link
+                      href="/scribe"
+                      className="flex items-center justify-between rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-[#0a6fd6] shadow transition hover:-translate-y-0.5 hover:shadow-lg"
+                    >
+                      Launch <span aria-hidden="true">→</span>
+                    </Link>
+                  </div>
+
+                  <div className="rounded-2xl bg-white/50 backdrop-blur border border-white/40 shadow-md hover:shadow-xl transition-all hover:-translate-y-0.5 p-8 flex flex-col gap-5 text-left">
+                    <div className="flex items-start gap-3">
+                      <span className="text-2xl">🌳</span>
+                      <div className="space-y-1">
+                        <p className="text-lg font-semibold text-[#0f172a]">Root Keyword Analysis</p>
+                        <p className="text-base leading-relaxed text-[#4c576f]">
+                          Upload a Campaign Report and get 4-week, Sunday–Saturday rollups by portfolio/ad type/targeting with formatted Excel output.
+                        </p>
+                      </div>
                     </div>
+                    <Link
+                      href="/root-keywords"
+                      className="flex items-center justify-between rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-[#0a6fd6] shadow transition hover:-translate-y-0.5 hover:shadow-lg"
+                    >
+                      Launch <span aria-hidden="true">→</span>
+                    </Link>
                   </div>
                 </div>
               </div>
