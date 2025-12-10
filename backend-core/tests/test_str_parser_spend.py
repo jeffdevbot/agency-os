@@ -138,3 +138,64 @@ def test_missing_spend_column_error():
     error_msg = str(exc_info.value)
     assert "spend" in error_msg.lower()
     assert "Missing required STR columns" in error_msg or "CRITICAL" in error_msg
+
+
+def test_cpc_not_confused_with_spend():
+    """Test that CPC column is not mistaken for Spend."""
+    df = pd.DataFrame({
+        "Start Date": ["2024-01-01"],
+        "End Date": ["2024-01-31"],
+        "Campaign Name": ["Test Campaign"],
+        "Ad Group Name": ["Test Ad Group"],
+        "Customer Search Term": ["test keyword"],
+        "Match Type": ["Exact"],
+        "Impressions": [100],
+        "Clicks": [10],
+        "Spend": [50.0],  # Real spend column
+        "Cost Per Click (CPC)": [5.0],  # Should not be confused with Spend
+        "7 Day Total Sales": [200.0],
+    })
+
+    result_df, metadata = parse_str_file(df)
+
+    # Verify spend is correctly mapped
+    assert "spend" in result_df.columns
+    assert result_df["spend"].iloc[0] == 50.0
+
+    # Verify CPC is mapped separately (if present)
+    if "cpc" in result_df.columns:
+        assert result_df["cpc"].iloc[0] == 5.0
+
+
+def test_real_world_column_set():
+    """Test with realistic Amazon STR column headers including ROAS and CPC."""
+    df = pd.DataFrame({
+        "Start Date": ["2024-01-01"],
+        "End Date": ["2024-01-31"],
+        "Campaign Name": ["Test Campaign"],
+        "Ad Group Name": ["Test Ad Group"],
+        "Customer Search Term": ["test keyword"],
+        "Match Type": ["Exact"],
+        "Impressions": [100],
+        "Clicks": [10],
+        "Spend": [50.0],  # Column P in user's file
+        "7 Day Total Sales": [200.0],
+        "Cost Per Click (CPC)": [5.0],
+        "Click-Thru Rate (CTR)": [0.1],
+        "Total Return on Advertising Spend (ROAS)": [4.0],
+        "Total Advertising Cost of Sales (ACOS)": [0.25],
+    })
+
+    result_df, metadata = parse_str_file(df)
+
+    # Critical: Spend must map correctly, not to ROAS or CPC
+    assert "spend" in result_df.columns
+    assert result_df["spend"].iloc[0] == 50.0
+
+    # ROAS must map correctly, not to Spend
+    assert "roas" in result_df.columns
+    assert result_df["roas"].iloc[0] == 4.0
+
+    # CPC must map correctly, not to Spend
+    if "cpc" in result_df.columns:
+        assert result_df["cpc"].iloc[0] == 5.0

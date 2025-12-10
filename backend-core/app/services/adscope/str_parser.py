@@ -50,10 +50,42 @@ def _normalize_header(value: str) -> str:
 def fuzzy_match_column(col_name: str, candidates: list[str]) -> bool:
     """Check if column name matches any candidate (tolerant case-insensitive)."""
     col_norm = _normalize_header(col_name)
+
+    # First pass: exact matches only (highest priority)
     for cand in candidates:
         cand_norm = _normalize_header(cand)
-        if col_norm == cand_norm or cand_norm in col_norm or col_norm in cand_norm:
+        if col_norm == cand_norm:
             return True
+
+    # Second pass: substring matching with exclusions to prevent false matches
+    for cand in candidates:
+        cand_norm = _normalize_header(cand)
+
+        # Prevent "spend" from matching compound metrics containing "spend"
+        # e.g., "Spend" should not match "Total Return on Advertising Spend (ROAS)"
+        if cand_norm == "spend" and len(col_norm) > 5:
+            if "return" in col_norm or "roas" in col_norm or "acos" in col_norm:
+                continue
+
+        # Prevent "cost" from matching CPC or other cost-per-X metrics
+        if cand_norm == "cost" and len(col_norm) > 4:
+            if "perclick" in col_norm or "cpc" in col_norm or "per" in col_norm:
+                continue
+
+        # Prevent generic terms from matching overly specific compound metrics
+        # e.g., "Cost" shouldn't match "Cost Per Click (CPC)"
+        if len(cand_norm) <= 5 and len(col_norm) > len(cand_norm) * 2:
+            # If candidate is short and column is much longer, check for specific metric terms
+            specific_metric_terms = ["perclick", "cpc", "clickthru", "ctr", "perorder",
+                                     "peracquisition", "rate"]
+            if any(term in col_norm for term in specific_metric_terms):
+                # Only match if candidate also has these terms
+                if not any(term in cand_norm for term in specific_metric_terms):
+                    continue
+
+        if cand_norm in col_norm or col_norm in cand_norm:
+            return True
+
     return False
 
 
