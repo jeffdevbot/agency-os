@@ -68,17 +68,24 @@ const buildPrompt = (data: SkuCopyData, locale: string): string => {
     const rules = Object.entries(data.attributePreferences.rules)
       .map(([attr, rule]) => {
         const displaySections = rule.sections.map((s) => sectionNameMap[s] || s).join(", ");
+        const attrValue = data.variantAttributes[attr];
+        if (attrValue) {
+          return `  ${attr}: MUST use value "${attrValue}" in ${displaySections}`;
+        }
         return `  ${attr}: Use in ${displaySections}`;
       })
       .join("\n");
-    attributeRulesText = `\nATTRIBUTE USAGE OVERRIDES (follow these exactly):\n${rules}\n`;
+    attributeRulesText = `\nATTRIBUTE USAGE OVERRIDES (MANDATORY - do not deviate):\n${rules}\n\nIMPORTANT: Use ONLY the values provided above. Do NOT use color/size/attribute values from keywords, questions, or other sources.\n`;
   } else {
     attributeRulesText = `\nATTRIBUTE USAGE: Auto mode - use smart defaults (include key attributes naturally; avoid repetition/spam; combine where appropriate; don't repeat in every bullet).\n`;
   }
 
   return `You are an expert Amazon copywriter. Generate high-quality Amazon listing content for this SKU.
 
-LANGUAGE: Generate all content in ${locale}. Use locale-specific spelling/phrasing/tone. Do NOT translate product/brand names or keywords; keep those as provided. Use measurements/units as supplied.
+LANGUAGE: Generate all content in ${locale}. Use locale-specific spelling/phrasing/tone.
+- Do NOT translate brand names (e.g., "Nike", "Patagonia") or trademarked terms
+- Product Name provided is for context - you may rephrase it for clarity and consumer appeal
+- Use measurements/units as supplied
 
 INPUTS:
 Product Name: ${data.productName || "N/A"}
@@ -108,8 +115,9 @@ CONTENT RULES:
 3. Respect brand tone and target audience throughout.
 4. Use variant attributes appropriately (per attribute rules above).
 5. Avoid all terms in Words to Avoid list.
-6. Be specific, benefit-focused, and address customer questions where relevant.
-7. No generic fluff or feature lists - every sentence must add value.
+6. NEVER include SKU codes, ASINs, or internal identifiers in any content.
+7. Be specific, benefit-focused, and address customer questions where relevant.
+8. No generic fluff or feature lists - every sentence must add value.
 
 OUTPUT FORMAT (valid JSON only):
 {
