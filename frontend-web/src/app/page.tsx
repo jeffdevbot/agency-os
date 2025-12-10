@@ -2,30 +2,33 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { AuthChangeEvent, Session } from "@supabase/supabase-js";
+import type { AuthChangeEvent, User } from "@supabase/supabase-js";
 import { getBrowserSupabaseClient } from "@/lib/supabaseClient";
 
 export default function Home() {
   const supabase = useMemo(() => getBrowserSupabaseClient(), []);
-  const [session, setSession] = useState<Session | null>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [buttonLoading, setButtonLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }: { data: { session: Session | null } }) => {
-      setSession(data.session);
+    supabase.auth.getUser().then(({ data, error }) => {
+      if (!error) {
+        setUser(data.user ?? null);
+      }
       setAuthLoading(false);
     });
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(
-      (_event: AuthChangeEvent, newSession: Session | null) => {
-      setSession(newSession);
-      setAuthLoading(false);
-      setButtonLoading(false);
-    });
+      async (_event: AuthChangeEvent) => {
+        const { data } = await supabase.auth.getUser();
+        setUser(data.user ?? null);
+        setAuthLoading(false);
+        setButtonLoading(false);
+      });
 
     return () => {
       subscription.unsubscribe();
@@ -60,9 +63,9 @@ export default function Home() {
   }, [supabase]);
 
   const friendlyName =
-    session?.user.user_metadata.full_name ||
-    session?.user.user_metadata.name ||
-    session?.user.email;
+    user?.user_metadata.full_name ||
+    user?.user_metadata.name ||
+    user?.email;
   const firstName = friendlyName?.split(" ")[0];
 
   return (
@@ -88,7 +91,7 @@ export default function Home() {
                   Hold tight while we verify your Supabase auth token.
                 </span>
               </div>
-            ) : session ? (
+            ) : user ? (
             <div className="space-y-6">
               <div className="space-y-1">
                 <p className="text-3xl font-semibold text-[#0f172a]">

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { getBrowserSupabaseClient } from "@/lib/supabaseClient";
 import { LOCALE_LABELS, SUPPORTED_LOCALES } from "@/lib/scribe/locales";
-import type { Session } from "@supabase/supabase-js";
+import type { AuthChangeEvent, User } from "@supabase/supabase-js";
 import { ScribeHeader } from "./components/ScribeHeader";
 
 type ScribeProjectStatus =
@@ -58,10 +58,21 @@ export default function ScribeDashboardPage() {
   const [showArchived, setShowArchived] = useState(false);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }: { data: { session: Session | null } }) => {
-      setIsAuthenticated(!!data.session);
+    supabase.auth.getUser().then(({ data, error }) => {
+      if (!error) {
+        setIsAuthenticated(!!data.user);
+      }
       setSessionChecked(true);
     });
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (_event: AuthChangeEvent) => {
+      const { data } = await supabase.auth.getUser();
+      setIsAuthenticated(!!data.user);
+      setSessionChecked(true);
+    });
+
+    return () => subscription.unsubscribe();
   }, [supabase]);
 
   useEffect(() => {
@@ -95,7 +106,7 @@ export default function ScribeDashboardPage() {
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [isAuthenticated, page, refreshTick]);
+  }, [isAuthenticated, page, refreshTick, pageSize]);
 
   const handleCreate = async () => {
     const name = form.name.trim();
