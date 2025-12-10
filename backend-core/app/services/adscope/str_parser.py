@@ -41,7 +41,10 @@ REQUIRED_STR_COLUMNS = [
 
 def _normalize_header(value: str) -> str:
     """Lowercase + strip non-alphanumerics for tolerant matching."""
-    return "".join(ch for ch in str(value).lower() if ch.isalnum())
+    # Replace non-breaking spaces and other whitespace variants with regular space first
+    normalized = str(value).replace("\xa0", " ").replace("\u00a0", " ").strip()
+    # Then remove all non-alphanumerics
+    return "".join(ch for ch in normalized.lower() if ch.isalnum())
 
 
 def fuzzy_match_column(col_name: str, candidates: list[str]) -> bool:
@@ -54,31 +57,52 @@ def fuzzy_match_column(col_name: str, candidates: list[str]) -> bool:
     return False
 
 
-def map_columns(df: pd.DataFrame) -> dict[str, str]:
+def map_columns(df: pd.DataFrame, debug: bool = True) -> dict[str, str]:
     """Map DataFrame columns to internal keys using fuzzy matching."""
     column_map = {}
     df_columns = df.columns.tolist()
+
+    if debug:
+        # Log raw headers with repr() to show hidden characters
+        print(f"[STR Parser] Raw column headers: {repr(df_columns)}")
+        print(f"[STR Parser] Normalized headers:")
+        for col in df_columns:
+            print(f"  '{col}' -> '{_normalize_header(col)}'")
 
     for internal_key, candidates in STR_COLUMN_MAP.items():
         for df_col in df_columns:
             if fuzzy_match_column(df_col, candidates):
                 column_map[internal_key] = df_col
+                if debug and internal_key == "spend":
+                    print(f"[STR Parser] Matched 'spend' to column '{df_col}'")
                 break
 
     # Extra spend detection: look for any column containing "spend" but not ROAS/ACOS
     if "spend" not in column_map:
+        if debug:
+            print("[STR Parser] Spend not found in initial mapping, trying fallback...")
         for df_col in df_columns:
             norm = _normalize_header(df_col)
-            if "spend" in norm and "returnonadvertisingspend" not in norm and "roas" not in norm and "acos" not in norm:
+            if debug:
+                print(f"  Checking '{df_col}' (normalized: '{norm}')")
+            if "spend" in norm and "returnonadvertisingspend" not in norm and "roas" not in norm and "acos" not in norm and "advertisingcostofsales" not in norm:
                 column_map["spend"] = df_col
+                if debug:
+                    print(f"[STR Parser] Fallback matched 'spend' to column '{df_col}'")
                 break
 
     # Check for required columns
     missing = [key for key in REQUIRED_STR_COLUMNS if key not in column_map]
     if missing:
-        found_cols = [str(c) for c in df_columns[:15]]
+        # Build detailed error with raw and normalized headers
+        header_debug = "\n".join([
+            f"  '{col}' -> normalized: '{_normalize_header(col)}'"
+            for col in df_columns[:20]
+        ])
         raise ValueError(
-            f"Missing required STR columns: {missing}. Found columns: {found_cols}"
+            f"Missing required STR columns: {missing}\n"
+            f"Raw columns with normalization (first 20):\n{header_debug}\n"
+            f"Total columns: {len(df_columns)}"
         )
 
     return column_map
@@ -133,6 +157,36 @@ def parse_str_file(
     def _try_reheader(frame: pd.DataFrame) -> pd.DataFrame:
         """Attempt to find the real header row within the first 15 rows."""
         max_scan = min(len(frame), 15)
+        print(f"[STR Parser] Scanning first {max_scan} rows for header row...")
+
+        # First, try to find a row that contains a spend-like header
+        for idx in range(max_scan):
+            header_candidate = [str(x) for x in frame.iloc[idx].tolist()]
+            if all(h.strip() == "" for h in header_candidate):
+                continue
+
+            # Check if this row has a spend-like column
+            has_spend = any(
+                "spend" in _normalize_header(h) and
+                "roas" not in _normalize_header(h) and
+                "acos" not in _normalize_header(h)
+                for h in header_candidate
+            )
+
+            if has_spend:
+                print(f"[STR Parser] Found potential header row at index {idx} (has spend-like column)")
+                reheadered = frame.iloc[idx + 1 :].copy()
+                reheadered.columns = header_candidate
+                try:
+                    map_columns(reheadered, debug=True)
+                    print(f"[STR Parser] Successfully mapped columns using row {idx} as header")
+                    return reheadered
+                except ValueError as e:
+                    print(f"[STR Parser] Row {idx} mapping failed: {e}")
+                    continue
+
+        # Fallback: try any non-empty row
+        print("[STR Parser] No spend-like header found, trying any non-empty row...")
         for idx in range(max_scan):
             header_candidate = [str(x) for x in frame.iloc[idx].tolist()]
             if all(h.strip() == "" for h in header_candidate):
@@ -140,30 +194,55 @@ def parse_str_file(
             reheadered = frame.iloc[idx + 1 :].copy()
             reheadered.columns = header_candidate
             try:
-                map_columns(reheadered)
+                map_columns(reheadered, debug=True)
+                print(f"[STR Parser] Successfully mapped columns using row {idx} as header")
                 return reheadered
             except ValueError:
                 continue
+
+        print("[STR Parser] Could not find valid header row in first 15 rows")
         return frame
 
     # Map columns, with header-row fallback
+    print("[STR Parser] Attempting initial column mapping...")
     try:
-        col_map = map_columns(df)
-    except ValueError:
+        col_map = map_columns(df, debug=True)
+    except ValueError as e:
+        print(f"[STR Parser] Initial mapping failed: {e}")
+        print("[STR Parser] Trying header row detection...")
         df = _try_reheader(df)
-        col_map = map_columns(df)
+        col_map = map_columns(df, debug=True)
+
+    print(f"[STR Parser] Column mapping successful: {col_map}")
 
     # Rename to internal keys
     rename_map = {v: k for k, v in col_map.items()}
     df = df.rename(columns=rename_map)
 
-    # Fallback: if spend is still missing, try to find a column with "spend" in the name that is not ROAS/ACOS
+    # Final spend verification and fallback
     if "spend" not in df.columns:
+        print("[STR Parser] WARNING: spend column still missing after rename, trying final fallback...")
+        print(f"[STR Parser] Current columns: {df.columns.tolist()}")
         for col in df.columns:
             norm = _normalize_header(col)
-            if "spend" in norm and "roas" not in norm and "acos" not in norm and "returnonadvertising" not in norm:
+            print(f"  Checking '{col}' (normalized: '{norm}')")
+            if "spend" in norm and "roas" not in norm and "acos" not in norm and "returnonadvertising" not in norm and "advertisingcostofsales" not in norm:
+                print(f"[STR Parser] Final fallback matched 'spend' to column '{col}'")
                 df = df.rename(columns={col: "spend"})
                 break
+
+        # If still not found, raise detailed error
+        if "spend" not in df.columns:
+            header_debug = "\n".join([
+                f"  '{col}' -> normalized: '{_normalize_header(col)}'"
+                for col in df.columns[:30]
+            ])
+            raise ValueError(
+                f"CRITICAL: Spend column not found after all fallback attempts.\n"
+                f"Final columns with normalization (first 30):\n{header_debug}\n"
+                f"Total columns: {len(df.columns)}\n"
+                f"Column mapping used: {col_map}"
+            )
 
     # Clean numeric columns
     numeric_cols = ["spend", "sales", "impressions", "clicks"]
