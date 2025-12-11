@@ -1,6 +1,6 @@
 # Project Status — Agency OS
 
-_Last updated: 2025-12-10 (EST)_
+_Last updated: 2025-12-11 (EST)_
 
 ## How to Use This File
 - Skim **Quick Recap**, **Recent Accomplishments**, and **Next Priorities** before coding.
@@ -21,6 +21,9 @@ _Last updated: 2025-12-10 (EST)_
 Agency OS consolidates internal tools (Ngram, The Operator, Creative Brief) behind a shared Next.js frontend, FastAPI backend, and Supabase auth stack deployed on Render. Supabase handles SSO (Google) plus the shared database, while the worker service manages nightly syncs and other heavy jobs. **Amazon Composer is deprecated** and will be replaced by the new **Scribe** project (simpler, more focused listing/content generation). **Scribe is currently being rebuilt ("Scribe Lite")** to simplify the UX, with legacy code archived.
 
 ## Recent Accomplishments
+- **2025-12-11 (EST)**
+  - **Supabase Auth Deadlock Fix ✅:** Fixed critical auth bug causing homepage to hang on "Checking session..." indefinitely. **Root Cause:** Previous code used `async getUser()` inside `onAuthStateChange` callback, triggering a Supabase internal locking deadlock (see GitHub Issues #35754, #762). **Fix:** (1) Changed initial auth check from `getUser()` (network call) to `getSession()` (reads local storage, instant). (2) Removed async from `onAuthStateChange` callback and used the `session` parameter directly instead of calling `getUser()` again. (3) Added `.catch()` handler to clear corrupted sessions for existing users with stale cookies. Applied fix to both `page.tsx` and `scribe/page.tsx`. For users with corrupted sessions from the bug, ran `DELETE FROM auth.refresh_tokens` in Supabase SQL Editor to force fresh logins. Commits: `b754d01` (deadlock fix), `d143d4d` (stale session handler).
+  - **Scribe Stage C Prompt Improvements ✅:** Enhanced copy generation prompt in `copyGenerator.ts` to fix three issues: (1) **Attribute Override Mode:** Now includes exact values in instructions (e.g., `Color: MUST use value "Black"`) instead of just `Color: Use in Title`, preventing LLM from pulling wrong colors from keywords/questions. (2) **SKU Code Leakage:** Added explicit CONTENT RULE: "NEVER include SKU codes, ASINs, or internal identifiers in any content." (3) **Product Name Rephrasing:** Updated LANGUAGE section to clarify product names can be rephrased for consumer appeal (internal names like "Web Rucksack" no longer used verbatim).
 - **2025-12-10 (EST)**
   - **AdScope Backend/Frontend Landing (testable) 🚀:** Added FastAPI router `/adscope/audit` with memory/file caps, fuzzy bulk/STR parsing (header-row scan), date-range mismatch warning, and all 13 precomputed views; hardened optional-column handling (placements/price sensitivity/zombies) and inclusive budget cap date span. Frontend `/adscope` now has ingest UI, dark workspace with all view tabs, mock JSON contract, and server-side chat proxy (no client key leakage). Bulk tab selection prioritizes SP Campaigns per schema. Ready for Render trial; broader test suite still pending.
 - **2025-12-09 (EST)**
