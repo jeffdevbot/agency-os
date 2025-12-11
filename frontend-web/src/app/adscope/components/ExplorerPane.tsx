@@ -37,6 +37,7 @@ const SECTIONS = [
         title: "Performance",
         items: [
             { id: "ad_types", label: "Ad Types", icon: PieChart },
+            { id: "sponsored_products", label: "Sponsored Products", icon: Target },
         ]
     },
     {

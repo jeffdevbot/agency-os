@@ -40,6 +40,7 @@ export interface AuditViews {
   price_sensitivity: PriceSensitivity[];
   zombies: Zombies;
   ad_types: AdTypeMetric[];
+  sponsored_products: SponsoredProductsView;
 }
 
 export interface OverviewView {
@@ -174,6 +175,33 @@ export interface Zombies {
   zombie_list: string[];
 }
 
+export interface SPTargetingBreakdown {
+  targeting_type: string;
+  campaigns: number;
+  spend: number;
+  sales: number;
+  cpc: number;
+  ctr: number;
+  cvr: number;
+  acos: number;
+}
+
+export interface SPMatchType {
+  match_type: string;
+  target_count: number;
+  spend: number;
+  sales: number;
+  cpc: number;
+  ctr: number;
+  cvr: number;
+  acos: number;
+}
+
+export interface SponsoredProductsView {
+  targeting_breakdown: SPTargetingBreakdown[];
+  match_types: SPMatchType[];
+}
+
 export type ViewId =
   | "overview"
   | "money_pits"
@@ -189,4 +217,5 @@ export type ViewId =
   | "portfolios"
   | "price_sensitivity"
   | "zombies"
-  | "ad_types";
+  | "ad_types"
+  | "sponsored_products";

@@ -621,7 +621,102 @@ def compute_all_views(
         "price_sensitivity": compute_price_sensitivity(bulk_df),
         "zombies": compute_zombies(bulk_df),
         "ad_types": compute_ad_types(bulk_df),
+        "sponsored_products": {
+            **compute_sp_targeting(bulk_df),
+            "match_types": compute_sp_match_types(str_df),
+        },
     }
+
+def compute_sp_targeting(bulk_df: pd.DataFrame) -> dict[str, Any]:
+    """Compute Sponsored Products breakdown by targeting type (Auto vs Manual)."""
+    # Filter to SP campaigns only
+    campaign_rows = bulk_df[
+        (bulk_df["entity"] == "Campaign") &
+        (bulk_df["product"].str.lower().str.contains("sponsored products", na=False))
+    ].copy()
+
+    if campaign_rows.empty:
+        return {"targeting_breakdown": [], "match_types": []}
+
+    # --- Section 1: Auto vs Manual breakdown ---
+    targeting_breakdown = []
+    if "targeting_type" in campaign_rows.columns:
+        grouped = campaign_rows.groupby("targeting_type").agg({
+            "campaign_id": "nunique",
+            "spend": "sum",
+            "sales": "sum",
+            "impressions": "sum",
+            "clicks": "sum",
+            "orders": "sum"
+        }).reset_index()
+
+        grouped = grouped.rename(columns={"campaign_id": "campaigns"})
+
+        # Calculate derived metrics
+        for _, row in grouped.iterrows():
+            spend = float(row["spend"])
+            sales = float(row["sales"])
+            clicks = float(row["clicks"])
+            impressions = float(row["impressions"])
+            orders = float(row["orders"])
+
+            targeting_breakdown.append({
+                "targeting_type": str(row["targeting_type"]),
+                "campaigns": int(row["campaigns"]),
+                "spend": spend,
+                "sales": sales,
+                "cpc": spend / clicks if clicks > 0 else 0.0,
+                "ctr": clicks / impressions if impressions > 0 else 0.0,
+                "cvr": orders / clicks if clicks > 0 else 0.0,
+                "acos": spend / sales if sales > 0 else 0.0,
+            })
+
+    return {
+        "targeting_breakdown": targeting_breakdown,
+    }
+
+
+def compute_sp_match_types(str_df: pd.DataFrame) -> list[dict[str, Any]]:
+    """Compute SP match type breakdown with full metrics."""
+    if "match_type" not in str_df.columns:
+        return []
+
+    grouped = str_df.groupby("match_type").agg({
+        "spend": "sum",
+        "sales": "sum",
+        "impressions": "sum",
+        "clicks": "sum",
+        "orders": "sum",
+    }).reset_index()
+
+    # Add count of targets per match type
+    match_counts = str_df.groupby("match_type").size().reset_index(name="target_count")
+    grouped = grouped.merge(match_counts, on="match_type", how="left")
+
+    results = []
+    for _, row in grouped.iterrows():
+        spend = float(row["spend"])
+        sales = float(row["sales"])
+        clicks = float(row["clicks"])
+        impressions = float(row["impressions"])
+        orders = float(row["orders"])
+        target_count = int(row["target_count"])
+
+        results.append({
+            "match_type": str(row["match_type"]),
+            "target_count": target_count,
+            "spend": spend,
+            "sales": sales,
+            "cpc": spend / clicks if clicks > 0 else 0.0,
+            "ctr": clicks / impressions if impressions > 0 else 0.0,
+            "cvr": orders / clicks if clicks > 0 else 0.0,
+            "acos": spend / sales if sales > 0 else 0.0,
+        })
+
+    # Sort by spend descending
+    results.sort(key=lambda x: x["spend"], reverse=True)
+    return results
+
 
 def compute_ad_types(bulk_df: pd.DataFrame) -> list[dict[str, Any]]:
     """Compute metrics by Ad Type (Sponsored Products, Brands, Display)."""

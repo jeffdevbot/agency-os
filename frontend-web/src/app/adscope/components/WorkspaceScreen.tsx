@@ -17,6 +17,7 @@ import { PortfoliosView } from "./views/PortfoliosView";
 import { PriceSensitivityView } from "./views/PriceSensitivityView";
 import { ZombiesView } from "./views/ZombiesView";
 import { AdTypesView } from "./views/AdTypesView";
+import { SponsoredProductsView } from "./views/SponsoredProductsView";
 import { ChatPane } from "./ChatPane";
 import { ExplorerPane } from "./ExplorerPane";
 
@@ -62,6 +63,8 @@ export function WorkspaceScreen({ auditData, onReset }: WorkspaceScreenProps) {
         return <ZombiesView data={views.zombies} />;
       case "ad_types":
         return <AdTypesView data={views.ad_types} currency={currency_code} />;
+      case "sponsored_products":
+        return <SponsoredProductsView data={views.sponsored_products} currency={currency_code} />;
       default:
         return <OverviewView data={views.overview} currency={currency_code} warnings={auditData.warnings} dateRangeMismatch={auditData.date_range_mismatch} />;
     }
