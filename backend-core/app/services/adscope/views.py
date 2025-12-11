@@ -676,12 +676,81 @@ def compute_sp_targeting(bulk_df: pd.DataFrame) -> dict[str, Any]:
     }
 
 
+def _derive_targeting_type(row: pd.Series) -> str:
+    """
+    Derive the targeting type from match_type and product_targeting_expression.
+
+    Returns one of:
+    - Keyword types: Exact, Phrase, Broad, Modified Broad
+    - Auto types: Close-Match, Loose-Match, Substitutes, Complements
+    - Product targeting: ASIN, Expanded ASIN, Category
+    """
+    match_type = str(row.get("match_type", "")).strip().lower()
+    targeting_expr = str(row.get("product_targeting_expression", "")).strip().lower()
+    targeting = str(row.get("targeting", "")).strip().lower()
+
+    # Normalize known match types (keyword targeting)
+    match_type_map = {
+        "exact": "Exact",
+        "phrase": "Phrase",
+        "broad": "Broad",
+        "modified broad": "Modified Broad",
+        "negativeexact": "Negative Exact",
+        "negativephrase": "Negative Phrase",
+    }
+    if match_type in match_type_map:
+        return match_type_map[match_type]
+
+    # Auto targeting types (often in match_type or targeting column)
+    auto_type_map = {
+        "close-match": "Close-Match",
+        "closematch": "Close-Match",
+        "loose-match": "Loose-Match",
+        "loosematch": "Loose-Match",
+        "substitutes": "Substitutes",
+        "complements": "Complements",
+    }
+    if match_type in auto_type_map:
+        return auto_type_map[match_type]
+    if targeting in auto_type_map:
+        return auto_type_map[targeting]
+
+    # Product targeting - derive from expression
+    if targeting_expr and targeting_expr not in ("", "nan", "-", "none"):
+        if "expanded" in targeting_expr:
+            return "Expanded ASIN"
+        if "asin=" in targeting_expr or "asin-" in targeting_expr:
+            return "ASIN"
+        if "category=" in targeting_expr or "category-" in targeting_expr:
+            return "Category"
+        # Generic product targeting
+        if targeting_expr:
+            return "Product Targeting"
+
+    # Fallback: if we have a targeting column value
+    if targeting and targeting not in ("", "nan", "-", "none"):
+        # Title case it
+        return targeting.title().replace("-", " ")
+
+    # Last resort: if match_type has something, title case it
+    if match_type and match_type not in ("", "nan", "-", "none"):
+        return match_type.title()
+
+    return "Unknown"
+
+
 def compute_sp_match_types(str_df: pd.DataFrame) -> list[dict[str, Any]]:
     """Compute SP match type breakdown with full metrics."""
-    if "match_type" not in str_df.columns:
+    if str_df.empty:
         return []
 
-    grouped = str_df.groupby("match_type").agg({
+    # Create a copy to avoid modifying the original
+    df = str_df.copy()
+
+    # Derive targeting type for each row
+    df["targeting_type"] = df.apply(_derive_targeting_type, axis=1)
+
+    grouped = df.groupby("targeting_type").agg({
         "spend": "sum",
         "sales": "sum",
         "impressions": "sum",
@@ -689,9 +758,9 @@ def compute_sp_match_types(str_df: pd.DataFrame) -> list[dict[str, Any]]:
         "orders": "sum",
     }).reset_index()
 
-    # Add count of targets per match type
-    match_counts = str_df.groupby("match_type").size().reset_index(name="target_count")
-    grouped = grouped.merge(match_counts, on="match_type", how="left")
+    # Add count of targets per targeting type
+    type_counts = df.groupby("targeting_type").size().reset_index(name="target_count")
+    grouped = grouped.merge(type_counts, on="targeting_type", how="left")
 
     results = []
     for _, row in grouped.iterrows():
@@ -703,7 +772,7 @@ def compute_sp_match_types(str_df: pd.DataFrame) -> list[dict[str, Any]]:
         target_count = int(row["target_count"])
 
         results.append({
-            "match_type": str(row["match_type"]),
+            "match_type": str(row["targeting_type"]),
             "target_count": target_count,
             "spend": spend,
             "sales": sales,

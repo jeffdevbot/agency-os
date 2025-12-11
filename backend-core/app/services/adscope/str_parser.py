@@ -25,6 +25,12 @@ STR_COLUMN_MAP = {
     "acos": ["Total Advertising Cost of Sales (ACOS)", "ACOS"],
     "roas": ["Total Return on Advertising Spend (ROAS)", "ROAS"],
     "conversion_rate": ["7 Day Conversion Rate", "Conversion Rate"],
+    "product_targeting_expression": [
+        "Product Targeting Expression",
+        "Resolved Product Targeting Expression (Informational only)",
+        "Targeting",
+    ],
+    "targeting": ["Targeting"],  # Auto campaigns use this field
 }
 
 
