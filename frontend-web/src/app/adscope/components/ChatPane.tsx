@@ -91,14 +91,21 @@ export function ChatPane({ auditData, onViewChange }: ChatPaneProps) {
                     >
                         <div
                             className={`max-w-[90%] rounded-lg px-3 py-2 text-sm ${msg.role === "user"
-                                    ? "bg-blue-600 text-white"
-                                    : "bg-slate-800 text-slate-200"
+                                ? "bg-blue-600 text-white"
+                                : "bg-slate-800 text-slate-200"
                                 }`}
                         >
                             <p className="whitespace-pre-wrap">{msg.content}</p>
                         </div>
                     </div>
                 ))}
+                {isProcessing && (
+                    <div className="flex justify-start animate-pulse">
+                        <div className="max-w-[90%] rounded-lg px-3 py-2 text-sm bg-slate-800 text-slate-400 italic">
+                            Thinking...
+                        </div>
+                    </div>
+                )}
                 <div ref={messagesEndRef} />
             </div>
 

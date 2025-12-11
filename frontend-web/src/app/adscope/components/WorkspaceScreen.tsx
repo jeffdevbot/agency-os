@@ -66,7 +66,7 @@ export function WorkspaceScreen({ auditData, onReset }: WorkspaceScreenProps) {
 
   return (
     <div className="flex h-screen bg-slate-950 overflow-hidden text-slate-200 font-sans">
-      {/* 3-Pane Layout: [Explorer 250px] [Canvas Flex] [Chat 320px] */}
+      {/* 3-Pane Layout: [Explorer 200px] [Canvas Flex] [Chat 640px] */}
 
       {/* Pane 1: Explorer (Left) */}
       <div className="w-[200px] flex-shrink-0">
@@ -79,13 +79,6 @@ export function WorkspaceScreen({ auditData, onReset }: WorkspaceScreenProps) {
 
       {/* Pane 2: Canvas (Center) */}
       <div className="flex-1 flex flex-col min-w-0 bg-[#1e1e1e]">
-        {/* Tab Bar / Breadcrumb */}
-        <div className="h-9 flex items-center bg-[#2d2d2d] border-b border-[#1e1e1e] px-4">
-          <span className="text-xs text-slate-400 mr-2">AdScope</span>
-          <span className="text-xs text-slate-600 mr-2">/</span>
-          <span className="text-xs font-medium text-blue-400">{activeView}.view</span>
-        </div>
-
         {/* View Content */}
         <div className="flex-1 overflow-auto p-0">
           {renderView()}
@@ -93,7 +86,7 @@ export function WorkspaceScreen({ auditData, onReset }: WorkspaceScreenProps) {
       </div>
 
       {/* Pane 3: Chat (Right) */}
-      <div className="w-[320px] flex-shrink-0 border-l border-slate-700">
+      <div className="w-[640px] flex-shrink-0 border-l border-slate-700">
         <ChatPane
           auditData={auditData}
           onViewChange={setActiveView}

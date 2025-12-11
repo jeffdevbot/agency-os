@@ -96,8 +96,8 @@ export function ExplorerPane({ activeView, onViewChange, onReset }: ExplorerPane
                                         key={item.id}
                                         onClick={() => onViewChange(item.id as ViewId)}
                                         className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm transition-colors ${isActive
-                                                ? "bg-blue-600/20 text-blue-400 hover:bg-blue-600/30"
-                                                : "hover:bg-slate-800 text-slate-400 hover:text-slate-200"
+                                            ? "bg-blue-600/20 text-blue-400 hover:bg-blue-600/30"
+                                            : "hover:bg-slate-800 text-slate-400 hover:text-slate-200"
                                             }`}
                                     >
                                         <Icon size={14} className={isActive ? "text-blue-400" : "text-slate-500"} />
@@ -110,13 +110,7 @@ export function ExplorerPane({ activeView, onViewChange, onReset }: ExplorerPane
                 ))}
             </div>
 
-            {/* Footer / Info */}
-            <div className="p-3 border-t border-slate-700 text-[10px] text-slate-500">
-                <div className="flex items-center gap-1.5">
-                    <AlertTriangle size={12} />
-                    <span>RAM Mode: Ephemeral</span>
-                </div>
-            </div>
+
         </div>
     );
 }
