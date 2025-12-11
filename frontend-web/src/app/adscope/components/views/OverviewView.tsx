@@ -11,6 +11,11 @@ interface OverviewViewProps {
 }
 
 export function OverviewView({ data, currency, warnings, dateRangeMismatch }: OverviewViewProps) {
+  // Derived Metrics
+  const cpc = data.clicks > 0 ? data.spend / data.clicks : 0;
+  const ctr = data.impressions > 0 ? data.clicks / data.impressions : 0;
+  const cvr = data.clicks > 0 ? data.orders / data.clicks : 0;
+
   // Ad type colors
   // Ad type colors for Ecomlabs palette
   const getAdTypeColor = (type: string) => {
@@ -77,7 +82,7 @@ export function OverviewView({ data, currency, warnings, dateRangeMismatch }: Ov
         <div className="rounded-xl bg-white border border-slate-200 shadow-sm p-6">
           <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">ROAS</h3>
           <p className="text-2xl font-bold text-slate-900">{data.roas.toFixed(2)}x</p>
-          <p className="text-xs text-slate-500 mt-1">{formatCurrency(data.cpc, currency)} CPC</p>
+          <p className="text-xs text-slate-500 mt-1">{formatCurrency(cpc, currency)} CPC</p>
         </div>
       </div>
 
@@ -95,7 +100,7 @@ export function OverviewView({ data, currency, warnings, dateRangeMismatch }: Ov
                 </div>
                 <div className="text-right">
                   <p className="text-xs font-semibold uppercase text-slate-500">CTR</p>
-                  <p className="text-lg font-bold text-slate-900">{formatPercent(data.ctr)}</p>
+                  <p className="text-lg font-bold text-slate-900">{formatPercent(ctr)}</p>
                 </div>
               </div>
               <div className="w-full bg-slate-100 rounded-full h-2">
@@ -112,11 +117,11 @@ export function OverviewView({ data, currency, warnings, dateRangeMismatch }: Ov
                 </div>
                 <div className="text-right">
                   <p className="text-xs font-semibold uppercase text-slate-500">CVR</p>
-                  <p className="text-lg font-bold text-slate-900">{formatPercent(data.cvr)}</p>
+                  <p className="text-lg font-bold text-slate-900">{formatPercent(cvr)}</p>
                 </div>
               </div>
               <div className="w-full bg-slate-100 rounded-full h-2">
-                <div className="bg-[#0077cc] h-2 rounded-full opacity-60" style={{ width: `${Math.min(data.ctr * 500, 100)}%` }}></div>
+                <div className="bg-[#0077cc] h-2 rounded-full opacity-60" style={{ width: `${Math.min(ctr * 500, 100)}%` }}></div>
               </div>
             </div>
 
@@ -129,7 +134,7 @@ export function OverviewView({ data, currency, warnings, dateRangeMismatch }: Ov
                 </div>
               </div>
               <div className="w-full bg-slate-100 rounded-full h-2">
-                <div className="bg-[#0077cc] h-2 rounded-full opacity-30" style={{ width: `${Math.min(data.cvr * 500, 100)}%` }}></div>
+                <div className="bg-[#0077cc] h-2 rounded-full opacity-30" style={{ width: `${Math.min(cvr * 500, 100)}%` }}></div>
               </div>
             </div>
           </div>
@@ -203,49 +208,5 @@ export function OverviewView({ data, currency, warnings, dateRangeMismatch }: Ov
         </div>
       </div>
     </div>
-
-      {/* Funnel */ }
-  <div className="rounded-xl bg-slate-800/50 border border-slate-700 p-6">
-    <h3 className="text-sm font-semibold text-slate-200 mb-6">Conversion Funnel</h3>
-    <div className="space-y-4">
-      {/* Impressions */}
-      <div>
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-sm font-medium text-slate-300">Impressions</span>
-          <span className="text-sm text-slate-400">{formatCompact(data.impressions)}</span>
-        </div>
-        <div className="h-12 bg-gradient-to-r from-blue-600 to-blue-500 rounded-lg flex items-center justify-center">
-          <span className="text-white font-semibold">{formatNumber(data.impressions)}</span>
-        </div>
-      </div>
-
-      {/* Clicks */}
-      <div>
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-sm font-medium text-slate-300">Clicks</span>
-          <span className="text-sm text-slate-400">
-            {formatCompact(data.clicks)} ({formatPercent(data.clicks / data.impressions, 2)} CTR)
-          </span>
-        </div>
-        <div className="h-12 bg-gradient-to-r from-purple-600 to-purple-500 rounded-lg flex items-center justify-center" style={{ width: `${Math.min((data.clicks / data.impressions) * 1000, 100)}%` }}>
-          <span className="text-white font-semibold">{formatNumber(data.clicks)}</span>
-        </div>
-      </div>
-
-      {/* Orders */}
-      <div>
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-sm font-medium text-slate-300">Orders</span>
-          <span className="text-sm text-slate-400">
-            {formatCompact(data.orders)} ({formatPercent(data.orders / data.clicks, 2)} CVR)
-          </span>
-        </div>
-        <div className="h-12 bg-gradient-to-r from-emerald-600 to-emerald-500 rounded-lg flex items-center justify-center" style={{ width: `${Math.min((data.orders / data.clicks) * 500, 100)}%` }}>
-          <span className="text-white font-semibold">{formatNumber(data.orders)}</span>
-        </div>
-      </div>
-    </div>
-  </div>
-    </div >
   );
 }
