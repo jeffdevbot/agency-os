@@ -21,12 +21,12 @@ interface AdTypesViewProps {
     currency: string;
 }
 
-const COLORS = ["#3b82f6", "#10b981", "#f59e0b"];
+const COLORS = ["#0077cc", "#f59e0b", "#10b981"]; // Blue (Primary), Amber, Emerald
 
 export function AdTypesView({ data, currency }: AdTypesViewProps) {
     if (!data || data.length === 0) {
         return (
-            <div className="flex h-full items-center justify-center text-slate-500">
+            <div className="flex h-full items-center justify-center text-slate-400">
                 No ad type data available.
             </div>
         );
@@ -49,8 +49,8 @@ export function AdTypesView({ data, currency }: AdTypesViewProps) {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 h-[300px]">
 
                 {/* Spend Distribution (Pie) */}
-                <div className="bg-slate-900 rounded-lg p-4 border border-slate-800 flex flex-col">
-                    <h3 className="text-sm font-medium text-slate-400 mb-4">Ad Spend Distribution</h3>
+                <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex flex-col">
+                    <h3 className="text-sm font-semibold text-slate-700 mb-4 uppercase tracking-wide">Spend Distribution</h3>
                     <div className="flex-1 min-h-0">
                         <ResponsiveContainer width="100%" height="100%">
                             <PieChart>
@@ -69,31 +69,33 @@ export function AdTypesView({ data, currency }: AdTypesViewProps) {
                                 </Pie>
                                 <Tooltip
                                     formatter={(value: number) => formatCurrency(value, currency)}
-                                    contentStyle={{ backgroundColor: "#1e293b", borderColor: "#334155", color: "#f8fafc" }}
+                                    contentStyle={{ backgroundColor: "#ffffff", borderColor: "#e2e8f0", color: "#0f172a", borderRadius: "8px", boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)" }}
+                                    itemStyle={{ color: "#0f172a" }}
                                 />
-                                <Legend />
+                                <Legend iconType="circle" />
                             </PieChart>
                         </ResponsiveContainer>
                     </div>
                 </div>
 
                 {/* ACoS Comparison (Bar) */}
-                <div className="bg-slate-900 rounded-lg p-4 border border-slate-800 flex flex-col">
-                    <h3 className="text-sm font-medium text-slate-400 mb-4">ACoS by Ad Type</h3>
+                <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex flex-col">
+                    <h3 className="text-sm font-semibold text-slate-700 mb-4 uppercase tracking-wide">ACoS by Ad Type</h3>
                     <div className="flex-1 min-h-0">
                         <ResponsiveContainer width="100%" height="100%">
                             <BarChart data={sortedData} layout="vertical" margin={{ top: 5, right: 30, left: 40, bottom: 5 }}>
-                                <CartesianGrid strokeDasharray="3 3" stroke="#334155" horizontal={false} />
-                                <XAxis type="number" stroke="#94a3b8" tickFormatter={(val) => `${val.toFixed(0)}%`} domain={[0, 'auto']} />
-                                <YAxis dataKey="ad_type" type="category" stroke="#94a3b8" width={100} />
+                                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
+                                <XAxis type="number" stroke="#64748b" tickFormatter={(val) => `${val.toFixed(0)}%`} domain={[0, 'auto']} fontSize={12} />
+                                <YAxis dataKey="ad_type" type="category" stroke="#64748b" width={100} fontSize={12} />
                                 <Tooltip
                                     formatter={(value: number) => formatPercent(value)}
-                                    cursor={{ fill: "#334155", opacity: 0.2 }}
-                                    contentStyle={{ backgroundColor: "#1e293b", borderColor: "#334155", color: "#f8fafc" }}
+                                    cursor={{ fill: "#f1f5f9", opacity: 0.5 }}
+                                    contentStyle={{ backgroundColor: "#ffffff", borderColor: "#e2e8f0", color: "#0f172a", borderRadius: "8px", boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)" }}
+                                    itemStyle={{ color: "#0f172a" }}
                                 />
-                                <Bar dataKey="acos" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={20}>
+                                <Bar dataKey="acos" radius={[0, 4, 4, 0]} barSize={24}>
                                     {sortedData.map((entry, index) => (
-                                        <Cell key={`cell-${index}`} fill={entry.acos > 1 ? "#ef4444" : entry.acos > 0.4 ? "#f59e0b" : "#10b981"} />
+                                        <Cell key={`cell-${index}`} fill={entry.acos > 1 ? "#ef4444" : entry.acos > 0.4 ? "#f59e0b" : "#0077cc"} />
                                     ))}
                                 </Bar>
                             </BarChart>
@@ -103,40 +105,40 @@ export function AdTypesView({ data, currency }: AdTypesViewProps) {
             </div>
 
             {/* Bottom Row: Data Table */}
-            <div className="bg-slate-900 rounded-lg border border-slate-800">
-                <div className="px-6 py-4 border-b border-slate-800">
-                    <h3 className="text-sm font-medium text-slate-200">Ad Type Performance</h3>
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50">
+                    <h3 className="text-sm font-semibold text-slate-800">Ad Type Performance</h3>
                 </div>
                 <div className="overflow-x-auto">
                     <table className="w-full text-sm text-left">
-                        <thead className="bg-slate-950 text-slate-400 uppercase text-xs font-semibold">
+                        <thead className="bg-slate-50 text-slate-500 uppercase text-xs font-semibold border-b border-slate-200">
                             <tr>
-                                <th className="px-6 py-3">Ad Type</th>
-                                <th className="px-6 py-3 text-right">Active Camp.</th>
-                                <th className="px-6 py-3 text-right">Spend</th>
-                                <th className="px-6 py-3 text-right">Sales</th>
-                                <th className="px-6 py-3 text-right">CPC</th>
-                                <th className="px-6 py-3 text-right">CTR</th>
-                                <th className="px-6 py-3 text-right">CVR</th>
-                                <th className="px-6 py-3 text-right">ACoS</th>
-                                <th className="px-6 py-3 text-right">ROAS</th>
+                                <th className="px-6 py-3 font-medium">Ad Type</th>
+                                <th className="px-6 py-3 text-right font-medium">Active Camp.</th>
+                                <th className="px-6 py-3 text-right font-medium">Spend</th>
+                                <th className="px-6 py-3 text-right font-medium">Sales</th>
+                                <th className="px-6 py-3 text-right font-medium">CPC</th>
+                                <th className="px-6 py-3 text-right font-medium">CTR</th>
+                                <th className="px-6 py-3 text-right font-medium">CVR</th>
+                                <th className="px-6 py-3 text-right font-medium">ACoS</th>
+                                <th className="px-6 py-3 text-right font-medium">ROAS</th>
                             </tr>
                         </thead>
-                        <tbody className="divide-y divide-slate-800">
+                        <tbody className="divide-y divide-slate-100">
                             {sortedData.map((row) => (
-                                <tr key={row.ad_type} className="hover:bg-slate-800/50 transition-colors">
-                                    <td className="px-6 py-4 font-medium text-slate-200">{row.ad_type}</td>
-                                    <td className="px-6 py-4 text-right text-slate-400">{formatNumber(row.active_campaigns)}</td>
-                                    <td className="px-6 py-4 text-right text-slate-200">{formatCurrency(row.spend, currency)}</td>
-                                    <td className="px-6 py-4 text-right text-slate-200">{formatCurrency(row.sales, currency)}</td>
-                                    <td className="px-6 py-4 text-right text-slate-400">{formatCurrency(row.cpc, currency)}</td>
-                                    <td className="px-6 py-4 text-right text-slate-400">{formatPercent(row.ctr)}</td>
-                                    <td className="px-6 py-4 text-right text-slate-400">{formatPercent(row.cvr)}</td>
-                                    <td className={`px-6 py-4 text-right font-medium ${row.acos > 1 ? "text-red-400" : row.acos > 0.4 ? "text-amber-400" : "text-green-400"
+                                <tr key={row.ad_type} className="hover:bg-slate-50 transition-colors">
+                                    <td className="px-6 py-4 font-medium text-slate-900">{row.ad_type}</td>
+                                    <td className="px-6 py-4 text-right text-slate-600">{formatNumber(row.active_campaigns)}</td>
+                                    <td className="px-6 py-4 text-right text-slate-900">{formatCurrency(row.spend, currency)}</td>
+                                    <td className="px-6 py-4 text-right text-slate-900">{formatCurrency(row.sales, currency)}</td>
+                                    <td className="px-6 py-4 text-right text-slate-600">{formatCurrency(row.cpc, currency)}</td>
+                                    <td className="px-6 py-4 text-right text-slate-600">{formatPercent(row.ctr)}</td>
+                                    <td className="px-6 py-4 text-right text-slate-600">{formatPercent(row.cvr)}</td>
+                                    <td className={`px-6 py-4 text-right font-semibold ${row.acos > 1 ? "text-red-600" : row.acos > 0.4 ? "text-amber-600" : "text-emerald-600"
                                         }`}>
                                         {formatPercent(row.acos)}
                                     </td>
-                                    <td className="px-6 py-4 text-right text-slate-400">{row.roas.toFixed(2)}x</td>
+                                    <td className="px-6 py-4 text-right text-slate-600">{row.roas.toFixed(2)}x</td>
                                 </tr>
                             ))}
                         </tbody>

@@ -1,17 +1,19 @@
 @import "tailwindcss";
 
 :root {
-  --brand-blue: #0a6fd6;
-  --brand-blue-dark: #083f83;
-  --brand-text: #0f172a;
-  --brand-muted: #4c576f;
-  --surface: #ffffff;
-  --surface-muted: #f4f7fc;
+  /* Ecomlabs Theme */
+  --color-primary: #0077cc;       /* Primary Blue */
+  --color-primary-dark: #005fa3;  /* Darker Blue */
+  --bg-surface: #ffffff;          /* White Background */
+  --bg-muted: #f8fafc;            /* Light Gray (Slate-50) */
+  --text-primary: #0f172a;        /* Slate-900 */
+  --text-secondary: #475569;      /* Slate-600 */
+  --border-color: #e2e8f0;        /* Slate-200 */
 }
 
 @theme inline {
-  --color-background: var(--surface);
-  --color-foreground: var(--brand-text);
+  --color-background: var(--bg-surface);
+  --color-foreground: var(--text-primary);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
@@ -23,11 +25,10 @@
 body {
   min-height: 100vh;
   margin: 0;
-  background: radial-gradient(circle at top, #f4f8ff 0%, #e5efff 45%, #dbe7ff 100%);
-  color: var(--brand-text);
+  background: var(--bg-muted);
+  color: var(--text-primary);
   font-family: var(--font-geist-sans), system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  line-height: 1.5;
-  letter-spacing: -0.01em;
+  -webkit-font-smoothing: antialiased;
 }
 
 .brand-logo {

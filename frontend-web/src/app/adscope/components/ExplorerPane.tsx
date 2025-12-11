@@ -15,7 +15,8 @@ import {
     Users,
     AlertTriangle,
     Copy,
-    FolderOpen
+    FolderOpen,
+    ChevronRight
 } from "lucide-react";
 import type { ViewId } from "../types";
 
@@ -70,15 +71,15 @@ const SECTIONS = [
 
 export function ExplorerPane({ activeView, onViewChange, onReset }: ExplorerPaneProps) {
     return (
-        <div className="flex flex-col h-full bg-slate-900 border-r border-slate-700 text-slate-300">
+        <div className="flex flex-col h-full bg-white text-slate-600 font-medium text-sm">
             {/* Header */}
-            <div className="p-3 border-b border-slate-700 flex items-center justify-between">
-                <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+            <div className="p-3 border-b border-slate-200 flex items-center justify-between">
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
                     Explorer
                 </span>
                 <button
                     onClick={onReset}
-                    className="text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-400 px-2 py-1 rounded transition-colors"
+                    className="text-[10px] bg-blue-50 hover:bg-blue-100 text-blue-600 font-semibold px-2 py-1 rounded transition-colors"
                     title="Start New Audit"
                 >
                     NEW
@@ -88,26 +89,29 @@ export function ExplorerPane({ activeView, onViewChange, onReset }: ExplorerPane
             {/* File Tree */}
             <div className="flex-1 overflow-y-auto py-2">
                 {SECTIONS.map((section, idx) => (
-                    <div key={idx} className="mb-4 px-2">
-                        <h3 className="mb-1 px-2 text-[10px] font-bold uppercase text-slate-500">
-                            {section.title}
-                        </h3>
-                        <div className="space-y-[1px]">
+                    <div key={idx} className="mb-4">
+                        <div className="px-3 py-1 flex items-center gap-1 text-slate-400 mb-1">
+                            <span className="w-3 h-3 transition-transform">
+                                <ChevronRight className="w-3 h-3" />
+                            </span>
+                            <span className="text-xs font-bold uppercase tracking-wider">{section.title}</span>
+                        </div>
+                        <div className="space-y-0.5">
                             {section.items.map((item) => {
-                                const Icon = item.icon || FileText;
                                 const isActive = activeView === item.id;
-
+                                const Icon = item.icon;
                                 return (
                                     <button
                                         key={item.id}
                                         onClick={() => onViewChange(item.id as ViewId)}
-                                        className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm transition-colors ${isActive
-                                            ? "bg-blue-600/20 text-blue-400 hover:bg-blue-600/30"
-                                            : "hover:bg-slate-800 text-slate-400 hover:text-slate-200"
-                                            }`}
+                                        className={`w - full flex items - center gap - 2 px - 3 py - 1.5 pl - 7 transition - colors border - l - 2
+                                            ${isActive
+                                                ? "bg-blue-50 border-[#0077cc] text-[#0077cc]"
+                                                : "border-transparent hover:bg-slate-50 hover:text-slate-900"
+                                            } `}
                                     >
-                                        <Icon size={14} className={isActive ? "text-blue-400" : "text-slate-500"} />
-                                        <span className="truncate">{item.label}</span>
+                                        <Icon className={`w - 4 h - 4 ${isActive ? "text-[#0077cc]" : "text-slate-400"} `} />
+                                        <span>{item.label}</span>
                                     </button>
                                 );
                             })}
@@ -115,8 +119,6 @@ export function ExplorerPane({ activeView, onViewChange, onReset }: ExplorerPane
                     </div>
                 ))}
             </div>
-
-
         </div>
     );
 }
