@@ -59,11 +59,18 @@ export default function ScribeDashboardPage() {
 
   useEffect(() => {
     const loadUser = async () => {
-      const { data, error } = await supabase.auth.getUser();
-      if (!error) {
-        setIsAuthenticated(!!data.user);
-      }
-      setSessionChecked(true);
+        try {
+            const { data, error } = await supabase.auth.getUser();
+            if (!error) {
+                setIsAuthenticated(!!data.user);
+            } else {
+                console.warn("[Auth] getUser error:", error.message);
+            }
+        } catch (err) {
+            console.warn("[Auth] getUser exception:", err);
+        } finally {
+            setSessionChecked(true);
+        }
     };
     loadUser();
     const {

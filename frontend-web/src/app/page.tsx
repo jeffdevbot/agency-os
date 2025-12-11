@@ -14,11 +14,18 @@ export default function Home() {
 
   useEffect(() => {
     const loadUser = async () => {
-      const { data, error } = await supabase.auth.getUser();
-      if (!error) {
-        setUser(data.user ?? null);
+      try {
+        const { data, error } = await supabase.auth.getUser();
+        if (!error) {
+          setUser(data.user ?? null);
+        } else {
+          console.warn("[Auth] getUser error:", error.message);
+        }
+      } catch (err) {
+        console.warn("[Auth] getUser exception:", err);
+      } finally {
+        setAuthLoading(false);
       }
-      setAuthLoading(false);
     };
     loadUser();
 
