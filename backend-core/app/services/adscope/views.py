@@ -715,25 +715,26 @@ def _derive_targeting_type(row: pd.Series) -> str:
     if targeting in auto_type_map:
         return auto_type_map[targeting]
 
-    # Product targeting - derive from expression
-    if targeting_expr and targeting_expr not in ("", "nan", "-", "none"):
-        if "expanded" in targeting_expr:
-            return "Expanded ASIN"
-        if "asin=" in targeting_expr or "asin-" in targeting_expr:
-            return "ASIN"
-        if "category=" in targeting_expr or "category-" in targeting_expr:
-            return "Category"
-        # Generic product targeting
-        if targeting_expr:
-            return "Product Targeting"
+    # Product targeting - check BOTH match_type and targeting_expr for patterns
+    # Amazon sometimes puts the expression in match_type column directly
+    combined_expr = f"{match_type} {targeting_expr}".lower()
+
+    if "expanded" in combined_expr:
+        return "Expanded ASIN"
+    if "asin=" in combined_expr or "asin-" in combined_expr or match_type.startswith("asin"):
+        return "ASIN"
+    if "category=" in combined_expr or "category-" in combined_expr or match_type.startswith("category"):
+        return "Category"
 
     # Fallback: if we have a targeting column value
     if targeting and targeting not in ("", "nan", "-", "none"):
-        # Title case it
         return targeting.title().replace("-", " ")
 
-    # Last resort: if match_type has something, title case it
+    # Last resort: check if match_type looks like product targeting we missed
     if match_type and match_type not in ("", "nan", "-", "none"):
+        # If it contains "=" it's likely a targeting expression we didn't categorize
+        if "=" in match_type:
+            return "Product Targeting"
         return match_type.title()
 
     return "Unknown"
