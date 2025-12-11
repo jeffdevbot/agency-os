@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { getBrowserSupabaseClient } from "@/lib/supabaseClient";
 import { LOCALE_LABELS, SUPPORTED_LOCALES } from "@/lib/scribe/locales";
-import type { AuthChangeEvent, User } from "@supabase/supabase-js";
+import type { AuthChangeEvent, Session } from "@supabase/supabase-js";
 import { ScribeHeader } from "./components/ScribeHeader";
 
 type ScribeProjectStatus =
@@ -58,28 +58,21 @@ export default function ScribeDashboardPage() {
   const [showArchived, setShowArchived] = useState(false);
 
   useEffect(() => {
-    const loadUser = async () => {
-        try {
-            const { data, error } = await supabase.auth.getUser();
-            if (!error) {
-                setIsAuthenticated(!!data.user);
-            } else {
-                console.warn("[Auth] getUser error:", error.message);
-            }
-        } catch (err) {
-            console.warn("[Auth] getUser exception:", err);
-        } finally {
-            setSessionChecked(true);
-        }
-    };
-    loadUser();
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event: AuthChangeEvent) => {
-      const { data } = await supabase.auth.getUser();
-      setIsAuthenticated(!!data.user);
+    // Fast initial check using getSession (reads local storage, no network call)
+    supabase.auth.getSession().then(({ data }: { data: { session: Session | null } }) => {
+      setIsAuthenticated(!!data.session?.user);
       setSessionChecked(true);
     });
+
+    // Subscribe to auth changes - use session parameter directly (no async/getUser)
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(
+      (_event: AuthChangeEvent, session: Session | null) => {
+        setIsAuthenticated(!!session?.user);
+        setSessionChecked(true);
+      }
+    );
 
     return () => subscription.unsubscribe();
   }, [supabase]);

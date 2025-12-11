@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { AuthChangeEvent, User } from "@supabase/supabase-js";
+import type { AuthChangeEvent, Session, User } from "@supabase/supabase-js";
 import { getBrowserSupabaseClient } from "@/lib/supabaseClient";
 
 export default function Home() {
@@ -13,31 +13,22 @@ export default function Home() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    const loadUser = async () => {
-      try {
-        const { data, error } = await supabase.auth.getUser();
-        if (!error) {
-          setUser(data.user ?? null);
-        } else {
-          console.warn("[Auth] getUser error:", error.message);
-        }
-      } catch (err) {
-        console.warn("[Auth] getUser exception:", err);
-      } finally {
-        setAuthLoading(false);
-      }
-    };
-    loadUser();
+    // Fast initial check using getSession (reads local storage, no network call)
+    supabase.auth.getSession().then(({ data }: { data: { session: Session | null } }) => {
+      setUser(data.session?.user ?? null);
+      setAuthLoading(false);
+    });
 
+    // Subscribe to auth changes - use session parameter directly (no async/getUser)
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(
-      async (_event: AuthChangeEvent) => {
-        const { data } = await supabase.auth.getUser();
-        setUser(data.user ?? null);
+      (_event: AuthChangeEvent, session: Session | null) => {
+        setUser(session?.user ?? null);
         setAuthLoading(false);
         setButtonLoading(false);
-      });
+      }
+    );
 
     return () => {
       subscription.unsubscribe();
