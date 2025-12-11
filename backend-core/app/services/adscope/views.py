@@ -620,4 +620,68 @@ def compute_all_views(
         "portfolios": compute_portfolios(bulk_df),
         "price_sensitivity": compute_price_sensitivity(bulk_df),
         "zombies": compute_zombies(bulk_df),
+        "ad_types": compute_ad_types(bulk_df),
     }
+
+def compute_ad_types(bulk_df: pd.DataFrame) -> list[dict[str, Any]]:
+    """Compute metrics by Ad Type (Sponsored Products, Brands, Display)."""
+    # Use Campaign rows to get the distinct ad types and their campaign-level spend
+    # However, to get detailed metrics like Sales/Orders which might be attributed to ad groups/keywords, 
+    # we should look at where the data is most complete. 
+    # For Bulksheets, 'Record Type'='Campaign' usually has rolled up Spend/Sales for SP/SB/SD.
+    
+    campaign_rows = bulk_df[bulk_df["entity"] == "Campaign"].copy()
+    
+    if campaign_rows.empty:
+        return []
+
+    # Ensure product column exists (it distinguishes SP/SB/SD)
+    if "product" not in campaign_rows.columns:
+        return []
+
+    # Group by 'product' (e.g. 'Sponsored Products', 'Sponsored Brands')
+    grouped = campaign_rows.groupby("product").agg({
+        "campaign_id": "nunique", # Count active campaigns
+        "spend": "sum",
+        "sales": "sum",
+        "impressions": "sum",
+        "clicks": "sum",
+        "orders": "sum"
+    }).reset_index()
+
+    grouped = grouped.rename(columns={"campaign_id": "active_campaigns"})
+
+    # Calculate derived metrics
+    grouped["acos"] = grouped.apply(
+        lambda row: float(row["spend"] / row["sales"]) if row["sales"] > 0 else 0.0, axis=1
+    )
+    grouped["roas"] = grouped.apply(
+        lambda row: float(row["sales"] / row["spend"]) if row["spend"] > 0 else 0.0, axis=1
+    )
+    grouped["cpc"] = grouped.apply(
+        lambda row: float(row["spend"] / row["clicks"]) if row["clicks"] > 0 else 0.0, axis=1
+    )
+    grouped["ctr"] = grouped.apply(
+        lambda row: float(row["clicks"] / row["impressions"]) if row["impressions"] > 0 else 0.0, axis=1
+    )
+    grouped["cvr"] = grouped.apply(
+        lambda row: float(row["orders"] / row["clicks"]) if row["clicks"] > 0 else 0.0, axis=1
+    )
+
+    return [
+        {
+            "ad_type": str(row["product"]),
+            "active_campaigns": int(row["active_campaigns"]),
+            "spend": float(row["spend"]),
+            "sales": float(row["sales"]),
+            "impressions": float(row["impressions"]),
+            "clicks": float(row["clicks"]),
+            "orders": float(row["orders"]),
+            "acos": float(row["acos"]),
+            "roas": float(row["roas"]),
+            "cpc": float(row["cpc"]),
+            "ctr": float(row["ctr"]),
+            "cvr": float(row["cvr"]),
+        }
+        for _, row in grouped.iterrows()
+    ]

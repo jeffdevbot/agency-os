@@ -6,10 +6,25 @@ export interface AuditResponse {
   currency_code: string;
   date_range_mismatch: boolean;
   warnings: string[];
-  views: AllViews;
+  views: AuditViews;
 }
 
-export interface AllViews {
+export interface AdTypeMetric {
+  ad_type: string;
+  active_campaigns: number;
+  spend: number;
+  sales: number;
+  impressions: number;
+  clicks: number;
+  orders: number;
+  acos: number;
+  roas: number;
+  cpc: number;
+  ctr: number;
+  cvr: number;
+}
+
+export interface AuditViews {
   overview: OverviewView;
   money_pits: MoneyPit[];
   waste_bin: WasteBinItem[];
@@ -24,6 +39,7 @@ export interface AllViews {
   portfolios: Portfolio[];
   price_sensitivity: PriceSensitivity[];
   zombies: Zombies;
+  ad_types: AdTypeMetric[];
 }
 
 export interface OverviewView {

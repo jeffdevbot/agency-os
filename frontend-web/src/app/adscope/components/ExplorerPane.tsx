@@ -33,6 +33,12 @@ const SECTIONS = [
         ]
     },
     {
+        title: "Performance",
+        items: [
+            { id: "ad_types", label: "Ad Types", icon: PieChart },
+        ]
+    },
+    {
         title: "Optimization",
         items: [
             { id: "money_pits", label: "Money Pits", icon: DollarSign },
