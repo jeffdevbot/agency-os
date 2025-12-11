@@ -188,4 +188,5 @@ export type ViewId =
   | "duplicates"
   | "portfolios"
   | "price_sensitivity"
-  | "zombies";
+  | "zombies"
+  | "ad_types";
