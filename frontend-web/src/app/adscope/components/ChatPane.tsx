@@ -76,11 +76,7 @@ export function ChatPane({ auditData, onViewChange }: ChatPaneProps) {
 
     return (
         <div className="flex flex-col h-full bg-slate-900 border-l border-slate-700">
-            <div className="p-3 border-b border-slate-700 bg-slate-900">
-                <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                    AI Copilot
-                </h2>
-            </div>
+
 
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
                 {messages.map((msg, idx) => (
