@@ -14,10 +14,17 @@ export default function Home() {
 
   useEffect(() => {
     // Fast initial check using getSession (reads local storage, no network call)
-    supabase.auth.getSession().then(({ data }: { data: { session: Session | null } }) => {
-      setUser(data.session?.user ?? null);
-      setAuthLoading(false);
-    });
+    supabase.auth.getSession()
+      .then(({ data }: { data: { session: Session | null } }) => {
+        setUser(data.session?.user ?? null);
+        setAuthLoading(false);
+      })
+      .catch(() => {
+        // Handle corrupted session - clear it and show login
+        supabase.auth.signOut();
+        setUser(null);
+        setAuthLoading(false);
+      });
 
     // Subscribe to auth changes - use session parameter directly (no async/getUser)
     const {

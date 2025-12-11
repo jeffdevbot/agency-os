@@ -59,10 +59,17 @@ export default function ScribeDashboardPage() {
 
   useEffect(() => {
     // Fast initial check using getSession (reads local storage, no network call)
-    supabase.auth.getSession().then(({ data }: { data: { session: Session | null } }) => {
-      setIsAuthenticated(!!data.session?.user);
-      setSessionChecked(true);
-    });
+    supabase.auth.getSession()
+      .then(({ data }: { data: { session: Session | null } }) => {
+        setIsAuthenticated(!!data.session?.user);
+        setSessionChecked(true);
+      })
+      .catch(() => {
+        // Handle corrupted session - clear it and show login
+        supabase.auth.signOut();
+        setIsAuthenticated(false);
+        setSessionChecked(true);
+      });
 
     // Subscribe to auth changes - use session parameter directly (no async/getUser)
     const {
