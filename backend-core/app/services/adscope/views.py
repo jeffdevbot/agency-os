@@ -214,6 +214,14 @@ def compute_placements(bulk_df: pd.DataFrame) -> list[dict[str, Any]]:
     if "placement" not in bulk_df.columns:
         return []
 
+    # Mapping from raw placement names to user-friendly names
+    PLACEMENT_NAME_MAP = {
+        "Placement Top": "Top of Search",
+        "Placement Rest Of Search": "Rest of Search", 
+        "Placement Product Page": "Product Pages",
+        "Placement Amazon Business": "Business Placement",
+    }
+
     # Filter to rows with placement data
     placement_rows = bulk_df[bulk_df["placement"].notna()].copy()
 
@@ -259,7 +267,8 @@ def compute_placements(bulk_df: pd.DataFrame) -> list[dict[str, Any]]:
 
     return [
         {
-            "placement": row["placement"],
+            # Map raw placement name to user-friendly name
+            "placement": PLACEMENT_NAME_MAP.get(row["placement"], row["placement"]),
             "count": int(row["campaign_id"]),
             "spend": float(row["spend"]),
             "spend_percent": float(row["spend_percent"]),
@@ -278,22 +287,26 @@ def compute_bidding_strategies(bulk_df: pd.DataFrame) -> list[dict[str, Any]]:
     if "bidding_strategy" not in bulk_df.columns:
         return []
 
-    # Filter to Campaign-level rows with bidding strategy data
-    # Bidding strategy is at campaign level
-    campaign_rows = bulk_df[
-        (bulk_df["entity"] == "Campaign") & 
-        (bulk_df["bidding_strategy"].notna())
+    # Filter to rows with bidding strategy data
+    # Bidding strategy can appear on Campaign-level or other rows
+    # Filter out empty/null values more aggressively
+    strategy_rows = bulk_df[
+        bulk_df["bidding_strategy"].notna() &
+        (bulk_df["bidding_strategy"].astype(str).str.strip() != "") &
+        (bulk_df["bidding_strategy"].astype(str).str.lower() != "nan")
     ].copy()
 
-    if campaign_rows.empty:
+    if strategy_rows.empty:
         return []
 
     # Ensure numeric columns exist
-    for col in ["impressions", "orders", "clicks"]:
-        if col not in campaign_rows.columns:
-            campaign_rows[col] = 0
+    for col in ["impressions", "orders", "clicks", "spend", "sales"]:
+        if col not in strategy_rows.columns:
+            strategy_rows[col] = 0
+        else:
+            strategy_rows[col] = pd.to_numeric(strategy_rows[col], errors="coerce").fillna(0)
 
-    grouped = campaign_rows.groupby("bidding_strategy").agg({
+    grouped = strategy_rows.groupby("bidding_strategy").agg({
         "spend": "sum",
         "sales": "sum",
         "clicks": "sum",
@@ -339,6 +352,7 @@ def compute_bidding_strategies(bulk_df: pd.DataFrame) -> list[dict[str, Any]]:
         }
         for _, row in grouped.iterrows()
     ]
+
 
 def compute_keyword_leaderboard(bulk_df: pd.DataFrame) -> dict[str, list[dict[str, Any]]]:
     """Compute keyword winners and losers."""

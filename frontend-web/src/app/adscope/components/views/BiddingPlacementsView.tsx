@@ -66,8 +66,6 @@ export function BiddingPlacementsView({ biddingStrategies, placements, currency 
                                             outerRadius={70}
                                             paddingAngle={5}
                                             dataKey="value"
-                                            label={({ percent }) => `${(percent ?? 0).toFixed(0)}%`}
-                                            labelLine={false}
                                         >
                                             {strategyPieData.map((entry, index) => (
                                                 <Cell key={`cell-${index}`} fill={STRATEGY_COLORS[index % STRATEGY_COLORS.length]} />
@@ -163,8 +161,6 @@ export function BiddingPlacementsView({ biddingStrategies, placements, currency 
                                             outerRadius={70}
                                             paddingAngle={5}
                                             dataKey="value"
-                                            label={({ percent }) => `${(percent ?? 0).toFixed(0)}%`}
-                                            labelLine={false}
                                         >
                                             {placementPieData.map((entry, index) => (
                                                 <Cell key={`cell-${index}`} fill={PLACEMENT_COLORS[index % PLACEMENT_COLORS.length]} />
