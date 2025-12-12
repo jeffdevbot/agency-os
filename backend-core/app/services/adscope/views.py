@@ -178,6 +178,7 @@ def compute_wasted_spend_sp(str_df: pd.DataFrame) -> dict[str, Any]:
                 "wasted_spend_pct": 0.0,
                 "wasted_targets_count": 0,
                 "wasted_campaigns_count": 0,
+                "campaigns_high_waste_count": 0,
             },
             "top_wasted_targets": [],
             "campaign_rollup": [],
@@ -268,6 +269,8 @@ def compute_wasted_spend_sp(str_df: pd.DataFrame) -> dict[str, Any]:
         )
         rollup = rollup.sort_values("campaign_wasted_spend", ascending=False).head(100)
 
+        campaigns_high_waste_count = int((rollup["campaign_wasted_pct"] >= 0.50).sum())
+
         campaign_rollup = [
             {
                 "campaign_name": str(row.get("campaign_name", "")),
@@ -281,6 +284,7 @@ def compute_wasted_spend_sp(str_df: pd.DataFrame) -> dict[str, Any]:
             for _, row in rollup.iterrows()
         ]
     else:
+        campaigns_high_waste_count = 0
         campaign_rollup = []
 
     return {
@@ -291,6 +295,7 @@ def compute_wasted_spend_sp(str_df: pd.DataFrame) -> dict[str, Any]:
             "wasted_spend_pct": wasted_spend_pct,
             "wasted_targets_count": wasted_targets_count,
             "wasted_campaigns_count": wasted_campaigns_count,
+            "campaigns_high_waste_count": campaigns_high_waste_count,
         },
         "top_wasted_targets": top_wasted_targets,
         "campaign_rollup": campaign_rollup,

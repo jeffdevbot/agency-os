@@ -91,6 +91,7 @@ export interface WastedSpendSummary {
   wasted_spend_pct: number;
   wasted_targets_count: number;
   wasted_campaigns_count: number;
+  campaigns_high_waste_count: number;
 }
 
 export interface WastedTargetRow {

@@ -133,6 +133,7 @@ type AuditResponse = {
         wasted_spend_pct: number;
         wasted_targets_count: number;
         wasted_campaigns_count: number;
+        campaigns_high_waste_count: number;
       };
     };
   };
@@ -196,7 +197,7 @@ function buildDataSummary(auditData: AuditResponse): string {
     .join("; ") || "N/A";
 
   const wastedSpendSummary = views.wasted_spend?.summary
-    ? `WASTED SPEND (SP-only): $${views.wasted_spend.summary.total_wasted_spend.toFixed(2)} wasted (${(views.wasted_spend.summary.wasted_spend_pct * 100).toFixed(1)}%), ${views.wasted_spend.summary.wasted_targets_count} wasted targets, ${views.wasted_spend.summary.wasted_campaigns_count} wasted campaigns`
+    ? `WASTED SPEND (SP-only): $${views.wasted_spend.summary.total_wasted_spend.toFixed(2)} wasted (${(views.wasted_spend.summary.wasted_spend_pct * 100).toFixed(1)}%), ${views.wasted_spend.summary.wasted_targets_count} wasted targets, ${views.wasted_spend.summary.campaigns_high_waste_count} high-waste campaigns (>=50%)`
     : "WASTED SPEND (SP-only): N/A";
 
   return `AUDIT DATA (use these numbers to answer questions):

@@ -38,9 +38,12 @@ export function WastedAdSpendView({ data, currency }: WastedAdSpendViewProps) {
   return (
     <div className="space-y-6 p-6">
       <div>
-        <h2 className="text-2xl font-bold text-slate-900 mb-2">Wasted Ad Spend</h2>
+        <h2 className="text-2xl font-bold text-slate-900 mb-2">Wasted Ad Spend — Sponsored Products</h2>
         <p className="text-sm text-slate-600">
-          {data.scope}. Wasted spend is STR spend where orders = 0.
+          This view shows how much Sponsored Products spend went to targets that didn’t generate a sale.
+        </p>
+        <p className="text-sm text-slate-600 mt-3 max-w-4xl">
+          Some amount of wasted spend is expected — it comes from testing new keywords, exploring new audiences, and discovering what actually converts. This testing is healthy and necessary for growth. The goal isn’t to eliminate waste completely, but to make sure it’s at the right level.
         </p>
       </div>
 
@@ -68,13 +71,13 @@ export function WastedAdSpendView({ data, currency }: WastedAdSpendViewProps) {
         <div className="rounded-xl bg-white border border-slate-200 shadow-sm p-6">
           <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Wasted Targets</h3>
           <p className="text-3xl font-bold text-slate-900">{formatNumber(summary.wasted_targets_count)}</p>
-          <p className="text-sm text-slate-500 mt-1">rows with spend &gt; 0 and 0 orders</p>
+          <p className="text-sm text-slate-500 mt-1">targets that spent money but didn’t generate a sale</p>
         </div>
 
         <div className="rounded-xl bg-white border border-slate-200 shadow-sm p-6">
-          <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Wasted Campaigns</h3>
-          <p className="text-3xl font-bold text-slate-900">{formatNumber(summary.wasted_campaigns_count)}</p>
-          <p className="text-sm text-slate-500 mt-1">campaigns with wasted spend</p>
+          <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Campaigns With High Waste</h3>
+          <p className="text-3xl font-bold text-slate-900">{formatNumber(summary.campaigns_high_waste_count)}</p>
+          <p className="text-sm text-slate-500 mt-1">campaigns where 50–100% of spend went to non-converting targets</p>
         </div>
       </div>
 
@@ -110,7 +113,7 @@ export function WastedAdSpendView({ data, currency }: WastedAdSpendViewProps) {
             Targets Wasting The Most Spend (0 orders)
           </h3>
           <p className="text-sm text-slate-500 mt-1">
-            Sorted by wasted spend. Rows are STR search terms with their targeting context.
+            Sorted by wasted spend. Each row shows a keyword or target that spent money but didn’t generate a sale.
           </p>
         </div>
         <div className="overflow-x-auto">
@@ -213,4 +216,3 @@ export function WastedAdSpendView({ data, currency }: WastedAdSpendViewProps) {
     </div>
   );
 }
-

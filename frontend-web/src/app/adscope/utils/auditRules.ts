@@ -52,7 +52,7 @@ export const WASTED_SPEND_BUCKETS = [
     maxExclusive: 0.20,
     rangeLabel: "< 20%",
     verdict: "⚠️ Too Low",
-    meaning: "Very conservative, poor exploration. Stuck-growth pattern.",
+    meaning: "Very conservative testing. May slow down keyword discovery and growth.",
   },
   {
     id: "slightly_low",
@@ -60,7 +60,7 @@ export const WASTED_SPEND_BUCKETS = [
     maxExclusive: 0.33,
     rangeLabel: "20–33%",
     verdict: "⚠️ Slightly Low",
-    meaning: "Under-testing. Could grow faster with broader discovery.",
+    meaning: "A bit conservative — more exploration could uncover new converting targets.",
   },
   {
     id: "healthy",
@@ -68,7 +68,7 @@ export const WASTED_SPEND_BUCKETS = [
     maxExclusive: 0.50,
     rangeLabel: "33–50%",
     verdict: "✅ Healthy",
-    meaning: "Balanced testing & efficient spend. Most strong accounts land here.",
+    meaning: "Good mix of testing and efficiency. Most strong accounts land here.",
   },
   {
     id: "heavy_testing",
@@ -76,7 +76,7 @@ export const WASTED_SPEND_BUCKETS = [
     maxExclusive: 0.60,
     rangeLabel: "50–60%",
     verdict: "✔️ Still Healthy, Heavy Testing",
-    meaning: "Aggressive experimentation, usually fine unless sales soft.",
+    meaning: "Aggressive testing. Fine as long as performance stays stable.",
   },
   {
     id: "high",
@@ -84,7 +84,7 @@ export const WASTED_SPEND_BUCKETS = [
     maxExclusive: 0.70,
     rangeLabel: "60–70%",
     verdict: "❌ High Waste",
-    meaning: "Inefficient targets or relevance issues; optimization needed.",
+    meaning: "Large share of spend went to targets that never converted. Optimization needed.",
   },
   {
     id: "severe",
@@ -92,7 +92,7 @@ export const WASTED_SPEND_BUCKETS = [
     maxExclusive: 1.01,
     rangeLabel: "> 70%",
     verdict: "🔥 Severe Waste",
-    meaning: "Budget is being burned; immediate action required.",
+    meaning: "Budget is being burned on non-converting targets. Strong immediate opportunity.",
   },
 ] as const;
 
