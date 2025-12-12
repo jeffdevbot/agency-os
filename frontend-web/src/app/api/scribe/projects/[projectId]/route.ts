@@ -3,6 +3,11 @@ import { createSupabaseRouteClient } from "@/lib/supabase/serverClient";
 
 type ScribeProjectStatus = "draft" | "stage_a_approved" | "archived";
 
+interface FormatPreferences {
+  bulletCapsHeaders?: boolean;
+  descriptionParagraphs?: boolean;
+}
+
 interface ProjectRow {
   id: string;
   created_by: string;
@@ -10,6 +15,7 @@ interface ProjectRow {
   locale: string | null;
   category: string | null;
   sub_category: string | null;
+  format_preferences: FormatPreferences | null;
   status: string;
   created_at: string;
   updated_at: string;
@@ -28,6 +34,7 @@ const mapProjectRow = (row: ProjectRow) => ({
   locale: row.locale,
   category: row.category,
   subCategory: row.sub_category,
+  formatPreferences: row.format_preferences,
   status: isStatus(row.status) ? row.status : null,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
@@ -64,7 +71,7 @@ export async function GET(
 
   const { data, error } = await supabase
     .from("scribe_projects")
-    .select("id, created_by, name, locale, category, sub_category, status, created_at, updated_at")
+    .select("id, created_by, name, locale, category, sub_category, format_preferences, status, created_at, updated_at")
     .eq("id", projectId)
     .eq("created_by", session.user.id)
     .single();
@@ -85,6 +92,7 @@ interface UpdateProjectPayload {
   locale?: string;
   category?: string | null;
   subCategory?: string | null;
+  formatPreferences?: FormatPreferences | null;
   status?: ScribeProjectStatus;
 }
 
@@ -107,6 +115,7 @@ export async function PATCH(
   if (payload.locale !== undefined) updates.locale = payload.locale;
   if (payload.category !== undefined) updates.category = payload.category;
   if (payload.subCategory !== undefined) updates.sub_category = payload.subCategory;
+  if (payload.formatPreferences !== undefined) updates.format_preferences = payload.formatPreferences;
 
   const supabase = await createSupabaseRouteClient();
   const {
@@ -171,7 +180,7 @@ export async function PATCH(
     .update(updates)
     .eq("id", projectId)
     .eq("created_by", session.user.id)
-    .select("id, created_by, name, locale, category, sub_category, status, created_at, updated_at")
+    .select("id, created_by, name, locale, category, sub_category, format_preferences, status, created_at, updated_at")
     .single();
 
   if (error || !data) {

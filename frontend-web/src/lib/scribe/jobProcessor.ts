@@ -27,6 +27,11 @@ type AttributePreferences = {
   rules?: Record<string, { sections: ("title" | "bullets" | "description" | "backend_keywords")[] }>;
 } | null;
 
+type FormatPreferences = {
+  bulletCapsHeaders?: boolean;
+  descriptionParagraphs?: boolean;
+} | null;
+
 export const processTopicsJob = async (jobId: string): Promise<void> => {
   const supabase = createSupabaseServiceClient();
 
@@ -248,10 +253,10 @@ export const processCopyJob = async (jobId: string): Promise<void> => {
   const payload = job.payload as JobPayload;
   const { projectId, skuIds } = payload;
 
-  // Fetch project to get user_id, locale and validate status
+  // Fetch project to get user_id, locale, format_preferences and validate status
   const { data: project, error: projectError } = await supabase
     .from("scribe_projects")
-    .select("created_by, status, locale")
+    .select("created_by, status, locale, format_preferences")
     .eq("id", projectId)
     .single();
 
@@ -266,6 +271,7 @@ export const processCopyJob = async (jobId: string): Promise<void> => {
 
   const userId = project.created_by;
   const locale = (project as { locale?: string }).locale ?? "en-US";
+  const formatPreferences = (project as { format_preferences?: FormatPreferences | null }).format_preferences ?? undefined;
 
   // Update job status to running
   await supabase
@@ -280,7 +286,7 @@ export const processCopyJob = async (jobId: string): Promise<void> => {
     // Process each SKU
     for (const skuId of skuIds) {
       try {
-        await processSkuCopy(supabase, projectId, skuId, jobId, userId, locale);
+        await processSkuCopy(supabase, projectId, skuId, jobId, userId, locale, formatPreferences);
         successCount++;
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
@@ -332,6 +338,7 @@ const processSkuCopy = async (
   jobId: string,
   userId: string,
   locale: string,
+  formatPreferences?: FormatPreferences,
 ): Promise<void> => {
   // Fetch SKU data
   const { data: sku, error: skuError } = await supabase
@@ -427,6 +434,7 @@ const processSkuCopy = async (
         description: t.description || "",
       })),
       attributePreferences,
+      formatPreferences: formatPreferences ?? undefined,
     },
     locale,
   );

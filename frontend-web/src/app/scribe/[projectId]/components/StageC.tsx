@@ -4,15 +4,22 @@ import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { ScribeHeader } from "../../components/ScribeHeader";
 import { ScribeProgressTracker } from "../../components/ScribeProgressTracker";
+import { FormatPreferencesCard } from "./FormatPreferencesCard";
 import { AttributePreferencesCard } from "./AttributePreferencesCard";
 import { AmazonProductCard } from "./AmazonProductCard";
 import { EditGeneratedContentPanel } from "./EditGeneratedContentPanel";
 import { DirtyStateWarning } from "./DirtyStateWarning";
 
+interface FormatPreferences {
+    bulletCapsHeaders?: boolean;
+    descriptionParagraphs?: boolean;
+}
+
 interface Project {
     id: string;
     name: string;
     locale: string;
+    formatPreferences?: FormatPreferences | null;
 }
 
 interface Sku {
@@ -74,6 +81,7 @@ export function StageC() {
                 id: projectData.id,
                 name: projectData.name,
                 locale: projectData.locale || "en-US",
+                formatPreferences: projectData.formatPreferences,
             });
 
             // Fetch SKUs
@@ -488,6 +496,12 @@ export function StageC() {
                             />
                         </div>
                     )}
+
+                    {/* Format Preferences Card */}
+                    <FormatPreferencesCard
+                        projectId={projectId}
+                        initialPreferences={project?.formatPreferences}
+                    />
 
                     {/* Attribute Preferences Card */}
                     {variantAttributes.length > 0 && (

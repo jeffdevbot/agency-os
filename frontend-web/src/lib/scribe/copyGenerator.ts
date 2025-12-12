@@ -1,10 +1,15 @@
 import { createChatCompletion, parseJSONResponse, type ChatMessage } from "@/lib/composer/ai/openai";
 
-const PROMPT_VERSION = "scribe_stage_c_v1";
+const PROMPT_VERSION = "scribe_stage_c_v2";
 
 interface ApprovedTopic {
   title: string;
   description: string;
+}
+
+interface FormatPreferences {
+  bulletCapsHeaders?: boolean;
+  descriptionParagraphs?: boolean;
 }
 
 interface SkuCopyData {
@@ -23,7 +28,13 @@ interface SkuCopyData {
     mode?: "auto" | "overrides";
     rules?: Record<string, { sections: string[] }>;
   };
+  formatPreferences?: FormatPreferences;
 }
+
+// Helper: count words in a string
+const countWords = (text: string): number => {
+  return text.trim().split(/\s+/).filter(w => w.length > 0).length;
+};
 
 interface CopyResponse {
   title: string;
@@ -80,6 +91,29 @@ const buildPrompt = (data: SkuCopyData, locale: string): string => {
     attributeRulesText = `\nATTRIBUTE USAGE: Auto mode - use smart defaults (include key attributes naturally; avoid repetition/spam; combine where appropriate; don't repeat in every bullet).\n`;
   }
 
+  // Format preferences
+  const useCapsHeaders = data.formatPreferences?.bulletCapsHeaders ?? false;
+  const useParagraphs = data.formatPreferences?.descriptionParagraphs ?? true;
+
+  // Build bullet format instructions
+  let bulletFormatInstructions = "";
+  if (useCapsHeaders) {
+    bulletFormatInstructions = `
+BULLET FORMAT (MANDATORY):
+Each bullet MUST begin with an ALL CAPS header (2-4 words) followed by a colon, then the description.
+Example: "UNMATCHED QUALITY: Our premium aluminum photo frame features a 0.4 inch wide and 0.8 inch deep profile for a contemporary sleek look that complements any home decor style."
+`;
+  }
+
+  // Build description format instructions
+  let descriptionFormatInstructions = "";
+  if (useParagraphs) {
+    descriptionFormatInstructions = `
+DESCRIPTION FORMAT:
+Separate key topics with double line breaks (blank lines) for readability. Each paragraph should cover a distinct benefit or topic. Use 3-5 paragraphs.
+`;
+  }
+
   return `You are an expert Amazon copywriter. Generate high-quality Amazon listing content for this SKU.
 
 LANGUAGE: Generate all content in ${locale}. Use locale-specific spelling/phrasing/tone.
@@ -104,11 +138,11 @@ ${topicsText}
 ${attributeRulesText}
 
 AMAZON POLICY CONSTRAINTS (CRITICAL - strictly enforce):
-1. Title: Maximum 200 characters; no ALL CAPS; no emojis/HTML; safe claims only.
-2. Bullets: Exactly 5 bullets; each max 500 characters; no HTML/emojis; no medical/prohibited claims; avoid attribute spam.
-3. Description: Maximum 2000 characters; plain text only; safe claims only.
+1. Title: 100-150 characters (target range); maximum 200 characters; no emojis/HTML; safe claims only.
+2. Bullets: Exactly 5 bullets; each bullet must be 40-50 words (count carefully!); max 500 characters; no HTML/emojis; no medical/prohibited claims.
+3. Description: 800-1500 characters (target range); maximum 2000 characters; safe claims only.
 4. Backend Keywords: Maximum 249 bytes; no ASINs/competitor brands; avoid repeating title/bullets terms; no forbidden terms.
-
+${bulletFormatInstructions}${descriptionFormatInstructions}
 CONTENT RULES:
 1. Ground all copy on the 5 approved topics - address the concerns and angles they represent.
 2. Incorporate keywords naturally (never forced or stuffed).
@@ -127,10 +161,60 @@ OUTPUT FORMAT (valid JSON only):
   "backend_keywords": "..."
 }
 
-IMPORTANT:
+CRITICAL LENGTH REQUIREMENTS:
+- Title: Aim for 100-150 characters
+- Each bullet: MUST be 40-50 words. Count words carefully. This is non-negotiable.
+- Description: Aim for 800-1500 characters
 - bullets MUST be exactly 5 items
-- Stay within all character/byte limits
+- Stay within all maximum limits
 - Follow Amazon's content policies strictly`;
+};
+
+// Word count requirements for bullets
+const MIN_BULLET_WORDS = 40;
+const MAX_BULLET_WORDS = 50;
+const MAX_RETRIES = 2;
+
+// Build a retry prompt for bullets that don't meet word count
+const buildRetryPrompt = (
+  originalBullets: string[],
+  bulletIssues: { index: number; wordCount: number; direction: "too_short" | "too_long" }[]
+): string => {
+  const issueDescriptions = bulletIssues.map(issue => {
+    const bullet = originalBullets[issue.index];
+    const action = issue.direction === "too_short"
+      ? `expand to 40-50 words (currently ${issue.wordCount} words)`
+      : `condense to 40-50 words (currently ${issue.wordCount} words)`;
+    return `Bullet ${issue.index + 1}: "${bullet.substring(0, 80)}..." - ${action}`;
+  }).join("\n");
+
+  return `The following bullets do not meet the 40-50 word requirement. Please rewrite ONLY the bullets listed below, keeping the same format and topic but adjusting length.
+
+ISSUES:
+${issueDescriptions}
+
+IMPORTANT:
+- Keep the same ALL CAPS header format if present
+- Maintain the same topic/benefit angle
+- Each bullet MUST be exactly 40-50 words
+- Return ONLY a JSON object with the format: {"bullets": ["bullet1", "bullet2", "bullet3", "bullet4", "bullet5"]}
+- Include ALL 5 bullets in the response, even unchanged ones`;
+};
+
+// Validate bullets meet word count, returns issues if any
+const validateBulletWordCount = (bullets: string[]): { index: number; wordCount: number; direction: "too_short" | "too_long" }[] => {
+  const issues: { index: number; wordCount: number; direction: "too_short" | "too_long" }[] = [];
+
+  for (let i = 0; i < bullets.length; i++) {
+    const wordCount = countWords(bullets[i]);
+    if (wordCount < MIN_BULLET_WORDS) {
+      issues.push({ index: i, wordCount, direction: "too_short" });
+    } else if (wordCount > MAX_BULLET_WORDS) {
+      issues.push({ index: i, wordCount, direction: "too_long" });
+    }
+  }
+
+  return issues;
 };
 
 export const generateCopyForSku = async (data: SkuCopyData, locale: string): Promise<GeneratedCopy> => {
@@ -153,8 +237,12 @@ export const generateCopyForSku = async (data: SkuCopyData, locale: string): Pro
     maxTokens: 3000,
   });
 
+  // Track total tokens across retries
+  let totalTokensIn = result.tokensIn;
+  let totalTokensOut = result.tokensOut;
+
   // Parse JSON response
-  const parsedResponse = parseJSONResponse<CopyResponse>(result.content ?? "{}");
+  let parsedResponse = parseJSONResponse<CopyResponse>(result.content ?? "{}");
 
   // Validate response structure
   if (!parsedResponse.title || !parsedResponse.bullets || !parsedResponse.description || !parsedResponse.backend_keywords) {
@@ -165,7 +253,46 @@ export const generateCopyForSku = async (data: SkuCopyData, locale: string): Pro
     throw new Error(`Invalid bullets: expected exactly 5, got ${parsedResponse.bullets?.length || 0}`);
   }
 
-  // Validate character limits
+  // Validate and retry for word count if needed
+  let bulletIssues = validateBulletWordCount(parsedResponse.bullets);
+  let retryCount = 0;
+
+  while (bulletIssues.length > 0 && retryCount < MAX_RETRIES) {
+    retryCount++;
+    console.log(`[Scribe] Bullet word count issues detected, retry ${retryCount}/${MAX_RETRIES}:`,
+      bulletIssues.map(i => `Bullet ${i.index + 1}: ${i.wordCount} words (${i.direction})`));
+
+    const retryPrompt = buildRetryPrompt(parsedResponse.bullets, bulletIssues);
+
+    const retryResult = await createChatCompletion([
+      { role: "user", content: prompt },
+      { role: "assistant", content: result.content ?? "" },
+      { role: "user", content: retryPrompt },
+    ], {
+      temperature: 0.5, // Lower temperature for more consistent output
+      maxTokens: 2000,
+    });
+
+    totalTokensIn += retryResult.tokensIn;
+    totalTokensOut += retryResult.tokensOut;
+
+    try {
+      const retryParsed = parseJSONResponse<{ bullets: string[] }>(retryResult.content ?? "{}");
+      if (retryParsed.bullets && Array.isArray(retryParsed.bullets) && retryParsed.bullets.length === 5) {
+        parsedResponse.bullets = retryParsed.bullets as [string, string, string, string, string];
+        bulletIssues = validateBulletWordCount(parsedResponse.bullets);
+      }
+    } catch (e) {
+      console.warn(`[Scribe] Failed to parse retry response:`, e);
+      break;
+    }
+  }
+
+  // Log final word counts for monitoring
+  const finalWordCounts = parsedResponse.bullets.map((b, i) => `B${i + 1}: ${countWords(b)}`).join(", ");
+  console.log(`[Scribe] Final bullet word counts: ${finalWordCounts}`);
+
+  // Validate character limits (hard limits)
   if (parsedResponse.title.length > 200) {
     throw new Error(`Title exceeds 200 characters (${parsedResponse.title.length} chars)`);
   }
@@ -190,9 +317,9 @@ export const generateCopyForSku = async (data: SkuCopyData, locale: string): Pro
     bullets: parsedResponse.bullets as [string, string, string, string, string],
     description: parsedResponse.description.trim(),
     backendKeywords: parsedResponse.backend_keywords.trim(),
-    tokensIn: result.tokensIn,
-    tokensOut: result.tokensOut,
-    tokensTotal: result.tokensTotal,
+    tokensIn: totalTokensIn,
+    tokensOut: totalTokensOut,
+    tokensTotal: totalTokensIn + totalTokensOut,
     model: result.model,
     promptVersion: PROMPT_VERSION,
   };
