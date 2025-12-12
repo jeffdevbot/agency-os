@@ -678,15 +678,21 @@ def compute_sp_targeting(bulk_df: pd.DataFrame) -> dict[str, Any]:
 
 def _derive_targeting_type(row: pd.Series) -> str:
     """
-    Derive the targeting type from match_type and product_targeting_expression.
+    Derive the targeting type from match_type and targeting columns.
+
+    The STR "Targeting" column contains:
+    - Auto types: close-match, loose-match, substitutes, complements
+    - Product targeting: asin="B0123...", category="Area Rugs" brand="..."
+
+    The STR "Match Type" column contains:
+    - Keyword types: EXACT, PHRASE, BROAD, or "-" for non-keyword
 
     Returns one of:
-    - Keyword types: Exact, Phrase, Broad, Modified Broad
+    - Keyword types: Exact, Phrase, Broad
     - Auto types: Close-Match, Loose-Match, Substitutes, Complements
     - Product targeting: ASIN, Expanded ASIN, Category
     """
     match_type = str(row.get("match_type", "")).strip().lower()
-    targeting_expr = str(row.get("product_targeting_expression", "")).strip().lower()
     targeting = str(row.get("targeting", "")).strip().lower()
 
     # Normalize known match types (keyword targeting)
@@ -701,7 +707,7 @@ def _derive_targeting_type(row: pd.Series) -> str:
     if match_type in match_type_map:
         return match_type_map[match_type]
 
-    # Auto targeting types (often in match_type or targeting column)
+    # Auto targeting types (in targeting column)
     auto_type_map = {
         "close-match": "Close-Match",
         "closematch": "Close-Match",
@@ -710,31 +716,27 @@ def _derive_targeting_type(row: pd.Series) -> str:
         "substitutes": "Substitutes",
         "complements": "Complements",
     }
-    if match_type in auto_type_map:
-        return auto_type_map[match_type]
     if targeting in auto_type_map:
         return auto_type_map[targeting]
 
-    # Product targeting - check BOTH match_type and targeting_expr for patterns
-    # Amazon sometimes puts the expression in match_type column directly
-    combined_expr = f"{match_type} {targeting_expr}".lower()
+    # Product targeting - check targeting column for asin=/category= patterns
+    if targeting:
+        if "expanded" in targeting:
+            return "Expanded ASIN"
+        if targeting.startswith("asin") or "asin=" in targeting:
+            return "ASIN"
+        if targeting.startswith("category") or "category=" in targeting:
+            return "Category"
 
-    if "expanded" in combined_expr:
-        return "Expanded ASIN"
-    if "asin=" in combined_expr or "asin-" in combined_expr or match_type.startswith("asin"):
-        return "ASIN"
-    if "category=" in combined_expr or "category-" in combined_expr or match_type.startswith("category"):
-        return "Category"
-
-    # Fallback: if we have a targeting column value
+    # Fallback: if targeting has a value we didn't recognize
     if targeting and targeting not in ("", "nan", "-", "none"):
+        # If it contains "=" it's likely a targeting expression
+        if "=" in targeting:
+            return "Product Targeting"
         return targeting.title().replace("-", " ")
 
-    # Last resort: check if match_type looks like product targeting we missed
+    # Last resort
     if match_type and match_type not in ("", "nan", "-", "none"):
-        # If it contains "=" it's likely a targeting expression we didn't categorize
-        if "=" in match_type:
-            return "Product Targeting"
         return match_type.title()
 
     return "Unknown"
