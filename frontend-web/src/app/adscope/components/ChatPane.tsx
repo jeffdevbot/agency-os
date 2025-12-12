@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
-import { Send, ChevronRight, ChevronDown } from "lucide-react";
+import { Send, ChevronRight } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { type AuditResponse, type ViewId } from "../types";
 import { sendChatMessage } from "../services/chat";
@@ -12,32 +12,36 @@ interface ChatPaneProps {
     onViewChange: (viewId: ViewId) => void;
 }
 
-const SEVERITY_STYLES: Record<HotTakeSeverity, { bg: string; border: string; icon: string }> = {
-    success: { bg: "bg-emerald-50", border: "border-emerald-200", icon: "text-emerald-600" },
-    warning: { bg: "bg-amber-50", border: "border-amber-200", icon: "text-amber-600" },
-    error: { bg: "bg-red-50", border: "border-red-200", icon: "text-red-600" },
-    info: { bg: "bg-blue-50", border: "border-blue-200", icon: "text-blue-600" },
+const SEVERITY_INDICATOR: Record<HotTakeSeverity, string> = {
+    success: "✅",
+    warning: "⚠️",
+    error: "❌",
+    info: "💡",
 };
 
-function HotTakeCard({ hotTake, onNavigate }: { hotTake: HotTake; onNavigate: (viewId: ViewId) => void }) {
-    const styles = SEVERITY_STYLES[hotTake.severity];
+interface HotTakeItemProps {
+    hotTake: HotTake;
+    onNavigate: (viewId: ViewId) => void;
+}
+
+function HotTakeItem({ hotTake, onNavigate }: HotTakeItemProps) {
+    const indicator = SEVERITY_INDICATOR[hotTake.severity];
 
     return (
-        <div className={`${styles.bg} ${styles.border} border rounded-lg p-3 mb-2`}>
-            <div className="flex items-start gap-2">
-                <span className={`text-lg ${styles.icon}`}>{hotTake.emoji}</span>
-                <div className="flex-1 min-w-0">
-                    <h4 className="font-semibold text-slate-900 text-sm leading-tight">{hotTake.headline}</h4>
-                    <p className="text-slate-600 text-xs mt-1 leading-relaxed">{hotTake.body}</p>
-                    <button
-                        onClick={() => onNavigate(hotTake.targetView)}
-                        className="mt-2 text-xs font-medium text-[#0077cc] hover:text-[#005fa3] flex items-center gap-1 transition-colors"
-                    >
-                        {hotTake.ctaText}
-                        <ChevronRight className="w-3 h-3" />
-                    </button>
-                </div>
+        <div className="mb-4 last:mb-0">
+            <div className="font-semibold text-slate-900 text-sm mb-1">
+                {indicator} {hotTake.headline}
             </div>
+            <p className="text-slate-600 text-sm leading-relaxed mb-2">
+                {hotTake.body}
+            </p>
+            <button
+                onClick={() => onNavigate(hotTake.targetView)}
+                className="text-sm font-medium text-[#0077cc] hover:text-[#005fa3] flex items-center gap-1 transition-colors"
+            >
+                {hotTake.ctaText}
+                <ChevronRight className="w-3 h-3" />
+            </button>
         </div>
     );
 }
@@ -46,13 +50,12 @@ export function ChatPane({ auditData, onViewChange }: ChatPaneProps) {
     const [messages, setMessages] = useState<
         Array<{ role: "user" | "assistant"; content: string }>
     >([]);
-    const [hotTakesExpanded, setHotTakesExpanded] = useState(true);
-
-    // Generate hot takes from audit data (client-side, zero tokens)
-    const hotTakes = useMemo(() => generateHotTakes(auditData), [auditData]);
     const [input, setInput] = useState("");
     const [isProcessing, setIsProcessing] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
+
+    // Generate hot takes from audit data (client-side, zero tokens)
+    const hotTakes = useMemo(() => generateHotTakes(auditData), [auditData]);
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -107,42 +110,34 @@ export function ChatPane({ auditData, onViewChange }: ChatPaneProps) {
 
     return (
         <div className="flex flex-col h-full bg-white text-slate-800">
-            {/* Hot Takes Section */}
-            {hotTakes.length > 0 && (
-                <div className="border-b border-slate-200 bg-slate-50/50">
-                    <button
-                        onClick={() => setHotTakesExpanded(!hotTakesExpanded)}
-                        className="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-slate-100/50 transition-colors"
-                    >
-                        <div className="flex items-center gap-2">
-                            <span className="text-sm font-semibold text-slate-700">Key Findings</span>
-                            <span className="text-xs bg-slate-200 text-slate-600 px-2 py-0.5 rounded-full">{hotTakes.length}</span>
-                        </div>
-                        <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${hotTakesExpanded ? "" : "-rotate-90"}`} />
-                    </button>
-                    {hotTakesExpanded && (
-                        <div className="px-4 pb-4 max-h-[40vh] overflow-y-auto">
-                            {hotTakes.map((hotTake) => (
-                                <HotTakeCard key={hotTake.id} hotTake={hotTake} onNavigate={onViewChange} />
-                            ))}
-                        </div>
-                    )}
-                </div>
-            )}
-
             {/* Messages Area */}
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                {messages.length === 0 && (
-                    <div className="text-center text-slate-500 text-sm py-8">
-                        <p className="mb-2">Ask me anything about your audit results.</p>
-                        <p className="text-xs text-slate-400">Try: &quot;Why is my ACoS high?&quot; or &quot;How can I optimize my campaigns?&quot;</p>
+                {/* Initial Hot Takes Message */}
+                {hotTakes.length > 0 && (
+                    <div className="flex justify-start">
+                        <div className="max-w-[90%] rounded-2xl rounded-bl-none px-5 py-4 shadow-sm bg-slate-50 text-slate-800 border border-slate-200">
+                            <p className="text-sm text-slate-500 mb-3">
+                                Here&apos;s what I found in your audit:
+                            </p>
+                            {hotTakes.map((hotTake) => (
+                                <HotTakeItem
+                                    key={hotTake.id}
+                                    hotTake={hotTake}
+                                    onNavigate={onViewChange}
+                                />
+                            ))}
+                            <div className="mt-4 pt-3 border-t border-slate-200 text-xs text-slate-400">
+                                Ask me anything to dive deeper into these findings.
+                            </div>
+                        </div>
                     </div>
                 )}
+
+                {/* User/Assistant Messages */}
                 {messages.map((msg, idx) => (
                     <div
                         key={idx}
-                        className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"
-                            }`}
+                        className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
                     >
                         <div
                             className={`max-w-[90%] rounded-2xl px-5 py-4 shadow-sm ${msg.role === "user"
@@ -168,6 +163,8 @@ export function ChatPane({ auditData, onViewChange }: ChatPaneProps) {
                         </div>
                     </div>
                 ))}
+
+                {/* Processing Indicator */}
                 {isProcessing && (
                     <div className="flex justify-start animate-pulse">
                         <div className="max-w-[90%] rounded-2xl rounded-bl-none px-5 py-4 text-base bg-slate-50 border border-slate-200 text-slate-500 italic">
@@ -206,4 +203,3 @@ export function ChatPane({ auditData, onViewChange }: ChatPaneProps) {
         </div>
     );
 }
-
