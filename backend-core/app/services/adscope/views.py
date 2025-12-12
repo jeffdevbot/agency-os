@@ -888,6 +888,12 @@ def compute_all_views(
     if missing_bulk:
         raise ValueError(f"Bulk file missing required columns: {missing_bulk}. Found Bulk columns: {list(bulk_df.columns)}")
 
+    # Some Bulk exports (or tabs) may omit performance columns like clicks/impressions.
+    # Downstream views expect them to exist; default to 0 to avoid hard failures.
+    for col in ["impressions", "clicks", "orders"]:
+        if col not in bulk_df.columns:
+            bulk_df[col] = 0.0
+
     sb_match_types = compute_sb_match_types(bulk_df)
     sb_ad_formats = compute_sb_ad_formats(bulk_df)
     sb_landing_pages = compute_sb_landing_pages(bulk_df)
