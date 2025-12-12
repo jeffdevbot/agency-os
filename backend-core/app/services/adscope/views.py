@@ -785,8 +785,14 @@ def compute_sp_match_types(str_df: pd.DataFrame) -> list[dict[str, Any]]:
             "acos": spend / sales if sales > 0 else 0.0,
         })
 
-    # Sort by spend descending
-    results.sort(key=lambda x: x["spend"], reverse=True)
+    # Sort by predefined order (keyword types first, then auto, then product targeting)
+    order = [
+        "Broad", "Phrase", "Exact", "Modified Broad",
+        "Loose-Match", "Close-Match", "Substitutes", "Complements",
+        "ASIN", "Expanded ASIN", "Category", "Product Targeting", "Unknown"
+    ]
+    order_map = {name: i for i, name in enumerate(order)}
+    results.sort(key=lambda x: order_map.get(x["match_type"], 999))
     return results
 
 

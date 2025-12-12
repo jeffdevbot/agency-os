@@ -78,7 +78,10 @@ export function SponsoredProductsView({ data, currency }: SponsoredProductsViewP
                                             ))}
                                         </Pie>
                                         <Tooltip
-                                            formatter={(value: number) => formatCurrency(value, currency)}
+                                            formatter={(_value, _name, props) => {
+                                                const pct = (props?.payload as { percent?: number })?.percent ?? 0;
+                                                return `${pct.toFixed(1)}%`;
+                                            }}
                                             contentStyle={{ backgroundColor: "#ffffff", borderColor: "#e2e8f0", color: "#0f172a", borderRadius: "8px", boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)" }}
                                             itemStyle={{ color: "#0f172a" }}
                                         />
@@ -162,7 +165,10 @@ export function SponsoredProductsView({ data, currency }: SponsoredProductsViewP
                                             ))}
                                         </Pie>
                                         <Tooltip
-                                            formatter={(value: number) => formatCurrency(value, currency)}
+                                            formatter={(_value, _name, props) => {
+                                                const pct = (props?.payload as { percent?: number })?.percent ?? 0;
+                                                return `${pct.toFixed(1)}%`;
+                                            }}
                                             contentStyle={{ backgroundColor: "#ffffff", borderColor: "#e2e8f0", color: "#0f172a", borderRadius: "8px", boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)" }}
                                             itemStyle={{ color: "#0f172a" }}
                                         />
