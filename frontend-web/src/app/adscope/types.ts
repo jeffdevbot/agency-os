@@ -29,6 +29,7 @@ export interface AuditViews {
   money_pits: MoneyPit[];
   waste_bin: WasteBinItem[];
   wasted_spend: WastedSpendView;
+  brand_vs_category?: BrandVsCategoryView;
   brand_analysis: BrandAnalysis;
   match_types: MatchType[];
   placements: Placement[];
@@ -138,6 +139,26 @@ export interface BrandMetrics {
   spend: number;
   sales: number;
   acos: number;
+}
+
+export interface BrandVsCategoryRow {
+  segment: "Brand" | "Category" | string;
+  spend: number;
+  spend_percent: number;
+  sales: number;
+  impressions: number;
+  clicks: number;
+  orders: number;
+  cpc: number;
+  ctr: number;
+  cvr: number;
+  acos: number;
+  roas: number;
+}
+
+export interface BrandVsCategoryView {
+  scope: string;
+  segments: BrandVsCategoryRow[];
 }
 
 export interface MatchType {
@@ -353,6 +374,7 @@ export interface SponsoredDisplayTargetingView {
 export type ViewId =
   | "overview"
   | "wasted_spend"
+  | "brand_vs_category"
   | "targeting_analysis"
   | "bidding_placements"
   | "sponsored_brands_analysis"

@@ -9,6 +9,7 @@ You have access to a comprehensive audit dataset. The data summary below contain
 **Available Views:**
 - overview: Ad type breakdown (SP, SB, SD), conversion funnel, key metrics
 - wasted_spend: SP-only wasted spend (STR spend with 0 orders) + rollups
+- brand_vs_category: SP Brand vs Category (only if brand keywords provided)
 - targeting_analysis: SP Auto vs Manual breakdown, Match Types performance
 - bidding_placements: Bidding strategies and Placement performance
 - sponsored_brands_analysis: SB Match Types and Ad Formats
@@ -57,6 +58,7 @@ const VIEW_SWITCHING_TOOL: Tool = {
           enum: [
             "overview",
             "wasted_spend",
+            "brand_vs_category",
             "targeting_analysis",
             "bidding_placements",
             "sponsored_brands_analysis",

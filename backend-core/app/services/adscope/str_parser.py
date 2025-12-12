@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from typing import Any
 import pandas as pd
 
@@ -185,6 +186,39 @@ def tokenize_ngrams(text: str, n: int = 1) -> list[str]:
         return []
 
 
+def _normalize_text_for_match(value: str) -> str:
+    """
+    Normalize text for tolerant keyword matching:
+      - Unicode normalize (NFKD) + strip diacritics
+      - Lowercase
+      - Remove punctuation/symbols (keep alnum + spaces)
+      - Collapse whitespace
+    """
+    text = str(value or "")
+    text = unicodedata.normalize("NFKD", text)
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    text = text.lower()
+    text = "".join(ch if (ch.isalnum() or ch.isspace()) else " " for ch in text)
+    return " ".join(text.split())
+
+
+def _build_brand_pattern(brand_keywords: list[str]) -> str:
+    """
+    Build a regex that matches any normalized brand keyword as a whole token/phrase.
+    Example: keyword "whoosh" matches "whoosh cleaner" but not "whooshing".
+    """
+    normalized = [_normalize_text_for_match(kw) for kw in brand_keywords]
+    normalized = [kw for kw in normalized if kw]
+    if not normalized:
+        return ""
+
+    patterns: list[str] = []
+    for kw in normalized:
+        kw_escaped = re.escape(kw).replace("\\ ", "\\s+")
+        patterns.append(rf"(?:^|\s){kw_escaped}(?:\s|$)")
+    return "|".join(patterns)
+
+
 def parse_str_file(
     df: pd.DataFrame,
     brand_keywords: list[str] | None = None
@@ -320,12 +354,17 @@ def parse_str_file(
 
     # Brand classification
     if brand_keywords:
-        brand_pattern = "|".join([re.escape(kw.lower()) for kw in brand_keywords])
-        df["is_branded"] = df["search_term"].str.lower().str.contains(
-            brand_pattern, na=False, regex=True
+        brand_pattern = _build_brand_pattern(brand_keywords)
+        df["_normalized_search_term"] = df["search_term"].apply(_normalize_text_for_match)
+        df["is_branded"] = (
+            df["_normalized_search_term"].str.contains(brand_pattern, na=False, regex=True)
+            if brand_pattern
+            else False
         )
+        metadata["brand_keywords_count"] = len([kw for kw in brand_keywords if str(kw).strip()])
     else:
         df["is_branded"] = False
+        metadata["brand_keywords_count"] = 0
 
     # Add n-grams
     df["one_grams"] = df["search_term"].apply(lambda x: tokenize_ngrams(str(x), 1))

@@ -319,6 +319,65 @@ def compute_brand_analysis(str_df: pd.DataFrame) -> dict[str, Any]:
     }
 
 
+def compute_brand_vs_category(str_df: pd.DataFrame, metadata: dict[str, Any]) -> dict[str, Any] | None:
+    """
+    Optional view (SP-only): Brand vs Category using STR branded classification.
+
+    Included only when the user provided brand keywords at upload time.
+    """
+    if int(metadata.get("brand_keywords_count") or 0) <= 0:
+        return None
+
+    if str_df.empty or "is_branded" not in str_df.columns:
+        return {"segments": []}
+
+    df = str_df.copy()
+    for col in ["spend", "sales", "impressions", "clicks", "orders"]:
+        if col not in df.columns:
+            df[col] = 0.0
+
+    df["segment"] = df["is_branded"].apply(lambda v: "Brand" if bool(v) else "Category")
+
+    grouped = df.groupby("segment").agg(
+        spend=("spend", "sum"),
+        sales=("sales", "sum"),
+        impressions=("impressions", "sum"),
+        clicks=("clicks", "sum"),
+        orders=("orders", "sum"),
+    ).reset_index()
+
+    total_spend = float(grouped["spend"].sum())
+
+    segments: list[dict[str, Any]] = []
+    for _, row in grouped.iterrows():
+        spend = float(row.get("spend", 0))
+        sales = float(row.get("sales", 0))
+        impressions = float(row.get("impressions", 0))
+        clicks = float(row.get("clicks", 0))
+        orders = float(row.get("orders", 0))
+        segments.append(
+            {
+                "segment": str(row.get("segment", "")),
+                "spend": spend,
+                "spend_percent": float(spend / total_spend) if total_spend > 0 else 0.0,
+                "sales": sales,
+                "impressions": impressions,
+                "clicks": clicks,
+                "orders": orders,
+                "cpc": spend / clicks if clicks > 0 else 0.0,
+                "ctr": clicks / impressions if impressions > 0 else 0.0,
+                "cvr": orders / clicks if clicks > 0 else 0.0,
+                "acos": spend / sales if sales > 0 else 0.0,
+                "roas": sales / spend if spend > 0 else 0.0,
+            }
+        )
+
+    order = ["Brand", "Category"]
+    order_map = {name: i for i, name in enumerate(order)}
+    segments.sort(key=lambda x: order_map.get(x["segment"], 999))
+    return {"scope": "Sponsored Products only (STR)", "segments": segments}
+
+
 def compute_match_types(str_df: pd.DataFrame) -> list[dict[str, Any]]:
     """Compute match type analysis."""
     if "match_type" not in str_df.columns:
@@ -921,6 +980,11 @@ def compute_all_views(
         "money_pits": compute_money_pits(bulk_df),
         "waste_bin": compute_waste_bin(str_df),
         "wasted_spend": compute_wasted_spend_sp(str_df),
+        **(
+            {"brand_vs_category": brand_vs_category}
+            if (brand_vs_category := compute_brand_vs_category(str_df, metadata)) is not None
+            else {}
+        ),
         "brand_analysis": compute_brand_analysis(str_df),
         "match_types": compute_match_types(str_df),
         "placements": compute_placements(bulk_df),

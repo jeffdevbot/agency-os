@@ -9,6 +9,7 @@ import { SponsoredBrandsAnalysisView } from "./views/SponsoredBrandsAnalysisView
 import { WastedAdSpendView } from "./views/WastedAdSpendView";
 import { SponsoredBrandsLandingPagesView } from "./views/SponsoredBrandsLandingPagesView";
 import { SponsoredDisplayTargetingView } from "./views/SponsoredDisplayTargetingView";
+import { BrandVsCategoryView } from "./views/BrandVsCategoryView";
 import { ChatPane } from "./ChatPane";
 import { ExplorerPane } from "./ExplorerPane";
 
@@ -29,6 +30,12 @@ export function WorkspaceScreen(props: WorkspaceScreenProps) {
         return <AdTypesView data={views.ad_types} currency={currency_code} />;
       case "wasted_spend":
         return <WastedAdSpendView data={views.wasted_spend} currency={currency_code} />;
+      case "brand_vs_category":
+        return views.brand_vs_category ? (
+          <BrandVsCategoryView data={views.brand_vs_category} currency={currency_code} />
+        ) : (
+          <AdTypesView data={views.ad_types} currency={currency_code} />
+        );
       case "targeting_analysis":
         return <TargetingAnalysisView data={views.sponsored_products} currency={currency_code} />;
       case "bidding_placements":
@@ -53,6 +60,7 @@ export function WorkspaceScreen(props: WorkspaceScreenProps) {
         <ExplorerPane
           activeView={activeView}
           onViewChange={setActiveView}
+          showBrandVsCategory={Boolean(auditData.views.brand_vs_category)}
         />
       </div>
 

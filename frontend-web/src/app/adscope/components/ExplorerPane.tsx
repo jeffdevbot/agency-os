@@ -13,39 +13,44 @@ import type { ViewId } from "../types";
 interface ExplorerPaneProps {
     activeView: ViewId;
     onViewChange: (viewId: ViewId) => void;
+    showBrandVsCategory?: boolean;
 }
 
-const SECTIONS = [
-    {
-        title: "Dashboard",
-        items: [
-            { id: "overview", label: "Overview", icon: LayoutDashboard },
-            { id: "wasted_spend", label: "Wasted Ad Spend", icon: Target },
-        ]
-    },
-    {
-        title: "Sponsored Products",
-        items: [
-            { id: "targeting_analysis", label: "Targeting Analysis", icon: Target },
-            { id: "bidding_placements", label: "Bidding & Placements", icon: DollarSign },
-        ]
-    },
-    {
-        title: "Sponsored Brands",
-        items: [
-            { id: "sponsored_brands_analysis", label: "Match Types & Formats", icon: Megaphone },
-            { id: "sponsored_brands_landing_pages", label: "Landing Pages", icon: Megaphone },
-        ]
-    },
-    {
-        title: "Sponsored Display",
-        items: [
-            { id: "sponsored_display_targeting", label: "Match Type & Targeting", icon: Monitor },
-        ]
-    },
-];
+function getSections(showBrandVsCategory: boolean) {
+    return [
+        {
+            title: "Dashboard",
+            items: [
+                { id: "overview", label: "Overview", icon: LayoutDashboard },
+                { id: "wasted_spend", label: "Wasted Ad Spend", icon: Target },
+                ...(showBrandVsCategory ? [{ id: "brand_vs_category", label: "Brand vs Category", icon: Target }] : []),
+            ]
+        },
+        {
+            title: "Sponsored Products",
+            items: [
+                { id: "targeting_analysis", label: "Targeting Analysis", icon: Target },
+                { id: "bidding_placements", label: "Bidding & Placements", icon: DollarSign },
+            ]
+        },
+        {
+            title: "Sponsored Brands",
+            items: [
+                { id: "sponsored_brands_analysis", label: "Match Types & Formats", icon: Megaphone },
+                { id: "sponsored_brands_landing_pages", label: "Landing Pages", icon: Megaphone },
+            ]
+        },
+        {
+            title: "Sponsored Display",
+            items: [
+                { id: "sponsored_display_targeting", label: "Match Type & Targeting", icon: Monitor },
+            ]
+        },
+    ] as const;
+}
 
-export function ExplorerPane({ activeView, onViewChange }: ExplorerPaneProps) {
+export function ExplorerPane({ activeView, onViewChange, showBrandVsCategory }: ExplorerPaneProps) {
+    const sections = getSections(Boolean(showBrandVsCategory));
     return (
         <div className="flex flex-col h-full bg-white text-slate-600 font-medium text-sm">
             {/* Header */}
@@ -57,7 +62,7 @@ export function ExplorerPane({ activeView, onViewChange }: ExplorerPaneProps) {
 
             {/* File Tree */}
             <div className="flex-1 overflow-y-auto py-2">
-                {SECTIONS.map((section, idx) => (
+                {sections.map((section, idx) => (
                     <div key={idx} className="mb-4">
                         <div className="px-3 py-1 flex items-center gap-1 text-slate-400 mb-1">
                             <span className="w-3 h-3 transition-transform">
