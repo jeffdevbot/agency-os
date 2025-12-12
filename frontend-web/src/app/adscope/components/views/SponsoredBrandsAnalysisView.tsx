@@ -261,7 +261,7 @@ export function SponsoredBrandsAnalysisView({ data, currency }: SponsoredBrandsA
                       >
                         {formatPercent(row.acos)}
                       </td>
-                      <td className="px-6 py-4 text-right text-slate-600">{formatNumber(row.roas, 2)}x</td>
+                      <td className="px-6 py-4 text-right text-slate-600">{row.roas.toFixed(2)}x</td>
                     </tr>
                   ))
                 ) : (
@@ -279,4 +279,3 @@ export function SponsoredBrandsAnalysisView({ data, currency }: SponsoredBrandsA
     </div>
   );
 }
-
