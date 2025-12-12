@@ -77,6 +77,7 @@ export function WorkspaceScreen(props: WorkspaceScreenProps) {
         <ChatPane
           auditData={auditData}
           onViewChange={setActiveView}
+          activeView={activeView}
         />
       </div>
     </div>

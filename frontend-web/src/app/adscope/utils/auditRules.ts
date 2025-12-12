@@ -120,6 +120,7 @@ export interface HotTake {
   emoji: string;
   headline: string;
   body: string;
+  judgement?: string;
   ctaText: string;
   targetView: ViewId;
   kpi?: {
@@ -151,6 +152,7 @@ export function generateHotTakes(auditData: AuditResponse): HotTake[] {
       emoji: "🎯",
       headline: "Outstanding ACoS Performance",
       body: `Your blended ACoS of ${(overallAcos * 100).toFixed(1)}% is excellent. You're running a tight ship—focus on scaling what's working.`,
+      judgement: "This is elite efficiency — scale what’s working.",
       ctaText: "View Overall Performance",
       targetView: "overview",
       kpi: {
@@ -165,6 +167,7 @@ export function generateHotTakes(auditData: AuditResponse): HotTake[] {
       emoji: "✅",
       headline: "ACoS is Solid With Room to Optimize",
       body: `Your blended ACoS of ${(overallAcos * 100).toFixed(1)}% looks reasonable for most categories, but there's still room to trim waste and push it lower.`,
+      judgement: "Solid performance — now go squeeze out waste.",
       ctaText: "View Overall Performance",
       targetView: "overview",
       kpi: {
@@ -179,6 +182,7 @@ export function generateHotTakes(auditData: AuditResponse): HotTake[] {
       emoji: "⚠️",
       headline: "ACoS is Creeping Up",
       body: `At ${(overallAcos * 100).toFixed(1)}%, your ACoS is in acceptable territory but many sellers can't be profitable here. Time to audit your keywords and bids.`,
+      judgement: "You’re paying too much for sales — tighten targeting.",
       ctaText: "View Overall Performance",
       targetView: "overview",
       kpi: {
@@ -193,6 +197,7 @@ export function generateHotTakes(auditData: AuditResponse): HotTake[] {
       emoji: "🚨",
       headline: "ACoS Needs Immediate Attention",
       body: `Your blended ACoS of ${(overallAcos * 100).toFixed(1)}% is too high. You're likely bidding on keywords that aren't converting. An N-Gram analysis would help identify waste.`,
+      judgement: "This is bleeding money — fix the losers first.",
       ctaText: "View Overall Performance",
       targetView: "overview",
       kpi: {
@@ -217,6 +222,7 @@ export function generateHotTakes(auditData: AuditResponse): HotTake[] {
       emoji: "📊",
       headline: "Heavily Weighted Toward Sponsored Products",
       body: `${(spPercent * 100).toFixed(0)}% of your spend is in SP. You may be missing brand visibility opportunities in Sponsored Brands, which can drive conversions too.`,
+      judgement: "You’re over-indexed on SP — SB likely has upside.",
       ctaText: "View Ad Type Breakdown",
       targetView: "overview",
       kpi: {
@@ -233,6 +239,7 @@ export function generateHotTakes(auditData: AuditResponse): HotTake[] {
       emoji: "💡",
       headline: "Sponsored Brands Looks Underutilized",
       body: `SB is only ${(sbPercent * 100).toFixed(0)}% of spend. The ideal mix is closer to 40%. SB can be a major driver of brand awareness and conversions.`,
+      judgement: "You’re leaving brand real estate on the table.",
       ctaText: "Review SB Performance",
       targetView: "sponsored_brands_analysis",
       kpi: {
@@ -261,6 +268,7 @@ export function generateHotTakes(auditData: AuditResponse): HotTake[] {
         emoji: "🔄",
         headline: "Auto Campaigns Are Dominating",
         body: `${(autoPercent * 100).toFixed(0)}% Auto / ${(manualPercent * 100).toFixed(0)}% Manual. If this is a mature account, you should be closer to 20/80. Too much auto means less control over where your money goes.`,
+        judgement: "Auto is running your budget — take back control.",
         ctaText: "Open SP Targeting Analysis",
         targetView: "targeting_analysis",
         kpi: {
@@ -275,6 +283,7 @@ export function generateHotTakes(auditData: AuditResponse): HotTake[] {
         emoji: "🧪",
         headline: "Consider More Auto Discovery",
         body: `${(manualPercent * 100).toFixed(0)}% Manual is great for control, but some auto campaigns help discover new converting keywords. Even mature accounts benefit from ~20% auto.`,
+        judgement: "Control is great — don’t starve discovery.",
         ctaText: "Open SP Targeting Analysis",
         targetView: "targeting_analysis",
         kpi: {
@@ -306,6 +315,7 @@ export function generateHotTakes(auditData: AuditResponse): HotTake[] {
         emoji: "🎯",
         headline: "Broad Match is Eating Your Budget",
         body: `Broad is ${(broadPercent * 100).toFixed(0)}% of SP spend at ${(broadAcos * 100).toFixed(1)}% ACoS. In mature accounts, Broad should be <10%—it's for discovery, not scaling.`,
+        judgement: "Broad is burning budget — harvest winners, cut losers.",
         ctaText: "Review Match Types",
         targetView: "targeting_analysis",
         kpi: {
@@ -322,6 +332,7 @@ export function generateHotTakes(auditData: AuditResponse): HotTake[] {
         emoji: "🎯",
         headline: "Exact Match Looks Underweighted",
         body: `Only ${(exactPercent * 100).toFixed(0)}% in Exact. Mature, well-run accounts invest most heavily in Exact—these are your proven converters.`,
+        judgement: "You’re under-invested in proven converters.",
         ctaText: "Review Match Types",
         targetView: "targeting_analysis",
         kpi: {
@@ -345,6 +356,7 @@ export function generateHotTakes(auditData: AuditResponse): HotTake[] {
       emoji: "💰",
       headline: "Top of Search is Expensive",
       body: `Top of Search placement is running at ${(topOfSearch.acos * 100).toFixed(1)}% ACoS. The premium position comes at a cost—consider if the visibility is worth it.`,
+      judgement: "You’re paying a premium — make sure it’s worth it.",
       ctaText: "Review Placements",
       targetView: "bidding_placements",
       kpi: {
@@ -365,6 +377,7 @@ export function generateHotTakes(auditData: AuditResponse): HotTake[] {
         emoji: "📉",
         headline: "Sponsored Brands is Underperforming",
         body: `SB ACoS (${(sbType.acos * 100).toFixed(1)}%) is significantly higher than SP (${(spType.acos * 100).toFixed(1)}%). Your SB campaigns may need tighter keyword targeting or creative refresh.`,
+        judgement: "SB is lagging — tighten targeting or refresh creative.",
         ctaText: "Open SB Analysis",
         targetView: "sponsored_brands_analysis",
         kpi: {
