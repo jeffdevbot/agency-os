@@ -72,14 +72,14 @@ export function ExplorerPane({ activeView, onViewChange, onReset }: ExplorerPane
                                     <button
                                         key={item.id}
                                         onClick={() => onViewChange(item.id as ViewId)}
-                                        className={`w - full flex items - center gap - 2 px - 3 py - 1.5 pl - 7 transition - colors border - l - 2
+                                        className={`w-full flex items-center gap-2 px-3 py-1.5 pl-7 transition-colors border-l-2 text-left
                                             ${isActive
                                                 ? "bg-blue-50 border-[#0077cc] text-[#0077cc]"
                                                 : "border-transparent hover:bg-slate-50 hover:text-slate-900"
                                             } `}
                                     >
-                                        <Icon className={`w - 4 h - 4 ${isActive ? "text-[#0077cc]" : "text-slate-400"} `} />
-                                        <span>{item.label}</span>
+                                        <Icon className={`w-4 h-4 flex-shrink-0 ${isActive ? "text-[#0077cc]" : "text-slate-400"}`} />
+                                        <span className="truncate">{item.label}</span>
                                     </button>
                                 );
                             })}

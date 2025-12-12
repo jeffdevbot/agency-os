@@ -961,6 +961,8 @@ def _derive_sb_keyword_match_type(row: pd.Series) -> str:
     match_type = str(row.get("match_type", "")).strip().lower()
     if not match_type or match_type in ("nan", "-", "none", ""):
         return "Unknown"
+    if "negative" in match_type:
+        return "Negative"
     if "modified" in match_type and "broad" in match_type:
         return "Modified Broad"
     return match_type.title()
@@ -1017,6 +1019,8 @@ def compute_sb_match_types(bulk_df: pd.DataFrame) -> list[dict[str, Any]]:
 
     if not sb_keyword_rows.empty:
         sb_keyword_rows["targeting_type"] = sb_keyword_rows.apply(_derive_sb_keyword_match_type, axis=1)
+        # Drop negative keyword types; negatives don't have meaningful spend breakdown.
+        sb_keyword_rows = sb_keyword_rows[sb_keyword_rows["targeting_type"] != "Negative"]
     if not sb_product_target_rows.empty:
         sb_product_target_rows["targeting_type"] = sb_product_target_rows.apply(_derive_sb_product_targeting_type, axis=1)
 
