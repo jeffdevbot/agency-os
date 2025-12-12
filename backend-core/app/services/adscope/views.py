@@ -158,6 +158,145 @@ def compute_waste_bin(str_df: pd.DataFrame) -> list[dict[str, Any]]:
     ]
 
 
+def compute_wasted_spend_sp(str_df: pd.DataFrame) -> dict[str, Any]:
+    """
+    Compute Wasted Ad Spend (SP-only v1) from the Sponsored Products Search Term Report (STR).
+
+    Definition:
+      wasted_spend = spend where orders == 0
+
+    Notes:
+      - STR is Sponsored Products only.
+      - Rows are at (search_term x targeting x match_type) grain.
+    """
+    if str_df.empty:
+        return {
+            "scope": "Sponsored Products only (STR)",
+            "summary": {
+                "total_wasted_spend": 0.0,
+                "total_ad_spend": 0.0,
+                "wasted_spend_pct": 0.0,
+                "wasted_targets_count": 0,
+                "wasted_campaigns_count": 0,
+            },
+            "top_wasted_targets": [],
+            "campaign_rollup": [],
+        }
+
+    required = ["spend", "sales", "impressions", "clicks", "orders", "campaign_name"]
+    missing = [c for c in required if c not in str_df.columns]
+    if missing:
+        raise ValueError(f"STR missing required columns for wasted_spend: {missing}")
+
+    df = str_df.copy()
+    if "ad_group_name" not in df.columns:
+        df["ad_group_name"] = None
+    if "targeting" not in df.columns:
+        df["targeting"] = ""
+    if "match_type" not in df.columns:
+        df["match_type"] = ""
+    if "search_term" not in df.columns:
+        df["search_term"] = ""
+
+    df["targeting_type"] = df.apply(_derive_targeting_type, axis=1)
+
+    total_ad_spend = float(df["spend"].sum())
+    wasted_mask = (df["spend"] > 0) & (df["orders"] == 0)
+    wasted_df = df[wasted_mask].copy()
+
+    total_wasted_spend = float(wasted_df["spend"].sum()) if not wasted_df.empty else 0.0
+    wasted_targets_count = int(len(wasted_df))
+    wasted_campaigns_count = int(wasted_df["campaign_name"].nunique()) if not wasted_df.empty else 0
+    wasted_spend_pct = float(total_wasted_spend / total_ad_spend) if total_ad_spend > 0 else 0.0
+
+    def _acos(spend: float, sales: float) -> float | None:
+        if sales and sales > 0:
+            return float(spend / sales)
+        return None
+
+    # Top targets (search terms) wasting the most spend
+    wasted_df = wasted_df.sort_values("spend", ascending=False).head(200)
+    top_wasted_targets = [
+        {
+            "campaign_name": str(row.get("campaign_name", "")),
+            "ad_group_name": None if pd.isna(row.get("ad_group_name")) else str(row.get("ad_group_name")),
+            "search_term": str(row.get("search_term", "")),
+            "targeting": str(row.get("targeting", "")),
+            "match_type": str(row.get("match_type", "")),
+            "targeting_type": str(row.get("targeting_type", "Unknown")),
+            "impressions": float(row.get("impressions", 0)),
+            "clicks": float(row.get("clicks", 0)),
+            "spend": float(row.get("spend", 0)),
+            "orders": float(row.get("orders", 0)),
+            "sales": float(row.get("sales", 0)),
+            "acos": _acos(float(row.get("spend", 0)), float(row.get("sales", 0))),
+            "wasted_spend": float(row.get("spend", 0)),
+        }
+        for _, row in wasted_df.iterrows()
+    ]
+
+    # Campaign rollup (optional)
+    if df["spend"].sum() > 0:
+        rollup = (
+            df.groupby("campaign_name", dropna=False)
+            .agg(
+                campaign_spend=("spend", "sum"),
+                campaign_sales=("sales", "sum"),
+                campaign_orders=("orders", "sum"),
+            )
+            .reset_index()
+        )
+        wasted_by_campaign = (
+            df[wasted_mask]
+            .groupby("campaign_name", dropna=False)
+            .agg(
+                campaign_wasted_spend=("spend", "sum"),
+                wasted_targets_count=("spend", "size"),
+            )
+            .reset_index()
+        )
+        rollup = rollup.merge(wasted_by_campaign, on="campaign_name", how="left")
+        rollup["campaign_wasted_spend"] = rollup["campaign_wasted_spend"].fillna(0.0)
+        rollup["wasted_targets_count"] = rollup["wasted_targets_count"].fillna(0).astype(int)
+        rollup["campaign_acos"] = rollup.apply(
+            lambda r: float(r["campaign_spend"] / r["campaign_sales"]) if r["campaign_sales"] > 0 else np.nan,
+            axis=1,
+        )
+        rollup["campaign_wasted_pct"] = rollup.apply(
+            lambda r: float(r["campaign_wasted_spend"] / r["campaign_spend"]) if r["campaign_spend"] > 0 else 0.0,
+            axis=1,
+        )
+        rollup = rollup.sort_values("campaign_wasted_spend", ascending=False).head(100)
+
+        campaign_rollup = [
+            {
+                "campaign_name": str(row.get("campaign_name", "")),
+                "campaign_spend": float(row.get("campaign_spend", 0)),
+                "campaign_sales": float(row.get("campaign_sales", 0)),
+                "campaign_acos": None if pd.isna(row.get("campaign_acos")) else float(row.get("campaign_acos")),
+                "campaign_wasted_spend": float(row.get("campaign_wasted_spend", 0)),
+                "campaign_wasted_pct": float(row.get("campaign_wasted_pct", 0)),
+                "wasted_targets_count": int(row.get("wasted_targets_count", 0)),
+            }
+            for _, row in rollup.iterrows()
+        ]
+    else:
+        campaign_rollup = []
+
+    return {
+        "scope": "Sponsored Products only (STR)",
+        "summary": {
+            "total_wasted_spend": total_wasted_spend,
+            "total_ad_spend": total_ad_spend,
+            "wasted_spend_pct": wasted_spend_pct,
+            "wasted_targets_count": wasted_targets_count,
+            "wasted_campaigns_count": wasted_campaigns_count,
+        },
+        "top_wasted_targets": top_wasted_targets,
+        "campaign_rollup": campaign_rollup,
+    }
+
+
 def compute_brand_analysis(str_df: pd.DataFrame) -> dict[str, Any]:
     """Compute branded vs generic analysis."""
     branded = str_df[str_df["is_branded"] == True]
@@ -768,6 +907,7 @@ def compute_all_views(
         "overview": compute_overview(bulk_df, str_df),
         "money_pits": compute_money_pits(bulk_df),
         "waste_bin": compute_waste_bin(str_df),
+        "wasted_spend": compute_wasted_spend_sp(str_df),
         "brand_analysis": compute_brand_analysis(str_df),
         "match_types": compute_match_types(str_df),
         "placements": compute_placements(bulk_df),

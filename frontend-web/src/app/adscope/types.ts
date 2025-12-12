@@ -28,6 +28,7 @@ export interface AuditViews {
   overview: OverviewView;
   money_pits: MoneyPit[];
   waste_bin: WasteBinItem[];
+  wasted_spend: WastedSpendView;
   brand_analysis: BrandAnalysis;
   match_types: MatchType[];
   placements: Placement[];
@@ -82,6 +83,47 @@ export interface WasteBinItem {
   search_term: string;
   spend: number;
   clicks: number;
+}
+
+export interface WastedSpendSummary {
+  total_wasted_spend: number;
+  total_ad_spend: number;
+  wasted_spend_pct: number;
+  wasted_targets_count: number;
+  wasted_campaigns_count: number;
+}
+
+export interface WastedTargetRow {
+  campaign_name: string;
+  ad_group_name?: string | null;
+  search_term: string;
+  targeting: string;
+  match_type: string;
+  targeting_type: string;
+  impressions: number;
+  clicks: number;
+  spend: number;
+  orders: number;
+  sales: number;
+  acos: number | null;
+  wasted_spend: number;
+}
+
+export interface WastedCampaignRow {
+  campaign_name: string;
+  campaign_spend: number;
+  campaign_sales: number;
+  campaign_acos: number | null;
+  campaign_wasted_spend: number;
+  campaign_wasted_pct: number;
+  wasted_targets_count: number;
+}
+
+export interface WastedSpendView {
+  scope: string;
+  summary: WastedSpendSummary;
+  top_wasted_targets: WastedTargetRow[];
+  campaign_rollup: WastedCampaignRow[];
 }
 
 export interface BrandAnalysis {
@@ -254,6 +296,7 @@ export interface SponsoredBrandsView {
 
 export type ViewId =
   | "overview"
+  | "wasted_spend"
   | "targeting_analysis"
   | "bidding_placements"
   | "sponsored_brands_analysis";

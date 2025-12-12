@@ -45,6 +45,69 @@ export const MATCH_TYPE_BENCHMARKS = {
   EXACT_MIN_HEALTHY: 0.40,      // >40% of spend
 } as const;
 
+export const WASTED_SPEND_BUCKETS = [
+  {
+    id: "too_low",
+    minInclusive: 0.0,
+    maxExclusive: 0.20,
+    rangeLabel: "< 20%",
+    verdict: "⚠️ Too Low",
+    meaning: "Very conservative, poor exploration. Stuck-growth pattern.",
+  },
+  {
+    id: "slightly_low",
+    minInclusive: 0.20,
+    maxExclusive: 0.33,
+    rangeLabel: "20–33%",
+    verdict: "⚠️ Slightly Low",
+    meaning: "Under-testing. Could grow faster with broader discovery.",
+  },
+  {
+    id: "healthy",
+    minInclusive: 0.33,
+    maxExclusive: 0.50,
+    rangeLabel: "33–50%",
+    verdict: "✅ Healthy",
+    meaning: "Balanced testing & efficient spend. Most strong accounts land here.",
+  },
+  {
+    id: "heavy_testing",
+    minInclusive: 0.50,
+    maxExclusive: 0.60,
+    rangeLabel: "50–60%",
+    verdict: "✔️ Still Healthy, Heavy Testing",
+    meaning: "Aggressive experimentation, usually fine unless sales soft.",
+  },
+  {
+    id: "high",
+    minInclusive: 0.60,
+    maxExclusive: 0.70,
+    rangeLabel: "60–70%",
+    verdict: "❌ High Waste",
+    meaning: "Inefficient targets or relevance issues; optimization needed.",
+  },
+  {
+    id: "severe",
+    minInclusive: 0.70,
+    maxExclusive: 1.01,
+    rangeLabel: "> 70%",
+    verdict: "🔥 Severe Waste",
+    meaning: "Budget is being burned; immediate action required.",
+  },
+] as const;
+
+export type WastedSpendBucketId = (typeof WASTED_SPEND_BUCKETS)[number]["id"];
+
+export function getWastedSpendBucket(wastedSpendPct: number) {
+  const pct = Number.isFinite(wastedSpendPct) ? wastedSpendPct : 0;
+  const clamped = Math.max(0, Math.min(1, pct));
+  return (
+    WASTED_SPEND_BUCKETS.find(
+      (b) => clamped >= b.minInclusive && clamped < b.maxExclusive
+    ) || WASTED_SPEND_BUCKETS[0]
+  );
+}
+
 // =============================================================================
 // HOT TAKE TYPES
 // =============================================================================
@@ -303,6 +366,18 @@ You are an opinionated Amazon Advertising veteran. Use these benchmarks when ana
 3. Exact match keywords are where profitable accounts invest most
 4. Sponsored Brands drives brand awareness AND conversions—don't neglect it
 5. Top of Search placements are premium but expensive—verify ROI
+
+### Wasted Spend % (SP-only)
+Wasted Spend % = (SP spend with 0 orders) / (total SP spend).
+
+| Wasted Spend % | Verdict                         | Meaning                                                             |
+| -------------- | ------------------------------- | ------------------------------------------------------------------- |
+| < 20%          | ⚠️ Too Low                      | Very conservative, poor exploration. Stuck-growth pattern.          |
+| 20–33%         | ⚠️ Slightly Low                 | Under-testing. Could grow faster with broader discovery.            |
+| 33–50%         | ✅ Healthy                       | Balanced testing & efficient spend. Most strong accounts land here. |
+| 50–60%         | ✔️ Still Healthy, Heavy Testing | Aggressive experimentation, usually fine unless sales soft.         |
+| 60–70%         | ❌ High Waste                    | Inefficient targets or relevance issues; optimization needed.       |
+| > 70%          | 🔥 Severe Waste                 | Budget is being burned; immediate action required.                  |
 
 Be direct and opinionated. Say "this needs attention" not "you might want to consider".
 `;

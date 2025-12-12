@@ -6,6 +6,7 @@ import { AdTypesView } from "./views/AdTypesView";
 import { TargetingAnalysisView } from "./views/TargetingAnalysisView";
 import { BiddingPlacementsView } from "./views/BiddingPlacementsView";
 import { SponsoredBrandsAnalysisView } from "./views/SponsoredBrandsAnalysisView";
+import { WastedAdSpendView } from "./views/WastedAdSpendView";
 import { ChatPane } from "./ChatPane";
 import { ExplorerPane } from "./ExplorerPane";
 
@@ -23,6 +24,8 @@ export function WorkspaceScreen({ auditData, onReset }: WorkspaceScreenProps) {
     switch (activeView) {
       case "overview":
         return <AdTypesView data={views.ad_types} currency={currency_code} />;
+      case "wasted_spend":
+        return <WastedAdSpendView data={views.wasted_spend} currency={currency_code} />;
       case "targeting_analysis":
         return <TargetingAnalysisView data={views.sponsored_products} currency={currency_code} />;
       case "bidding_placements":

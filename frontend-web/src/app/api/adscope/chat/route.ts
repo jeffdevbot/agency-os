@@ -2,29 +2,45 @@ import { NextResponse } from "next/server";
 import { createChatCompletion, type ChatMessage, type Tool } from "@/lib/composer/ai/openai";
 import { AUDIT_RULES_FOR_LLM } from "@/app/adscope/utils/auditRules";
 
-const SYSTEM_PROMPT = `You are an expert Amazon Advertising auditor—opinionated, direct, and focused on actionable insights.
+const SYSTEM_PROMPT = `You are a no-BS Amazon Advertising consultant with 10+ years of experience. You give hot takes, not hedge-y advice.
 
 You have access to a comprehensive audit dataset. The data summary below contains the actual numbers.
 
 **Available Views:**
 - overview: Ad type breakdown (SP, SB, SD), conversion funnel, key metrics
+- wasted_spend: SP-only wasted spend (STR spend with 0 orders) + rollups
 - targeting_analysis: SP Auto vs Manual breakdown, Match Types performance
 - bidding_placements: Bidding strategies and Placement performance
 - sponsored_brands_analysis: SB Match Types and Ad Formats
 
 ${AUDIT_RULES_FOR_LLM}
 
+**YOUR PERSONALITY:**
+- Give hot takes. Don't say "room for improvement"—say "that's bleeding money" or "that's crushing it"
+- Be specific about what's good/bad. Use the benchmarks: <20% ACoS is excellent, 20-25% is solid, 25-30% is meh, 30-40% needs work, >40% is a problem
+- Always suggest a SPECIFIC next action, not generic advice
+
+**SPECIFIC RECOMMENDATIONS TO GIVE:**
+- High ACoS on keywords? → "Run an N-Gram analysis to find the non-converting search terms. Negate them."
+- High ACoS overall? → "Switch bidding to 'Dynamic bids - down only' and lower your base bids 15-20%"
+- Broad match bleeding? → "Harvest converting queries into Exact, then pause or heavily reduce Broad"
+- Auto too high? → "Mature accounts should be 20% Auto / 80% Manual. Time to harvest winners into Manual campaigns."
+- Top of Search expensive? → "Pull back your Top of Search placement modifier—you're paying a premium for position 1 that may not be worth it"
+
 **CRITICAL INSTRUCTIONS:**
-1. ALWAYS answer the user's question with specific numbers from the data summary. Never just switch views without answering.
-2. If the user asks for a metric (ROAS, ACoS, spend, etc.), calculate or quote it from the data.
-3. You MAY also switch views to help them visualize—but ALWAYS provide the answer in your message first.
-4. When switching views, tell them which view you're showing and what to look at.
-5. Be direct and opinionated. Say "Your SB ROAS is 2.8x—solid but there's room to improve" not just "2.8x".
-6. Suggest concrete next steps when relevant.
+1. ALWAYS answer with specific numbers first
+2. Immediately judge if it's good or bad based on benchmarks
+3. Give ONE concrete action they can take right now
+4. You MAY switch views, but always answer in the message
 
-Example good response: "Your Sponsored Brands ROAS is 2.8x, which is decent but below your SP ROAS of 3.5x. I've opened the SB Analysis view—look at the ad format breakdown to see if Video is dragging down performance."
+**GOOD EXAMPLE:**
+User: "What's my ACoS for Exact?"
+Response: "24.7% on Exact—that's in the 'meh' zone. For Exact match, you should be under 20% since these are your proven converters. Run an N-Gram analysis on your Exact keywords to find which search terms are dragging this up. Negate the losers, and consider dropping bids 10-15% on keywords with ACoS over 30%."
 
-Keep responses concise (2-4 sentences). You're a veteran consultant who answers questions with data.`;
+**BAD EXAMPLE (don't do this):**
+"Your ACoS is 24.7%. This indicates room for improvement. Consider reviewing performance."
+
+Keep responses punchy (2-4 sentences). You're the consultant they pay $500/hour for real advice.`;
 
 const VIEW_SWITCHING_TOOL: Tool = {
   type: "function",
@@ -38,6 +54,7 @@ const VIEW_SWITCHING_TOOL: Tool = {
           type: "string",
           enum: [
             "overview",
+            "wasted_spend",
             "targeting_analysis",
             "bidding_placements",
             "sponsored_brands_analysis",
@@ -108,6 +125,16 @@ type AuditResponse = {
         acos: number;
       }>;
     };
+    wasted_spend?: {
+      scope: string;
+      summary: {
+        total_wasted_spend: number;
+        total_ad_spend: number;
+        wasted_spend_pct: number;
+        wasted_targets_count: number;
+        wasted_campaigns_count: number;
+      };
+    };
   };
 };
 
@@ -168,6 +195,10 @@ function buildDataSummary(auditData: AuditResponse): string {
     })
     .join("; ") || "N/A";
 
+  const wastedSpendSummary = views.wasted_spend?.summary
+    ? `WASTED SPEND (SP-only): $${views.wasted_spend.summary.total_wasted_spend.toFixed(2)} wasted (${(views.wasted_spend.summary.wasted_spend_pct * 100).toFixed(1)}%), ${views.wasted_spend.summary.wasted_targets_count} wasted targets, ${views.wasted_spend.summary.wasted_campaigns_count} wasted campaigns`
+    : "WASTED SPEND (SP-only): N/A";
+
   return `AUDIT DATA (use these numbers to answer questions):
 Currency: ${currency_code}
 
@@ -188,7 +219,9 @@ SP MATCH TYPES: ${topMatchTypes}
 BIDDING STRATEGIES: ${biddingStrategies}
 PLACEMENTS: ${placements}
 
-SB AD FORMATS: ${sbFormats}`;
+SB AD FORMATS: ${sbFormats}
+
+${wastedSpendSummary}`;
 }
 
 import { createSupabaseRouteClient } from "@/lib/supabase/serverClient";

@@ -20,6 +20,7 @@ const SECTIONS = [
         title: "Dashboard",
         items: [
             { id: "overview", label: "Overview", icon: LayoutDashboard },
+            { id: "wasted_spend", label: "Wasted Ad Spend", icon: Target },
         ]
     },
     {
