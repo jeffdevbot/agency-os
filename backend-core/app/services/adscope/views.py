@@ -898,7 +898,6 @@ def compute_all_views(
     sb_ad_formats = compute_sb_ad_formats(bulk_df)
     sb_landing_pages = compute_sb_landing_pages(bulk_df)
     sd_targeting = compute_sd_targeting(bulk_df)
-    sd_bidding_strategies = compute_sd_bidding_strategies(bulk_df)
 
     # Sanity check: compare SB target-level spend to SB campaign-level spend.
     # If Bulk is rolled up strangely, warn so UI doesn't silently mislead.
@@ -934,7 +933,7 @@ def compute_all_views(
         "portfolios": compute_portfolios(bulk_df),
         "price_sensitivity": compute_price_sensitivity(bulk_df),
         "zombies": compute_zombies(bulk_df),
-        "ad_types": compute_ad_types(bulk_df),
+        "ad_types": compute_ad_types(bulk_df, str_df),
         "sponsored_products": {
             **compute_sp_targeting(bulk_df),
             "match_types": compute_sp_match_types(str_df),
@@ -945,7 +944,6 @@ def compute_all_views(
         },
         "sponsored_brands_landing_pages": sb_landing_pages,
         "sponsored_display_targeting": sd_targeting,
-        "sponsored_display_bidding_strategies": sd_bidding_strategies,
     }
 
 def compute_sp_targeting(bulk_df: pd.DataFrame) -> dict[str, Any]:
@@ -1553,85 +1551,7 @@ def compute_sd_targeting(bulk_df: pd.DataFrame) -> dict[str, Any]:
     return {"targeting_types": targeting_types, "category_refinements": category_refinements}
 
 
-def compute_sd_bidding_strategies(bulk_df: pd.DataFrame) -> dict[str, Any]:
-    """
-    Compute Sponsored Display bidding strategies from Bulk.
-
-    Uses:
-      - cost_type (e.g., vCPM)
-      - bid_optimization (Amazon setting)
-      - reach: viewable_impressions (fallback: impressions)
-      - page_visits: clicks
-      - conversions: orders_views_clicks (fallback: orders)
-    """
-    if bulk_df.empty or "product" not in bulk_df.columns:
-        return {"strategies": []}
-
-    sd_rows = bulk_df[
-        (bulk_df["entity"] == "Campaign")
-        & bulk_df["product"].str.lower().str.contains("sponsored display", na=False)
-    ].copy()
-    if sd_rows.empty:
-        return {"strategies": []}
-
-    for col in ["impressions", "clicks", "orders", "sales", "spend"]:
-        if col not in sd_rows.columns:
-            sd_rows[col] = 0
-
-    if "viewable_impressions" not in sd_rows.columns:
-        sd_rows["viewable_impressions"] = sd_rows["impressions"]
-    if "orders_views_clicks" not in sd_rows.columns:
-        sd_rows["orders_views_clicks"] = sd_rows["orders"]
-
-    if "cost_type" not in sd_rows.columns:
-        sd_rows["cost_type"] = ""
-    if "bid_optimization" not in sd_rows.columns:
-        sd_rows["bid_optimization"] = ""
-
-    def _strategy_name(row: pd.Series) -> str:
-        cost_type = str(row.get("cost_type", "")).strip()
-        bid_opt = str(row.get("bid_optimization", "")).strip()
-        parts = [p for p in [cost_type, bid_opt] if p]
-        if parts:
-            return " • ".join(parts)
-        return "Unknown"
-
-    sd_rows["strategy"] = sd_rows.apply(_strategy_name, axis=1)
-
-    grouped = sd_rows.groupby("strategy").agg(
-        campaigns=("campaign_id", "nunique"),
-        spend=("spend", "sum"),
-        sales=("sales", "sum"),
-        reach=("viewable_impressions", "sum"),
-        page_visits=("clicks", "sum"),
-        conversions=("orders_views_clicks", "sum"),
-    ).reset_index()
-
-    total_spend = float(grouped["spend"].sum())
-
-    results: list[dict[str, Any]] = []
-    for _, row in grouped.iterrows():
-        spend = float(row.get("spend", 0))
-        sales = float(row.get("sales", 0))
-        results.append(
-            {
-                "strategy": str(row.get("strategy", "Unknown")),
-                "campaigns": int(row.get("campaigns", 0)),
-                "spend": spend,
-                "spend_percent": float(spend / total_spend) if total_spend > 0 else 0.0,
-                "sales": sales,
-                "acos": spend / sales if sales > 0 else 0.0,
-                "reach": float(row.get("reach", 0)),
-                "page_visits": float(row.get("page_visits", 0)),
-                "conversions": float(row.get("conversions", 0)),
-            }
-        )
-
-    results.sort(key=lambda x: x["spend"], reverse=True)
-    return {"strategies": results}
-
-
-def compute_ad_types(bulk_df: pd.DataFrame) -> list[dict[str, Any]]:
+def compute_ad_types(bulk_df: pd.DataFrame, str_df: pd.DataFrame | None = None) -> list[dict[str, Any]]:
     """Compute metrics by Ad Type (Sponsored Products, Brands, Display)."""
     # Use Campaign rows to get the distinct ad types and their campaign-level spend
     # However, to get detailed metrics like Sales/Orders which might be attributed to ad groups/keywords, 
@@ -1675,6 +1595,36 @@ def compute_ad_types(bulk_df: pd.DataFrame) -> list[dict[str, Any]]:
     grouped["cvr"] = grouped.apply(
         lambda row: float(row["orders"] / row["clicks"]) if row["clicks"] > 0 else 0.0, axis=1
     )
+
+    # If the Bulk export omitted clicks/impressions, CTR/CVR can become 0 across the board.
+    # Use STR as a fallback for Sponsored Products funnel metrics (best-effort).
+    if str_df is not None and not str_df.empty:
+        try:
+            sp_mask = grouped["product"].astype(str).str.lower().str.contains("sponsored products", na=False)
+            if sp_mask.any():
+                sp_idx = grouped[sp_mask].index[0]
+                bulk_sp_impr = float(grouped.at[sp_idx, "impressions"])
+                bulk_sp_clicks = float(grouped.at[sp_idx, "clicks"])
+                bulk_sp_orders = float(grouped.at[sp_idx, "orders"])
+
+                str_impr = float(str_df["impressions"].sum()) if "impressions" in str_df.columns else 0.0
+                str_clicks = float(str_df["clicks"].sum()) if "clicks" in str_df.columns else 0.0
+                str_orders = float(str_df["orders"].sum()) if "orders" in str_df.columns else 0.0
+
+                if (bulk_sp_impr == 0 and str_impr > 0) or (bulk_sp_clicks == 0 and str_clicks > 0) or (bulk_sp_orders == 0 and str_orders > 0):
+                    grouped.at[sp_idx, "impressions"] = str_impr
+                    grouped.at[sp_idx, "clicks"] = str_clicks
+                    grouped.at[sp_idx, "orders"] = str_orders
+                    # Recompute derived metrics for SP row using mixed funnel metrics
+                    spend = float(grouped.at[sp_idx, "spend"])
+                    sales = float(grouped.at[sp_idx, "sales"])
+                    grouped.at[sp_idx, "cpc"] = spend / str_clicks if str_clicks > 0 else 0.0
+                    grouped.at[sp_idx, "ctr"] = str_clicks / str_impr if str_impr > 0 else 0.0
+                    grouped.at[sp_idx, "cvr"] = str_orders / str_clicks if str_clicks > 0 else 0.0
+                    grouped.at[sp_idx, "acos"] = spend / sales if sales > 0 else 0.0
+                    grouped.at[sp_idx, "roas"] = sales / spend if spend > 0 else 0.0
+        except Exception:
+            pass
 
     return [
         {

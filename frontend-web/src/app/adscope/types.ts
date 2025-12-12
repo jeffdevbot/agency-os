@@ -46,7 +46,6 @@ export interface AuditViews {
   sponsored_brands: SponsoredBrandsView;
   sponsored_brands_landing_pages: SponsoredBrandsLandingPagesView;
   sponsored_display_targeting: SponsoredDisplayTargetingView;
-  sponsored_display_bidding_strategies: SponsoredDisplayBiddingStrategiesView;
 }
 
 export interface OverviewView {
@@ -351,22 +350,6 @@ export interface SponsoredDisplayTargetingView {
   category_refinements: SDCategoryRefinementRow[];
 }
 
-export interface SDBiddingStrategyRow {
-  strategy: string;
-  campaigns: number;
-  spend: number;
-  spend_percent: number;
-  sales: number;
-  acos: number;
-  reach: number;
-  page_visits: number;
-  conversions: number;
-}
-
-export interface SponsoredDisplayBiddingStrategiesView {
-  strategies: SDBiddingStrategyRow[];
-}
-
 export type ViewId =
   | "overview"
   | "wasted_spend"
@@ -374,5 +357,4 @@ export type ViewId =
   | "bidding_placements"
   | "sponsored_brands_analysis"
   | "sponsored_brands_landing_pages"
-  | "sponsored_display_targeting"
-  | "sponsored_display_bidding_strategies";
+  | "sponsored_display_targeting";
