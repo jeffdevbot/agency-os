@@ -4,28 +4,27 @@ import { AUDIT_RULES_FOR_LLM } from "@/app/adscope/utils/auditRules";
 
 const SYSTEM_PROMPT = `You are an expert Amazon Advertising auditor—opinionated, direct, and focused on actionable insights.
 
-You have access to a comprehensive audit dataset with the following views:
+You have access to a comprehensive audit dataset. The data summary below contains the actual numbers.
 
-**Dashboard**
-- overview: Overall performance by ad type (SP, SB, SD) with spend breakdown, conversion funnel (impressions→clicks→orders), and key metrics (ACoS, ROAS, CTR, CVR)
-
-**Sponsored Products**
-- targeting_analysis: Auto vs Manual targeting breakdown, plus Match Types performance (Broad, Phrase, Exact, and auto types like Close-Match, Loose-Match, Substitutes, Complements, ASIN, Category)
-- bidding_placements: Bidding strategy breakdown (Dynamic Down, Dynamic Up/Down, Fixed) and Placement performance (Top of Search, Product Pages, Rest of Search)
-
-**Sponsored Brands**
-- sponsored_brands_analysis: SB Match Types and Ad Formats (Video, Product Collection, Store Spotlight, Brand Video) performance
+**Available Views:**
+- overview: Ad type breakdown (SP, SB, SD), conversion funnel, key metrics
+- targeting_analysis: SP Auto vs Manual breakdown, Match Types performance
+- bidding_placements: Bidding strategies and Placement performance
+- sponsored_brands_analysis: SB Match Types and Ad Formats
 
 ${AUDIT_RULES_FOR_LLM}
 
-When users ask questions:
-1. Be direct and opinionated—say "this needs attention" not "you might want to consider"
-2. Use the switch_view tool if the user wants to see a specific view
-3. Reference specific metrics and compare them to the benchmarks above
-4. Explain WHY something is good or bad based on the rules
-5. Suggest concrete next steps, not vague advice
+**CRITICAL INSTRUCTIONS:**
+1. ALWAYS answer the user's question with specific numbers from the data summary. Never just switch views without answering.
+2. If the user asks for a metric (ROAS, ACoS, spend, etc.), calculate or quote it from the data.
+3. You MAY also switch views to help them visualize—but ALWAYS provide the answer in your message first.
+4. When switching views, tell them which view you're showing and what to look at.
+5. Be direct and opinionated. Say "Your SB ROAS is 2.8x—solid but there's room to improve" not just "2.8x".
+6. Suggest concrete next steps when relevant.
 
-Keep responses concise (2-4 sentences unless detail is needed). You're a veteran consultant, not a data reader.`;
+Example good response: "Your Sponsored Brands ROAS is 2.8x, which is decent but below your SP ROAS of 3.5x. I've opened the SB Analysis view—look at the ad format breakdown to see if Video is dragging down performance."
+
+Keep responses concise (2-4 sentences). You're a veteran consultant who answers questions with data.`;
 
 const VIEW_SWITCHING_TOOL: Tool = {
   type: "function",
@@ -99,11 +98,13 @@ type AuditResponse = {
       match_types: Array<{
         match_type: string;
         spend: number;
+        sales: number;
         acos: number;
       }>;
       ad_formats: Array<{
         ad_format: string;
         spend: number;
+        sales: number;
         acos: number;
       }>;
     };
@@ -116,22 +117,37 @@ function buildDataSummary(auditData: AuditResponse): string {
   // Calculate totals from ad_types
   const totalSpend = views.ad_types.reduce((sum, t) => sum + t.spend, 0);
   const totalSales = views.ad_types.reduce((sum, t) => sum + t.sales, 0);
-  const overallAcos = totalSales > 0 ? (totalSpend / totalSales) * 100 : 0;
+  const totalImpressions = views.ad_types.reduce((sum, t) => sum + t.impressions, 0);
+  const totalClicks = views.ad_types.reduce((sum, t) => sum + t.clicks, 0);
+  const totalOrders = views.ad_types.reduce((sum, t) => sum + t.orders, 0);
+  const overallAcos = totalSales > 0 ? (totalSpend / totalSales) : 0;
+  const overallRoas = totalSpend > 0 ? (totalSales / totalSpend) : 0;
+  const overallCtr = totalImpressions > 0 ? (totalClicks / totalImpressions) : 0;
+  const overallCvr = totalClicks > 0 ? (totalOrders / totalClicks) : 0;
 
-  // Ad type breakdown
+  // Ad type breakdown with ROAS
   const adTypeBreakdown = views.ad_types
-    .map(t => `${t.ad_type}: ${((t.spend / totalSpend) * 100).toFixed(0)}% spend, ${(t.acos * 100).toFixed(1)}% ACoS`)
-    .join("; ");
+    .map(t => {
+      const roas = t.spend > 0 ? (t.sales / t.spend).toFixed(2) : "0";
+      return `${t.ad_type}: $${t.spend.toFixed(0)} spend, $${t.sales.toFixed(0)} sales, ${(t.acos * 100).toFixed(1)}% ACoS, ${roas}x ROAS`;
+    })
+    .join("\n  ");
 
   // SP Targeting breakdown
   const spTargeting = views.sponsored_products?.targeting_breakdown
-    ?.map(t => `${t.targeting_type}: $${t.spend.toFixed(0)}, ${(t.acos * 100).toFixed(1)}% ACoS`)
+    ?.map(t => {
+      const roas = t.spend > 0 ? (t.sales / t.spend).toFixed(2) : "0";
+      return `${t.targeting_type}: $${t.spend.toFixed(0)} spend, ${(t.acos * 100).toFixed(1)}% ACoS, ${roas}x ROAS`;
+    })
     .join("; ") || "N/A";
 
   // Top match types by spend
   const topMatchTypes = views.sponsored_products?.match_types
     ?.slice(0, 5)
-    .map(m => `${m.match_type}: $${m.spend.toFixed(0)}, ${(m.acos * 100).toFixed(1)}% ACoS`)
+    .map(m => {
+      const roas = m.spend > 0 ? (m.sales / m.spend).toFixed(2) : "0";
+      return `${m.match_type}: $${m.spend.toFixed(0)}, ${(m.acos * 100).toFixed(1)}% ACoS, ${roas}x ROAS`;
+    })
     .join("; ") || "N/A";
 
   // Bidding strategies
@@ -144,26 +160,35 @@ function buildDataSummary(auditData: AuditResponse): string {
     ?.map(p => `${p.placement}: ${p.spend_percent.toFixed(0)}% spend, ${(p.acos * 100).toFixed(1)}% ACoS`)
     .join("; ") || "N/A";
 
-  // SB Ad formats
+  // SB Ad formats with ROAS
   const sbFormats = views.sponsored_brands?.ad_formats
-    ?.map(f => `${f.ad_format}: $${f.spend.toFixed(0)}, ${(f.acos * 100).toFixed(1)}% ACoS`)
+    ?.map(f => {
+      const roas = f.spend > 0 ? (f.sales / f.spend).toFixed(2) : "0";
+      return `${f.ad_format}: $${f.spend.toFixed(0)} spend, ${(f.acos * 100).toFixed(1)}% ACoS, ${roas}x ROAS`;
+    })
     .join("; ") || "N/A";
 
-  return `Current audit data summary:
-- Currency: ${currency_code}
+  return `AUDIT DATA (use these numbers to answer questions):
+Currency: ${currency_code}
+
+OVERALL METRICS:
 - Total Spend: $${totalSpend.toFixed(2)}
 - Total Sales: $${totalSales.toFixed(2)}
-- Overall ACoS: ${overallAcos.toFixed(1)}%
+- Overall ACoS: ${(overallAcos * 100).toFixed(1)}%
+- Overall ROAS: ${overallRoas.toFixed(2)}x
+- CTR: ${(overallCtr * 100).toFixed(2)}%
+- CVR: ${(overallCvr * 100).toFixed(2)}%
 
-Ad Types: ${adTypeBreakdown}
+AD TYPES (with individual ROAS):
+  ${adTypeBreakdown}
 
-SP Targeting (Auto vs Manual): ${spTargeting}
-SP Match Types: ${topMatchTypes}
+SP TARGETING (Auto vs Manual): ${spTargeting}
+SP MATCH TYPES: ${topMatchTypes}
 
-Bidding Strategies: ${biddingStrategies}
-Placements: ${placements}
+BIDDING STRATEGIES: ${biddingStrategies}
+PLACEMENTS: ${placements}
 
-SB Ad Formats: ${sbFormats}`;
+SB AD FORMATS: ${sbFormats}`;
 }
 
 import { createSupabaseRouteClient } from "@/lib/supabase/serverClient";
