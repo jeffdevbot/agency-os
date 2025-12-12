@@ -287,10 +287,13 @@ def compute_bidding_strategies(bulk_df: pd.DataFrame) -> list[dict[str, Any]]:
     if "bidding_strategy" not in bulk_df.columns:
         return []
 
-    # Filter to rows with bidding strategy data
-    # Bidding strategy can appear on Campaign-level or other rows
-    # Filter out empty/null values more aggressively
+    # Bidding Strategy is a Campaign-level attribute
+    # Filter to Campaign rows with bidding strategy data
+    # Use case-insensitive matching for entity column
+    entity_col = bulk_df["entity"].astype(str).str.strip().str.lower() if "entity" in bulk_df.columns else pd.Series([""], index=bulk_df.index)
+    
     strategy_rows = bulk_df[
+        (entity_col == "campaign") &
         bulk_df["bidding_strategy"].notna() &
         (bulk_df["bidding_strategy"].astype(str).str.strip() != "") &
         (bulk_df["bidding_strategy"].astype(str).str.lower() != "nan")
@@ -352,6 +355,7 @@ def compute_bidding_strategies(bulk_df: pd.DataFrame) -> list[dict[str, Any]]:
         }
         for _, row in grouped.iterrows()
     ]
+
 
 
 def compute_keyword_leaderboard(bulk_df: pd.DataFrame) -> dict[str, list[dict[str, Any]]]:
