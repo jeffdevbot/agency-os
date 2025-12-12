@@ -28,20 +28,28 @@ function HotTakeItem({ hotTake, onNavigate }: HotTakeItemProps) {
     const indicator = SEVERITY_INDICATOR[hotTake.severity];
 
     return (
-        <div className="mb-4 last:mb-0">
-            <div className="font-semibold text-slate-900 text-base mb-1">
-                {indicator} {hotTake.headline}
+        <div className="mb-5 last:mb-0 rounded-xl border border-slate-200 bg-white p-4">
+            <div className="flex items-center justify-between gap-4">
+                <div className="text-lg font-semibold text-slate-900">
+                    {indicator} {hotTake.headline}
+                </div>
+                <button
+                    onClick={() => onNavigate(hotTake.targetView)}
+                    className="text-sm font-semibold text-[#0077cc] hover:text-[#005fa3] transition-colors whitespace-nowrap"
+                >
+                    {hotTake.ctaText} →
+                </button>
             </div>
-            <p className="text-slate-600 text-sm leading-relaxed mb-2">
+            <div className="mt-2 text-base text-slate-700 leading-relaxed">
                 {hotTake.body}
-            </p>
-            <button
-                onClick={() => onNavigate(hotTake.targetView)}
-                className="text-sm font-medium text-[#0077cc] hover:text-[#005fa3] flex items-center gap-1 transition-colors"
-            >
-                {hotTake.ctaText}
-                <ChevronRight className="w-3 h-3" />
-            </button>
+            </div>
+            {hotTake.kpi && (
+                <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-slate-600">
+                    <span className="font-semibold">Current: {hotTake.kpi.valueText}</span>
+                    <span className="text-slate-400">•</span>
+                    <span className="font-semibold">{hotTake.kpi.verdictText}</span>
+                </div>
+            )}
         </div>
     );
 }
@@ -61,6 +69,24 @@ export function ChatPane({ auditData, onViewChange }: ChatPaneProps) {
         () => getWastedSpendBucket(wastedSpendSummary?.wasted_spend_pct ?? 0),
         [wastedSpendSummary?.wasted_spend_pct]
     );
+    const wastedHotTake = useMemo(() => {
+        switch (wastedBucket.id) {
+            case "too_low":
+                return "Hot take: You’re under-testing — growth may be capped.";
+            case "slightly_low":
+                return "Hot take: A bit too conservative — you can push discovery harder.";
+            case "healthy":
+                return "Hot take: This is a healthy testing level.";
+            case "heavy_testing":
+                return "Hot take: Aggressive testing — fine if performance stays stable.";
+            case "high":
+                return "Hot take: Too much waste — start trimming the losers.";
+            case "severe":
+                return "Hot take: Red alert — budget is getting burned.";
+            default:
+                return "Hot take: Keep waste at the right level.";
+        }
+    }, [wastedBucket.id]);
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -135,10 +161,10 @@ export function ChatPane({ auditData, onViewChange }: ChatPaneProps) {
                                         </button>
                                     </div>
                                     <div className="mt-2 text-base text-slate-700 leading-relaxed">
-                                        This view shows how much Sponsored Products spend went to targets that didn’t generate a sale.
-                                    </div>
-                                    <div className="mt-2 text-base text-slate-700 leading-relaxed">
                                         Some amount of wasted spend is expected — it comes from testing new keywords and discovering what actually converts. The goal isn’t to eliminate waste completely, but to make sure it’s at the right level.
+                                    </div>
+                                    <div className="mt-2 text-base font-semibold text-slate-900">
+                                        {wastedHotTake}
                                     </div>
                                     <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-slate-600">
                                         <span className="font-semibold">

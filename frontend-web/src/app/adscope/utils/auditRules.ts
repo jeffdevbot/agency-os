@@ -122,6 +122,10 @@ export interface HotTake {
   body: string;
   ctaText: string;
   targetView: ViewId;
+  kpi?: {
+    valueText: string;
+    verdictText: string;
+  };
 }
 
 // =============================================================================
@@ -149,6 +153,10 @@ export function generateHotTakes(auditData: AuditResponse): HotTake[] {
       body: `Your blended ACoS of ${(overallAcos * 100).toFixed(1)}% is excellent. You're running a tight ship—focus on scaling what's working.`,
       ctaText: "View Overall Performance",
       targetView: "overview",
+      kpi: {
+        valueText: `${(overallAcos * 100).toFixed(1)}%`,
+        verdictText: "✅ Excellent",
+      },
     });
   } else if (overallAcos < ACOS_THRESHOLDS.AVERAGE) {
     hotTakes.push({
@@ -159,6 +167,10 @@ export function generateHotTakes(auditData: AuditResponse): HotTake[] {
       body: `Your blended ACoS of ${(overallAcos * 100).toFixed(1)}% looks reasonable for most categories, but there's still room to trim waste and push it lower.`,
       ctaText: "View Overall Performance",
       targetView: "overview",
+      kpi: {
+        valueText: `${(overallAcos * 100).toFixed(1)}%`,
+        verdictText: "✅ Solid",
+      },
     });
   } else if (overallAcos < ACOS_THRESHOLDS.ACCEPTABLE) {
     hotTakes.push({
@@ -169,6 +181,10 @@ export function generateHotTakes(auditData: AuditResponse): HotTake[] {
       body: `At ${(overallAcos * 100).toFixed(1)}%, your ACoS is in acceptable territory but many sellers can't be profitable here. Time to audit your keywords and bids.`,
       ctaText: "View Overall Performance",
       targetView: "overview",
+      kpi: {
+        valueText: `${(overallAcos * 100).toFixed(1)}%`,
+        verdictText: "⚠️ Needs Work",
+      },
     });
   } else {
     hotTakes.push({
@@ -179,6 +195,10 @@ export function generateHotTakes(auditData: AuditResponse): HotTake[] {
       body: `Your blended ACoS of ${(overallAcos * 100).toFixed(1)}% is too high. You're likely bidding on keywords that aren't converting. An N-Gram analysis would help identify waste.`,
       ctaText: "View Overall Performance",
       targetView: "overview",
+      kpi: {
+        valueText: `${(overallAcos * 100).toFixed(1)}%`,
+        verdictText: "🚨 Red Alert",
+      },
     });
   }
 
@@ -199,6 +219,10 @@ export function generateHotTakes(auditData: AuditResponse): HotTake[] {
       body: `${(spPercent * 100).toFixed(0)}% of your spend is in SP. You may be missing brand visibility opportunities in Sponsored Brands, which can drive conversions too.`,
       ctaText: "View Ad Type Breakdown",
       targetView: "overview",
+      kpi: {
+        valueText: `${(spPercent * 100).toFixed(0)}%`,
+        verdictText: "⚠️ SP-Heavy",
+      },
     });
   }
 
@@ -211,6 +235,10 @@ export function generateHotTakes(auditData: AuditResponse): HotTake[] {
       body: `SB is only ${(sbPercent * 100).toFixed(0)}% of spend. The ideal mix is closer to 40%. SB can be a major driver of brand awareness and conversions.`,
       ctaText: "Review SB Performance",
       targetView: "sponsored_brands_analysis",
+      kpi: {
+        valueText: `${(sbPercent * 100).toFixed(0)}%`,
+        verdictText: "💡 Underutilized",
+      },
     });
   }
 
@@ -235,6 +263,10 @@ export function generateHotTakes(auditData: AuditResponse): HotTake[] {
         body: `${(autoPercent * 100).toFixed(0)}% Auto / ${(manualPercent * 100).toFixed(0)}% Manual. If this is a mature account, you should be closer to 20/80. Too much auto means less control over where your money goes.`,
         ctaText: "Open SP Targeting Analysis",
         targetView: "targeting_analysis",
+        kpi: {
+          valueText: `${(autoPercent * 100).toFixed(0)}% Auto`,
+          verdictText: "⚠️ Too Auto-Heavy",
+        },
       });
     } else if (manualPercent > 0.90) {
       hotTakes.push({
@@ -245,6 +277,10 @@ export function generateHotTakes(auditData: AuditResponse): HotTake[] {
         body: `${(manualPercent * 100).toFixed(0)}% Manual is great for control, but some auto campaigns help discover new converting keywords. Even mature accounts benefit from ~20% auto.`,
         ctaText: "Open SP Targeting Analysis",
         targetView: "targeting_analysis",
+        kpi: {
+          valueText: `${(manualPercent * 100).toFixed(0)}% Manual`,
+          verdictText: "💡 Add Some Auto",
+        },
       });
     }
   }
@@ -272,6 +308,10 @@ export function generateHotTakes(auditData: AuditResponse): HotTake[] {
         body: `Broad is ${(broadPercent * 100).toFixed(0)}% of SP spend at ${(broadAcos * 100).toFixed(1)}% ACoS. In mature accounts, Broad should be <10%—it's for discovery, not scaling.`,
         ctaText: "Review Match Types",
         targetView: "targeting_analysis",
+        kpi: {
+          valueText: `${(broadPercent * 100).toFixed(0)}% Broad`,
+          verdictText: broadAcos > ACOS_THRESHOLDS.ACCEPTABLE ? "🚨 High Waste" : "⚠️ Too High",
+        },
       });
     }
 
@@ -284,6 +324,10 @@ export function generateHotTakes(auditData: AuditResponse): HotTake[] {
         body: `Only ${(exactPercent * 100).toFixed(0)}% in Exact. Mature, well-run accounts invest most heavily in Exact—these are your proven converters.`,
         ctaText: "Review Match Types",
         targetView: "targeting_analysis",
+        kpi: {
+          valueText: `${(exactPercent * 100).toFixed(0)}% Exact`,
+          verdictText: "💡 Underweighted",
+        },
       });
     }
   }
@@ -303,6 +347,10 @@ export function generateHotTakes(auditData: AuditResponse): HotTake[] {
       body: `Top of Search placement is running at ${(topOfSearch.acos * 100).toFixed(1)}% ACoS. The premium position comes at a cost—consider if the visibility is worth it.`,
       ctaText: "Review Placements",
       targetView: "bidding_placements",
+      kpi: {
+        valueText: `${(topOfSearch.acos * 100).toFixed(1)}% ACoS`,
+        verdictText: "⚠️ Expensive",
+      },
     });
   }
 
@@ -319,6 +367,10 @@ export function generateHotTakes(auditData: AuditResponse): HotTake[] {
         body: `SB ACoS (${(sbType.acos * 100).toFixed(1)}%) is significantly higher than SP (${(spType.acos * 100).toFixed(1)}%). Your SB campaigns may need tighter keyword targeting or creative refresh.`,
         ctaText: "Open SB Analysis",
         targetView: "sponsored_brands_analysis",
+        kpi: {
+          valueText: `${(sbType.acos * 100).toFixed(1)}% SB ACoS`,
+          verdictText: "⚠️ Underperforming",
+        },
       });
     }
   }
