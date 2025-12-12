@@ -7,6 +7,7 @@ import { TargetingAnalysisView } from "./views/TargetingAnalysisView";
 import { BiddingPlacementsView } from "./views/BiddingPlacementsView";
 import { SponsoredBrandsAnalysisView } from "./views/SponsoredBrandsAnalysisView";
 import { WastedAdSpendView } from "./views/WastedAdSpendView";
+import { SponsoredBrandsLandingPagesView } from "./views/SponsoredBrandsLandingPagesView";
 import { ChatPane } from "./ChatPane";
 import { ExplorerPane } from "./ExplorerPane";
 
@@ -33,6 +34,8 @@ export function WorkspaceScreen(props: WorkspaceScreenProps) {
         return <BiddingPlacementsView biddingStrategies={views.bidding_strategies} placements={views.placements} currency={currency_code} />;
       case "sponsored_brands_analysis":
         return <SponsoredBrandsAnalysisView data={views.sponsored_brands} currency={currency_code} />;
+      case "sponsored_brands_landing_pages":
+        return <SponsoredBrandsLandingPagesView data={views.sponsored_brands_landing_pages} currency={currency_code} />;
       default:
         return <AdTypesView data={views.ad_types} currency={currency_code} />;
     }

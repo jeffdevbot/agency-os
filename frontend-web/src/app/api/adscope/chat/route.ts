@@ -12,6 +12,7 @@ You have access to a comprehensive audit dataset. The data summary below contain
 - targeting_analysis: SP Auto vs Manual breakdown, Match Types performance
 - bidding_placements: Bidding strategies and Placement performance
 - sponsored_brands_analysis: SB Match Types and Ad Formats
+- sponsored_brands_landing_pages: SB spend by landing page type (Store/Subpage/Collection/Product)
 
 ${AUDIT_RULES_FOR_LLM}
 
@@ -58,6 +59,7 @@ const VIEW_SWITCHING_TOOL: Tool = {
             "targeting_analysis",
             "bidding_placements",
             "sponsored_brands_analysis",
+            "sponsored_brands_landing_pages",
           ],
           description: "The ID of the view to switch to",
         },

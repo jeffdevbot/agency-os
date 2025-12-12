@@ -34,6 +34,9 @@ BULK_COLUMN_MAP = {
         "Resolved Targeting Expression (Informational only)",
     ],
     "ad_format": ["Ad Format", "Ad Format (Informational only)"],
+    "landing_page_type": ["Landing Page Type", "Landing Page Type (Informational only)"],
+    "landing_page_url": ["Landing Page URL"],
+    "landing_page_asins": ["Landing Page ASINs"],
     "start_date": ["Start Date"],
     "end_date": ["End Date"],
     "currency": ["Currency", "Budget Currency Code"],
@@ -110,7 +113,7 @@ def fuzzy_match_column(col_name: str, candidates: list[str]) -> bool:
 
 CAMPAIGN_TAB_PATTERNS = {
     "SP": ["Sponsored Products Campaigns", "Sponsored Products", "SP Campaigns"],
-    "SB": ["Sponsored Brands Campaigns", "Sponsored Brands", "SB Campaigns"],
+    "SB": ["Sponsored Brands Campaigns", "SB Multi Ad Group Campaigns", "Sponsored Brands", "SB Campaigns"],
     "SD": ["Sponsored Display Campaigns", "Sponsored Display", "SD Campaigns"],
     # Lower priority fallbacks if we want to catch generic names
     "Generic": ["Bulk Sheet", "Search Terms"]

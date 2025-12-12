@@ -44,6 +44,7 @@ export interface AuditViews {
   ad_types: AdTypeMetric[];
   sponsored_products: SponsoredProductsView;
   sponsored_brands: SponsoredBrandsView;
+  sponsored_brands_landing_pages: SponsoredBrandsLandingPagesView;
 }
 
 export interface OverviewView {
@@ -295,9 +296,30 @@ export interface SponsoredBrandsView {
   ad_formats: SBAdFormat[];
 }
 
+export interface SBLandingPageRow {
+  landing_page_type: string;
+  campaigns: number;
+  spend: number;
+  spend_percent: number;
+  sales: number;
+  impressions: number;
+  clicks: number;
+  orders: number;
+  acos: number;
+  roas: number;
+  cpc: number;
+  ctr: number;
+  cvr: number;
+}
+
+export interface SponsoredBrandsLandingPagesView {
+  landing_pages: SBLandingPageRow[];
+}
+
 export type ViewId =
   | "overview"
   | "wasted_spend"
   | "targeting_analysis"
   | "bidding_placements"
-  | "sponsored_brands_analysis";
+  | "sponsored_brands_analysis"
+  | "sponsored_brands_landing_pages";

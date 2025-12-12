@@ -33,6 +33,7 @@ const SECTIONS = [
         title: "Sponsored Brands",
         items: [
             { id: "sponsored_brands_analysis", label: "Match Types & Formats", icon: Megaphone },
+            { id: "sponsored_brands_landing_pages", label: "Landing Pages", icon: Megaphone },
         ]
     },
 ];

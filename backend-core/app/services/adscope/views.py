@@ -890,6 +890,7 @@ def compute_all_views(
 
     sb_match_types = compute_sb_match_types(bulk_df)
     sb_ad_formats = compute_sb_ad_formats(bulk_df)
+    sb_landing_pages = compute_sb_landing_pages(bulk_df)
 
     # Sanity check: compare SB target-level spend to SB campaign-level spend.
     # If Bulk is rolled up strangely, warn so UI doesn't silently mislead.
@@ -934,6 +935,7 @@ def compute_all_views(
             "match_types": sb_match_types,
             "ad_formats": sb_ad_formats,
         },
+        "sponsored_brands_landing_pages": sb_landing_pages,
     }
 
 def compute_sp_targeting(bulk_df: pd.DataFrame) -> dict[str, Any]:
@@ -1271,6 +1273,98 @@ def compute_sb_ad_formats(bulk_df: pd.DataFrame) -> list[dict[str, Any]]:
 
     results.sort(key=lambda x: x["spend"], reverse=True)
     return results
+
+
+def _normalize_sb_landing_page_type(value: Any) -> str:
+    """
+    Normalize Sponsored Brands landing page type into a small set of buckets.
+
+    Display buckets:
+      - Main Store Page
+      - Sub Page
+      - Product Collection
+      - Product Page
+      - Other
+    """
+    raw = str(value or "").strip()
+    if not raw or raw.lower() in {"nan", "none", "-"}:
+        return "Other"
+
+    norm = "".join(ch for ch in raw.lower() if ch.isalnum())
+    if "mainstore" in norm or norm in {"store", "storepage", "mainstorepage"}:
+        return "Main Store Page"
+    if "subpage" in norm or "subpages" in norm:
+        return "Sub Page"
+    if "productcollection" in norm or "collection" in norm:
+        return "Product Collection"
+    if "productpage" in norm or "detailpage" in norm:
+        return "Product Page"
+    return "Other"
+
+
+def compute_sb_landing_pages(bulk_df: pd.DataFrame) -> dict[str, Any]:
+    """Compute Sponsored Brands performance by Landing Page Type from Bulk campaign rows."""
+    if bulk_df.empty or "product" not in bulk_df.columns or "landing_page_type" not in bulk_df.columns:
+        return {"landing_pages": []}
+
+    sb_campaign_rows = bulk_df[
+        (bulk_df["entity"] == "Campaign")
+        & (bulk_df["product"].str.lower().str.contains("sponsored brands", na=False))
+        & (bulk_df["landing_page_type"].notna())
+    ].copy()
+
+    if sb_campaign_rows.empty:
+        return {"landing_pages": []}
+
+    for col in ["impressions", "clicks", "orders"]:
+        if col not in sb_campaign_rows.columns:
+            sb_campaign_rows[col] = 0
+
+    sb_campaign_rows["landing_page_bucket"] = sb_campaign_rows["landing_page_type"].apply(
+        _normalize_sb_landing_page_type
+    )
+
+    grouped = sb_campaign_rows.groupby("landing_page_bucket").agg(
+        campaigns=("campaign_id", "nunique"),
+        spend=("spend", "sum"),
+        sales=("sales", "sum"),
+        impressions=("impressions", "sum"),
+        clicks=("clicks", "sum"),
+        orders=("orders", "sum"),
+    ).reset_index()
+
+    total_spend = float(grouped["spend"].sum())
+
+    results: list[dict[str, Any]] = []
+    for _, row in grouped.iterrows():
+        spend = float(row.get("spend", 0))
+        sales = float(row.get("sales", 0))
+        impressions = float(row.get("impressions", 0))
+        clicks = float(row.get("clicks", 0))
+        orders = float(row.get("orders", 0))
+
+        results.append(
+            {
+                "landing_page_type": str(row["landing_page_bucket"]),
+                "campaigns": int(row.get("campaigns", 0)),
+                "spend": spend,
+                "spend_percent": float(spend / total_spend) if total_spend > 0 else 0.0,
+                "sales": sales,
+                "impressions": impressions,
+                "clicks": clicks,
+                "orders": orders,
+                "acos": spend / sales if sales > 0 else 0.0,
+                "roas": sales / spend if spend > 0 else 0.0,
+                "cpc": spend / clicks if clicks > 0 else 0.0,
+                "ctr": clicks / impressions if impressions > 0 else 0.0,
+                "cvr": orders / clicks if clicks > 0 else 0.0,
+            }
+        )
+
+    order = ["Main Store Page", "Sub Page", "Product Collection", "Product Page", "Other"]
+    order_map = {name: i for i, name in enumerate(order)}
+    results.sort(key=lambda x: order_map.get(x["landing_page_type"], 999))
+    return {"landing_pages": results}
 
 
 def compute_ad_types(bulk_df: pd.DataFrame) -> list[dict[str, Any]]:
