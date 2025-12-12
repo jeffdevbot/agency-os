@@ -321,6 +321,10 @@ def compute_bidding_strategies(bulk_df: pd.DataFrame) -> list[dict[str, Any]]:
             campaign_metrics[col] = pd.to_numeric(campaign_metrics[col], errors="coerce").fillna(0)
 
     # Step 3: Join strategy to campaign metrics
+    # Drop bidding_strategy from campaign_metrics if it exists to avoid _x/_y suffix issues
+    if "bidding_strategy" in campaign_metrics.columns:
+        campaign_metrics = campaign_metrics.drop(columns=["bidding_strategy"])
+    
     campaign_with_strategy = campaign_metrics.merge(
         strategy_lookup, 
         on="campaign_id", 
