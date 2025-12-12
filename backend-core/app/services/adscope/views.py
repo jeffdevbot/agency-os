@@ -283,39 +283,61 @@ def compute_placements(bulk_df: pd.DataFrame) -> list[dict[str, Any]]:
 
 
 def compute_bidding_strategies(bulk_df: pd.DataFrame) -> list[dict[str, Any]]:
-    """Compute bidding strategy analysis with full metrics."""
-    if "bidding_strategy" not in bulk_df.columns:
+    """Compute bidding strategy analysis with full metrics.
+    
+    Bidding Strategy is specified on specific rows (sometimes Bidding Adjustment
+    or Campaign rows) but metrics are on Campaign rows. We need to:
+    1. Find the bidding_strategy for each campaign_id
+    2. Get metrics from Campaign-level rows
+    3. Join and aggregate by bidding_strategy
+    """
+    if "bidding_strategy" not in bulk_df.columns or "campaign_id" not in bulk_df.columns:
         return []
 
-    # Bidding Strategy is a Campaign-level attribute
-    # Filter to Campaign rows with bidding strategy data
-    # Use case-insensitive matching for entity column
-    entity_col = bulk_df["entity"].astype(str).str.strip().str.lower() if "entity" in bulk_df.columns else pd.Series([""], index=bulk_df.index)
-    
-    strategy_rows = bulk_df[
-        (entity_col == "campaign") &
+    # Step 1: Find bidding strategy for each campaign_id
+    # Look at any row that has a bidding_strategy value
+    strategy_lookup = bulk_df[
         bulk_df["bidding_strategy"].notna() &
         (bulk_df["bidding_strategy"].astype(str).str.strip() != "") &
         (bulk_df["bidding_strategy"].astype(str).str.lower() != "nan")
-    ].copy()
+    ][["campaign_id", "bidding_strategy"]].drop_duplicates(subset=["campaign_id"])
+    
+    if strategy_lookup.empty:
+        return []
 
-    if strategy_rows.empty:
+    # Step 2: Get Campaign-level metrics (Entity = Campaign rows have aggregated metrics)
+    entity_col = bulk_df["entity"].astype(str).str.strip().str.lower() if "entity" in bulk_df.columns else pd.Series([""], index=bulk_df.index)
+    
+    campaign_metrics = bulk_df[entity_col == "campaign"].copy()
+    
+    if campaign_metrics.empty:
         return []
 
     # Ensure numeric columns exist
     for col in ["impressions", "orders", "clicks", "spend", "sales"]:
-        if col not in strategy_rows.columns:
-            strategy_rows[col] = 0
+        if col not in campaign_metrics.columns:
+            campaign_metrics[col] = 0
         else:
-            strategy_rows[col] = pd.to_numeric(strategy_rows[col], errors="coerce").fillna(0)
+            campaign_metrics[col] = pd.to_numeric(campaign_metrics[col], errors="coerce").fillna(0)
 
-    grouped = strategy_rows.groupby("bidding_strategy").agg({
+    # Step 3: Join strategy to campaign metrics
+    campaign_with_strategy = campaign_metrics.merge(
+        strategy_lookup, 
+        on="campaign_id", 
+        how="inner"
+    )
+
+    if campaign_with_strategy.empty:
+        return []
+
+    # Step 4: Aggregate by bidding_strategy
+    grouped = campaign_with_strategy.groupby("bidding_strategy").agg({
         "spend": "sum",
         "sales": "sum",
         "clicks": "sum",
         "impressions": "sum",
         "orders": "sum",
-        "campaign_id": "nunique",  # Count of campaigns with this strategy
+        "campaign_id": "nunique",
     }).reset_index()
 
     total_spend = grouped["spend"].sum()
@@ -355,6 +377,7 @@ def compute_bidding_strategies(bulk_df: pd.DataFrame) -> list[dict[str, Any]]:
         }
         for _, row in grouped.iterrows()
     ]
+
 
 
 
