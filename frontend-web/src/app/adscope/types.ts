@@ -204,18 +204,4 @@ export interface SponsoredProductsView {
 
 export type ViewId =
   | "overview"
-  | "money_pits"
-  | "waste_bin"
-  | "brand_analysis"
-  | "match_types"
-  | "placements"
-  | "keyword_leaderboard"
-  | "budget_cappers"
-  | "campaign_scatter"
-  | "n_grams"
-  | "duplicates"
-  | "portfolios"
-  | "price_sensitivity"
-  | "zombies"
-  | "ad_types"
-  | "sponsored_products";
+  | "targeting_analysis";

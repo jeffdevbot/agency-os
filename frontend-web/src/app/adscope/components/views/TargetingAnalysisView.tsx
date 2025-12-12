@@ -11,7 +11,7 @@ import {
 import type { SponsoredProductsView as SPViewData } from "../../types";
 import { formatCurrency, formatNumber, formatPercent } from "../../utils/format";
 
-interface SponsoredProductsViewProps {
+interface TargetingAnalysisViewProps {
     data: SPViewData;
     currency: string;
 }
@@ -23,11 +23,11 @@ const MATCH_TYPE_COLORS = [
     "#14b8a6", "#a855f7"
 ];
 
-export function SponsoredProductsView({ data, currency }: SponsoredProductsViewProps) {
+export function TargetingAnalysisView({ data, currency }: TargetingAnalysisViewProps) {
     if (!data) {
         return (
             <div className="flex h-full items-center justify-center text-slate-400">
-                No Sponsored Products data available.
+                No targeting data available.
             </div>
         );
     }

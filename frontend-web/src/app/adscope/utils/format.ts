@@ -21,3 +21,11 @@ export const formatNumber = (value: number): string => {
         maximumFractionDigits: 0,
     }).format(value);
 };
+
+export const formatCompact = (value: number): string => {
+    return new Intl.NumberFormat("en-US", {
+        notation: "compact",
+        compactDisplay: "short",
+        maximumFractionDigits: 1,
+    }).format(value);
+};

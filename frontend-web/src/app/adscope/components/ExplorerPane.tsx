@@ -1,21 +1,8 @@
 "use client";
 
 import {
-    FileText,
     LayoutDashboard,
-    Trash2,
-    DollarSign,
-    PieChart,
     Target,
-    BarChart2,
-    List,
-    Fingerprint,
-    Ghost,
-    Search,
-    Users,
-    AlertTriangle,
-    Copy,
-    FolderOpen,
     ChevronRight
 } from "lucide-react";
 import type { ViewId } from "../types";
@@ -34,40 +21,11 @@ const SECTIONS = [
         ]
     },
     {
-        title: "Performance",
+        title: "Sponsored Products",
         items: [
-            { id: "ad_types", label: "Ad Types", icon: PieChart },
-            { id: "sponsored_products", label: "Sponsored Products", icon: Target },
+            { id: "targeting_analysis", label: "Targeting Analysis", icon: Target },
         ]
     },
-    {
-        title: "Optimization",
-        items: [
-            { id: "money_pits", label: "Money Pits", icon: DollarSign },
-            { id: "waste_bin", label: "Waste Bin", icon: Trash2 },
-            { id: "budget_cappers", label: "Budget Cappers", icon: Target },
-            { id: "zombies", label: "Zombies", icon: Ghost },
-        ]
-    },
-    {
-        title: "Analysis",
-        items: [
-            { id: "brand_analysis", label: "Brand vs Generic", icon: PieChart },
-            { id: "placements", label: "Placements", icon: BarChart2 },
-            { id: "match_types", label: "Match Types", icon: Fingerprint },
-            { id: "price_sensitivity", label: "Price Sensitivity", icon: DollarSign },
-            { id: "campaign_scatter", label: "Campaign Dist.", icon: FolderOpen },
-        ]
-    },
-    {
-        title: "Deep Dive",
-        items: [
-            { id: "keyword_leaderboard", label: "Leaderboard", icon: List },
-            { id: "n_grams", label: "N-Grams", icon: Search },
-            { id: "duplicates", label: "Duplicates", icon: Copy },
-            { id: "portfolios", label: "Portfolios", icon: Users },
-        ]
-    }
 ];
 
 export function ExplorerPane({ activeView, onViewChange, onReset }: ExplorerPaneProps) {
