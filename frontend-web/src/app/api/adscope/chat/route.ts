@@ -4,27 +4,23 @@ import { createChatCompletion, type ChatMessage, type Tool } from "@/lib/compose
 const SYSTEM_PROMPT = `You are an expert Amazon Advertising auditor. You help users navigate and understand their ad audit results.
 
 You have access to a comprehensive audit dataset with the following views:
-- overview: Overall performance metrics (spend, sales, ACOS, ROAS, ad type mix, targeting mix, conversion funnel)
-- money_pits: Top 20% spenders by ASIN (products consuming most budget)
-- waste_bin: Search terms with spend >$50 but zero sales
-- brand_analysis: Branded vs generic keyword performance comparison
-- match_types: Performance breakdown by match type (exact, phrase, broad)
-- placements: Performance by placement (top of search, product pages, rest of search)
-- keyword_leaderboard: Top performers (winners) and bottom performers (losers)
-- budget_cappers: Campaigns with >90% budget utilization
-- campaign_scatter: Campaign-level spend vs ACOS analysis
-- n_grams: Most common 1-grams and 2-grams in search terms
-- duplicates: Keywords appearing in multiple campaigns
-- portfolios: Portfolio-level performance breakdown
-- price_sensitivity: ASIN average price vs conversion rate
-- zombies: Active ad groups with zero impressions
+
+**Dashboard**
+- overview: Overall performance by ad type (SP, SB, SD) with spend breakdown, conversion funnel (impressions→clicks→orders), and key metrics (ACoS, ROAS, CTR, CVR)
+
+**Sponsored Products**
+- targeting_analysis: Auto vs Manual targeting breakdown, plus Match Types performance (Broad, Phrase, Exact, and auto types like Close-Match, Loose-Match, Substitutes, Complements, ASIN, Category)
+- bidding_placements: Bidding strategy breakdown (Dynamic Down, Dynamic Up/Down, Fixed) and Placement performance (Top of Search, Product Pages, Rest of Search)
+
+**Sponsored Brands**
+- sponsored_brands_analysis: SB Match Types and Ad Formats (Video, Product Collection, Store Spotlight, Brand Video) performance
 
 When users ask questions:
 1. Provide concise, actionable insights based on the data
 2. Use the switch_view tool if the user wants to see a specific view
-3. Reference specific metrics when available
-4. Highlight concerning patterns (high ACOS, wasted spend, budget constraints)
-5. Suggest optimizations when relevant
+3. Reference specific metrics when available (spend, ACoS, CTR, CVR, CPC)
+4. Highlight concerning patterns (high ACoS >40%, low CVR, inefficient placements)
+5. Compare performance across targeting types, match types, or ad formats when relevant
 
 Keep responses conversational and helpful. Focus on insights, not just data recitation.`;
 
@@ -40,19 +36,9 @@ const VIEW_SWITCHING_TOOL: Tool = {
           type: "string",
           enum: [
             "overview",
-            "money_pits",
-            "waste_bin",
-            "brand_analysis",
-            "match_types",
-            "placements",
-            "keyword_leaderboard",
-            "budget_cappers",
-            "campaign_scatter",
-            "n_grams",
-            "duplicates",
-            "portfolios",
-            "price_sensitivity",
-            "zombies",
+            "targeting_analysis",
+            "bidding_placements",
+            "sponsored_brands_analysis",
           ],
           description: "The ID of the view to switch to",
         },
@@ -69,34 +55,112 @@ const VIEW_SWITCHING_TOOL: Tool = {
 type AuditResponse = {
   currency_code: string;
   views: {
-    overview: {
+    ad_types: Array<{
+      ad_type: string;
       spend: number;
       sales: number;
+      impressions: number;
+      clicks: number;
+      orders: number;
       acos: number;
-      roas: number;
+      ctr: number;
+      cvr: number;
+    }>;
+    sponsored_products: {
+      targeting_breakdown: Array<{
+        targeting_type: string;
+        spend: number;
+        sales: number;
+        acos: number;
+      }>;
+      match_types: Array<{
+        match_type: string;
+        spend: number;
+        sales: number;
+        acos: number;
+      }>;
     };
-    money_pits: unknown[];
-    waste_bin: unknown[];
-    budget_cappers: unknown[];
-    zombies: { zombie_count: number };
-    duplicates: unknown[];
+    bidding_strategies: Array<{
+      strategy: string;
+      spend: number;
+      spend_percent: number;
+      acos: number;
+    }>;
+    placements: Array<{
+      placement: string;
+      spend: number;
+      spend_percent: number;
+      acos: number;
+    }>;
+    sponsored_brands: {
+      match_types: Array<{
+        match_type: string;
+        spend: number;
+        acos: number;
+      }>;
+      ad_formats: Array<{
+        ad_format: string;
+        spend: number;
+        acos: number;
+      }>;
+    };
   };
 };
 
 function buildDataSummary(auditData: AuditResponse): string {
   const { views, currency_code } = auditData;
 
+  // Calculate totals from ad_types
+  const totalSpend = views.ad_types.reduce((sum, t) => sum + t.spend, 0);
+  const totalSales = views.ad_types.reduce((sum, t) => sum + t.sales, 0);
+  const overallAcos = totalSales > 0 ? (totalSpend / totalSales) * 100 : 0;
+
+  // Ad type breakdown
+  const adTypeBreakdown = views.ad_types
+    .map(t => `${t.ad_type}: ${((t.spend / totalSpend) * 100).toFixed(0)}% spend, ${(t.acos * 100).toFixed(1)}% ACoS`)
+    .join("; ");
+
+  // SP Targeting breakdown
+  const spTargeting = views.sponsored_products?.targeting_breakdown
+    ?.map(t => `${t.targeting_type}: $${t.spend.toFixed(0)}, ${(t.acos * 100).toFixed(1)}% ACoS`)
+    .join("; ") || "N/A";
+
+  // Top match types by spend
+  const topMatchTypes = views.sponsored_products?.match_types
+    ?.slice(0, 5)
+    .map(m => `${m.match_type}: $${m.spend.toFixed(0)}, ${(m.acos * 100).toFixed(1)}% ACoS`)
+    .join("; ") || "N/A";
+
+  // Bidding strategies
+  const biddingStrategies = views.bidding_strategies
+    ?.map(b => `${b.strategy}: ${b.spend_percent.toFixed(0)}% spend, ${(b.acos * 100).toFixed(1)}% ACoS`)
+    .join("; ") || "N/A";
+
+  // Placements
+  const placements = views.placements
+    ?.map(p => `${p.placement}: ${p.spend_percent.toFixed(0)}% spend, ${(p.acos * 100).toFixed(1)}% ACoS`)
+    .join("; ") || "N/A";
+
+  // SB Ad formats
+  const sbFormats = views.sponsored_brands?.ad_formats
+    ?.map(f => `${f.ad_format}: $${f.spend.toFixed(0)}, ${(f.acos * 100).toFixed(1)}% ACoS`)
+    .join("; ") || "N/A";
+
   return `Current audit data summary:
 - Currency: ${currency_code}
-- Total Spend: ${views.overview.spend.toFixed(2)}
-- Total Sales: ${views.overview.sales.toFixed(2)}
-- ACOS: ${(views.overview.acos * 100).toFixed(1)}%
-- ROAS: ${views.overview.roas.toFixed(2)}
-- Money Pits: ${views.money_pits.length} ASINs consuming top 20% of budget
-- Waste Bin: ${views.waste_bin.length} terms with spend but no sales
-- Budget Cappers: ${views.budget_cappers.length} campaigns at >90% budget utilization
-- Zombies: ${views.zombies?.zombie_count ?? 0} ad groups with zero impressions
-- Duplicates: ${views.duplicates.length} keywords in multiple campaigns`;
+- Total Spend: $${totalSpend.toFixed(2)}
+- Total Sales: $${totalSales.toFixed(2)}
+- Overall ACoS: ${overallAcos.toFixed(1)}%
+
+Ad Types: ${adTypeBreakdown}
+
+SP Targeting (Auto vs Manual): ${spTargeting}
+SP Match Types: ${topMatchTypes}
+
+Bidding Strategies: ${biddingStrategies}
+Placements: ${placements}
+
+SB Ad Formats: ${sbFormats}`;
 }
 
 import { createSupabaseRouteClient } from "@/lib/supabase/serverClient";
