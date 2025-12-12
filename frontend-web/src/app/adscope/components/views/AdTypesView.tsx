@@ -88,7 +88,6 @@ export function AdTypesView({ data, currency }: AdTypesViewProps) {
                     <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Overall ACoS</h3>
                     <div className="flex items-baseline gap-3">
                         <p className={`text-3xl font-bold ${getAcosColor(overallAcos)}`}>{formatPercent(overallAcos)}</p>
-                        <span className="text-sm text-slate-400">Target: 30%</span>
                     </div>
                     <div className="w-full bg-slate-100 rounded-full h-2 mt-3">
                         <div

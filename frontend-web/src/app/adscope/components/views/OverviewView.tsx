@@ -68,7 +68,6 @@ export function OverviewView({ data, currency, warnings, dateRangeMismatch }: Ov
           <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">ACoS</h3>
           <div className="flex items-baseline gap-2">
             <p className={`text-2xl font-bold ${getACOSColor(data.acos)}`}>{formatPercent(data.acos)}</p>
-            <span className="text-sm text-slate-400">Target: 30%</span>
           </div>
           <div className="w-full bg-slate-100 rounded-full h-1.5 mt-3">
             <div
