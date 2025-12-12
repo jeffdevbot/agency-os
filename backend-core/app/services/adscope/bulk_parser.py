@@ -32,6 +32,8 @@ BULK_COLUMN_MAP = {
     "end_date": ["End Date"],
     "currency": ["Currency", "Budget Currency Code"],
     "placement": ["Placement"],
+    "bidding_strategy": ["Bidding Strategy"],
+    "percentage": ["Percentage"],
 }
 
 

@@ -31,6 +31,7 @@ export interface AuditViews {
   brand_analysis: BrandAnalysis;
   match_types: MatchType[];
   placements: Placement[];
+  bidding_strategies: BiddingStrategy[];
   keyword_leaderboard: KeywordLeaderboard;
   budget_cappers: BudgetCapper[];
   campaign_scatter: CampaignScatter[];
@@ -103,9 +104,26 @@ export interface MatchType {
 
 export interface Placement {
   placement: string;
+  count: number;
   spend: number;
-  acos: number;
+  spend_percent: number;
+  sales: number;
   cpc: number;
+  ctr: number;
+  cvr: number;
+  acos: number;
+}
+
+export interface BiddingStrategy {
+  strategy: string;
+  count: number;
+  spend: number;
+  spend_percent: number;
+  sales: number;
+  cpc: number;
+  ctr: number;
+  cvr: number;
+  acos: number;
 }
 
 export interface KeywordLeaderboard {
@@ -204,4 +222,5 @@ export interface SponsoredProductsView {
 
 export type ViewId =
   | "overview"
-  | "targeting_analysis";
+  | "targeting_analysis"
+  | "bidding_placements";

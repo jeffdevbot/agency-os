@@ -210,7 +210,7 @@ def compute_match_types(str_df: pd.DataFrame) -> list[dict[str, Any]]:
 
 
 def compute_placements(bulk_df: pd.DataFrame) -> list[dict[str, Any]]:
-    """Compute placement analysis."""
+    """Compute placement analysis with full metrics."""
     if "placement" not in bulk_df.columns:
         return []
 
@@ -220,11 +220,21 @@ def compute_placements(bulk_df: pd.DataFrame) -> list[dict[str, Any]]:
     if placement_rows.empty:
         return []
 
+    # Ensure numeric columns exist
+    for col in ["impressions", "orders"]:
+        if col not in placement_rows.columns:
+            placement_rows[col] = 0
+
     grouped = placement_rows.groupby("placement").agg({
         "spend": "sum",
         "sales": "sum",
         "clicks": "sum",
+        "impressions": "sum",
+        "orders": "sum",
+        "campaign_id": "nunique",  # Count of campaigns with this placement
     }).reset_index()
+
+    total_spend = grouped["spend"].sum()
 
     grouped["acos"] = grouped.apply(
         lambda row: float(row["spend"] / row["sales"]) if row["sales"] > 0 else 0.0,
@@ -234,17 +244,101 @@ def compute_placements(bulk_df: pd.DataFrame) -> list[dict[str, Any]]:
         lambda row: float(row["spend"] / row["clicks"]) if row["clicks"] > 0 else 0.0,
         axis=1
     )
+    grouped["ctr"] = grouped.apply(
+        lambda row: float(row["clicks"] / row["impressions"]) if row["impressions"] > 0 else 0.0,
+        axis=1
+    )
+    grouped["cvr"] = grouped.apply(
+        lambda row: float(row["orders"] / row["clicks"]) if row["clicks"] > 0 else 0.0,
+        axis=1
+    )
+    grouped["spend_percent"] = grouped.apply(
+        lambda row: float(row["spend"] / total_spend) if total_spend > 0 else 0.0,
+        axis=1
+    )
 
     return [
         {
             "placement": row["placement"],
+            "count": int(row["campaign_id"]),
             "spend": float(row["spend"]),
-            "acos": float(row["acos"]),
+            "spend_percent": float(row["spend_percent"]),
+            "sales": float(row["sales"]),
             "cpc": float(row["cpc"]),
+            "ctr": float(row["ctr"]),
+            "cvr": float(row["cvr"]),
+            "acos": float(row["acos"]),
         }
         for _, row in grouped.iterrows()
     ]
 
+
+def compute_bidding_strategies(bulk_df: pd.DataFrame) -> list[dict[str, Any]]:
+    """Compute bidding strategy analysis with full metrics."""
+    if "bidding_strategy" not in bulk_df.columns:
+        return []
+
+    # Filter to Campaign-level rows with bidding strategy data
+    # Bidding strategy is at campaign level
+    campaign_rows = bulk_df[
+        (bulk_df["entity"] == "Campaign") & 
+        (bulk_df["bidding_strategy"].notna())
+    ].copy()
+
+    if campaign_rows.empty:
+        return []
+
+    # Ensure numeric columns exist
+    for col in ["impressions", "orders", "clicks"]:
+        if col not in campaign_rows.columns:
+            campaign_rows[col] = 0
+
+    grouped = campaign_rows.groupby("bidding_strategy").agg({
+        "spend": "sum",
+        "sales": "sum",
+        "clicks": "sum",
+        "impressions": "sum",
+        "orders": "sum",
+        "campaign_id": "nunique",  # Count of campaigns with this strategy
+    }).reset_index()
+
+    total_spend = grouped["spend"].sum()
+
+    grouped["acos"] = grouped.apply(
+        lambda row: float(row["spend"] / row["sales"]) if row["sales"] > 0 else 0.0,
+        axis=1
+    )
+    grouped["cpc"] = grouped.apply(
+        lambda row: float(row["spend"] / row["clicks"]) if row["clicks"] > 0 else 0.0,
+        axis=1
+    )
+    grouped["ctr"] = grouped.apply(
+        lambda row: float(row["clicks"] / row["impressions"]) if row["impressions"] > 0 else 0.0,
+        axis=1
+    )
+    grouped["cvr"] = grouped.apply(
+        lambda row: float(row["orders"] / row["clicks"]) if row["clicks"] > 0 else 0.0,
+        axis=1
+    )
+    grouped["spend_percent"] = grouped.apply(
+        lambda row: float(row["spend"] / total_spend) if total_spend > 0 else 0.0,
+        axis=1
+    )
+
+    return [
+        {
+            "strategy": row["bidding_strategy"],
+            "count": int(row["campaign_id"]),
+            "spend": float(row["spend"]),
+            "spend_percent": float(row["spend_percent"]),
+            "sales": float(row["sales"]),
+            "cpc": float(row["cpc"]),
+            "ctr": float(row["ctr"]),
+            "cvr": float(row["cvr"]),
+            "acos": float(row["acos"]),
+        }
+        for _, row in grouped.iterrows()
+    ]
 
 def compute_keyword_leaderboard(bulk_df: pd.DataFrame) -> dict[str, list[dict[str, Any]]]:
     """Compute keyword winners and losers."""
@@ -612,6 +706,7 @@ def compute_all_views(
         "brand_analysis": compute_brand_analysis(str_df),
         "match_types": compute_match_types(str_df),
         "placements": compute_placements(bulk_df),
+        "bidding_strategies": compute_bidding_strategies(bulk_df),
         "keyword_leaderboard": compute_keyword_leaderboard(bulk_df),
         "budget_cappers": compute_budget_cappers(bulk_df, metadata),
         "campaign_scatter": compute_campaign_scatter(bulk_df),

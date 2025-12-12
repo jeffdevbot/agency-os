@@ -102,66 +102,70 @@ export function AdTypesView({ data, currency }: AdTypesViewProps) {
             {/* Funnel Section - Redesigned */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
                 <h3 className="text-sm font-semibold text-slate-800 uppercase tracking-wide mb-6">Conversion Funnel</h3>
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                    {/* Custom SVG Funnel with Labels Inside */}
-                    <div className="flex items-center justify-center">
-                        <svg viewBox="0 0 300 220" className="w-full max-w-[320px] h-auto">
+                <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+                    {/* Custom SVG Funnel with Labels Inside - 60% */}
+                    <div className="lg:col-span-3 flex items-center justify-center">
+                        <svg viewBox="0 0 300 240" className="w-full max-w-[400px] h-auto">
                             {/* Impressions - Top (widest) */}
                             <path
-                                d="M 20 10 L 280 10 L 250 70 L 50 70 Z"
+                                d="M 10 10 L 290 10 L 255 80 L 45 80 Z"
                                 fill="#0077cc"
                             />
-                            <text x="150" y="30" textAnchor="middle" fill="white" fontSize="11" fontWeight="500">IMPRESSIONS</text>
-                            <text x="150" y="52" textAnchor="middle" fill="white" fontSize="18" fontWeight="700">{formatCompact(totalImpressions)}</text>
+                            <text x="150" y="35" textAnchor="middle" fill="white" fontSize="12" fontWeight="500">IMPRESSIONS</text>
+                            <text x="150" y="60" textAnchor="middle" fill="white" fontSize="22" fontWeight="700">{formatCompact(totalImpressions)}</text>
 
                             {/* Clicks - Middle */}
                             <path
-                                d="M 50 75 L 250 75 L 210 135 L 90 135 Z"
+                                d="M 45 88 L 255 88 L 205 158 L 95 158 Z"
                                 fill="#3b82f6"
                             />
-                            <text x="150" y="95" textAnchor="middle" fill="white" fontSize="11" fontWeight="500">CLICKS</text>
-                            <text x="150" y="117" textAnchor="middle" fill="white" fontSize="18" fontWeight="700">{formatCompact(totalClicks)}</text>
+                            <text x="150" y="113" textAnchor="middle" fill="white" fontSize="12" fontWeight="500">CLICKS</text>
+                            <text x="150" y="140" textAnchor="middle" fill="white" fontSize="22" fontWeight="700">{formatCompact(totalClicks)}</text>
 
                             {/* Orders - Bottom (narrowest) */}
                             <path
-                                d="M 90 140 L 210 140 L 180 200 L 120 200 Z"
+                                d="M 95 166 L 205 166 L 170 230 L 130 230 Z"
                                 fill="#60a5fa"
                             />
-                            <text x="150" y="160" textAnchor="middle" fill="white" fontSize="11" fontWeight="500">ORDERS</text>
-                            <text x="150" y="182" textAnchor="middle" fill="white" fontSize="18" fontWeight="700">{formatNumber(totalOrders)}</text>
+                            <text x="150" y="188" textAnchor="middle" fill="white" fontSize="12" fontWeight="500">ORDERS</text>
+                            <text x="150" y="213" textAnchor="middle" fill="white" fontSize="22" fontWeight="700">{formatNumber(totalOrders)}</text>
                         </svg>
                     </div>
 
-                    {/* Funnel Metrics Cards */}
-                    <div className="flex flex-col justify-center space-y-4">
+                    {/* Funnel Metrics Cards - 40% */}
+                    <div className="lg:col-span-2 flex flex-col justify-center space-y-2">
                         {/* Impressions Card */}
-                        <div className="p-4 bg-slate-50 rounded-xl">
-                            <p className="text-xs font-semibold uppercase text-slate-500 mb-1">Impressions</p>
-                            <p className="text-2xl font-bold text-slate-900">{formatCompact(totalImpressions)}</p>
+                        <div className="p-3 bg-slate-50 rounded-lg">
+                            <p className="text-xs font-semibold uppercase text-slate-500">Impressions</p>
+                            <p className="text-xl font-bold text-slate-900">{formatCompact(totalImpressions)}</p>
                         </div>
 
-                        {/* CTR Card */}
-                        <div className="p-4 bg-slate-100 rounded-xl ml-4">
-                            <p className="text-xs font-semibold uppercase text-slate-500 mb-1">CTR</p>
-                            <p className="text-2xl font-bold text-[#0077cc]">{formatPercent(overallCtr)}</p>
+                        {/* CTR Card - Small, indented */}
+                        <div className="p-2 bg-slate-100 rounded-lg ml-6">
+                            <div className="flex items-center justify-between">
+                                <p className="text-xs font-medium text-slate-500">CTR</p>
+                                <p className="text-base font-bold text-[#0077cc]">{formatPercent(overallCtr)}</p>
+                            </div>
                         </div>
 
                         {/* Clicks Card */}
-                        <div className="p-4 bg-slate-50 rounded-xl">
-                            <p className="text-xs font-semibold uppercase text-slate-500 mb-1">Clicks</p>
-                            <p className="text-2xl font-bold text-slate-900">{formatCompact(totalClicks)}</p>
+                        <div className="p-3 bg-slate-50 rounded-lg">
+                            <p className="text-xs font-semibold uppercase text-slate-500">Clicks</p>
+                            <p className="text-xl font-bold text-slate-900">{formatCompact(totalClicks)}</p>
                         </div>
 
-                        {/* CVR Card */}
-                        <div className="p-4 bg-slate-100 rounded-xl ml-4">
-                            <p className="text-xs font-semibold uppercase text-slate-500 mb-1">CVR</p>
-                            <p className="text-2xl font-bold text-[#0077cc]">{formatPercent(overallCvr)}</p>
+                        {/* CVR Card - Small, indented */}
+                        <div className="p-2 bg-slate-100 rounded-lg ml-6">
+                            <div className="flex items-center justify-between">
+                                <p className="text-xs font-medium text-slate-500">CVR</p>
+                                <p className="text-base font-bold text-[#0077cc]">{formatPercent(overallCvr)}</p>
+                            </div>
                         </div>
 
                         {/* Orders Card */}
-                        <div className="p-4 bg-slate-50 rounded-xl">
-                            <p className="text-xs font-semibold uppercase text-slate-500 mb-1">Orders</p>
-                            <p className="text-2xl font-bold text-slate-900">{formatNumber(totalOrders)}</p>
+                        <div className="p-3 bg-slate-50 rounded-lg">
+                            <p className="text-xs font-semibold uppercase text-slate-500">Orders</p>
+                            <p className="text-xl font-bold text-slate-900">{formatNumber(totalOrders)}</p>
                         </div>
                     </div>
                 </div>
