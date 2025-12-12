@@ -29,27 +29,29 @@ function HotTakeItem({ hotTake, onNavigate }: HotTakeItemProps) {
 
     return (
         <div className="mb-5 last:mb-0 rounded-xl border border-slate-200 bg-white p-4">
-            <div className="flex items-center justify-between gap-4">
-                <div className="text-lg font-semibold text-slate-900">
-                    {indicator} {hotTake.headline}
-                </div>
-                <button
-                    onClick={() => onNavigate(hotTake.targetView)}
-                    className="text-sm font-semibold text-[#0077cc] hover:text-[#005fa3] transition-colors whitespace-nowrap"
-                >
-                    {hotTake.ctaText} →
-                </button>
+            <div className="text-lg font-semibold text-slate-900">
+                {indicator} {hotTake.headline}
             </div>
             <div className="mt-2 text-base text-slate-700 leading-relaxed">
                 {hotTake.body}
             </div>
-            {hotTake.kpi && (
-                <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-slate-600">
-                    <span className="font-semibold">Current: {hotTake.kpi.valueText}</span>
-                    <span className="text-slate-400">•</span>
-                    <span className="font-semibold">{hotTake.kpi.verdictText}</span>
-                </div>
-            )}
+            <div className="mt-3 flex items-center justify-between gap-4">
+                {hotTake.kpi ? (
+                    <div className="flex flex-wrap items-center gap-2 text-sm text-slate-600">
+                        <span className="font-semibold">Current: {hotTake.kpi.valueText}</span>
+                        <span className="text-slate-400">•</span>
+                        <span className="font-semibold">{hotTake.kpi.verdictText}</span>
+                    </div>
+                ) : (
+                    <div />
+                )}
+                <button
+                    onClick={() => onNavigate(hotTake.targetView)}
+                    className="text-sm font-semibold text-[#0077cc] hover:text-[#005fa3] transition-colors whitespace-nowrap"
+                >
+                    Open view →
+                </button>
+            </div>
         </div>
     );
 }
@@ -72,19 +74,19 @@ export function ChatPane({ auditData, onViewChange }: ChatPaneProps) {
     const wastedHotTake = useMemo(() => {
         switch (wastedBucket.id) {
             case "too_low":
-                return "Hot take: You’re under-testing — growth may be capped.";
+                return "You’re under-testing — growth may be capped.";
             case "slightly_low":
-                return "Hot take: A bit too conservative — you can push discovery harder.";
+                return "A bit too conservative — you can push discovery harder.";
             case "healthy":
-                return "Hot take: This is a healthy testing level.";
+                return "This is a healthy testing level.";
             case "heavy_testing":
-                return "Hot take: Aggressive testing — fine if performance stays stable.";
+                return "Aggressive testing — fine if performance stays stable.";
             case "high":
-                return "Hot take: Too much waste — start trimming the losers.";
+                return "Too much waste — start trimming the losers.";
             case "severe":
-                return "Hot take: Red alert — budget is getting burned.";
+                return "Red alert — budget is getting burned.";
             default:
-                return "Hot take: Keep waste at the right level.";
+                return "Keep waste at the right level.";
         }
     }, [wastedBucket.id]);
 
@@ -149,16 +151,8 @@ export function ChatPane({ auditData, onViewChange }: ChatPaneProps) {
                         <div className="max-w-[90%] rounded-2xl rounded-bl-none px-5 py-4 shadow-sm bg-slate-50 text-slate-800 border border-slate-200">
                             {wastedSpendSummary && (
                                 <div className="mb-5 rounded-xl border border-slate-200 bg-white p-4">
-                                    <div className="flex items-center justify-between gap-4">
-                                        <div className="text-base font-semibold text-slate-900">
-                                            🎯 Wasted Ad Spend — Sponsored Products
-                                        </div>
-                                        <button
-                                            onClick={() => onViewChange("wasted_spend")}
-                                            className="text-sm font-semibold text-[#0077cc] hover:text-[#005fa3] transition-colors"
-                                        >
-                                            Open view →
-                                        </button>
+                                    <div className="text-lg font-semibold text-slate-900">
+                                        🎯 Wasted Ad Spend — Sponsored Products
                                     </div>
                                     <div className="mt-2 text-base text-slate-700 leading-relaxed">
                                         Some amount of wasted spend is expected — it comes from testing new keywords and discovering what actually converts. The goal isn’t to eliminate waste completely, but to make sure it’s at the right level.
@@ -166,19 +160,24 @@ export function ChatPane({ auditData, onViewChange }: ChatPaneProps) {
                                     <div className="mt-2 text-base font-semibold text-slate-900">
                                         {wastedHotTake}
                                     </div>
-                                    <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-slate-600">
-                                        <span className="font-semibold">
-                                            Current: {(wastedSpendSummary.wasted_spend_pct * 100).toFixed(1)}%
-                                        </span>
-                                        <span className="text-slate-400">•</span>
-                                        <span className="font-semibold">{wastedBucket.verdict}</span>
+                                    <div className="mt-3 flex items-center justify-between gap-4">
+                                        <div className="flex flex-wrap items-center gap-2 text-sm text-slate-600">
+                                            <span className="font-semibold">
+                                                Current: {(wastedSpendSummary.wasted_spend_pct * 100).toFixed(1)}%
+                                            </span>
+                                            <span className="text-slate-400">•</span>
+                                            <span className="font-semibold">{wastedBucket.verdict}</span>
+                                        </div>
+                                        <button
+                                            onClick={() => onViewChange("wasted_spend")}
+                                            className="text-sm font-semibold text-[#0077cc] hover:text-[#005fa3] transition-colors whitespace-nowrap"
+                                        >
+                                            Open view →
+                                        </button>
                                     </div>
                                 </div>
                             )}
 
-                            <p className="text-sm text-slate-500 mb-3">
-                                Here&apos;s what I found in your audit:
-                            </p>
                             {hotTakes.map((hotTake) => (
                                 <HotTakeItem
                                     key={hotTake.id}

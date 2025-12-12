@@ -39,12 +39,6 @@ export function WastedAdSpendView({ data, currency }: WastedAdSpendViewProps) {
     <div className="space-y-6 p-6">
       <div>
         <h2 className="text-2xl font-bold text-slate-900 mb-2">Wasted Ad Spend — Sponsored Products</h2>
-        <p className="text-sm text-slate-600">
-          This view shows how much Sponsored Products spend went to targets that didn’t generate a sale.
-        </p>
-        <p className="text-sm text-slate-600 mt-3 max-w-4xl">
-          Some amount of wasted spend is expected — it comes from testing new keywords, exploring new audiences, and discovering what actually converts. This testing is healthy and necessary for growth. The goal isn’t to eliminate waste completely, but to make sure it’s at the right level.
-        </p>
       </div>
 
       {/* KPI row */}
