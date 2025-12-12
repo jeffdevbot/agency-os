@@ -717,6 +717,26 @@ def compute_all_views(
     if missing_bulk:
         raise ValueError(f"Bulk file missing required columns: {missing_bulk}. Found Bulk columns: {list(bulk_df.columns)}")
 
+    sb_match_types = compute_sb_match_types(bulk_df)
+    sb_ad_formats = compute_sb_ad_formats(bulk_df)
+
+    # Sanity check: compare SB target-level spend to SB campaign-level spend.
+    # If Bulk is rolled up strangely, warn so UI doesn't silently mislead.
+    try:
+        if "product" in bulk_df.columns and "entity" in bulk_df.columns and "spend" in bulk_df.columns:
+            sb_all = bulk_df[bulk_df["product"].str.lower().str.contains("sponsored brands", na=False)]
+            sb_campaign_spend = float(sb_all[sb_all["entity"] == "Campaign"]["spend"].sum())
+            sb_targets_spend = float(sum(mt.get("spend", 0.0) for mt in sb_match_types))
+            if sb_campaign_spend > 0:
+                ratio = sb_targets_spend / sb_campaign_spend
+                if ratio > 1.1 or ratio < 0.5:
+                    metadata.setdefault("warnings", []).append(
+                        "Sponsored Brands target-level spend does not align with campaign totals. "
+                        "Your Bulk export may be campaign-rolled-up; SB targeting breakdown may be incomplete."
+                    )
+    except Exception:
+        pass
+
     return {
         "overview": compute_overview(bulk_df, str_df),
         "money_pits": compute_money_pits(bulk_df),
@@ -739,8 +759,8 @@ def compute_all_views(
             "match_types": compute_sp_match_types(str_df),
         },
         "sponsored_brands": {
-            "match_types": compute_sb_match_types(bulk_df),
-            "ad_formats": compute_sb_ad_formats(bulk_df),
+            "match_types": sb_match_types,
+            "ad_formats": sb_ad_formats,
         },
     }
 
@@ -913,35 +933,36 @@ def compute_sp_match_types(str_df: pd.DataFrame) -> list[dict[str, Any]]:
     return results
 
 
-def _derive_sb_targeting_type(row: pd.Series) -> str:
-    """
-    Derive Sponsored Brands targeting/match type from Bulk rows.
-
-    Priority:
-    1) Keyword match_type for keyword rows (Exact/Phrase/Broad/Modified Broad).
-    2) Product targeting expressions for ASIN/Category/Related Targeting.
-    """
+def _derive_sb_keyword_match_type(row: pd.Series) -> str:
+    """Derive SB keyword match type from Bulk keyword rows."""
     match_type = str(row.get("match_type", "")).strip().lower()
-    targeting_expr = str(row.get("resolved_product_targeting_expression") or row.get("product_targeting_expression") or "").strip().lower()
+    if not match_type or match_type in ("nan", "-", "none", ""):
+        return "Unknown"
+    if "modified" in match_type and "broad" in match_type:
+        return "Modified Broad"
+    return match_type.title()
 
-    if match_type and match_type not in ("nan", "-", "none", ""):
-        # Normalize common variants
-        if "modified" in match_type and "broad" in match_type:
-            return "Modified Broad"
-        return match_type.title()
 
-    if targeting_expr and targeting_expr not in ("nan", "-", "none", ""):
-        if "expanded" in targeting_expr:
-            return "Expanded ASINs"
-        if targeting_expr.startswith("asin") or "asin=" in targeting_expr:
-            return "ASINs"
-        if targeting_expr.startswith("category") or "category=" in targeting_expr:
-            return "Category"
-        if "related" in targeting_expr:
-            return "Related Targeting"
+def _derive_sb_product_targeting_type(row: pd.Series) -> str:
+    """Derive SB product targeting type from Bulk product-targeting rows."""
+    targeting_expr = str(
+        row.get("resolved_product_targeting_expression")
+        or row.get("product_targeting_expression")
+        or ""
+    ).strip().lower()
+
+    if not targeting_expr or targeting_expr in ("nan", "-", "none", ""):
         return "Product Targeting"
 
-    return "Unknown"
+    if "expanded" in targeting_expr:
+        return "Expanded ASINs"
+    if targeting_expr.startswith("asin") or "asin=" in targeting_expr:
+        return "ASINs"
+    if targeting_expr.startswith("category") or "category=" in targeting_expr:
+        return "Category"
+    if "related" in targeting_expr:
+        return "Related Targeting"
+    return "Product Targeting"
 
 
 def compute_sb_match_types(bulk_df: pd.DataFrame) -> list[dict[str, Any]]:
@@ -955,17 +976,40 @@ def compute_sb_match_types(bulk_df: pd.DataFrame) -> list[dict[str, Any]]:
     if sb_rows.empty:
         return []
 
-    sb_rows["targeting_type"] = sb_rows.apply(_derive_sb_targeting_type, axis=1)
+    # IMPORTANT: Bulk exports often repeat campaign-level totals on multiple entities.
+    # To avoid double counting, only use target-level SB entities for this breakdown.
+    if "entity" not in sb_rows.columns:
+        return []
 
-    grouped = sb_rows.groupby("targeting_type").agg({
+    entity_norm = sb_rows["entity"].astype(str).str.lower()
+
+    keyword_mask = entity_norm.str.contains("keyword", na=False)
+    product_target_mask = (
+        entity_norm.str.contains("product targeting", na=False)
+        | (entity_norm.str.contains("targeting", na=False) & ~keyword_mask)
+    )
+
+    sb_keyword_rows = sb_rows[keyword_mask].copy()
+    sb_product_target_rows = sb_rows[product_target_mask].copy()
+
+    if not sb_keyword_rows.empty:
+        sb_keyword_rows["targeting_type"] = sb_keyword_rows.apply(_derive_sb_keyword_match_type, axis=1)
+    if not sb_product_target_rows.empty:
+        sb_product_target_rows["targeting_type"] = sb_product_target_rows.apply(_derive_sb_product_targeting_type, axis=1)
+
+    sb_targets = pd.concat([sb_keyword_rows, sb_product_target_rows], ignore_index=True)
+    if sb_targets.empty:
+        return []
+
+    grouped = sb_targets.groupby("targeting_type").agg({
         "spend": "sum",
         "sales": "sum",
         "impressions": "sum",
         "clicks": "sum",
-        "orders": "sum" if "orders" in sb_rows.columns else "sum",
+        "orders": "sum" if "orders" in sb_targets.columns else "sum",
     }).reset_index()
 
-    type_counts = sb_rows.groupby("targeting_type").size().reset_index(name="target_count")
+    type_counts = sb_targets.groupby("targeting_type").size().reset_index(name="target_count")
     grouped = grouped.merge(type_counts, on="targeting_type", how="left")
 
     results: list[dict[str, Any]] = []
