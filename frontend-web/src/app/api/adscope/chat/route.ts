@@ -13,6 +13,8 @@ You have access to a comprehensive audit dataset. The data summary below contain
 - bidding_placements: Bidding strategies and Placement performance
 - sponsored_brands_analysis: SB Match Types and Ad Formats
 - sponsored_brands_landing_pages: SB spend by landing page type (Store/Subpage/Collection/Product)
+- sponsored_display_targeting: SD targeting types + category refinements (best-effort from targeting expressions)
+- sponsored_display_bidding_strategies: SD cost type / bid optimization mix (reach, page visits, conversions)
 
 ${AUDIT_RULES_FOR_LLM}
 
@@ -60,6 +62,8 @@ const VIEW_SWITCHING_TOOL: Tool = {
             "bidding_placements",
             "sponsored_brands_analysis",
             "sponsored_brands_landing_pages",
+            "sponsored_display_targeting",
+            "sponsored_display_bidding_strategies",
           ],
           description: "The ID of the view to switch to",
         },

@@ -37,6 +37,13 @@ BULK_COLUMN_MAP = {
     "landing_page_type": ["Landing Page Type", "Landing Page Type (Informational only)"],
     "landing_page_url": ["Landing Page URL"],
     "landing_page_asins": ["Landing Page ASINs"],
+    # Sponsored Display specific
+    "tactic": ["Tactic"],
+    "bid_optimization": ["Bid Optimization"],
+    "cost_type": ["Cost Type"],
+    "viewable_impressions": ["Viewable Impressions"],
+    "sales_views_clicks": ["Sales (Views & Clicks)"],
+    "orders_views_clicks": ["Orders (Views & Clicks)"],
     "start_date": ["Start Date"],
     "end_date": ["End Date"],
     "currency": ["Currency", "Budget Currency Code"],
@@ -268,6 +275,12 @@ def _process_single_sheet(
     numeric_cols = ["spend", "sales", "clicks", "impressions"]
     if "orders" in df.columns:
         numeric_cols.append("orders")
+    if "viewable_impressions" in df.columns:
+        numeric_cols.append("viewable_impressions")
+    if "sales_views_clicks" in df.columns:
+        numeric_cols.append("sales_views_clicks")
+    if "orders_views_clicks" in df.columns:
+        numeric_cols.append("orders_views_clicks")
     if "daily_budget" in df.columns:
         numeric_cols.append("daily_budget")
     if "default_bid" in df.columns:

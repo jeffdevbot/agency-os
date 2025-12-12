@@ -891,6 +891,8 @@ def compute_all_views(
     sb_match_types = compute_sb_match_types(bulk_df)
     sb_ad_formats = compute_sb_ad_formats(bulk_df)
     sb_landing_pages = compute_sb_landing_pages(bulk_df)
+    sd_targeting = compute_sd_targeting(bulk_df)
+    sd_bidding_strategies = compute_sd_bidding_strategies(bulk_df)
 
     # Sanity check: compare SB target-level spend to SB campaign-level spend.
     # If Bulk is rolled up strangely, warn so UI doesn't silently mislead.
@@ -936,6 +938,8 @@ def compute_all_views(
             "ad_formats": sb_ad_formats,
         },
         "sponsored_brands_landing_pages": sb_landing_pages,
+        "sponsored_display_targeting": sd_targeting,
+        "sponsored_display_bidding_strategies": sd_bidding_strategies,
     }
 
 def compute_sp_targeting(bulk_df: pd.DataFrame) -> dict[str, Any]:
@@ -1365,6 +1369,260 @@ def compute_sb_landing_pages(bulk_df: pd.DataFrame) -> dict[str, Any]:
     order_map = {name: i for i, name in enumerate(order)}
     results.sort(key=lambda x: order_map.get(x["landing_page_type"], 999))
     return {"landing_pages": results}
+
+
+def _normalize_sd_category_refinement(expr: str) -> str:
+    """
+    Best-effort classifier for SD category targeting refinements.
+
+    Buckets:
+      - No Refinement
+      - Only Price
+      - Only Rating
+      - Price + Rating
+      - Unknown
+    """
+    if not expr:
+        return "Unknown"
+
+    norm = expr.lower()
+    has_price = "price" in norm
+    has_rating = "rating" in norm
+    if has_price and has_rating:
+        return "Price + Rating"
+    if has_price:
+        return "Only Price"
+    if has_rating:
+        return "Only Rating"
+    return "No Refinement"
+
+
+def _derive_sd_targeting_type(row: pd.Series) -> str:
+    """Derive SD targeting type from targeting expressions / tactic where possible."""
+    expr = str(
+        row.get("resolved_product_targeting_expression")
+        or row.get("product_targeting_expression")
+        or ""
+    ).strip().lower()
+
+    if expr:
+        if expr.startswith("asin") or "asin=" in expr:
+            return "Product Targeting"
+        if expr.startswith("category") or "category=" in expr:
+            return "Category Targeting"
+        if "audience" in expr or "remarketing" in expr or "viewsremarketing" in expr:
+            return "Audience Targeting"
+        return "Other"
+
+    tactic = str(row.get("tactic", "")).strip()
+    if tactic:
+        return f"Tactic: {tactic}"
+    return "Unknown"
+
+
+def compute_sd_targeting(bulk_df: pd.DataFrame) -> dict[str, Any]:
+    """Compute Sponsored Display targeting breakdown + category refinement buckets."""
+    if bulk_df.empty or "product" not in bulk_df.columns:
+        return {"targeting_types": [], "category_refinements": []}
+
+    sd_rows = bulk_df[
+        bulk_df["product"].str.lower().str.contains("sponsored display", na=False)
+    ].copy()
+    if sd_rows.empty:
+        return {"targeting_types": [], "category_refinements": []}
+
+    # Use target-level rows where we have targeting expressions; campaign rows often omit expressions.
+    expr_col = "resolved_product_targeting_expression" if "resolved_product_targeting_expression" in sd_rows.columns else None
+    raw_expr_col = "product_targeting_expression" if "product_targeting_expression" in sd_rows.columns else None
+
+    if not expr_col and not raw_expr_col:
+        return {"targeting_types": [], "category_refinements": []}
+
+    sd_targets = sd_rows.copy()
+    if expr_col:
+        sd_targets["expr"] = sd_targets[expr_col].astype(str)
+    else:
+        sd_targets["expr"] = ""
+    if raw_expr_col:
+        sd_targets["raw_expr"] = sd_targets[raw_expr_col].astype(str)
+    else:
+        sd_targets["raw_expr"] = ""
+
+    # Only keep rows with some expression and spend > 0
+    has_expr = sd_targets["expr"].str.strip().ne("") | sd_targets["raw_expr"].str.strip().ne("")
+    sd_targets = sd_targets[has_expr & (sd_targets.get("spend", 0) > 0)].copy()
+    if sd_targets.empty:
+        return {"targeting_types": [], "category_refinements": []}
+
+    for col in ["impressions", "clicks", "orders", "sales"]:
+        if col not in sd_targets.columns:
+            sd_targets[col] = 0
+
+    sd_targets["targeting_type"] = sd_targets.apply(_derive_sd_targeting_type, axis=1)
+
+    grouped = sd_targets.groupby("targeting_type").agg(
+        spend=("spend", "sum"),
+        sales=("sales", "sum"),
+        impressions=("impressions", "sum"),
+        clicks=("clicks", "sum"),
+        orders=("orders", "sum"),
+    ).reset_index()
+    counts = sd_targets.groupby("targeting_type").size().reset_index(name="target_count")
+    grouped = grouped.merge(counts, on="targeting_type", how="left")
+
+    targeting_types: list[dict[str, Any]] = []
+    for _, row in grouped.iterrows():
+        spend = float(row.get("spend", 0))
+        sales = float(row.get("sales", 0))
+        impressions = float(row.get("impressions", 0))
+        clicks = float(row.get("clicks", 0))
+        orders = float(row.get("orders", 0))
+        targeting_types.append(
+            {
+                "targeting_type": str(row.get("targeting_type", "Unknown")),
+                "target_count": int(row.get("target_count", 0)),
+                "spend": spend,
+                "sales": sales,
+                "impressions": impressions,
+                "clicks": clicks,
+                "orders": orders,
+                "cpc": spend / clicks if clicks > 0 else 0.0,
+                "ctr": clicks / impressions if impressions > 0 else 0.0,
+                "cvr": orders / clicks if clicks > 0 else 0.0,
+                "acos": spend / sales if sales > 0 else 0.0,
+            }
+        )
+
+    order = ["Category Targeting", "Product Targeting", "Audience Targeting", "Other", "Unknown"]
+    order_map = {name: i for i, name in enumerate(order)}
+    targeting_types.sort(key=lambda x: order_map.get(x["targeting_type"], 999))
+
+    # Category refinement buckets
+    expr_for_ref = (
+        sd_targets["expr"].astype(str).where(sd_targets["expr"].astype(str).str.strip().ne(""), sd_targets["raw_expr"].astype(str))
+    )
+    category_mask = expr_for_ref.str.lower().str.contains("category", na=False)
+    category_rows = sd_targets[category_mask].copy()
+    if category_rows.empty:
+        category_refinements = []
+    else:
+        category_rows["refinement"] = expr_for_ref[category_mask].astype(str).apply(_normalize_sd_category_refinement)
+        r_grouped = category_rows.groupby("refinement").agg(
+            spend=("spend", "sum"),
+            sales=("sales", "sum"),
+            impressions=("impressions", "sum"),
+            clicks=("clicks", "sum"),
+            orders=("orders", "sum"),
+        ).reset_index()
+        r_counts = category_rows.groupby("refinement").size().reset_index(name="target_count")
+        r_grouped = r_grouped.merge(r_counts, on="refinement", how="left")
+
+        category_refinements: list[dict[str, Any]] = []
+        for _, row in r_grouped.iterrows():
+            spend = float(row.get("spend", 0))
+            sales = float(row.get("sales", 0))
+            impressions = float(row.get("impressions", 0))
+            clicks = float(row.get("clicks", 0))
+            orders = float(row.get("orders", 0))
+            category_refinements.append(
+                {
+                    "refinement": str(row.get("refinement", "Unknown")),
+                    "target_count": int(row.get("target_count", 0)),
+                    "spend": spend,
+                    "sales": sales,
+                    "impressions": impressions,
+                    "clicks": clicks,
+                    "orders": orders,
+                    "cpc": spend / clicks if clicks > 0 else 0.0,
+                    "ctr": clicks / impressions if impressions > 0 else 0.0,
+                    "cvr": orders / clicks if clicks > 0 else 0.0,
+                    "acos": spend / sales if sales > 0 else 0.0,
+                }
+            )
+
+        r_order = ["No Refinement", "Only Price", "Only Rating", "Price + Rating", "Unknown"]
+        r_order_map = {name: i for i, name in enumerate(r_order)}
+        category_refinements.sort(key=lambda x: r_order_map.get(x["refinement"], 999))
+
+    return {"targeting_types": targeting_types, "category_refinements": category_refinements}
+
+
+def compute_sd_bidding_strategies(bulk_df: pd.DataFrame) -> dict[str, Any]:
+    """
+    Compute Sponsored Display bidding strategies from Bulk.
+
+    Uses:
+      - cost_type (e.g., vCPM)
+      - bid_optimization (Amazon setting)
+      - reach: viewable_impressions (fallback: impressions)
+      - page_visits: clicks
+      - conversions: orders_views_clicks (fallback: orders)
+    """
+    if bulk_df.empty or "product" not in bulk_df.columns:
+        return {"strategies": []}
+
+    sd_rows = bulk_df[
+        (bulk_df["entity"] == "Campaign")
+        & bulk_df["product"].str.lower().str.contains("sponsored display", na=False)
+    ].copy()
+    if sd_rows.empty:
+        return {"strategies": []}
+
+    for col in ["impressions", "clicks", "orders", "sales", "spend"]:
+        if col not in sd_rows.columns:
+            sd_rows[col] = 0
+
+    if "viewable_impressions" not in sd_rows.columns:
+        sd_rows["viewable_impressions"] = sd_rows["impressions"]
+    if "orders_views_clicks" not in sd_rows.columns:
+        sd_rows["orders_views_clicks"] = sd_rows["orders"]
+
+    if "cost_type" not in sd_rows.columns:
+        sd_rows["cost_type"] = ""
+    if "bid_optimization" not in sd_rows.columns:
+        sd_rows["bid_optimization"] = ""
+
+    def _strategy_name(row: pd.Series) -> str:
+        cost_type = str(row.get("cost_type", "")).strip()
+        bid_opt = str(row.get("bid_optimization", "")).strip()
+        parts = [p for p in [cost_type, bid_opt] if p]
+        if parts:
+            return " • ".join(parts)
+        return "Unknown"
+
+    sd_rows["strategy"] = sd_rows.apply(_strategy_name, axis=1)
+
+    grouped = sd_rows.groupby("strategy").agg(
+        campaigns=("campaign_id", "nunique"),
+        spend=("spend", "sum"),
+        sales=("sales", "sum"),
+        reach=("viewable_impressions", "sum"),
+        page_visits=("clicks", "sum"),
+        conversions=("orders_views_clicks", "sum"),
+    ).reset_index()
+
+    total_spend = float(grouped["spend"].sum())
+
+    results: list[dict[str, Any]] = []
+    for _, row in grouped.iterrows():
+        spend = float(row.get("spend", 0))
+        sales = float(row.get("sales", 0))
+        results.append(
+            {
+                "strategy": str(row.get("strategy", "Unknown")),
+                "campaigns": int(row.get("campaigns", 0)),
+                "spend": spend,
+                "spend_percent": float(spend / total_spend) if total_spend > 0 else 0.0,
+                "sales": sales,
+                "acos": spend / sales if sales > 0 else 0.0,
+                "reach": float(row.get("reach", 0)),
+                "page_visits": float(row.get("page_visits", 0)),
+                "conversions": float(row.get("conversions", 0)),
+            }
+        )
+
+    results.sort(key=lambda x: x["spend"], reverse=True)
+    return {"strategies": results}
 
 
 def compute_ad_types(bulk_df: pd.DataFrame) -> list[dict[str, Any]]:

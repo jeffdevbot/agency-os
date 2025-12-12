@@ -5,6 +5,8 @@ import {
     Target,
     DollarSign,
     Megaphone,
+    Monitor,
+    SlidersHorizontal,
     ChevronRight
 } from "lucide-react";
 import type { ViewId } from "../types";
@@ -34,6 +36,13 @@ const SECTIONS = [
         items: [
             { id: "sponsored_brands_analysis", label: "Match Types & Formats", icon: Megaphone },
             { id: "sponsored_brands_landing_pages", label: "Landing Pages", icon: Megaphone },
+        ]
+    },
+    {
+        title: "Sponsored Display",
+        items: [
+            { id: "sponsored_display_targeting", label: "Match Type & Targeting", icon: Monitor },
+            { id: "sponsored_display_bidding_strategies", label: "Bidding Strategies", icon: SlidersHorizontal },
         ]
     },
 ];
