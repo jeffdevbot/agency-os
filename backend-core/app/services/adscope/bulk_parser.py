@@ -85,7 +85,13 @@ def fuzzy_match_column(col_name: str, candidates: list[str]) -> bool:
     # Second pass: substring matching with exclusions
     for cand in candidates:
         cand_norm = _normalize_header(cand)
-        
+
+        # Prevent short bid-like columns from matching "Bidding Strategy"
+        # e.g. "Bid" should not match "Bidding Strategy"
+        if cand_norm == "biddingstrategy":
+            if col_norm in {"bid", "defaultbid", "adgroupdefaultbid"}:
+                continue
+                
         # Prevent "Cost Type" / "Cost Model" from matching "Cost" (spend)
         if cand_norm in ["cost", "spend"] and len(col_norm) > len(cand_norm):
             if "type" in col_norm or "model" in col_norm:
