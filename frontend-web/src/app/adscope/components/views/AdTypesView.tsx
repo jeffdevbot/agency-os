@@ -11,10 +11,7 @@ import {
     PieChart,
     Pie,
     Cell,
-    Legend,
-    FunnelChart,
-    Funnel,
-    LabelList
+    Legend
 } from "recharts";
 import type { AdTypeMetric } from "../../types";
 import { formatCurrency, formatNumber, formatPercent, formatCompact } from "../../utils/format";
@@ -25,7 +22,6 @@ interface AdTypesViewProps {
 }
 
 const COLORS = ["#0077cc", "#f59e0b", "#10b981"]; // Blue (Primary), Amber, Emerald
-const FUNNEL_COLORS = ["#0077cc", "#3b82f6", "#60a5fa"]; // Blue gradient
 
 export function AdTypesView({ data, currency }: AdTypesViewProps) {
     if (!data || data.length === 0) {
@@ -52,13 +48,6 @@ export function AdTypesView({ data, currency }: AdTypesViewProps) {
         value: item.spend,
         percent: totalSpend > 0 ? (item.spend / totalSpend) * 100 : 0
     }));
-
-    // Prepare funnel data
-    const funnelData = [
-        { name: "Impressions", value: totalImpressions, fill: FUNNEL_COLORS[0] },
-        { name: "Clicks", value: totalClicks, fill: FUNNEL_COLORS[1] },
-        { name: "Orders", value: totalOrders, fill: FUNNEL_COLORS[2] },
-    ];
 
     // Sort data for consistent display
     const sortedData = [...data].sort((a, b) => b.spend - a.spend);
@@ -110,56 +99,69 @@ export function AdTypesView({ data, currency }: AdTypesViewProps) {
                 </div>
             </div>
 
-            {/* Funnel Section */}
+            {/* Funnel Section - Redesigned */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
                 <h3 className="text-sm font-semibold text-slate-800 uppercase tracking-wide mb-6">Conversion Funnel</h3>
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                    {/* Funnel Chart */}
-                    <div className="h-[200px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <FunnelChart>
-                                <Tooltip
-                                    formatter={(value: number) => formatCompact(value)}
-                                    contentStyle={{ backgroundColor: "#ffffff", borderColor: "#e2e8f0", color: "#0f172a", borderRadius: "8px", boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)" }}
-                                />
-                                <Funnel
-                                    dataKey="value"
-                                    data={funnelData}
-                                    isAnimationActive
-                                >
-                                    <LabelList position="right" fill="#334155" fontSize={12} formatter={(value) => formatCompact(Number(value))} />
-                                </Funnel>
-                            </FunnelChart>
-                        </ResponsiveContainer>
+                    {/* Custom SVG Funnel with Labels Inside */}
+                    <div className="flex items-center justify-center">
+                        <svg viewBox="0 0 300 220" className="w-full max-w-[320px] h-auto">
+                            {/* Impressions - Top (widest) */}
+                            <path
+                                d="M 20 10 L 280 10 L 250 70 L 50 70 Z"
+                                fill="#0077cc"
+                            />
+                            <text x="150" y="30" textAnchor="middle" fill="white" fontSize="11" fontWeight="500">IMPRESSIONS</text>
+                            <text x="150" y="52" textAnchor="middle" fill="white" fontSize="18" fontWeight="700">{formatCompact(totalImpressions)}</text>
+
+                            {/* Clicks - Middle */}
+                            <path
+                                d="M 50 75 L 250 75 L 210 135 L 90 135 Z"
+                                fill="#3b82f6"
+                            />
+                            <text x="150" y="95" textAnchor="middle" fill="white" fontSize="11" fontWeight="500">CLICKS</text>
+                            <text x="150" y="117" textAnchor="middle" fill="white" fontSize="18" fontWeight="700">{formatCompact(totalClicks)}</text>
+
+                            {/* Orders - Bottom (narrowest) */}
+                            <path
+                                d="M 90 140 L 210 140 L 180 200 L 120 200 Z"
+                                fill="#60a5fa"
+                            />
+                            <text x="150" y="160" textAnchor="middle" fill="white" fontSize="11" fontWeight="500">ORDERS</text>
+                            <text x="150" y="182" textAnchor="middle" fill="white" fontSize="18" fontWeight="700">{formatNumber(totalOrders)}</text>
+                        </svg>
                     </div>
 
-                    {/* Funnel Metrics */}
+                    {/* Funnel Metrics Cards */}
                     <div className="flex flex-col justify-center space-y-4">
-                        <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
-                            <div>
-                                <p className="text-xs font-semibold uppercase text-slate-500">Impressions</p>
-                                <p className="text-xl font-bold text-slate-900">{formatCompact(totalImpressions)}</p>
-                            </div>
-                            <div className="text-right">
-                                <p className="text-xs font-semibold uppercase text-slate-500">CTR</p>
-                                <p className="text-xl font-bold text-[#0077cc]">{formatPercent(overallCtr)}</p>
-                            </div>
+                        {/* Impressions Card */}
+                        <div className="p-4 bg-slate-50 rounded-xl">
+                            <p className="text-xs font-semibold uppercase text-slate-500 mb-1">Impressions</p>
+                            <p className="text-2xl font-bold text-slate-900">{formatCompact(totalImpressions)}</p>
                         </div>
-                        <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
-                            <div>
-                                <p className="text-xs font-semibold uppercase text-slate-500">Clicks</p>
-                                <p className="text-xl font-bold text-slate-900">{formatCompact(totalClicks)}</p>
-                            </div>
-                            <div className="text-right">
-                                <p className="text-xs font-semibold uppercase text-slate-500">CVR</p>
-                                <p className="text-xl font-bold text-[#0077cc]">{formatPercent(overallCvr)}</p>
-                            </div>
+
+                        {/* CTR Card */}
+                        <div className="p-4 bg-slate-100 rounded-xl ml-4">
+                            <p className="text-xs font-semibold uppercase text-slate-500 mb-1">CTR</p>
+                            <p className="text-2xl font-bold text-[#0077cc]">{formatPercent(overallCtr)}</p>
                         </div>
-                        <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
-                            <div>
-                                <p className="text-xs font-semibold uppercase text-slate-500">Orders</p>
-                                <p className="text-xl font-bold text-slate-900">{formatNumber(totalOrders)}</p>
-                            </div>
+
+                        {/* Clicks Card */}
+                        <div className="p-4 bg-slate-50 rounded-xl">
+                            <p className="text-xs font-semibold uppercase text-slate-500 mb-1">Clicks</p>
+                            <p className="text-2xl font-bold text-slate-900">{formatCompact(totalClicks)}</p>
+                        </div>
+
+                        {/* CVR Card */}
+                        <div className="p-4 bg-slate-100 rounded-xl ml-4">
+                            <p className="text-xs font-semibold uppercase text-slate-500 mb-1">CVR</p>
+                            <p className="text-2xl font-bold text-[#0077cc]">{formatPercent(overallCvr)}</p>
+                        </div>
+
+                        {/* Orders Card */}
+                        <div className="p-4 bg-slate-50 rounded-xl">
+                            <p className="text-xs font-semibold uppercase text-slate-500 mb-1">Orders</p>
+                            <p className="text-2xl font-bold text-slate-900">{formatNumber(totalOrders)}</p>
                         </div>
                     </div>
                 </div>
