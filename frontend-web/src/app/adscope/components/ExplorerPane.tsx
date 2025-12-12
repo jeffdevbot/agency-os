@@ -4,6 +4,7 @@ import {
     LayoutDashboard,
     Target,
     DollarSign,
+    Megaphone,
     ChevronRight
 } from "lucide-react";
 import type { ViewId } from "../types";
@@ -26,6 +27,12 @@ const SECTIONS = [
         items: [
             { id: "targeting_analysis", label: "Targeting Analysis", icon: Target },
             { id: "bidding_placements", label: "Bidding & Placements", icon: DollarSign },
+        ]
+    },
+    {
+        title: "Sponsored Brands",
+        items: [
+            { id: "sponsored_brands_analysis", label: "SB Match Types & Formats", icon: Megaphone },
         ]
     },
 ];

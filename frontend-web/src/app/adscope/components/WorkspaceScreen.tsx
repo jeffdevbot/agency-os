@@ -5,6 +5,7 @@ import type { AuditResponse, ViewId } from "../types";
 import { AdTypesView } from "./views/AdTypesView";
 import { TargetingAnalysisView } from "./views/TargetingAnalysisView";
 import { BiddingPlacementsView } from "./views/BiddingPlacementsView";
+import { SponsoredBrandsAnalysisView } from "./views/SponsoredBrandsAnalysisView";
 import { ChatPane } from "./ChatPane";
 import { ExplorerPane } from "./ExplorerPane";
 
@@ -26,6 +27,8 @@ export function WorkspaceScreen({ auditData, onReset }: WorkspaceScreenProps) {
         return <TargetingAnalysisView data={views.sponsored_products} currency={currency_code} />;
       case "bidding_placements":
         return <BiddingPlacementsView biddingStrategies={views.bidding_strategies} placements={views.placements} currency={currency_code} />;
+      case "sponsored_brands_analysis":
+        return <SponsoredBrandsAnalysisView data={views.sponsored_brands} currency={currency_code} />;
       default:
         return <AdTypesView data={views.ad_types} currency={currency_code} />;
     }

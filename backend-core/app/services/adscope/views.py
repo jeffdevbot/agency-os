@@ -720,6 +720,10 @@ def compute_all_views(
             **compute_sp_targeting(bulk_df),
             "match_types": compute_sp_match_types(str_df),
         },
+        "sponsored_brands": {
+            "match_types": compute_sb_match_types(bulk_df),
+            "ad_formats": compute_sb_ad_formats(bulk_df),
+        },
     }
 
 def compute_sp_targeting(bulk_df: pd.DataFrame) -> dict[str, Any]:
@@ -888,6 +892,146 @@ def compute_sp_match_types(str_df: pd.DataFrame) -> list[dict[str, Any]]:
     ]
     order_map = {name: i for i, name in enumerate(order)}
     results.sort(key=lambda x: order_map.get(x["match_type"], 999))
+    return results
+
+
+def _derive_sb_targeting_type(row: pd.Series) -> str:
+    """
+    Derive Sponsored Brands targeting/match type from Bulk rows.
+
+    Priority:
+    1) Keyword match_type for keyword rows (Exact/Phrase/Broad/Modified Broad).
+    2) Product targeting expressions for ASIN/Category/Related Targeting.
+    """
+    match_type = str(row.get("match_type", "")).strip().lower()
+    targeting_expr = str(row.get("resolved_product_targeting_expression") or row.get("product_targeting_expression") or "").strip().lower()
+
+    if match_type and match_type not in ("nan", "-", "none", ""):
+        # Normalize common variants
+        if "modified" in match_type and "broad" in match_type:
+            return "Modified Broad"
+        return match_type.title()
+
+    if targeting_expr and targeting_expr not in ("nan", "-", "none", ""):
+        if "expanded" in targeting_expr:
+            return "Expanded ASINs"
+        if targeting_expr.startswith("asin") or "asin=" in targeting_expr:
+            return "ASINs"
+        if targeting_expr.startswith("category") or "category=" in targeting_expr:
+            return "Category"
+        if "related" in targeting_expr:
+            return "Related Targeting"
+        return "Product Targeting"
+
+    return "Unknown"
+
+
+def compute_sb_match_types(bulk_df: pd.DataFrame) -> list[dict[str, Any]]:
+    """Compute Sponsored Brands match/targeting type breakdown from Bulk."""
+    if bulk_df.empty or "product" not in bulk_df.columns:
+        return []
+
+    sb_rows = bulk_df[
+        bulk_df["product"].str.lower().str.contains("sponsored brands", na=False)
+    ].copy()
+    if sb_rows.empty:
+        return []
+
+    sb_rows["targeting_type"] = sb_rows.apply(_derive_sb_targeting_type, axis=1)
+
+    grouped = sb_rows.groupby("targeting_type").agg({
+        "spend": "sum",
+        "sales": "sum",
+        "impressions": "sum",
+        "clicks": "sum",
+        "orders": "sum" if "orders" in sb_rows.columns else "sum",
+    }).reset_index()
+
+    type_counts = sb_rows.groupby("targeting_type").size().reset_index(name="target_count")
+    grouped = grouped.merge(type_counts, on="targeting_type", how="left")
+
+    results: list[dict[str, Any]] = []
+    for _, row in grouped.iterrows():
+        spend = float(row.get("spend", 0))
+        sales = float(row.get("sales", 0))
+        clicks = float(row.get("clicks", 0))
+        impressions = float(row.get("impressions", 0))
+        orders = float(row.get("orders", 0)) if "orders" in grouped.columns else 0.0
+        target_count = int(row.get("target_count", 0))
+
+        results.append({
+            "match_type": str(row["targeting_type"]),
+            "target_count": target_count,
+            "spend": spend,
+            "sales": sales,
+            "cpc": spend / clicks if clicks > 0 else 0.0,
+            "ctr": clicks / impressions if impressions > 0 else 0.0,
+            "cvr": orders / clicks if clicks > 0 else 0.0,
+            "acos": spend / sales if sales > 0 else 0.0,
+        })
+
+    order = [
+        "Broad", "Phrase", "Exact", "Modified Broad",
+        "ASINs", "Expanded ASINs", "Category", "Related Targeting", "Product Targeting", "Unknown"
+    ]
+    order_map = {name: i for i, name in enumerate(order)}
+    results.sort(key=lambda x: order_map.get(x["match_type"], 999))
+    return results
+
+
+def compute_sb_ad_formats(bulk_df: pd.DataFrame) -> list[dict[str, Any]]:
+    """Compute Sponsored Brands performance by Ad Format from Bulk."""
+    if bulk_df.empty or "product" not in bulk_df.columns or "ad_format" not in bulk_df.columns:
+        return []
+
+    sb_campaign_rows = bulk_df[
+        (bulk_df["entity"] == "Campaign") &
+        (bulk_df["product"].str.lower().str.contains("sponsored brands", na=False)) &
+        (bulk_df["ad_format"].notna())
+    ].copy()
+
+    if sb_campaign_rows.empty:
+        return []
+
+    for col in ["impressions", "clicks", "orders"]:
+        if col not in sb_campaign_rows.columns:
+            sb_campaign_rows[col] = 0
+
+    grouped = sb_campaign_rows.groupby("ad_format").agg({
+        "campaign_id": "nunique",
+        "spend": "sum",
+        "sales": "sum",
+        "impressions": "sum",
+        "clicks": "sum",
+        "orders": "sum",
+    }).reset_index()
+
+    grouped = grouped.rename(columns={"campaign_id": "campaigns"})
+
+    results: list[dict[str, Any]] = []
+    for _, row in grouped.iterrows():
+        spend = float(row.get("spend", 0))
+        sales = float(row.get("sales", 0))
+        clicks = float(row.get("clicks", 0))
+        impressions = float(row.get("impressions", 0))
+        orders = float(row.get("orders", 0))
+
+        results.append({
+            "ad_format": str(row["ad_format"]),
+            "campaigns": int(row.get("campaigns", 0)),
+            "spend": spend,
+            "sales": sales,
+            "impressions": impressions,
+            "clicks": clicks,
+            "orders": orders,
+            "acos": spend / sales if sales > 0 else 0.0,
+            "roas": sales / spend if spend > 0 else 0.0,
+            "cpc": spend / clicks if clicks > 0 else 0.0,
+            "ctr": clicks / impressions if impressions > 0 else 0.0,
+            "cvr": orders / clicks if clicks > 0 else 0.0,
+        })
+
+    results.sort(key=lambda x: x["spend"], reverse=True)
     return results
 
 

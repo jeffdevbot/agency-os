@@ -42,6 +42,7 @@ export interface AuditViews {
   zombies: Zombies;
   ad_types: AdTypeMetric[];
   sponsored_products: SponsoredProductsView;
+  sponsored_brands: SponsoredBrandsView;
 }
 
 export interface OverviewView {
@@ -220,7 +221,39 @@ export interface SponsoredProductsView {
   match_types: SPMatchType[];
 }
 
+export interface SBMatchType {
+  match_type: string;
+  target_count: number;
+  spend: number;
+  sales: number;
+  cpc: number;
+  ctr: number;
+  cvr: number;
+  acos: number;
+}
+
+export interface SBAdFormat {
+  ad_format: string;
+  campaigns: number;
+  spend: number;
+  sales: number;
+  impressions: number;
+  clicks: number;
+  orders: number;
+  acos: number;
+  roas: number;
+  cpc: number;
+  ctr: number;
+  cvr: number;
+}
+
+export interface SponsoredBrandsView {
+  match_types: SBMatchType[];
+  ad_formats: SBAdFormat[];
+}
+
 export type ViewId =
   | "overview"
   | "targeting_analysis"
-  | "bidding_placements";
+  | "bidding_placements"
+  | "sponsored_brands_analysis";

@@ -28,6 +28,12 @@ BULK_COLUMN_MAP = {
     "asin": ["ASIN (Informational only)", "ASIN", "Ad ID"],
     "sku": ["SKU"],
     "targeting_type": ["Targeting Type"],
+    "product_targeting_expression": ["Product Targeting Expression", "Targeting Expression"],
+    "resolved_product_targeting_expression": [
+        "Resolved Product Targeting Expression (Informational only)",
+        "Resolved Targeting Expression (Informational only)",
+    ],
+    "ad_format": ["Ad Format", "Ad Format (Informational only)"],
     "start_date": ["Start Date"],
     "end_date": ["End Date"],
     "currency": ["Currency", "Budget Currency Code"],
@@ -349,4 +355,3 @@ def parse_bulk_file(
     metadata["warnings"] = all_warnings
     
     return final_df, metadata
-
