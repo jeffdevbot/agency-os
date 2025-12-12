@@ -5,7 +5,7 @@ import { Send, ChevronRight } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { type AuditResponse, type ViewId } from "../types";
 import { sendChatMessage } from "../services/chat";
-import { generateHotTakes, type HotTake, type HotTakeSeverity } from "../utils/auditRules";
+import { generateHotTakes, getWastedSpendBucket, type HotTake, type HotTakeSeverity } from "../utils/auditRules";
 
 interface ChatPaneProps {
     auditData: AuditResponse;
@@ -29,7 +29,7 @@ function HotTakeItem({ hotTake, onNavigate }: HotTakeItemProps) {
 
     return (
         <div className="mb-4 last:mb-0">
-            <div className="font-semibold text-slate-900 text-sm mb-1">
+            <div className="font-semibold text-slate-900 text-base mb-1">
                 {indicator} {hotTake.headline}
             </div>
             <p className="text-slate-600 text-sm leading-relaxed mb-2">
@@ -56,6 +56,11 @@ export function ChatPane({ auditData, onViewChange }: ChatPaneProps) {
 
     // Generate hot takes from audit data (client-side, zero tokens)
     const hotTakes = useMemo(() => generateHotTakes(auditData), [auditData]);
+    const wastedSpendSummary = auditData.views?.wasted_spend?.summary;
+    const wastedBucket = useMemo(
+        () => getWastedSpendBucket(wastedSpendSummary?.wasted_spend_pct ?? 0),
+        [wastedSpendSummary?.wasted_spend_pct]
+    );
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -116,6 +121,35 @@ export function ChatPane({ auditData, onViewChange }: ChatPaneProps) {
                 {hotTakes.length > 0 && (
                     <div className="flex justify-start">
                         <div className="max-w-[90%] rounded-2xl rounded-bl-none px-5 py-4 shadow-sm bg-slate-50 text-slate-800 border border-slate-200">
+                            {wastedSpendSummary && (
+                                <div className="mb-5 rounded-xl border border-slate-200 bg-white p-4">
+                                    <div className="flex items-center justify-between gap-4">
+                                        <div className="text-base font-semibold text-slate-900">
+                                            🎯 Wasted Ad Spend — Sponsored Products
+                                        </div>
+                                        <button
+                                            onClick={() => onViewChange("wasted_spend")}
+                                            className="text-sm font-semibold text-[#0077cc] hover:text-[#005fa3] transition-colors"
+                                        >
+                                            Open view →
+                                        </button>
+                                    </div>
+                                    <div className="mt-2 text-base text-slate-700 leading-relaxed">
+                                        This view shows how much Sponsored Products spend went to targets that didn’t generate a sale.
+                                    </div>
+                                    <div className="mt-2 text-base text-slate-700 leading-relaxed">
+                                        Some amount of wasted spend is expected — it comes from testing new keywords and discovering what actually converts. The goal isn’t to eliminate waste completely, but to make sure it’s at the right level.
+                                    </div>
+                                    <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-slate-600">
+                                        <span className="font-semibold">
+                                            Current: {(wastedSpendSummary.wasted_spend_pct * 100).toFixed(1)}%
+                                        </span>
+                                        <span className="text-slate-400">•</span>
+                                        <span className="font-semibold">{wastedBucket.verdict}</span>
+                                    </div>
+                                </div>
+                            )}
+
                             <p className="text-sm text-slate-500 mb-3">
                                 Here&apos;s what I found in your audit:
                             </p>

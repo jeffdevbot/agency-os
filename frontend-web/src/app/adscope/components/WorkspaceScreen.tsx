@@ -15,7 +15,8 @@ interface WorkspaceScreenProps {
   onReset: () => void;
 }
 
-export function WorkspaceScreen({ auditData, onReset }: WorkspaceScreenProps) {
+export function WorkspaceScreen(props: WorkspaceScreenProps) {
+  const { auditData } = props;
   const [activeView, setActiveView] = useState<ViewId>("overview");
 
   const renderView = () => {
@@ -39,14 +40,13 @@ export function WorkspaceScreen({ auditData, onReset }: WorkspaceScreenProps) {
 
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden text-slate-900 font-sans">
-      {/* 3-Pane Layout: [Explorer 200px] [Canvas Flex] [Chat 640px] */}
+      {/* 3-Pane Layout: [Explorer 240px] [Canvas Flex] [Chat 640px] */}
 
       {/* Pane 1: Explorer (Left) */}
-      <div className="w-[200px] flex-shrink-0 border-r border-slate-200 bg-white">
+      <div className="w-[240px] flex-shrink-0 border-r border-slate-200 bg-white">
         <ExplorerPane
           activeView={activeView}
           onViewChange={setActiveView}
-          onReset={onReset}
         />
       </div>
 

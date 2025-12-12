@@ -12,7 +12,6 @@ import type { ViewId } from "../types";
 interface ExplorerPaneProps {
     activeView: ViewId;
     onViewChange: (viewId: ViewId) => void;
-    onReset: () => void;
 }
 
 const SECTIONS = [
@@ -33,12 +32,12 @@ const SECTIONS = [
     {
         title: "Sponsored Brands",
         items: [
-            { id: "sponsored_brands_analysis", label: "SB Match Types & Formats", icon: Megaphone },
+            { id: "sponsored_brands_analysis", label: "Match Types & Formats", icon: Megaphone },
         ]
     },
 ];
 
-export function ExplorerPane({ activeView, onViewChange, onReset }: ExplorerPaneProps) {
+export function ExplorerPane({ activeView, onViewChange }: ExplorerPaneProps) {
     return (
         <div className="flex flex-col h-full bg-white text-slate-600 font-medium text-sm">
             {/* Header */}
@@ -46,13 +45,6 @@ export function ExplorerPane({ activeView, onViewChange, onReset }: ExplorerPane
                 <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
                     Explorer
                 </span>
-                <button
-                    onClick={onReset}
-                    className="text-[10px] bg-blue-50 hover:bg-blue-100 text-blue-600 font-semibold px-2 py-1 rounded transition-colors"
-                    title="Start New Audit"
-                >
-                    NEW
-                </button>
             </div>
 
             {/* File Tree */}
