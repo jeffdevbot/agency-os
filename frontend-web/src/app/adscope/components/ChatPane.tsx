@@ -33,7 +33,7 @@ type ChatItem =
     | { id: string; role: "assistant"; kind: "text"; content: string }
     | { id: string; role: "assistant"; kind: "cards"; cards: InsightCard[] };
 
-function InsightCardItem({ card, onNavigate }: { card: InsightCard; onNavigate: (viewId: ViewId) => void }) {
+function InsightCardItem({ card }: { card: InsightCard }) {
     return (
         <div className="mb-5 last:mb-0 rounded-xl border border-slate-200 bg-white p-4">
             <div className="text-lg font-semibold text-slate-900">
@@ -47,23 +47,13 @@ function InsightCardItem({ card, onNavigate }: { card: InsightCard; onNavigate: 
                     {card.judgement}
                 </div>
             )}
-            <div className="mt-3 flex items-center justify-between gap-4">
-                {card.kpi ? (
-                    <div className="flex flex-wrap items-center gap-2 text-sm text-slate-600">
-                        <span className="font-semibold">Current: {card.kpi.valueText}</span>
-                        <span className="text-slate-400">•</span>
-                        <span className="font-semibold">{card.kpi.verdictText}</span>
-                    </div>
-                ) : (
-                    <div />
-                )}
-                <button
-                    onClick={() => onNavigate(card.viewId)}
-                    className="text-sm font-semibold text-[#0077cc] hover:text-[#005fa3] transition-colors whitespace-nowrap"
-                >
-                    Open view →
-                </button>
-            </div>
+            {card.kpi && (
+                <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-slate-600">
+                    <span className="font-semibold">Current: {card.kpi.valueText}</span>
+                    <span className="text-slate-400">•</span>
+                    <span className="font-semibold">{card.kpi.verdictText}</span>
+                </div>
+            )}
         </div>
     );
 }
@@ -231,7 +221,7 @@ export function ChatPane({ auditData, onViewChange, activeView }: ChatPaneProps)
                         {msg.kind === "cards" ? (
                             <div className="max-w-[90%] rounded-2xl rounded-bl-none px-5 py-4 shadow-sm bg-slate-50 text-slate-800 border border-slate-200">
                                 {msg.cards.map((card) => (
-                                    <InsightCardItem key={`${msg.id}-${card.title}`} card={card} onNavigate={onViewChange} />
+                                    <InsightCardItem key={`${msg.id}-${card.title}`} card={card} />
                                 ))}
                             </div>
                         ) : (
