@@ -52,11 +52,14 @@ export function WorkspaceScreen(props: WorkspaceScreenProps) {
   };
 
   return (
-    <div className="flex h-screen bg-slate-50 overflow-hidden text-slate-900 font-sans">
-      {/* 3-Pane Layout: [Explorer 240px] [Canvas Flex] [Chat 640px] */}
+    <div className="flex h-screen bg-slate-50 overflow-hidden text-slate-900 font-sans flex-col lg:flex-row">
+      {/* Responsive 3-Pane Layout:
+          - Small: Explorer (top), Canvas (middle), Chat (bottom)
+          - Large:  Explorer (left), Canvas (center), Chat (right)
+      */}
 
       {/* Pane 1: Explorer (Left) */}
-      <div className="w-[240px] flex-shrink-0 border-r border-slate-200 bg-white">
+      <div className="w-full lg:w-[240px] flex-shrink-0 border-b lg:border-b-0 lg:border-r border-slate-200 bg-white h-[200px] lg:h-full">
         <ExplorerPane
           activeView={activeView}
           onViewChange={setActiveView}
@@ -65,7 +68,7 @@ export function WorkspaceScreen(props: WorkspaceScreenProps) {
       </div>
 
       {/* Pane 2: Canvas (Center) */}
-      <div className="flex-1 flex flex-col min-w-0 bg-slate-50">
+      <div className="flex-1 flex flex-col min-w-0 bg-slate-50 order-2 lg:order-none">
         {/* View Content */}
         <div className="flex-1 overflow-auto p-0">
           {renderView()}
@@ -73,7 +76,7 @@ export function WorkspaceScreen(props: WorkspaceScreenProps) {
       </div>
 
       {/* Pane 3: Chat (Right) */}
-      <div className="w-[640px] flex-shrink-0 border-l border-slate-200 bg-white shadow-xl z-10">
+      <div className="w-full lg:w-[520px] xl:w-[600px] flex-shrink-0 border-t lg:border-t-0 lg:border-l border-slate-200 bg-white shadow-xl z-10 h-[45vh] lg:h-full">
         <ChatPane
           auditData={auditData}
           onViewChange={setActiveView}

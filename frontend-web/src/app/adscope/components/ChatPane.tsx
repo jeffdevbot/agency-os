@@ -132,17 +132,19 @@ export function ChatPane({ auditData, onViewChange, activeView }: ChatPaneProps)
     }, [hotTakes, wastedSpendSummary, wastedHotTake, wastedBucket.verdict]);
 
     useEffect(() => {
-        if (!initializedRef.current) {
-            initializedRef.current = true;
+        if (initializedRef.current) return;
+        initializedRef.current = true;
+
+        // On first load, show the current view's cards (usually Overview) without adding any placeholder text.
+        const initialCards = getCardsForView(activeView);
+        if (initialCards.length > 0) {
+            shownViewsRef.current.add(activeView);
             setMessages([
-                {
-                    id: String(nextIdRef.current++),
-                    role: "assistant",
-                    kind: "text",
-                    content: "Pick a view on the left to see insights, or ask a question.",
-                },
+                { id: String(nextIdRef.current++), role: "assistant", kind: "cards", cards: initialCards },
             ]);
         }
+        prevViewRef.current = activeView;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     useEffect(() => {
