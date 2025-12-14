@@ -238,19 +238,19 @@ export function AdTypesView({ data, currency }: AdTypesViewProps) {
                 </div>
                 <div className="overflow-x-auto">
                     <table className="w-full text-sm text-left">
-                        <thead className="bg-slate-50 text-slate-500 uppercase text-xs font-semibold border-b border-slate-200">
-                            <tr>
-                                <th className="px-6 py-3 font-medium">Ad Type</th>
-                                <th className="px-6 py-3 text-right font-medium">Campaigns</th>
-                                <th className="px-6 py-3 text-right font-medium">Spend</th>
-                                <th className="px-6 py-3 text-right font-medium">Sales</th>
-                                <th className="px-6 py-3 text-right font-medium">CPC</th>
-                                <th className="px-6 py-3 text-right font-medium">CTR</th>
-                                <th className="px-6 py-3 text-right font-medium">CVR</th>
-                                <th className="px-6 py-3 text-right font-medium">ACoS</th>
-                                <th className="px-6 py-3 text-right font-medium">ROAS</th>
-                            </tr>
-                        </thead>
+	                        <thead className="bg-slate-50 text-slate-500 uppercase text-xs font-semibold border-b border-slate-200">
+	                            <tr>
+	                                <th className="px-6 py-3 font-medium">Ad Type</th>
+	                                <th className="px-6 py-3 text-right font-medium">Campaigns</th>
+	                                <th className="px-6 py-3 text-right font-medium">Spend</th>
+	                                <th className="px-6 py-3 text-right font-medium">Sales</th>
+	                                <th className="px-6 py-3 text-right font-medium hidden xl:table-cell">CPC</th>
+	                                <th className="px-6 py-3 text-right font-medium hidden xl:table-cell">CTR</th>
+	                                <th className="px-6 py-3 text-right font-medium hidden xl:table-cell">CVR</th>
+	                                <th className="px-6 py-3 text-right font-medium">ACoS</th>
+	                                <th className="px-6 py-3 text-right font-medium">ROAS</th>
+	                            </tr>
+	                        </thead>
                         <tbody className="divide-y divide-slate-100">
                             {sortedData.map((row, index) => (
                                 <tr key={row.ad_type} className="hover:bg-slate-50 transition-colors">
@@ -260,16 +260,16 @@ export function AdTypesView({ data, currency }: AdTypesViewProps) {
                                             style={{ backgroundColor: COLORS[index % COLORS.length] }}
                                         />
                                         {row.ad_type}
-                                    </td>
-                                    <td className="px-6 py-4 text-right text-slate-600">{formatNumber(row.active_campaigns)}</td>
-                                    <td className="px-6 py-4 text-right text-slate-900">{formatCurrency(row.spend, currency)}</td>
-                                    <td className="px-6 py-4 text-right text-slate-900">{formatCurrency(row.sales, currency)}</td>
-                                    <td className="px-6 py-4 text-right text-slate-600">{formatCurrency(row.cpc, currency)}</td>
-                                    <td className="px-6 py-4 text-right text-slate-600">{formatPercent(row.ctr)}</td>
-                                    <td className="px-6 py-4 text-right text-slate-600">{formatPercent(row.cvr)}</td>
-                                    <td className={`px-6 py-4 text-right font-semibold ${getAcosColor(row.acos)}`}>
-                                        {formatPercent(row.acos)}
-                                    </td>
+	                                    </td>
+	                                    <td className="px-6 py-4 text-right text-slate-600">{formatNumber(row.active_campaigns)}</td>
+	                                    <td className="px-6 py-4 text-right text-slate-900">{formatCurrency(row.spend, currency)}</td>
+	                                    <td className="px-6 py-4 text-right text-slate-900">{formatCurrency(row.sales, currency)}</td>
+	                                    <td className="px-6 py-4 text-right text-slate-600 hidden xl:table-cell">{formatCurrency(row.cpc, currency)}</td>
+	                                    <td className="px-6 py-4 text-right text-slate-600 hidden xl:table-cell">{formatPercent(row.ctr)}</td>
+	                                    <td className="px-6 py-4 text-right text-slate-600 hidden xl:table-cell">{formatPercent(row.cvr)}</td>
+	                                    <td className={`px-6 py-4 text-right font-semibold ${getAcosColor(row.acos)}`}>
+	                                        {formatPercent(row.acos)}
+	                                    </td>
                                     <td className="px-6 py-4 text-right text-slate-600">{row.roas.toFixed(2)}x</td>
                                 </tr>
                             ))}

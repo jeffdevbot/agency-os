@@ -53,10 +53,10 @@ export function SponsoredBrandsLandingPagesView({
             Sponsored Brands Landing Pages
           </h3>
         </div>
-        <div className="grid grid-cols-1 lg:grid-cols-10 gap-0">
+        <div className="grid grid-cols-1 xl:grid-cols-10 gap-0">
           {/* Pie Chart */}
-          <div className="lg:col-span-3 p-6 border-b lg:border-b-0 lg:border-r border-slate-100">
-            <div className="h-[220px]">
+          <div className="xl:col-span-3 p-6 border-b xl:border-b-0 xl:border-r border-slate-100">
+            <div className="h-[260px] xl:h-[220px]">
               {pieData.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
@@ -105,7 +105,7 @@ export function SponsoredBrandsLandingPagesView({
           </div>
 
           {/* Table */}
-          <div className="lg:col-span-7 overflow-x-auto">
+          <div className="xl:col-span-7 overflow-x-auto">
             <table className="w-full text-sm text-left">
               <thead className="bg-slate-50 text-slate-500 uppercase text-xs font-semibold border-b border-slate-200">
                 <tr>
@@ -114,8 +114,8 @@ export function SponsoredBrandsLandingPagesView({
                   <th className="px-6 py-3 text-right font-medium">Spend</th>
                   <th className="px-6 py-3 text-right font-medium">% Spend</th>
                   <th className="px-6 py-3 text-right font-medium">Sales</th>
-                  <th className="px-6 py-3 text-right font-medium">CTR</th>
-                  <th className="px-6 py-3 text-right font-medium">CVR</th>
+                  <th className="px-6 py-3 text-right font-medium hidden xl:table-cell">CTR</th>
+                  <th className="px-6 py-3 text-right font-medium hidden xl:table-cell">CVR</th>
                   <th className="px-6 py-3 text-right font-medium">ACoS</th>
                 </tr>
               </thead>
@@ -144,10 +144,10 @@ export function SponsoredBrandsLandingPagesView({
                     <td className="px-6 py-4 text-right text-slate-900">
                       {formatCurrency(row.sales, currency)}
                     </td>
-                    <td className="px-6 py-4 text-right text-slate-600">
+                    <td className="px-6 py-4 text-right text-slate-600 hidden xl:table-cell">
                       {formatPercent(row.ctr)}
                     </td>
-                    <td className="px-6 py-4 text-right text-slate-600">
+                    <td className="px-6 py-4 text-right text-slate-600 hidden xl:table-cell">
                       {formatPercent(row.cvr)}
                     </td>
                     <td
@@ -171,4 +171,3 @@ export function SponsoredBrandsLandingPagesView({
     </div>
   );
 }
-
