@@ -388,6 +388,127 @@ export function generateHotTakes(auditData: AuditResponse): HotTake[] {
     }
   }
 
+  // ==========================================================================
+  // 7. BRAND VS CATEGORY (SP-only, requires brand keywords)
+  // ==========================================================================
+  if (views.brand_vs_category && Array.isArray(views.brand_vs_category.segments)) {
+    const segments = views.brand_vs_category.segments;
+    const brandRow = segments.find((s) => String(s.segment).toLowerCase() === "brand");
+    const categoryRow = segments.find((s) => String(s.segment).toLowerCase() === "category");
+    const brandSpendPct = brandRow?.spend_percent ?? 0;
+    const brandAcos = brandRow?.acos ?? 0;
+    const categoryAcos = categoryRow?.acos ?? 0;
+
+    if (brandRow && brandSpendPct > 0.20) {
+      hotTakes.push({
+        id: "brand-vs-category-brand-heavy",
+        severity: "warning",
+        emoji: "🧠",
+        headline: "Brand Spend Looks High",
+        body: `You’re spending ${(brandSpendPct * 100).toFixed(0)}% on Brand terms at ${(brandAcos * 100).toFixed(1)}% ACoS. This often cannibalizes organic sales if Brand is over-defended.`,
+        judgement: "You might be paying for sales you would have gotten anyway.",
+        ctaText: "Open Brand vs Category",
+        targetView: "brand_vs_category",
+        kpi: {
+          valueText: `${(brandSpendPct * 100).toFixed(0)}% Brand`,
+          verdictText: "⚠️ Brand-Heavy",
+        },
+      });
+    } else if (brandRow && brandSpendPct < 0.10) {
+      hotTakes.push({
+        id: "brand-vs-category-brand-light",
+        severity: "warning",
+        emoji: "🛡️",
+        headline: "Brand Defense Looks Light",
+        body: `Only ${(brandSpendPct * 100).toFixed(0)}% of spend is on Brand terms. If competitors are bidding on your brand, you may be handing them easy sales.`,
+        judgement: "You likely need more brand defense to stop leakage.",
+        ctaText: "Open Brand vs Category",
+        targetView: "brand_vs_category",
+        kpi: {
+          valueText: `${(brandSpendPct * 100).toFixed(0)}% Brand`,
+          verdictText: "⚠️ Low Defense",
+        },
+      });
+    } else if (brandRow && categoryRow && (brandAcos > 0 || categoryAcos > 0)) {
+      hotTakes.push({
+        id: "brand-vs-category-balanced",
+        severity: "success",
+        emoji: "⚖️",
+        headline: "Brand vs Category Mix Looks Reasonable",
+        body: `Brand is ${(brandSpendPct * 100).toFixed(0)}% of spend. Brand ACoS ${(brandAcos * 100).toFixed(1)}% vs Category ${(categoryAcos * 100).toFixed(1)}%.`,
+        judgement: "This looks like a balanced mix of defense and growth.",
+        ctaText: "Open Brand vs Category",
+        targetView: "brand_vs_category",
+        kpi: {
+          valueText: `${(brandSpendPct * 100).toFixed(0)}% Brand`,
+          verdictText: "✅ Balanced",
+        },
+      });
+    }
+  }
+
+  // ==========================================================================
+  // 8. SB LANDING PAGES (shift spend to best ACoS page when meaningful)
+  // ==========================================================================
+  if (views.sponsored_brands_landing_pages && Array.isArray(views.sponsored_brands_landing_pages.landing_pages)) {
+    const pages = views.sponsored_brands_landing_pages.landing_pages.filter((p) => p.spend > 0);
+    const total = pages.reduce((sum, p) => sum + p.spend, 0);
+    const eligible = pages.filter((p) => total > 0 && p.spend / total >= 0.05);
+    const byAcos = [...eligible].sort((a, b) => a.acos - b.acos);
+    if (byAcos.length >= 2) {
+      const best = byAcos[0];
+      const runnerUp = byAcos[1];
+      const diff = runnerUp.acos - best.acos;
+      if (diff >= 0.05) {
+        hotTakes.push({
+          id: "sb-landing-pages-shift",
+          severity: "info",
+          emoji: "🧭",
+          headline: "Shift SB Spend to the Best Landing Page",
+          body: `${best.landing_page_type} is running ${(best.acos * 100).toFixed(1)}% ACoS vs ${(runnerUp.acos * 100).toFixed(1)}% on ${runnerUp.landing_page_type}. That gap is meaningful.`,
+          judgement: "Put more budget behind the winner — and cap the laggards.",
+          ctaText: "Open Landing Pages",
+          targetView: "sponsored_brands_landing_pages",
+          kpi: {
+            valueText: `${(best.acos * 100).toFixed(1)}% vs ${(runnerUp.acos * 100).toFixed(1)}% ACoS`,
+            verdictText: "💡 Reallocate Spend",
+          },
+        });
+      }
+    }
+  }
+
+  // ==========================================================================
+  // 9. SPONSORED DISPLAY TARGETING (same reallocation logic)
+  // ==========================================================================
+  if (views.sponsored_display_targeting && Array.isArray(views.sponsored_display_targeting.targeting_types)) {
+    const types = views.sponsored_display_targeting.targeting_types.filter((t) => t.spend > 0);
+    const total = types.reduce((sum, t) => sum + t.spend, 0);
+    const eligible = types.filter((t) => total > 0 && t.spend / total >= 0.05);
+    const byAcos = [...eligible].sort((a, b) => a.acos - b.acos);
+    if (byAcos.length >= 2) {
+      const best = byAcos[0];
+      const runnerUp = byAcos[1];
+      const diff = runnerUp.acos - best.acos;
+      if (diff >= 0.05) {
+        hotTakes.push({
+          id: "sd-targeting-shift",
+          severity: "info",
+          emoji: "🎯",
+          headline: "Shift SD Spend to the Best Targeting Type",
+          body: `${best.targeting_type} is at ${(best.acos * 100).toFixed(1)}% ACoS vs ${(runnerUp.acos * 100).toFixed(1)}% on ${runnerUp.targeting_type}.`,
+          judgement: "Scale what’s efficient and cap what’s not.",
+          ctaText: "Open SD Targeting",
+          targetView: "sponsored_display_targeting",
+          kpi: {
+            valueText: `${(best.acos * 100).toFixed(1)}% vs ${(runnerUp.acos * 100).toFixed(1)}% ACoS`,
+            verdictText: "💡 Reallocate Spend",
+          },
+        });
+      }
+    }
+  }
+
   return hotTakes;
 }
 
