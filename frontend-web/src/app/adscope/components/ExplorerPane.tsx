@@ -14,6 +14,7 @@ interface ExplorerPaneProps {
     activeView: ViewId;
     onViewChange: (viewId: ViewId) => void;
     showBrandVsCategory?: boolean;
+    variant?: "full" | "rail";
 }
 
 function getSections(showBrandVsCategory: boolean) {
@@ -49,8 +50,49 @@ function getSections(showBrandVsCategory: boolean) {
     ] as const;
 }
 
-export function ExplorerPane({ activeView, onViewChange, showBrandVsCategory }: ExplorerPaneProps) {
+export function ExplorerPane({ activeView, onViewChange, showBrandVsCategory, variant = "full" }: ExplorerPaneProps) {
     const sections = getSections(Boolean(showBrandVsCategory));
+    if (variant === "rail") {
+        return (
+            <div className="flex flex-col h-full bg-white text-slate-600">
+                <div className="p-3 border-b border-slate-200 flex items-center justify-center">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                        Exp
+                    </span>
+                </div>
+                <div className="flex-1 overflow-y-auto py-2">
+                    {sections.map((section, idx) => (
+                        <div key={idx} className="mb-3">
+                            <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-300 text-center">
+                                {section.title.split(" ").map((w) => w[0]).join("")}
+                            </div>
+                            <div className="flex flex-col items-center gap-1">
+                                {section.items.map((item) => {
+                                    const isActive = activeView === item.id;
+                                    const Icon = item.icon;
+                                    return (
+                                        <button
+                                            key={item.id}
+                                            onClick={() => onViewChange(item.id as ViewId)}
+                                            title={item.label}
+                                            aria-label={item.label}
+                                            className={`w-10 h-10 rounded-lg flex items-center justify-center transition-colors border
+                                                ${isActive
+                                                    ? "bg-blue-50 border-[#0077cc] text-[#0077cc]"
+                                                    : "border-transparent hover:bg-slate-50 hover:text-slate-900"
+                                                }`}
+                                        >
+                                            <Icon className={`w-5 h-5 ${isActive ? "text-[#0077cc]" : "text-slate-400"}`} />
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        );
+    }
     return (
         <div className="flex flex-col h-full bg-white text-slate-600 font-medium text-sm">
             {/* Header */}

@@ -60,11 +60,21 @@ export function WorkspaceScreen(props: WorkspaceScreenProps) {
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden text-slate-900 font-sans flex-col lg:flex-row">
       {/* Desktop Explorer (left) */}
-      <div className="hidden lg:block w-[240px] flex-shrink-0 border-r border-slate-200 bg-white">
+      <div className="hidden xl:block w-[240px] flex-shrink-0 border-r border-slate-200 bg-white">
         <ExplorerPane
           activeView={activeView}
           onViewChange={setActiveView}
           showBrandVsCategory={Boolean(auditData.views.brand_vs_category)}
+        />
+      </div>
+
+      {/* Laptop Explorer rail (icons only) */}
+      <div className="hidden lg:block xl:hidden w-[72px] flex-shrink-0 border-r border-slate-200 bg-white">
+        <ExplorerPane
+          activeView={activeView}
+          onViewChange={setActiveView}
+          showBrandVsCategory={Boolean(auditData.views.brand_vs_category)}
+          variant="rail"
         />
       </div>
 
@@ -88,7 +98,7 @@ export function WorkspaceScreen(props: WorkspaceScreenProps) {
       </div>
 
       {/* Pane 3: Chat (right on desktop, bottom on mobile) */}
-      <div className="w-full lg:w-[520px] xl:w-[600px] flex-shrink-0 border-t lg:border-t-0 lg:border-l border-slate-200 bg-white shadow-xl z-10 h-[42vh] md:h-[45vh] lg:h-full">
+      <div className="w-full lg:w-[420px] xl:w-[520px] 2xl:w-[600px] flex-shrink-0 border-t lg:border-t-0 lg:border-l border-slate-200 bg-white shadow-xl z-10 h-[42vh] md:h-[45vh] lg:h-full">
         <ChatPane
           auditData={auditData}
           onViewChange={setActiveView}
