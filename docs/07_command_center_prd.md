@@ -1326,6 +1326,8 @@ All routes are **admin-only** (enforce `is_admin = true` middleware).
 
 **Purpose:** Enable Debrief to create tasks in the right ClickUp Space and assign the right owner
 
+**Timing:** ClickUp API integration (syncing Spaces/Users and powering Debrief “Send to ClickUp”) is intentionally deferred to a later phase. Command Center MVP focuses on storing mappings (`brands.clickup_space_id`, `profiles.clickup_user_id`) via manual entry and validating that they’re present.
+
 **ClickUp Team ID:** `42600885` (Ecomlabs workspace)
 
 **How to Find Your Team ID:**
@@ -1629,11 +1631,9 @@ export async function POST(req: Request) {
 - "The Bench" shows unassigned team members
 - Roles pages show team organized by function
 
-✅ **ClickUp Integration**
-- Manual sync button fetches Spaces and Users
-- Nightly worker auto-syncs ClickUp data
-- All brands have ClickUp Space ID (or warning if missing)
-- All active team members have ClickUp User ID (or warning if missing)
+✅ **ClickUp Mapping (MVP)**
+- Admin can manually enter `brands.clickup_space_id` and `profiles.clickup_user_id`
+- UI shows warnings when mappings are missing
 
 ✅ **Debrief Enablement**
 - Database has all data needed for Debrief to:
@@ -1664,6 +1664,10 @@ export async function POST(req: Request) {
 ---
 
 ## 11. Future Enhancements (Post-MVP)
+
+### Phase 2: ClickUp Sync (Deferred)
+- Manual sync button fetches Spaces and Users
+- Nightly worker auto-syncs ClickUp data
 
 ### Phase 3: Non-Admin Access
 - Team members can view their own profile

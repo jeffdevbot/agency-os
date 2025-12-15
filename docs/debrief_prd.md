@@ -20,14 +20,16 @@ After client meetings, action items get lost—or there's a delay between the me
 
 ## 2. Solution Overview
 
-**Debrief** automatically ingests meeting notes from Google Meet, extracts actionable tasks for our team, and provides a review interface before pushing approved tasks to the appropriate ClickUp Space.
+**Debrief** automatically ingests meeting notes from Google Meet, extracts actionable tasks for our team, and provides a review interface.
+
+**Note:** ClickUp task creation is intentionally deferred to a later phase. Debrief MVP focuses on ingest → extract → review → save approved tasks, so nothing gets lost while ClickUp integration is still pending.
 
 **Flow:**
 1. Google Meet generates notes via Gemini → saved to Drive
 2. Debrief syncs notes from Drive (manual trigger)
 3. LLM extracts tasks, identifies brand, suggests assignee
 4. User reviews/edits tasks in Debrief UI
-5. Approved tasks pushed to ClickUp via API
+5. Approved tasks saved in Debrief (later: pushed to ClickUp via API)
 
 ---
 
@@ -302,6 +304,8 @@ Suggested Next Steps:
 
 ## 8. ClickUp Integration
 
+**Phase 4 (Later):** This section describes the ClickUp integration once it’s implemented. Debrief MVP ships without pushing tasks into ClickUp.
+
 ### Task Creation
 Uses shared ClickUp Service (see Command Center PRD Section 8.1.1).
 
@@ -354,7 +358,7 @@ Created by Debrief
 - `PATCH /api/debrief/tasks/:id` — Update task (title, description, brand, assignee)
 - `POST /api/debrief/tasks/:id/approve` — Approve task
 - `POST /api/debrief/tasks/:id/reject` — Reject task
-- `POST /api/debrief/meetings/:id/send-to-clickup` — Send approved tasks
+- `POST /api/debrief/meetings/:id/send-to-clickup` — Send approved tasks (Phase 4)
 
 ### Bulk Actions
 
@@ -395,7 +399,7 @@ await logUsage({
 ## 12. Implementation Stages
 
 ### Stage 1: Dependencies
-- [ ] Command Center shipped with `profiles.clickup_user_id` and `brands.clickup_space_id`
+- [ ] Command Center shipped with `profiles.clickup_user_id` and `brands.clickup_space_id` (manual entry is acceptable until ClickUp sync exists)
 
 ### Stage 2: Google Drive Integration
 - [ ] Service account setup
