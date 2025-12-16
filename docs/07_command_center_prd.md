@@ -11,6 +11,10 @@
 - **Team Management** — Team members, roles, assignments
 - **Client & Brand Management** — Clients, brands, ClickUp spaces, product keywords
 
+**Engineering Docs:**
+- Schema + API contract: `docs/07_command_center_schema_api.md`
+- Implementation micro-tasks: `docs/07_command_center_implementation_plan.md`
+
 ---
 
 ## 1. Executive Summary
@@ -120,7 +124,7 @@ Report Specialist (supports Brand Manager)
 3. Toggle "Admin" if applicable
 4. Team member appears in "The Bench" (unassigned)
 5. Admin navigates to client pages and drags them into assignments
-6. If the team member logs in later, the system links `auth.users` to the existing profile by email (`profiles.auth_user_id`)
+6. If the team member logs in later, the system merges the Ghost Profile into the user’s real profile by email (the logged-in profile uses `profiles.id = auth.users.id`)
 
 **Success:** Team member is in the system, assigned to clients, ready to be pre-selected as an assignee in Debrief
 
@@ -604,14 +608,19 @@ These are different entities in different domains. Command Center's single-tenan
 
 #### **`public.profiles` (enhanced)**
 
-We are decoupling the Profile ID from the Auth User ID so we can create **Ghost Profiles** for staff who haven’t logged in yet (or never will).
+Command Center needs **Ghost Profiles** for staff who haven’t logged in yet (or never will), without breaking existing tools that assume `profiles.id = auth.uid()`.
+
+**Identity rules (important):**
+- For any logged-in user, we ensure there is a profile row where: `profiles.id = auth.users.id` (preserves existing RLS + FKs used by other tools).
+- Ghost Profiles use a random UUID `profiles.id` and have `auth_user_id = NULL`.
+- On first login, the system **creates/ensures the real profile row** (`id = auth uid`) and **merges** the Ghost Profile into it by email (moves assignments, copies metadata, deletes the ghost row).
 
 ```sql
 create table public.profiles (
   id uuid primary key default gen_random_uuid(),  -- Independent (not referencing auth.users directly)
   auth_user_id uuid references auth.users(id) on delete set null, -- Nullable link to login
 
-  email text unique not null,
+  email text not null,
   display_name text,
   full_name text,
   avatar_url text,
@@ -632,9 +641,16 @@ create table public.profiles (
   updated_at timestamptz default now()
 );
 
--- Ensure email matching is case-insensitive for link-on-login behavior
-create unique index if not exists idx_profiles_email_lower_unique
-  on public.profiles (lower(email));
+-- Ensure email matching is case-insensitive for link-on-login behavior.
+-- Use partial unique indexes so a Ghost Profile and a canonical (logged-in) profile
+-- can temporarily share the same email during merge-on-login.
+create unique index if not exists idx_profiles_email_lower_unique_ghost
+  on public.profiles (lower(email))
+  where auth_user_id is null;
+
+create unique index if not exists idx_profiles_email_lower_unique_auth
+  on public.profiles (lower(email))
+  where auth_user_id is not null;
 
 -- Ensure a single auth user links to at most one profile
 create unique index if not exists idx_profiles_auth_user_id_unique
@@ -653,12 +669,12 @@ create index if not exists idx_profiles_allowed_tools
 
 **Important Notes:**
 - Admins can create team members without requiring login (Ghost Profiles have `auth_user_id` = NULL).
-- If/when a user logs in later, we link `auth.users.id` → `profiles.auth_user_id` by email (see `handle_new_user()` below).
+- If/when a user logs in later, we merge the Ghost Profile into a real profile row where `profiles.id = auth.users.id` (see `handle_new_auth_user()` below).
 - `employment_status`:
   - `'active'`: Current employee, shows in "The Bench" and assignment interfaces
   - `'inactive'`: Former employee or on leave, excluded from "The Bench" (soft delete)
   - `'contractor'`: Temporary/contract worker, shows in interfaces but marked distinctly
-- `bench_status` is derived: 'assigned' if user has any client assignments, else 'available'
+- `bench_status` is derived: `'assigned'` if the profile has any assignments, else `'available'` (UI filters by `employment_status`)
 - `is_admin` controls access to Command Center admin features
 - `allowed_tools`: Array of tool slugs the user can access (see Tool Access Control below)
 - **Performance**: The `idx_profiles_is_admin` partial index optimizes RLS policy checks by only indexing admin users. This significantly improves query performance since RLS policies check `is_admin` on every request.
@@ -737,39 +753,71 @@ insert into public.agency_roles (slug, name) values
 
 ---
 
-#### The "Link on Login" Trigger (Replaces Pending Workflow)
+#### The "Link on Login" Trigger (Ghost Profile Merge)
 
 This replaces the `team_members_pending` table and enables linking logins to pre-existing Ghost Profiles by email.
 
 ```sql
 -- Trigger to link specific email logins to pre-existing Ghost Profiles
-create or replace function public.handle_new_user()
+-- and ensure logged-in users always have a profile row where `profiles.id = auth.users.id`.
+--
+-- Note: In Supabase, this is commonly wired via a trigger on `auth.users`:
+-- `CREATE TRIGGER create_profile_on_auth_user AFTER INSERT ON auth.users ... EXECUTE FUNCTION public.handle_new_auth_user()`
+create or replace function public.handle_new_auth_user()
 returns trigger as $$
 declare
-  existing_profile_id uuid;
+  ghost_profile_id uuid;
 begin
-  -- Check if a Ghost Profile already exists (case-insensitive)
-  select id into existing_profile_id
+  -- Find a Ghost Profile (case-insensitive match)
+  select id into ghost_profile_id
   from public.profiles
-  where lower(email) = lower(new.email);
+  where lower(email) = lower(new.email)
+    and auth_user_id is null
+  limit 1;
 
-  if existing_profile_id is not null then
-    -- Link existing Ghost Profile to new Auth User
-    update public.profiles
+  -- Ensure the logged-in user's canonical profile exists (id = auth uid).
+  insert into public.profiles (id, auth_user_id, email, full_name, avatar_url)
+  values (
+    new.id,
+    new.id,
+    new.email,
+    new.raw_user_meta_data->>'full_name',
+    new.raw_user_meta_data->>'avatar_url'
+  )
+  on conflict (id) do update
+    set auth_user_id = excluded.auth_user_id,
+        email = excluded.email,
+        full_name = coalesce(public.profiles.full_name, excluded.full_name),
+        avatar_url = coalesce(public.profiles.avatar_url, excluded.avatar_url),
+        updated_at = now();
+
+  if ghost_profile_id is not null and ghost_profile_id != new.id then
+    -- Copy any missing metadata from Ghost → canonical profile.
+    update public.profiles canonical
     set
-      auth_user_id = new.id,
-      updated_at = now(),
-      avatar_url = coalesce(avatar_url, new.raw_user_meta_data->>'avatar_url')
-    where id = existing_profile_id;
-  else
-    -- Create fresh profile for new user
-    insert into public.profiles (auth_user_id, email, full_name, avatar_url)
-    values (
-      new.id,
-      new.email,
-      new.raw_user_meta_data->>'full_name',
-      new.raw_user_meta_data->>'avatar_url'
-    );
+      display_name = coalesce(canonical.display_name, ghost.display_name),
+      full_name = coalesce(canonical.full_name, ghost.full_name),
+      avatar_url = coalesce(canonical.avatar_url, ghost.avatar_url),
+      clickup_user_id = coalesce(canonical.clickup_user_id, ghost.clickup_user_id),
+      slack_user_id = coalesce(canonical.slack_user_id, ghost.slack_user_id),
+      employment_status = coalesce(canonical.employment_status, ghost.employment_status),
+      updated_at = now()
+    from public.profiles ghost
+    where canonical.id = new.id
+      and ghost.id = ghost_profile_id;
+
+    -- Remap known foreign keys (add more here as Command Center / Debrief tables are added).
+    update public.client_assignments
+      set team_member_id = new.id
+      where team_member_id = ghost_profile_id;
+
+    update public.client_assignments
+      set assigned_by = new.id
+      where assigned_by = ghost_profile_id;
+
+    -- Remove the Ghost Profile row (email uniqueness preserved).
+    delete from public.profiles
+      where id = ghost_profile_id;
   end if;
 
   return new;
@@ -777,9 +825,9 @@ end;
 $$ language plpgsql security definer
    set search_path = public;
 
-create trigger on_auth_user_created
+create trigger create_profile_on_auth_user
   after insert on auth.users
-  for each row execute function public.handle_new_user();
+  for each row execute function public.handle_new_auth_user();
 ```
 
 ---
@@ -838,6 +886,7 @@ create table public.brands (
   name text not null,
   clickup_space_id text,
   clickup_space_name text,
+  clickup_list_id text, -- Optional: preferred ClickUp List for task creation (tasks are created in lists)
   product_keywords text[] default '{}',
   amazon_marketplaces text[] default '{}',
   notes text,
@@ -850,6 +899,7 @@ create table public.brands (
 -- Indexes
 create index idx_brands_client on public.brands(client_id);
 create index idx_brands_clickup on public.brands(clickup_space_id) where clickup_space_id is not null;
+create index idx_brands_clickup_list on public.brands(clickup_list_id) where clickup_list_id is not null;
 create index idx_brands_keywords on public.brands using gin(product_keywords);
 
 -- RLS
@@ -860,8 +910,8 @@ create policy "Authenticated users can view brands"
 
 create policy "Only admins can manage brands"
   on public.brands for all to authenticated
-  using (exists (select 1 from public.profiles where auth_user_id = auth.uid() and is_admin = true))
-  with check (exists (select 1 from public.profiles where auth_user_id = auth.uid() and is_admin = true));
+  using (exists (select 1 from public.profiles where id = auth.uid() and is_admin = true))
+  with check (exists (select 1 from public.profiles where id = auth.uid() and is_admin = true));
 
 -- Trigger for updated_at
 create trigger update_brands_updated_at
@@ -872,7 +922,8 @@ create trigger update_brands_updated_at
 **Key Fields:**
 - `product_keywords`: Terms to identify this brand in meeting notes (e.g., `["simulator", "wipes", "Pro 2"]`). Used by Debrief for brand detection.
 - `amazon_marketplaces`: Which marketplaces this brand sells in (e.g., `["US", "CA"]`).
-- `clickup_space_id`: Where tasks for this brand should be created. Each brand can have its own Space.
+- `clickup_space_id`: Which ClickUp Space this brand maps to (for discovery / browsing).
+- `clickup_list_id`: Preferred ClickUp List for task creation (tasks are created in lists). Optional; if null, ClickUp Service selects a default list in the brand’s space.
 
 **Client vs. Brand Example:**
 
@@ -957,6 +1008,20 @@ create trigger sync_bench_status_on_assignment_change
   for each row
   execute function sync_bench_status();
 ```
+
+**bench_status Definition + Edge Cases (MVP):**
+- `profiles.bench_status = 'assigned'` iff there exists ≥1 row in `client_assignments` for that `team_member_id`; otherwise `'available'`.
+- `employment_status` is a separate “visibility” concept:
+  - Offboarding uses `employment_status = 'inactive'` (excluded from Bench and assignment UI), but assignments can remain for history.
+- Trigger assumptions:
+  - Reassignment should be modeled as **DELETE + INSERT** (so the trigger fires).
+  - If we ever update rows in-place (e.g., changing `team_member_id` or bulk role moves), add an `AFTER UPDATE` trigger that recomputes bench status for both the old and new member ids.
+- Recommended test cases:
+  - first assignment insert → assigned
+  - second assignment insert → still assigned
+  - delete one of many → still assigned
+  - delete last assignment → available
+  - employment_status inactive → excluded from Bench UI regardless of bench_status
 
 **Key Design Decision:**
 `role_id` is stored **on the assignment**, not on the person. This allows:
@@ -1066,13 +1131,13 @@ create policy "Only admins can manage agency clients"
   using (
     exists (
       select 1 from public.profiles
-      where auth_user_id = auth.uid() and is_admin = true
+      where id = auth.uid() and is_admin = true
     )
   )
   with check (
     exists (
       select 1 from public.profiles
-      where auth_user_id = auth.uid() and is_admin = true
+      where id = auth.uid() and is_admin = true
     )
   );
 ```
@@ -1097,13 +1162,13 @@ create policy "Authenticated users can view assignments"
 	  using (
 	    exists (
 	      select 1 from public.profiles
-	      where auth_user_id = auth.uid() and is_admin = true
+	      where id = auth.uid() and is_admin = true
 	    )
 	  )
 	  with check (
 	    exists (
 	      select 1 from public.profiles
-	      where auth_user_id = auth.uid() and is_admin = true
+	      where id = auth.uid() and is_admin = true
 	    )
 	  );
 ```
@@ -1126,13 +1191,13 @@ create policy "Only admins can manage agency roles"
   using (
     exists (
       select 1 from public.profiles
-      where auth_user_id = auth.uid() and is_admin = true
+      where id = auth.uid() and is_admin = true
     )
   )
   with check (
     exists (
       select 1 from public.profiles
-      where auth_user_id = auth.uid() and is_admin = true
+      where id = auth.uid() and is_admin = true
     )
   );
 ```
@@ -1160,18 +1225,18 @@ create policy "Only admins can update profiles"
   using (
     exists (
       select 1 from public.profiles
-      where auth_user_id = auth.uid() and is_admin = true
+      where id = auth.uid() and is_admin = true
     )
   )
   with check (
     exists (
       select 1 from public.profiles
-      where auth_user_id = auth.uid() and is_admin = true
+      where id = auth.uid() and is_admin = true
     )
   );
 
 -- ONLY admins can insert new Ghost Profiles via Command Center UI.
--- Note: `handle_new_user()` also inserts/updates profiles on login and should run as a privileged role
+-- Note: `handle_new_auth_user()` also inserts/updates profiles on login and should run as a privileged role
 -- (table owner; do not FORCE RLS on `public.profiles`).
 create policy "Only admins can insert profiles"
   on public.profiles
@@ -1180,7 +1245,7 @@ create policy "Only admins can insert profiles"
   with check (
     exists (
       select 1 from public.profiles
-      where auth_user_id = auth.uid() and is_admin = true
+      where id = auth.uid() and is_admin = true
     )
   );
 
@@ -1235,11 +1300,11 @@ All routes are **admin-only** (enforce `is_admin = true` middleware).
   - Returns: `{ brands: Brand[] }`
 
 - `POST /api/command-center/clients/:clientId/brands` — Create new brand
-  - Body: `{ name, clickup_space_id?, product_keywords?, amazon_marketplaces? }`
+  - Body: `{ name, clickup_space_id?, clickup_list_id?, product_keywords?, amazon_marketplaces? }`
   - Returns: `{ brand: Brand }`
 
 - `PATCH /api/command-center/brands/:brandId` — Update brand
-  - Body: `{ name?, clickup_space_id?, product_keywords?, amazon_marketplaces?, notes? }`
+  - Body: `{ name?, clickup_space_id?, clickup_list_id?, product_keywords?, amazon_marketplaces?, notes? }`
   - Returns: `{ brand: Brand }`
 
 - `DELETE /api/command-center/brands/:brandId` — Delete brand
@@ -1249,7 +1314,7 @@ All routes are **admin-only** (enforce `is_admin = true` middleware).
 
 - `GET /api/command-center/clients/lookup?name=SB%20Supply` — Find client by name (fuzzy match)
 - `GET /api/command-center/brands/lookup?keyword=simulator` — Find brand by product keyword
-- `GET /api/command-center/brands/:brandId/clickup-space` — Get ClickUp Space ID for brand
+- `GET /api/command-center/brands/:brandId/clickup-routing` — Get ClickUp routing info for brand (`clickup_space_id`, `clickup_list_id`)
 
 ---
 
@@ -1326,7 +1391,7 @@ All routes are **admin-only** (enforce `is_admin = true` middleware).
 
 **Purpose:** Enable Debrief to create tasks in the right ClickUp Space and assign the right owner
 
-**Timing:** ClickUp API integration (syncing Spaces/Users and powering Debrief “Send to ClickUp”) is intentionally deferred to a later phase. Command Center MVP focuses on storing mappings (`brands.clickup_space_id`, `profiles.clickup_user_id`) via manual entry and validating that they’re present.
+**Timing:** ClickUp API integration (syncing Spaces/Users and powering Debrief “Send to ClickUp”) is intentionally deferred to a later phase. Command Center MVP focuses on storing mappings (`brands.clickup_space_id`, `brands.clickup_list_id`, `profiles.clickup_user_id`) via manual entry and validating that they’re present.
 
 **ClickUp Team ID:** `42600885` (Ecomlabs workspace)
 
@@ -1363,9 +1428,9 @@ brand = get_brand(brand_id)
 assignment = get_assignment(brand.client_id, role='ppc_strategist')
 team_member = get_team_member(assignment.team_member_id)
 
-# Create task in the brand's ClickUp Space, assigned to the team member's ClickUp User ID
+# Create task in the brand's ClickUp List (tasks are created in lists), assigned to the team member's ClickUp User ID
 clickup.create_task(
-  space_id=brand.clickup_space_id,       # e.g., "90123456"
+  list_id=brand.clickup_list_id,         # e.g., "90123456" (preferred; if null, ClickUp Service picks a default list in the brand's space)
   assignee=team_member.clickup_user_id,  # e.g., "12345678"
   title="Run negative keyword audit",
   ...
@@ -1463,7 +1528,7 @@ export async function POST(req: Request) {
 **Scenario A: Team Member Logs In First**
 1. User clicks "Sign in with Google"
 2. Supabase creates `auth.users` entry
-3. Trigger runs `handle_new_user()` and creates a `public.profiles` row linked via `profiles.auth_user_id`
+3. Trigger runs `handle_new_auth_user()` and creates a `public.profiles` row where `profiles.id = auth.users.id`
 4. `is_admin = false` by default
 5. Admin navigates to Command Center, sees new profile, can assign to clients
 
@@ -1473,13 +1538,13 @@ export async function POST(req: Request) {
 3. Admin can immediately assign this profile to clients/brands (no pending state)
 4. When Sarah logs in later:
    - Supabase creates `auth.users`
-   - Trigger runs `handle_new_user()` and links the existing Ghost Profile by email (`profiles.auth_user_id = auth.users.id`)
+   - Trigger runs `handle_new_auth_user()` and merges the Ghost Profile into the canonical profile (`profiles.id = auth.users.id`), remapping assignments by email
 
 **Why this approach?**
 - Allows creating staff records without requiring login
 - Eliminates the separate “pending” table and linking trigger
 - Enables immediate role assignment and ClickUp mapping for new hires/contractors
-- Keeps the login linkage deterministic (match by email; see Section 6.1)
+- Keeps existing auth/RLS behavior stable (logged-in profile id always equals `auth.uid()`; match by email; see Section 6.1)
 
 **UI Indicator:**
 - Ghost Profiles show with badge: "⏳ Not Logged In"
@@ -1780,21 +1845,21 @@ Based on earlier brainstorming, these could be added later:
 **Migration Steps:**
 1. Run schema migration:
    - Create `agency_roles` table + seed default roles
-   - Update `profiles` to decoupled IDs (`profiles.id` independent; add nullable `auth_user_id`)
-   - Add `handle_new_user()` trigger on `auth.users` to link logins to Ghost Profiles by email
+   - Update `profiles` to support Ghost Profiles (remove FK to `auth.users`, add nullable `auth_user_id`)
+   - Update `handle_new_auth_user()` on `auth.users` insert to merge Ghost Profiles into canonical profiles by email (canonical: `profiles.id = auth.users.id`)
    - Create `agency_clients` table
    - Create `brands` table
    - Create/update `client_assignments` table to include `brand_id` + `role_id`
    - Add indexes (Section 6.1)
    - Enable RLS policies (Section 6.3)
 2. Backfill `is_admin = true` for known admins (manually or via script)
-3. Backfill `profiles.auth_user_id` for existing users (match `profiles.email` to `auth.users.email`)
-4. Verify no application code assumes `profiles.id = auth.uid()` (this becomes `profiles.auth_user_id = auth.uid()`)
+3. Backfill `profiles.auth_user_id = profiles.id` for existing logged-in users (where missing)
+4. Verify existing tools still work unchanged (they may assume `profiles.id = auth.uid()`); confirm login + RLS behavior is unaffected
 
 ### Rollout
 1. **Week 1:** Schema + API development
 2. **Week 2:** UI development (clients + team modules)
-3. **Week 3:** Drag-and-drop + ClickUp integration
+3. **Week 3:** Drag-and-drop + mapping fields (ClickUp task creation deferred)
 4. **Week 4:** Testing + bug fixes
 5. **Week 5:** Admin training session (show Jeff & team how to use it)
 6. **Week 6:** Production launch (admin-only initially)
@@ -1828,7 +1893,7 @@ Based on earlier brainstorming, these could be added later:
 **Resolved after Red Team & Supabase Consultant review (2025-11-21):**
 
 1. ✅ **Multi-Tenancy:** Single-tenant (Ecomlabs internal only). No `organization_id` needed in Command Center tables. Documented in Section 6 (Architecture: Single-Tenant Design).
-2. ✅ **Pre-Login Team Members:** Use Ghost Profiles (`profiles.auth_user_id` is NULL until first login) and link on login via `handle_new_user()`.
+2. ✅ **Pre-Login Team Members:** Use Ghost Profiles (`profiles.auth_user_id` is NULL until first login) and merge on login via `handle_new_auth_user()` so the canonical logged-in profile remains `profiles.id = auth.uid()`.
 3. ✅ **Admin Model:** `profiles.is_admin` boolean flag (not role enum).
 4. ✅ **Table Naming:** `public.agency_clients` (avoids conflict with existing `client_profiles`).
 5. ✅ **RLS Policies:** Defined in Section 6.3 (all authenticated can view, only admins can modify). Uses `profiles.is_admin` checks (not JWT role).
@@ -1843,7 +1908,7 @@ Based on earlier brainstorming, these could be added later:
 
 12. ✅ **Privilege Escalation Prevention:** Only admins can update ANY profile (not just their own). Non-admins cannot update `is_admin`, `allowed_tools`, or `employment_status` even on their own profile. Documented in Section 6.3 (profiles RLS policies).
 13. ✅ **Tool Access Control:** Added `allowed_tools text[]` column to profiles. Admins can set which tools each team member can access. Admins bypass the check and see all tools. Tool slugs: `ngram`, `npat`, `scribe`, `root-analysis`, `adscope`, `command-center`, `debrief`. Documented in Section 6.1.
-14. ✅ **search_path Hardening:** All security definer functions now include `SET search_path = public` to prevent schema injection attacks. Applied to `handle_new_user()` and `sync_bench_status()`.
+14. ✅ **search_path Hardening:** All security definer functions now include `SET search_path = public` to prevent schema injection attacks. Applied to `handle_new_auth_user()` and `sync_bench_status()`.
 15. ✅ **bench_status Sync:** Added `sync_bench_status()` trigger on `client_assignments` to automatically update `profiles.bench_status` when assignments change. Prevents drift between assignment state and profile status.
 
 **Still Open (Require Product Decision):**

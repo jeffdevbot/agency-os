@@ -1,6 +1,6 @@
 # Project Status — Agency OS
 
-_Last updated: 2025-12-11 (EST)_
+_Last updated: 2025-12-16 (EST)_
 
 ## How to Use This File
 - Skim **Quick Recap**, **Recent Accomplishments**, and **Next Priorities** before coding.
@@ -21,6 +21,11 @@ _Last updated: 2025-12-11 (EST)_
 Agency OS consolidates internal tools (Ngram, The Operator, Creative Brief) behind a shared Next.js frontend, FastAPI backend, and Supabase auth stack deployed on Render. Supabase handles SSO (Google) plus the shared database, while the worker service manages nightly syncs and other heavy jobs. **Amazon Composer is deprecated** and will be replaced by the new **Scribe** project (simpler, more focused listing/content generation). **Scribe is currently being rebuilt ("Scribe Lite")** to simplify the UX, with legacy code archived.
 
 ## Recent Accomplishments
+- **2025-12-16 (EST)**
+  - **Command Center MVP shipped ✅:** Implemented Ghost Profiles + merge-on-login, core schema (clients, brands, roles, assignments), admin-only UI (`/command-center`) with org-chart role slots, team roster, per-member assignment view, brand marketplaces, and safe archive/delete actions for test data. Added Debrief helper endpoints for brand+role routing.
+  - **Debrief Stage 1–3 shipped (manual extraction) ✅:** Set up Google Workspace domain-wide delegation + impersonation, Drive folder ingestion, and Debrief MVP routes (`/debrief`) to sync “Notes by Gemini” into Supabase, view meetings, and manually run extraction per meeting (no ClickUp yet).
+  - **Debrief token usage logging ✅:** Generalized `ai_token_usage.stage` constraint to allow non-Scribe stages (migration `20251216000001_ai_token_usage_stage_check_generalize.sql`) and wired Debrief extraction to log OpenAI usage via `frontend-web/src/lib/ai/usageLogger.ts`.
+  - **Auth hardening ✅:** Updated Command Center route handlers to use `supabase.auth.getUser()` (verified identity) rather than trusting `getSession()` payloads, removing noisy warnings and improving server-side correctness.
 - **2025-12-12 (EST)**
   - **AdScope Sponsored Brands Views + Data Accuracy Fixes ✅:** Added SB analytics to AdScope (match/targeting types and ad formats) sourced from Bulk SB tabs. Implemented stable Bulk mappings for SB fields (`ad_format`, targeting expressions), new backend `views.sponsored_brands` payload, and corresponding frontend canvas/tab. Tightened SB targeting breakdown to use target-level SB entities only (Keyword + Product Targeting), removed negative keyword types from SB view, and added a spend-alignment warning when Bulk exports are campaign-rolled-up. 
   - **AdScope Bidding Strategy Mapping Bug Fix ✅:** Diagnosed incorrect bidding-strategy buckets (numeric values) to fuzzy matching falsely mapping `Bid` → `Bidding Strategy` due to substring logic. Added exclusion in `bulk_parser.py` so bid-like headers cannot match `Bidding Strategy`, restoring correct strategy names (e.g., Dynamic bids / Fixed bid) in Bidding & Placements view. 
@@ -109,6 +114,8 @@ Agency OS consolidates internal tools (Ngram, The Operator, Creative Brief) behi
 - **2025-11-13** – Added Supabase-aware Next.js middleware to guard `/ngram`, ensuring logged-out users are redirected to the login screen before hitting protected pages.
 
 ## Next Priorities
+- **Debrief review UX**: Add dismiss/approve/reject flows + editing of extracted tasks; brand+assignee suggestions powered by Command Center routing.
+- **ClickUp integration (later)**: When ready, implement Debrief → ClickUp via the shared ClickUp service (`docs/08_clickup_service_prd.md`).
 - **Scribe Lite Implementation**: Build the new "Wizard" UI (Inputs -> Topics -> Output) based on the Scribe Lite PRD and upcoming UI specs.
 - **Scribe Lite QA**: Verify the new flow against the canonical API reference.
 - **Composer decommission plan**: Execute `docs/17_composer_deprecation_plan.md` when Scribe B/C are stable (UI flag-off, code/schema cleanup with backups).
@@ -124,7 +131,10 @@ Agency OS consolidates internal tools (Ngram, The Operator, Creative Brief) behi
 - `docs/scribe_lite/scribe_lite_prd.md` — **Active** Scribe Lite PRD.
 - `docs/scribe_lite/scribe_lite_schema_api.md` — Canonical Schema & API Reference for Scribe Lite.
 - `docs/archive/scribe_legacy/` — Archived Scribe v1 documentation.
-- `docs/07_team_central_prd.md` — Team Central PRD for single-tenant internal team management, client tracking, and role-based access control. Replaces the Admin Settings PRD. Database migration: `20250122000001_team_central_tables.sql`.
+- `docs/07_command_center_prd.md` — Command Center PRD (clients, brands, team, role assignments, Ghost Profiles).
+- `docs/07_command_center_schema_api.md` — Command Center canonical schema + API contract.
+- `docs/debrief_prd.md` — Debrief PRD (Google Meet notes → tasks → review; ClickUp later).
+- `docs/debrief_implementation_plan.md` — Staged Debrief implementation plan.
 - `docs/08_clickup_service_prd.md` — ClickUp Service integration spec covering multi-tenant API credential management, task/space/user caching with TTL, and sync status tracking. Database migration: `20250122000003_clickup_service_tables.sql`.
 - `docs/10_systems_overview.md` — Running list of every service, its repo path, Render deployment, and shared dependencies. Update this table whenever new tools or env vars are introduced.
 

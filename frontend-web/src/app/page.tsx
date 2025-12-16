@@ -16,7 +16,8 @@ export default function Home() {
     // Fast initial check using getSession (reads local storage, no network call)
     supabase.auth.getSession()
       .then(({ data }: { data: { session: Session | null } }) => {
-        setUser(data.session?.user ?? null);
+        const nextUser = data.session?.user ?? null;
+        setUser(nextUser);
         setAuthLoading(false);
       })
       .catch(() => {
@@ -31,7 +32,8 @@ export default function Home() {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(
       (_event: AuthChangeEvent, session: Session | null) => {
-        setUser(session?.user ?? null);
+        const nextUser = session?.user ?? null;
+        setUser(nextUser);
         setAuthLoading(false);
         setButtonLoading(false);
       }
@@ -107,12 +109,12 @@ export default function Home() {
                 <p className="text-sm text-[#4c576f]">What are you working on today?</p>
               </div>
 
-              <div className="space-y-4">
-                <div className="grid grid-cols-1 gap-8 md:grid-cols-3 w-full mt-2">
-                  <div className="rounded-2xl bg-white/50 backdrop-blur border border-white/40 shadow-md hover:shadow-xl transition-all hover:-translate-y-0.5 p-8 flex flex-col gap-5 text-left">
-                    <div className="flex items-start gap-3">
-                      <span className="text-2xl">📊</span>
-                      <div className="space-y-1">
+	              <div className="space-y-4">
+	                <div className="grid grid-cols-1 gap-8 md:grid-cols-3 w-full mt-2">
+	                  <div className="rounded-2xl bg-white/50 backdrop-blur border border-white/40 shadow-md hover:shadow-xl transition-all hover:-translate-y-0.5 p-8 flex flex-col gap-5 text-left">
+	                    <div className="flex items-start gap-3">
+	                      <span className="text-2xl">📊</span>
+	                      <div className="space-y-1">
                         <p className="text-lg font-semibold text-[#0f172a]">N-Gram Processor</p>
                         <p className="text-base leading-relaxed text-[#4c576f]">
                           Turn messy keyword lists into clean, colour-coded n-gram insights—instantly.

@@ -41,7 +41,7 @@ Debrief uses Command Center for:
 - **Role assignments** (`client_assignments` table)
 - **Role-based task routing** (e.g., "catalog update" → Catalog Specialist)
 - **Clients** (`agency_clients` table)
-- **Brands** (`brands` table with `clickup_space_id` for task routing)
+- **Brands** (`brands` table with `clickup_space_id` / `clickup_list_id` for task routing)
 - **Product keywords** for brand detection in meeting notes
 
 ---
@@ -315,7 +315,7 @@ const brand = await getBrand(task.suggested_brand_id);
 const assignee = await getProfile(task.suggested_assignee_id);
 
 await clickupService.createTask({
-  space_id: brand.clickup_space_id,
+  list_id: brand.clickup_list_id, // preferred; if null, ClickUp Service resolves a default list from the brand's space
   name: task.title,
   description: buildDescription(task, meeting),
   assignees: assignee?.clickup_user_id ? [assignee.clickup_user_id] : [],
@@ -399,7 +399,7 @@ await logUsage({
 ## 12. Implementation Stages
 
 ### Stage 1: Dependencies
-- [ ] Command Center shipped with `profiles.clickup_user_id` and `brands.clickup_space_id` (manual entry is acceptable until ClickUp sync exists)
+- [ ] Command Center shipped with `profiles.clickup_user_id` and `brands.clickup_space_id` / `brands.clickup_list_id` (manual entry is acceptable until ClickUp sync exists)
 
 ### Stage 2: Google Drive Integration
 - [ ] Service account setup

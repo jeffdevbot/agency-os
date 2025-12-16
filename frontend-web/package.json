@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
+    "debrief:list-drive": "node scripts/list-drive.mjs",
     "test": "vitest",
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage"
@@ -18,6 +19,8 @@
     "@supabase/ssr": "^0.7.0",
     "@supabase/supabase-js": "^2.81.1",
     "clsx": "^2.1.1",
+    "framer-motion": "^12.23.26",
+    "google-auth-library": "^10.5.0",
     "lucide-react": "^0.560.0",
     "next": "^16.0.7",
     "posthog-js": "^1.302.2",
