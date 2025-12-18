@@ -6,6 +6,7 @@ import { ScribeHeader } from "../../components/ScribeHeader";
 import { ScribeProgressTracker } from "../../components/ScribeProgressTracker";
 import { FormatPreferencesCard } from "./FormatPreferencesCard";
 import { AttributePreferencesCard } from "./AttributePreferencesCard";
+import { TitleBlueprintCard } from "./TitleBlueprintCard";
 import { AmazonProductCard } from "./AmazonProductCard";
 import { EditGeneratedContentPanel } from "./EditGeneratedContentPanel";
 import { DirtyStateWarning } from "./DirtyStateWarning";
@@ -19,7 +20,13 @@ interface Project {
     id: string;
     name: string;
     locale: string;
-    formatPreferences?: FormatPreferences | null;
+    formatPreferences?: Record<string, unknown> | null;
+}
+
+interface SkuVariantValues {
+    [skuId: string]: {
+        [attributeId: string]: string;
+    };
 }
 
 interface Sku {
@@ -56,6 +63,7 @@ export function StageC() {
     const [project, setProject] = useState<Project | null>(null);
     const [skus, setSkus] = useState<Sku[]>([]);
     const [variantAttributes, setVariantAttributes] = useState<VariantAttribute[]>([]);
+    const [skuVariantValues, setSkuVariantValues] = useState<SkuVariantValues>({});
     const [contentBySku, setContentBySku] = useState<Record<string, GeneratedContent>>({});
     const [generating, setGenerating] = useState(false);
     const [generatingType, setGeneratingType] = useState<'sample' | 'all' | null>(null);
@@ -92,10 +100,38 @@ export function StageC() {
 
             // Fetch variant attributes
             const attrsRes = await fetch(`/api/scribe/projects/${projectId}/variant-attributes`);
+            let attrsData: VariantAttribute[] = [];
             if (attrsRes.ok) {
-                const attrsData = await attrsRes.json();
+                attrsData = await attrsRes.json();
                 setVariantAttributes(attrsData);
             }
+
+            // Fetch SKU variant values (for title blueprint preview)
+            const variantValuesMap: SkuVariantValues = {};
+            if (skusData.length > 0 && attrsData.length > 0) {
+                await Promise.all(
+                    attrsData.map(async (attr: VariantAttribute) => {
+                        try {
+                            const valuesRes = await fetch(
+                                `/api/scribe/projects/${projectId}/variant-attributes/${attr.id}/values`
+                            );
+                            if (valuesRes.ok) {
+                                const valuesData = await valuesRes.json();
+                                // valuesData is array of { skuId, value }
+                                valuesData.forEach((v: { skuId: string; value: string }) => {
+                                    if (!variantValuesMap[v.skuId]) {
+                                        variantValuesMap[v.skuId] = {};
+                                    }
+                                    variantValuesMap[v.skuId][attr.id] = v.value || "";
+                                });
+                            }
+                        } catch (_err) {
+                            // Ignore individual attribute fetch failures
+                        }
+                    })
+                );
+            }
+            setSkuVariantValues(variantValuesMap);
 
             // Fetch topics for dirty-state checks
             const topicsRes = await fetch(`/api/scribe/projects/${projectId}/topics`);
@@ -500,7 +536,16 @@ export function StageC() {
                     {/* Format Preferences Card */}
                     <FormatPreferencesCard
                         projectId={projectId}
-                        initialPreferences={project?.formatPreferences}
+                        initialPreferences={project?.formatPreferences as FormatPreferences | null | undefined}
+                    />
+
+                    {/* Title Blueprint Card */}
+                    <TitleBlueprintCard
+                        projectId={projectId}
+                        initialFormatPreferences={project?.formatPreferences}
+                        variantAttributes={variantAttributes}
+                        skus={skus}
+                        skuVariantValues={skuVariantValues}
                     />
 
                     {/* Attribute Preferences Card */}

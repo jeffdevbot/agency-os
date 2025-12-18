@@ -72,7 +72,7 @@ describe("POST /projects/:id/skus/:skuId/regenerate-copy", () => {
     expect(json.error.message).toContain("Stage B must be approved");
   });
 
-  it("rejects when SKU has != 5 approved topics", async () => {
+  it("rejects when SKU has != 5 selected topics", async () => {
     const projectId = "123e4567-e89b-12d3-a456-426614174000";
     const skuId = "456e4567-e89b-12d3-a456-426614174000";
 
@@ -96,7 +96,7 @@ describe("POST /projects/:id/skus/:skuId/regenerate-copy", () => {
     topics.__pushResponse({
       data: null,
       error: null,
-      count: 3, // Only 3 approved topics
+      count: 3, // Only 3 selected topics
     });
 
     const res = await POST(mockRequest({}), mockParams({ projectId, skuId }));
@@ -104,7 +104,7 @@ describe("POST /projects/:id/skus/:skuId/regenerate-copy", () => {
 
     expect(res.status).toBe(400);
     expect(json.error.code).toBe("validation_error");
-    expect(json.error.message).toContain("exactly 5 approved topics");
+    expect(json.error.message).toContain("exactly 5 selected topics");
   });
 
   it("creates job when project is stage_b_approved and SKU has 5 topics", async () => {

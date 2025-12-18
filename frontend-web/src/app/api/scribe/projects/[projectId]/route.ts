@@ -4,6 +4,7 @@ import { createSupabaseRouteClient } from "@/lib/supabase/serverClient";
 type ScribeProjectStatus = "draft" | "stage_a_approved" | "archived";
 
 interface FormatPreferences {
+  [key: string]: unknown;
   bulletCapsHeaders?: boolean;
   descriptionParagraphs?: boolean;
 }
@@ -115,7 +116,6 @@ export async function PATCH(
   if (payload.locale !== undefined) updates.locale = payload.locale;
   if (payload.category !== undefined) updates.category = payload.category;
   if (payload.subCategory !== undefined) updates.sub_category = payload.subCategory;
-  if (payload.formatPreferences !== undefined) updates.format_preferences = payload.formatPreferences;
 
   const supabase = await createSupabaseRouteClient();
   const {
@@ -128,7 +128,7 @@ export async function PATCH(
 
   const { data: existing, error: fetchError } = await supabase
     .from("scribe_projects")
-    .select("id, created_by, status, updated_at")
+    .select("id, created_by, status, updated_at, format_preferences")
     .eq("id", projectId)
     .eq("created_by", session.user.id)
     .single();
@@ -148,6 +148,28 @@ export async function PATCH(
       { error: { code: "forbidden", message: "Archived projects are read-only" } },
       { status: 403 },
     );
+  }
+
+  // Merge format preferences to avoid clobbering unrelated keys (e.g., title blueprint vs bullet formatting toggles).
+  if (payload.formatPreferences !== undefined) {
+    const incoming = payload.formatPreferences;
+    const isObject = (value: unknown): value is Record<string, unknown> =>
+      typeof value === "object" && value !== null && !Array.isArray(value);
+
+    if (incoming === null) {
+      updates.format_preferences = null;
+    } else if (!isObject(incoming)) {
+      return NextResponse.json(
+        { error: { code: "validation_error", message: "formatPreferences must be an object or null" } },
+        { status: 400 },
+      );
+    } else {
+      const existingPrefs = isObject(existing.format_preferences) ? existing.format_preferences : {};
+      updates.format_preferences = {
+        ...existingPrefs,
+        ...incoming,
+      };
+    }
   }
 
   if (payload.status !== undefined) {

@@ -98,12 +98,12 @@ export async function POST(
     );
   }
 
-  // Validate SKU has 5 approved topics
+  // Gate: require exactly 5 selected topics (Scribe Lite selection model)
   const { count, error: countError } = await supabase
     .from("scribe_topics")
     .select("*", { count: "exact", head: true })
     .eq("sku_id", skuId)
-    .eq("approved", true);
+    .eq("selected", true);
 
   if (countError) {
     return NextResponse.json(
@@ -117,7 +117,7 @@ export async function POST(
       {
         error: {
           code: "validation_error",
-          message: "SKU must have exactly 5 approved topics before generating copy",
+          message: "SKU must have exactly 5 selected topics before generating copy",
         },
       },
       { status: 400 },

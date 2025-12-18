@@ -1,7 +1,8 @@
 import { createSupabaseServiceClient } from "@/lib/supabase/serverClient";
 import { generateTopicsForSku } from "./topicsGenerator";
-import { generateCopyForSku } from "./copyGenerator";
+import { generateCopyForSku, type TitleGenerationMode } from "./copyGenerator";
 import { logUsage } from "@/lib/ai/usageLogger";
+import { assembleTitle, computeFixedTitleAndRemaining, parseTitleBlueprint, type SkuTitleData, type TitleBlueprint } from "./titleBlueprint";
 
 interface JobPayload {
   projectId: string;
@@ -28,6 +29,7 @@ type AttributePreferences = {
 } | null;
 
 type FormatPreferences = {
+  [key: string]: unknown;
   bulletCapsHeaders?: boolean;
   descriptionParagraphs?: boolean;
 } | null;
@@ -164,14 +166,18 @@ const processSkuTopics = async (
   // Fetch variant attributes and values
   const { data: variantValues } = await supabase
     .from("scribe_sku_variant_values")
-    .select("value, variant_attribute_id, scribe_variant_attributes(name)")
+    .select("value, attribute_id, scribe_variant_attributes(name)")
     .eq("sku_id", skuId);
 
   // Build variant attributes map
   const variantAttributes: Record<string, string> = {};
   if (variantValues) {
     for (const vv of variantValues) {
-      const attrName = (vv.scribe_variant_attributes as unknown as { name: string } | null)?.name;
+      const rel = vv.scribe_variant_attributes as unknown as
+        | { name: string | null }
+        | { name: string | null }[]
+        | null;
+      const attrName = Array.isArray(rel) ? rel[0]?.name : rel?.name;
       if (attrName) {
         variantAttributes[attrName] = vv.value;
       }
@@ -272,6 +278,13 @@ export const processCopyJob = async (jobId: string): Promise<void> => {
   const userId = project.created_by;
   const locale = (project as { locale?: string }).locale ?? "en-US";
   const formatPreferences = (project as { format_preferences?: FormatPreferences | null }).format_preferences ?? undefined;
+  const titleBlueprintRaw = (formatPreferences as Record<string, unknown> | null | undefined)?.title;
+  const parsedTitleBlueprint = titleBlueprintRaw !== undefined ? parseTitleBlueprint(titleBlueprintRaw) : { blueprint: null, errors: [] };
+  const titleBlueprint = parsedTitleBlueprint.blueprint;
+
+  if (!titleBlueprint && parsedTitleBlueprint.errors.length > 0) {
+    console.warn(`[Scribe] Invalid title blueprint for project ${projectId}:`, parsedTitleBlueprint.errors);
+  }
 
   // Update job status to running
   await supabase
@@ -286,7 +299,7 @@ export const processCopyJob = async (jobId: string): Promise<void> => {
     // Process each SKU
     for (const skuId of skuIds) {
       try {
-        await processSkuCopy(supabase, projectId, skuId, jobId, userId, locale, formatPreferences);
+        await processSkuCopy(supabase, projectId, skuId, jobId, userId, locale, formatPreferences, titleBlueprint);
         successCount++;
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
@@ -339,6 +352,7 @@ const processSkuCopy = async (
   userId: string,
   locale: string,
   formatPreferences?: FormatPreferences,
+  titleBlueprint?: TitleBlueprint | null,
 ): Promise<void> => {
   // Fetch SKU data
   const { data: sku, error: skuError } = await supabase
@@ -371,16 +385,27 @@ const processSkuCopy = async (
   // Fetch variant attributes and values
   const { data: variantValues } = await supabase
     .from("scribe_sku_variant_values")
-    .select("value, variant_attribute_id, scribe_variant_attributes(name)")
+    .select("value, attribute_id, scribe_variant_attributes(name)")
     .eq("sku_id", skuId);
 
-  // Build variant attributes map
-  const variantAttributes: Record<string, string> = {};
+  // Build maps:
+  // - variantAttributesByName: used by copy prompt + attribute rules (name-based)
+  // - variantValuesByAttributeId: used by title blueprint (ID-based)
+  const variantAttributesByName: Record<string, string> = {};
+  const variantValuesByAttributeId: Record<string, string> = {};
   if (variantValues) {
     for (const vv of variantValues) {
-      const attrName = (vv.scribe_variant_attributes as unknown as { name: string } | null)?.name;
+      const rel = vv.scribe_variant_attributes as unknown as
+        | { name: string | null }
+        | { name: string | null }[]
+        | null;
+      const attrName = Array.isArray(rel) ? rel[0]?.name : rel?.name;
+      const attrId = (vv as unknown as { attribute_id?: string }).attribute_id;
       if (attrName) {
-        variantAttributes[attrName] = vv.value;
+        variantAttributesByName[attrName] = vv.value;
+      }
+      if (attrId) {
+        variantValuesByAttributeId[attrId] = vv.value;
       }
     }
   }
@@ -417,6 +442,33 @@ const processSkuCopy = async (
   const attributePreferences = skuData.attribute_preferences ?? undefined;
 
   // Generate copy
+  const titleMode: TitleGenerationMode =
+    titleBlueprint && titleBlueprint.blocks.some((b) => b.type === "llm_phrase")
+      ? "feature_phrase"
+      : titleBlueprint
+        ? "none"
+        : "full";
+
+  let fixedTitleForBlueprint = "";
+  let featurePhraseMaxChars = 0;
+  if (titleBlueprint) {
+    const skuTitleData: SkuTitleData = {
+      productName: skuData.product_name,
+      variantValuesByAttributeId,
+    };
+    const fixed = computeFixedTitleAndRemaining(skuTitleData, titleBlueprint);
+    fixedTitleForBlueprint = fixed.fixedTitle;
+    featurePhraseMaxChars = fixed.remainingForPhrase;
+
+    if (fixedTitleForBlueprint.length > 200) {
+      throw new Error(`Fixed title exceeds 200 characters (${fixedTitleForBlueprint.length} chars)`);
+    }
+
+    if (titleMode === "feature_phrase" && featurePhraseMaxChars <= 0) {
+      throw new Error("Title blueprint leaves no room for Feature Phrase (AI); adjust blocks or separator");
+    }
+  }
+
   const result = await generateCopyForSku(
     {
       skuCode: skuData.sku_code,
@@ -428,7 +480,7 @@ const processSkuCopy = async (
       suppliedContent: skuData.supplied_content,
       keywords: (keywords ?? []).map((k) => k.keyword),
       questions: (questions ?? []).map((q) => q.question),
-      variantAttributes,
+      variantAttributes: variantAttributesByName,
       approvedTopics: selectedTopics.map((t) => ({
         title: t.title,
         description: t.description || "",
@@ -437,7 +489,30 @@ const processSkuCopy = async (
       formatPreferences: formatPreferences ?? undefined,
     },
     locale,
+    titleBlueprint
+      ? {
+          titleMode,
+          featurePhraseMaxChars,
+          fixedTitleBase: fixedTitleForBlueprint,
+          titleSeparator: titleBlueprint.separator,
+        }
+      : undefined,
   );
+
+  const finalTitle =
+    titleBlueprint && titleMode === "feature_phrase"
+      ? assembleTitle(fixedTitleForBlueprint, titleBlueprint.separator, result.featurePhrase ?? "")
+      : titleBlueprint
+        ? fixedTitleForBlueprint
+        : result.title ?? "";
+
+  if (!finalTitle) {
+    throw new Error("No title produced for SKU");
+  }
+
+  if (finalTitle.length > 200) {
+    throw new Error(`Final title exceeds 200 characters (${finalTitle.length} chars)`);
+  }
 
   // Fetch existing content to determine if this is an update
   const { data: existingContent } = await supabase
@@ -450,7 +525,7 @@ const processSkuCopy = async (
   const contentData = {
     project_id: projectId,
     sku_id: skuId,
-    title: result.title,
+    title: finalTitle,
     bullets: result.bullets,
     description: result.description,
     backend_keywords: result.backendKeywords,

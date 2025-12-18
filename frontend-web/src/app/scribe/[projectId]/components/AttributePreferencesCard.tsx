@@ -157,7 +157,6 @@ export function AttributePreferencesCard({
                     <h3 className="text-sm font-semibold text-slate-800">
                         <span className="mr-2">{isExpanded ? "▼" : "▶"}</span>
                         Attribute Preferences{" "}
-                        <span className="text-slate-500">(Optional)</span>
                     </h3>
                     <p className="mt-1 text-xs text-slate-600">
                         By default, AI naturally incorporates attributes into your content. Use this to enforce specific placements.
@@ -174,7 +173,7 @@ export function AttributePreferencesCard({
 
                     <div className="mb-4 rounded-lg bg-blue-50 p-3">
                         <p className="text-xs text-blue-800">
-                            💡 <strong>Example:</strong> Selling a red t-shirt? Check "Title" under "Color" to ensure the title includes "Red" like "Red Cotton T-Shirt".
+                            💡 <strong>Example:</strong> Selling a red t-shirt? Check "Bullets" under "Color" to ensure the bullets include "Red" where it matters most.
                         </p>
                     </div>
 
@@ -198,9 +197,6 @@ export function AttributePreferencesCard({
                                                 Attribute
                                             </th>
                                             <th className="px-4 pb-3 text-center font-medium text-slate-700">
-                                                Title
-                                            </th>
-                                            <th className="px-4 pb-3 text-center font-medium text-slate-700">
                                                 Bullets
                                             </th>
                                             <th className="px-4 pb-3 text-center font-medium text-slate-700">
@@ -215,14 +211,6 @@ export function AttributePreferencesCard({
                                                 <tr key={attr.id} className="border-b border-slate-100">
                                                     <td className="py-3 pr-4 font-medium text-slate-800">
                                                         {attr.name}
-                                                    </td>
-                                                    <td className="px-4 py-3 text-center">
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={isChecked(attr.name, "title")}
-                                                            onChange={() => handleToggle(attr.name, "title")}
-                                                            className="h-4 w-4 rounded border-slate-300 text-[#0a6fd6] focus:ring-[#0a6fd6]"
-                                                        />
                                                     </td>
                                                     <td className="px-4 py-3 text-center">
                                                         <input

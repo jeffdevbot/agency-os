@@ -1,6 +1,6 @@
 # Changelog — Ecomlabs Tools
 
-_Last updated: 2025-12-17 (EST)_
+_Last updated: 2025-12-18 (EST)_
 
 > Development history for the project. For setup instructions and project overview, see [AGENTS.md](AGENTS.md).
 
@@ -10,6 +10,13 @@ _Last updated: 2025-12-17 (EST)_
 - **Command Center UI polish:** Redesigned Clients list into a searchable, filterable table with brand chips/counts and a collapsed archived section. Refreshed Manage Client → Brands to use an "Add New Brand" modal (marketplace pill multiselect) and a visual org-chart tree with dashed support line + optimistic assignment updates for faster UX.
 - **Command Center Tokens page:** Added `/command-center/tokens` with official OpenAI daily costs vs internal `ai_token_usage` attribution (range selector, rounded charts, fast-loading sections, CSV export of full selected range).
 - **Debrief UX upgrades:** Added per-meeting "Draft Email" (modal editor + copy + Gmail compose link) and meeting dismissal ("Remove" on `/debrief`, stored as `status='dismissed'`). Added meeting list pagination (10 at a time with "Show 10 more").
+
+## 2025-12-18 (EST)
+- **Scribe Stage C Title Blueprint shipped:** Added a project-level blueprint to enforce deterministic Amazon title structure across all SKUs (ordered blocks + single separator), with a single AI block that fills the remaining character budget.
+- **Title blueprint parsing + tests:** Added safe `unknown` parsing/validation, a single source of truth for valid separators, and expanded Vitest coverage for join rules, budget math, and integration scenarios.
+- **Copy generation updated for blueprint mode:** Stage C generation now produces an AI `feature_phrase` (instead of a full title) when a blueprint is present, then assembles the final title deterministically; adds “fill the budget” targeting for longer phrases when remaining room is large.
+- **Stage C UI/UX polish:** Made “Copy Formatting”, “Title Blueprint”, and “Attribute Preferences” consistent collapsible sections; added SKU title previews with fixed-length + AI budget indicators.
+- **API hardening:** PATCH project updates now merge `format_preferences` instead of clobbering between sections; regenerate-copy gates on `scribe_topics.selected` (not `approved`) to match Stage B workflow.
 
 ## 2025-12-16 (EST)
 - **Command Center MVP shipped:** Implemented Ghost Profiles + merge-on-login, core schema (clients, brands, roles, assignments), admin-only UI (`/command-center`) with org-chart role slots, team roster, per-member assignment view, brand marketplaces, and safe archive/delete actions for test data. Added Debrief helper endpoints for brand+role routing.
