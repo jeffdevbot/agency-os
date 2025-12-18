@@ -1,157 +1,116 @@
-# Project Status — Agency OS
+# Changelog — Ecomlabs Tools
 
 _Last updated: 2025-12-17 (EST)_
 
-## How to Use This File
-- Skim **Quick Recap**, **Recent Accomplishments**, and **Next Priorities** before coding.
-- Update the date and add a brief note under **Recent Accomplishments** when you finish a session.
-- Keep the **Documentation Map** aligned with the contents of `docs/` so we always know where deeper specs live.
-- Whenever we add or modify a service/app, update `docs/10_systems_overview.md` so the systems inventory matches reality.
-- For backend work: activate the FastAPI virtual env via `source backend-core/.venv/bin/activate`; deactivate with `deactivate`. Install deps using `python3 -m venv backend-core/.venv && source backend-core/.venv/bin/activate && python3 -m pip install -r backend-core/requirements.txt`.
-- Export Supabase vars before starting uvicorn (these match Render env group values):
-  ```
-  export SUPABASE_JWT_SECRET="******"
-  export SUPABASE_URL="https://iqkmygvncovwdxagewal.supabase.co"
-  export SUPABASE_SERVICE_ROLE="******"
-  export ENABLE_USAGE_LOGGING=1
-  uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-  ```
-
-## Quick Recap
-Agency OS consolidates internal tools (Ngram, Debrief, Creative Brief) behind a shared Next.js frontend, FastAPI backend, and Supabase auth stack deployed on Render. Supabase handles SSO (Google) plus the shared database, while the worker service manages nightly syncs and other heavy jobs. **Amazon Composer is deprecated** and will be replaced by the new **Scribe** project (simpler, more focused listing/content generation). **Scribe is currently being rebuilt ("Scribe Lite")** to simplify the UX, with legacy code archived.
-
-## Recent Accomplishments
-- **2025-12-17 (EST)**
-  - **Command Center UI polish ✅:** Redesigned Clients list into a searchable, filterable table with brand chips/counts and a collapsed archived section. Refreshed Manage Client → Brands to use an “Add New Brand” modal (marketplace pill multiselect) and a visual org-chart tree with dashed support line + optimistic assignment updates for faster UX.
-  - **Command Center Tokens page ✅:** Added `/command-center/tokens` with official OpenAI daily costs vs internal `ai_token_usage` attribution (range selector, rounded charts, fast-loading sections, CSV export of full selected range).
-  - **Debrief UX upgrades ✅:** Added per-meeting “Draft Email” (modal editor + copy + Gmail compose link) and meeting dismissal (“Remove” on `/debrief`, stored as `status='dismissed'`). Added meeting list pagination (10 at a time with “Show 10 more”).
-- **2025-12-16 (EST)**
-  - **Command Center MVP shipped ✅:** Implemented Ghost Profiles + merge-on-login, core schema (clients, brands, roles, assignments), admin-only UI (`/command-center`) with org-chart role slots, team roster, per-member assignment view, brand marketplaces, and safe archive/delete actions for test data. Added Debrief helper endpoints for brand+role routing.
-  - **Debrief Stage 1–3 shipped (manual extraction) ✅:** Set up Google Workspace domain-wide delegation + impersonation, Drive folder ingestion, and Debrief MVP routes (`/debrief`) to sync “Notes by Gemini” into Supabase, view meetings, and manually run extraction per meeting (no ClickUp yet).
-  - **Debrief token usage logging ✅:** Generalized `ai_token_usage.stage` constraint to allow non-Scribe stages (migration `20251216000001_ai_token_usage_stage_check_generalize.sql`) and wired Debrief extraction to log OpenAI usage via `frontend-web/src/lib/ai/usageLogger.ts`.
-  - **Auth hardening ✅:** Updated Command Center route handlers to use `supabase.auth.getUser()` (verified identity) rather than trusting `getSession()` payloads, removing noisy warnings and improving server-side correctness.
-- **2025-12-12 (EST)**
-  - **AdScope Sponsored Brands Views + Data Accuracy Fixes ✅:** Added SB analytics to AdScope (match/targeting types and ad formats) sourced from Bulk SB tabs. Implemented stable Bulk mappings for SB fields (`ad_format`, targeting expressions), new backend `views.sponsored_brands` payload, and corresponding frontend canvas/tab. Tightened SB targeting breakdown to use target-level SB entities only (Keyword + Product Targeting), removed negative keyword types from SB view, and added a spend-alignment warning when Bulk exports are campaign-rolled-up. 
-  - **AdScope Bidding Strategy Mapping Bug Fix ✅:** Diagnosed incorrect bidding-strategy buckets (numeric values) to fuzzy matching falsely mapping `Bid` → `Bidding Strategy` due to substring logic. Added exclusion in `bulk_parser.py` so bid-like headers cannot match `Bidding Strategy`, restoring correct strategy names (e.g., Dynamic bids / Fixed bid) in Bidding & Placements view. 
-  - **AdScope UI Polish ✅:** Fixed Explorer nav alignment/classes, added SB section in Explorer, and removed the hardcoded “Target: 30%” label from ACoS overview cards for cleaner presentation.
-- **2025-12-11 (EST)**
-  - **Supabase Auth Deadlock Fix ✅:** Fixed critical auth bug causing homepage to hang on "Checking session..." indefinitely. **Root Cause:** Previous code used `async getUser()` inside `onAuthStateChange` callback, triggering a Supabase internal locking deadlock (see GitHub Issues #35754, #762). **Fix:** (1) Changed initial auth check from `getUser()` (network call) to `getSession()` (reads local storage, instant). (2) Removed async from `onAuthStateChange` callback and used the `session` parameter directly instead of calling `getUser()` again. (3) Added `.catch()` handler to clear corrupted sessions for existing users with stale cookies. Applied fix to both `page.tsx` and `scribe/page.tsx`. For users with corrupted sessions from the bug, ran `DELETE FROM auth.refresh_tokens` in Supabase SQL Editor to force fresh logins. Commits: `b754d01` (deadlock fix), `d143d4d` (stale session handler).
-  - **Scribe Stage C Prompt Improvements ✅:** Enhanced copy generation prompt in `copyGenerator.ts` to fix three issues: (1) **Attribute Override Mode:** Now includes exact values in instructions (e.g., `Color: MUST use value "Black"`) instead of just `Color: Use in Title`, preventing LLM from pulling wrong colors from keywords/questions. (2) **SKU Code Leakage:** Added explicit CONTENT RULE: "NEVER include SKU codes, ASINs, or internal identifiers in any content." (3) **Product Name Rephrasing:** Updated LANGUAGE section to clarify product names can be rephrased for consumer appeal (internal names like "Web Rucksack" no longer used verbatim).
-- **2025-12-10 (EST)**
-  - **AdScope Backend/Frontend Landing (testable) 🚀:** Added FastAPI router `/adscope/audit` with memory/file caps, fuzzy bulk/STR parsing (header-row scan), date-range mismatch warning, and all 13 precomputed views; hardened optional-column handling (placements/price sensitivity/zombies) and inclusive budget cap date span. Frontend `/adscope` now has ingest UI, dark workspace with all view tabs, mock JSON contract, and server-side chat proxy (no client key leakage). Bulk tab selection prioritizes SP Campaigns per schema. Ready for Render trial; broader test suite still pending.
-- **2025-12-09 (EST)**
-  - **AdScope Parser & Metrics Fixes ✅:** Resolved critical data accuracy issues in AdScope. (1) **Multi-Tab Parsing:** Updated `bulk_parser.py` to ingest "Sponsored Products", "Sponsored Brands", and "Sponsored Display" campaign tabs (previously SP-only). (2) **Overview Metrics:** Switched source-of-truth for Total Spend/Sales from the STR file to the Bulk file (Campaign rows), ensuring all ad types are counted. (3) **Parser Robustness:** Added logic to backfill missing `Product` column for SD/SB tabs, "clean" dirty `Entity` column values using whitespace stripping/title-casing (fixed zero-spend bug), and refined fuzzy matching to prevent "Cost Type" from hijacking the "Spend" column. "Ad Type Mix" and "Overview" are now verified accurate across all ad types.
-  - **Token Usage Tracking Refactor ✅:** Generalized the usage logging system to support both Scribe and AdScope. Migrated `scribe_usage_logs` table to `ai_token_usage` (migration `20251210000001_generalize_usage_logs.sql`), relaxed `project_id` constraint to allow project-less logs (for AdScope audits), and consolidated logging logic into a shared utility `frontend-web/src/lib/ai/usageLogger.ts`. Updated AdScope Chat to log token usage per message and verified Scribe compatibility.
-- **2025-12-09 (EST)**
-  - **Root Keyword Analysis Tool Shipped ✅:** Added full backend router `/root/process` with parsing (row-9 Campaign Report, currency detection), week bucketing (UTC Sunday–Saturday, 4 weeks), hierarchical aggregation (Profile → Portfolio → Ad Type → Targeting → Sub-Type → Variant), and formatted Excel workbook (header band, zebra banding, 7 metrics × 4 weeks, currency-aware). New frontend page `/root-keywords` mirrors N-Gram/N-PAT styling with drag/drop upload and auth; PRD and micro-task plan captured in `docs/18_root_keyword_analysis_prd.md` and `docs/19_root_keyword_analysis_plan.md`.
-- **2025-12-08 (EST)**
-  - **N-Gram Special Character Preservation Fix ✅:** Fixed token cleaning logic in `backend-core/app/services/ngram/analytics.py` to preserve important e-commerce characters that were previously being stripped. Updated `TOKEN_RE` regex to preserve measurement symbols (`"` for inches, `'` for feet, `°` for degrees), brand symbols (`™`, `®`, `©`), and common product name characters (`&`, `+`, `#`). This fixes the reported issue where `10" gold shelf brackets` was incorrectly tokenized as `['10', 'gold', 'shelf', 'brackets']` instead of `['10"', 'gold', 'shelf', 'brackets']`. Added comprehensive test suite (`backend-core/tests/test_ngram_analytics.py`) with 23 test cases covering special characters, Unicode support (verified `ñ`, `é`, `ü`, Japanese characters still work), and edge cases. All existing Unicode letter support preserved via `re.UNICODE` flag.
-- **2025-12-04 (EST)**
-  - **Scribe Stage C CSV Export & Dirty Regenerate ✅:** Implemented `/api/scribe/projects/[projectId]/export-copy` with dynamic attribute columns, padded bullets, backend keyword cleanup, and filename convention; wired Stage C Export button with loading/error handling. Dirty-state now forces full regenerate-all when stale.
-  - **Scribe Test Coverage Expanded ✅:** Added API tests for export-copy, generate-copy, generated-content GET/PATCH, topics selection cap, and regenerate-copy; added UI tests for SkuTopicsCard. Composer test suites quarantined via `describe.skip` to keep CI lean. StageC component tests remain skipped with a note (jsdom brittle; covered by API/UI elsewhere). Full `npm run test:run` passing (except intentional skips).
-- **2025-12-04 (EST)**
-  - **N-Gram Two-Step Negatives Flow ✅:** Refreshed `/ngram` UI into two clear cards (generate workbook, then upload filled workbook to download negatives summary), added playful loading states, and delivered a new collector that outputs a formatted NE summary (Excel) without Excel repair dialogs. Collector now zips mono/bi/tri per campaign and ignores scratchpad to avoid duplicates.
-  - **N-PAT PRD & Plan Ready ✅:** Authored `docs/03_npat_prd.md` (ASIN-only inverse of N-Gram with H10 enrichment) and `docs/03_npat_plan.md` (micro-task plan). PRD aligns with N-Gram conventions: uppercase ASIN pipe strings, 40MB cap, full metrics in negatives summary, H10 paste schema documented.
-  - **Scribe Stage C Export CSV Shipped ✅:** Added `/api/scribe/projects/[projectId]/export-copy` to stream Amazon-ready CSV including SKU/Product/ASIN, custom attributes, title, bullets 1-5, description, and backend keywords (space-delimited). UI Export button now downloads with loading/error handling and filename `scribe_<project-slug>_amazon_content_<timestamp>.csv`.
-  - **Scribe Stage C Dirty-State Regenerate Fix ✅:** Dirty banner now forces full regeneration instead of blocking when all SKUs already have content; Generate All toggles to “Regenerate All” when stale.
-- **2025-12-03 (EST)**
-  - **Scribe Stage C Export CSV Shipped ✅:** Added `/api/scribe/projects/[projectId]/export-copy` to stream Amazon-ready CSV including SKU/Product/ASIN, custom attributes, title, bullets 1-5, description, and backend keywords (space-delimited). UI Export button now downloads with loading/error handling and filename `scribe_<project-slug>_amazon_content_<timestamp>.csv`.
-  - **Scribe Stage C Dirty-State Regenerate Fix ✅:** Dirty banner now forces full regeneration instead of blocking when all SKUs already have content; Generate All toggles to “Regenerate All” when stale.
-- **2025-12-03 (EST)**
-  - **Scribe Stage B Topic Selection Bug Fixed ✅:** Resolved critical issue where topic selections weren't persisting to database. Root cause was React state closure issue in `handleToggleTopic` - the `newSelected` variable was being calculated inside `setTopicsBySku` callback but React's batching caused the fetch to run before the callback completed, always sending `selected: false`. Fix: Read current state directly from `topicsBySku` before calling setState, calculate `newSelected` immediately, then use that value for both state update and API call. Added comprehensive console logging to debug data flow. Topic selections now persist correctly across page refreshes and Stage C can successfully validate 5 selected topics per SKU before generation.
-  - **Scribe Stage C Attribute Preferences Specification Complete ✅:** Documented complete Attribute Preferences feature in Scribe Lite PRD (`docs/scribe_lite/scribe_lite_prd.md` sections 3.3.1-3.3.6). Feature allows users to control which custom attributes (Size, Color, Material, etc.) appear in specific sections (Title, Bullets, Description) of generated Amazon copy. Key design decisions: (1) Single table applies preferences to ALL SKUs project-wide (simpler than per-SKU), (2) Collapsed by default with clear example ("picture frames + dimensions"), (3) Auto-save on checkbox toggle with optimistic updates, (4) Preferences stored in `scribe_skus.attribute_preferences` jsonb field with structure `{ mode: "overrides", rules: { "Size": { sections: ["title"] } } }`. Created comprehensive implementation prompt for another AI including data flow, component structure, API calls, validation, and testing checklist. Marked legacy `AttributePreferencesCard.tsx` for deletion (per-SKU version incompatible with new design).
-- **2025-12-02 (EST)**
-  - **Scribe Stage B (Topics) Shipped ✅:** Built complete Stage B UI with topic generation workflow. Created 4 new components: `StageB.tsx` (main logic), `DirtyStateWarning.tsx` (reusable warning banner), `SkuTopicsCard.tsx` (topic selection per SKU), and `stage-b/page.tsx` (lean orchestrator). Implemented "Generate Topics" button with async job processing (polling endpoint at `/api/scribe/jobs/[jobId]`), enforced 5-topic selection limit per SKU, dirty state detection (compares SKU update times vs topic creation times), and Previous/Next navigation. **Topic Selection Persistence:** Added migration `20251202000001_scribe_topics_selected.sql` to add `selected` boolean column to `scribe_topics` table, created `PATCH /api/scribe/projects/{projectId}/topics/{topicId}` endpoint for saving selections with server-side 5-topic limit validation, and wired up StageB.tsx with optimistic updates and error rollback. Topic selections now persist across page refreshes and are ready for Stage C copy generation. **Topic Generator Enhancement:** Updated `topicsGenerator.ts` prompt from "Generate 1–8 distinct" to "Generate exactly 7-8 distinct" topics and added validation to ensure at least 7 topics are generated (throws error if fewer). **UI Polish:** Fixed topic description bullet formatting by adding `whitespace-pre-line` class so bullets display on separate lines. **Approval Cleanup:** Removed all approval gate logic from 5 API routes (generate-topics, generate-copy, regenerate-topics, regenerate-copy, generated-content PATCH) and deleted 6 unused approval endpoint directories (approve-stage-a, approve-topics, approve-copy, unapprove-stage-a, unapprove-topics, unapprove-copy) including 11 files total (routes + tests). Type definitions in `projects/route.ts` and `restore/route.ts` preserved for backwards compatibility with legacy project statuses.
-  - **Scribe Stage A Polish ✅:** Fixed EditSkuPanel issues: (1) Save button incorrectly disabled when editing - removed keyword/question count from `canSave` condition, added validation warnings instead. (2) Custom attributes empty after reload - implemented full custom attribute save logic with attribute ID lookup and parallel API calls. (3) Keywords exceeding 10/10 limit - added delete-before-insert logic to prevent accumulation on re-save. (4) Performance optimization - replaced sequential API calls with Promise.all() for parallel operations (keywords delete+insert, questions delete+insert, custom attributes save), reducing save time from several seconds to near-instant. Also fixed custom attribute deletion bug - changed DELETE request from path parameter format to query parameter format (`/variant-attributes?id={id}`) to match API expectations.
-  - **Scribe CSV Upload Bug Fixes ✅:** Fixed three critical CSV upload issues preventing reliable data import. (1) **Tab-delimited CSV support** - CSV parser now auto-detects delimiter (tab vs comma) instead of hardcoding commas, enabling TSV imports from Excel/Sheets. (2) **Field name mismatch** - Fixed keyword/question count display by changing snake_case (`sku_id`) to camelCase (`skuId`) to match API response format. (3) **Duplicate upload handling** - Added delete-before-insert logic for keywords and questions to prevent "Maximum of 10 keywords per scope" errors on re-uploads. All SKU data now properly overwrites on re-upload: core fields use PATCH, keywords/questions delete+insert, and custom attributes upsert via API.
-  - **Scribe Lite Foundation Components Shipped ✅:** Built reusable `ScribeHeader` and `ScribeProgressTracker` components implementing the non-blocking wizard flow. Replaced approval/locking complexity with "Dirty State" model (stale data warnings + regenerate prompts). Updated PRD to document the new architecture: free navigation between stages, explicit completeness props, and simplified state management. Home page (`/scribe`) polished with disabled-until-name-entered Create button.
-  - **Scribe Lite Restart Initiated 🔄:** Archived legacy Scribe frontend (`_legacy_v1`) and documentation (`docs/archive/scribe_legacy`) to clear technical debt. Created **Scribe Lite** plan (`docs/scribe_lite/`) focusing on a simplified "Wizard" UX while reusing the robust backend/DB foundation. Canonical Schema & API Reference created to guide the rebuild.
-  - **Scribe Stage A (Inputs) Complete ✅:** Finalized the SKU Input stage. Implemented robust CSV upload logic that auto-detects and creates custom attributes (e.g., "Size", "Material") on the fly. Fixed Edit Panel to correctly fetch and save these dynamic attributes, along with keywords and questions. Validated schema against production DB dump.
-- **2025-11-29 (EST)**
-  - **Scribe Stage navigation/approval guard fixes ✅:** Normalized status handling across stepper and stage components so refreshes land on the correct stage, navigation/next buttons unlock when later stages are approved, and Stage A buttons no longer show misleading locked states when downstream stages are approved.
-- **2025-11-28 (EST)**
-- **Scribe Stage C shipped (backend + UI) ✅:** Generate/regenerate/approve/edit routes live with gates/limits, job runner wired, Stage C fields in CSV export, Stage C UI added (empty state, per-SKU editor, regenerate, version, approval gate). Attribute prefs stored/passed; UI toggle is minimal and needs further polish. Usage logs now tag stage; `scribe_generated_content.sku_id` unique index added. RLS bug on PATCH fixed. Unapprove endpoints added for Stage B/C; UI locks editing when approved; export CTA added to Stage C (CSV includes dynamic variant attrs and Stage C fields). Stage A edits lock when later stages are approved.
-- **Scribe CSV export fixes ✅:** Fixed column misalignment caused by unquoted fields containing commas (e.g., "Friendly, casual, approachable") and special characters (em dashes). Applied RFC 4180 CSV formatting with proper field quoting, quote escaping, newline stripping, and UTF-8 BOM (`\uFEFF`) for Excel compatibility. Fixed both server-side export route and client-side Download Template function.
-- **Scribe variant attribute values persistence fixed ✅:** Resolved 500 error preventing variant values (Color, Size) from saving. Root cause was `onConflict` parameter incompatibility with remote Supabase constraint naming. Replaced native `upsert()` with manual check-then-update-or-insert logic to avoid constraint name issues entirely. Values now persist correctly across page refreshes and appear in CSV exports.
-- **2025-11-27**
-  - **Scribe Stage C spec ready (docs)** ✅: PRD, implementation plan, schema, prompt/orchestration, and test plan updated for Stage C (copy generation). Added micro-tasks, clarified gates/limits (title ~200, bullets=5, backend keywords 249 bytes), default full regenerate, attribute prefs lightweight, and approval flow. Composer tests quarantined; Scribe tests passing.
-- **2025-11-27**
-  - **Scribe Stage B tests passing** ✅: Added Stage B gate, job, CSV edge, RLS/limits telemetry tests (Vitest). Composer test suites quarantined (deprecated). Generate-copy/import tests in place with placeholders until Stage C routes ship.
-- **2025-11-27**
-  - **Scribe Stage B refinements** ✅: Updated topics prompt to 3-bullet descriptions, UI renders bullets, token usage logging wired (`scribe_usage_logs` per LLM call), status names aligned to `stage_a_approved`/`stage_b_approved`/`stage_c_approved` across frontend/API, and Stage B test plan refreshed.
-- **2025-11-27**
-  - **Scribe Stage A polished & CSV upsert** ✅: Rebuilt Stage A to grouped per-SKU blocks with scalar modules, inline multi-value lists, copy-from, inline attribute delete, and per-SKU approve/unapprove. CSV import now upserts by `sku_code`, patches scalars/words, replaces keywords/questions, strips bullets, and is quote-aware to avoid duplicate SKUs. Export renamed to Download Template. Frontend keeps local state (no wipe on add/delete) and hides spurious errors. PRD/implementation plan updated to match approve/unapprove and import upsert semantics.
-- **2025-11-26**
-  - **Scribe per-SKU migration and docs aligned** ✅: Applied Supabase migration to drop shared/default columns, rename override fields, and enforce `sku_id` NOT NULL on keywords/questions/topics (per-SKU-only model). PRD and implementation plan updated to the grouped-row Stage A UI, per-SKU-only Stage B/C, and legacy migration marked as optional. Backend Phase 2 (per-SKU APIs + copy-from-SKU endpoint/tests) completed.
-- **2025-11-25**
-  - **Scribe Slice 1 (Projects Shell) Complete** ✅: Added Scribe projects API (list/create/detail/update, archive/restore) with owner scoping and status transition guards. Implemented frontend dashboard at `/scribe` with create form, pagination, archive/restore, and CTA styling aligned to the homepage. Enabled auto-creation of profiles on auth user insert; seeded admin profile to clear FK issues.
-  - **Scribe Stage A Grid In Progress** 🚧: Refactored `/scribe/[projectId]` into a single grid-centric Stage A layout (sticky SKU column, horizontal scroll, dynamic variant attribute columns). Added shared defaults controls, inline overrides with indicators, SKU inline edit/reorder/delete, variant value grid, per-SKU keyword/question counts, and CSV import/export hooks in the grid toolbar. Pending: popover editors for keywords/questions and additional tests.
-- **2025-11-22**
-  - **Composer Deprecated, Scribe Announced** ✅: Paused further Composer slices (Stage 8+). Marked Composer as frozen and initiated replacement effort with Scribe (new content-generation project). Planning Supabase cleanup of Composer tables/types after Scribe ships. Existing Composer data retained; no new work will land there.
-- **2025-11-22**
-  - **Fixed Keyword Grouping Generation** ✅: Resolved three critical issues preventing "GENERATE GROUPING PLAN" button from working. (1) Fixed empty pools array - page.tsx now uses `useKeywordPools` hook to pass actual pool data to `GroupingPlanStep` component instead of empty array, enabling button handler to access currentPool. (2) Implemented actual AI grouping logic - replaced placeholder chunking algorithm with real `groupKeywords()` function call from `@agency/lib/composer/ai/groupKeywords`, added project context fetching (clientName, category) for better AI results, implemented comprehensive usage logging for both success and error cases via `logUsageEvent()`. (3) Fixed API response format - changed from `{ groupsCreated: number }` to `{ groups: ComposerKeywordGroup[] }` with full group objects mapped from database rows, matching expected format from tests and frontend code. Fixed TypeScript build error by adding type assertion `pool.pool_type as "body" | "titles"` to match strict type requirements. Verified OpenAI API integration correctly reads `OPENAI_API_KEY`, `OPENAI_MODEL_PRIMARY`, and `OPENAI_MODEL_FALLBACK` from Render environment variables (not hardcoded). **Render deploy succeeded.** Keyword grouping generation now fully functional end-to-end.
-- **2025-11-21**
-  - **Completed Database Migrations for Team Central, The Operator, and ClickUp Service** ✅: Created and deployed 3 production-ready Supabase migrations implementing foundation infrastructure for new Agency OS features. **Team Central** (`20250122000001_team_central_tables.sql`) implements single-tenant team management with `profiles` enhancements (role-based access via `team_role` enum), `team_members_pending` invitation system with auto-link trigger, `agency_clients` tracking, and `client_assignments` junction table. **The Operator** (`20250122000002_operator_tables.sql`) implements multi-tenant SOP management with pgvector embeddings (1536 dimensions for OpenAI ada-002), `sops` table with HNSW vector similarity search, and `ops_chat_sessions` for AI chat history. **ClickUp Service** (`20250122000003_clickup_service_tables.sql`) implements multi-tenant ClickUp API integration with encrypted credentials (pgcrypto), cache tables for spaces/users/tasks (TTL: 1hr/24hr/5min), and sync status tracking. All migrations use composite primary keys `(organization_id, id)` for multi-tenancy, comprehensive RLS policies with organization isolation, proper foreign key cascades, and idempotent DDL (`IF NOT EXISTS`). Fixed initial profiles table creation issue during deployment. All 3 PRDs now have matching database implementations.
-  - **Completed Composer Slice 2 Stage 7 (Keyword Grouping UI)** ✅: Shipped full drag-and-drop grouping interface with tab navigation (body/titles pools), 3-state progress indicator (Configure → Review → Approve), `@dnd-kit` drag-and-drop for keyword assignment, approval/unapproval workflow with optimistic locking (prevents race conditions via `updated_at` timestamp check), override tracking for manual keyword moves (audit trail in `composer_keyword_group_overrides`), and timestamp consistency fixes (both `approved_at` and `grouped_at` cleared together on unapproval). Created 5 new UI components: `GroupingPlanStep`, `KeywordGroupCard`, `DraggableKeyword`, `GroupingConfigForm`, and `types.ts`. Added 1 new API endpoint: `POST /approve-grouping` with concurrent modification protection (returns 409 on conflict). Extended `useKeywordPools` hook with 6 new methods: `generateGroupingPlan`, `getGroups`, `addOverride`, `resetOverrides`, `approveGrouping`, `unapproveGrouping`. Implemented 3 critical fixes identified during Red Team review: (1) Override tracking - non-blocking audit trail, (2) Optimistic locking - race condition prevention, (3) Timestamp consistency - paired approval/grouping timestamps. All changes follow existing patterns from Stage 5 cleanup step. **Build deployed successfully to Render. Manual testing pending.** **Composer Slice 2 Stages 1-7 now complete.**
-  - Fixed two Render build issues during Stage 7 deployment: (1) Updated approval endpoint to use correct imports (`createSupabaseRouteClient` from `@/lib/supabase/serverClient`), (2) Added missing `@dnd-kit/core` and `@dnd-kit/utilities` dependencies for drag-and-drop UI components.
-  - Updated Stage 6 grouping backend to log actual OpenAI usage metrics (model/tokens/duration) returned by the orchestrator; added minimal Supabase typing to keep Render/Turbopack builds passing. Render deploy succeeded; full suite **235 tests** passing.
-  - Added Stage 5 cleanup UI tests (KeywordCleanupStep, CleanedKeywordsList, RemovedKeywordsList, `unapproveClean`) — cleanup step now fully covered.
-- **2025-11-20**
-  - Completed Composer Slice 2 Stage 6 (Keyword Grouping APIs & AI Integration): shipped AI-powered keyword grouping with OpenAI gpt-5.1-nano integration, 4 grouping basis types (single, per_sku, attribute, custom), merge utility for AI groups + user overrides (move/remove/add), 4 production APIs (grouping-plan, groups GET, group-overrides POST/DELETE), comprehensive usage event logging to `composer_usage_events` table, and complete test coverage. Logging now records actual OpenAI usage (model/tokens/duration) returned by the orchestrator. Enhanced usage logging tests to explicitly verify all parameters (organizationId, projectId, tokens, duration, meta) on both success and error paths per QA agent recommendation. Full test suite: **235 passing tests** (50 new for Stage 6).
-  - Completed Composer Slice 2 Stage 5 (Keyword Cleanup UI): shipped production-ready cleanup interface with tab-based navigation (Description & Bullets / Titles), 3-state progress indicator (Run → Review → Approve), stateful approval toggle (approve/unapprove with `unapproveClean()`), collapsible keyword lists (400px max-height scroll for 3000+ keywords), grouped removed keywords by reason with color-coded badges (7 types), manual remove/restore, confirmation checkbox, and "Continue to Titles Pool" button. Uses unicode symbols (▲▼▶✓) with no icon library dependency.
-  - Added Vitest coverage for Stage 5 cleanup UI and hooks (CleanedKeywordsList, RemovedKeywordsList, KeywordCleanupStep, `unapproveClean`); full `npm run test:run` passes all tests. Targeted Stage 5 command: `npm run test:run -- 'src/lib/composer/hooks/useKeywordPools.test.tsx' 'src/app/composer/[projectId]/components/keyword-cleanup/CleanedKeywordsList.test.tsx' 'src/app/composer/[projectId]/components/keyword-cleanup/RemovedKeywordsList.test.tsx' 'src/app/composer/[projectId]/components/keyword-cleanup/KeywordCleanupStep.test.tsx'`.
-  - Completed Composer Slice 2 Stage 4 (Keyword Upload UI): added keyword upload step with scope-aware tabs, CSV/paste/manual inputs, dedupe/validation (min 5, warn <20), and optimistic hooks/tests. Upload works for both pools and group scopes.
-  - Completed Composer Slice 2 Stage 3 (Keyword Cleanup APIs & Logic): added deterministic cleaning service (brand/competitor from project data, attribute-driven color/size filters, stopword list), synchronous clean route with RLS checks, approval gating on PATCH, and full Vitest coverage for cleaning + routes. Render build fixed and passing.
-  - Fixed Composer frontend Render build by enabling monorepo imports (`externalDir` + output tracing root) so shared `lib` modules bundle correctly with Turbopack.
-  - Completed Composer Slice 2 Stage 2 (Keyword Pool APIs): shipped keyword upload/merge endpoints for projects and groups (GET/POST list, GET/PATCH single), added CSV parsing + dedupe helpers, enforced state-reset rules on uploads, and expanded org-scoped tests. Utility + route coverage brought the suite to 148 passing tests (up from 82).
-- **2025-11-20** – Completed Composer Slice 2 Stage 1 (Schema & Backend Foundation): created 3 keyword pipeline tables (`composer_keyword_pools`, `composer_keyword_groups`, `composer_keyword_group_overrides`) with full RLS policies, CASCADE foreign keys, and indexes. All TypeScript types already up-to-date in `/lib/composer/types.ts`. Ready for Stage 2 API implementation.
-- **2025-11-19** – Drafted and documented Composer Slice 2 (Keyword Pipeline) implementation plan: aligned schema/types with keyword pool state machine, manual overrides, and new API surface so we can begin Slice 2 build-out. Included explicit keyword upload validation (minimum 5 terms, recommended 50+) in both PRD and implementation plan so UX clarifies expectations.
-- **2025-11-19** – Wrapped Composer Slice 1 polish: added key-attribute highlight grid, persisted `highlight_attributes` JSON (schema + types), introduced keyword grouping override spec, and documented/testing updates (82 passing Vitest suites). Ready to start Slice 2 planning.
-- **2025-11-19** – Hardened Composer Slice 1 Surface 4 with shared `serverUtils` helpers, Supabase route-client mocks, and full Vitest coverage for the groups/assign/unassign APIs plus the `useSkuGroups` hook (82 tests passing locally via `npm run test:run`).
-- **2025-11-19** – Completed Composer Slice 1 Surface 4 (Content Strategy): StrategyToggle, SkuGroupsBuilder, GroupCard, UnassignedSkuList, and ContentStrategyStep components; full SKU groups API (GET/POST groups, PATCH/DELETE group, assign/unassign variants); `useSkuGroups` hook with optimistic updates. Slice 1 is now feature-complete.
-- **2025-11-18** – Migrated the frontend to `@supabase/ssr`, fixed the async cookies regression, and aligned the Composer fallback org (`DEFAULT_COMPOSER_ORG_ID = e9368435-…`). Documented the rule that Supabase users must carry the same `org_id` metadata; legacy Composer rows were updated so existing projects resurface in the dashboard.
-- **2025-11-17** – Finished Composer Slice 1 Surface 3 (Product Info): full autosave meta forms, FAQ editor, SKU intake (inline edits, CSV import/merge, org-scoped APIs), CSV parser, and SKU validation/persistence so projects can resume from the wizard.
-- **2025-11-16** – Brought Composer Slice 1 Surface 1+2 online: dashboard list/create, wizard frame with autosave shell, GET/PATCH detail API, Supabase default org fallback, and new Supabase client helper (`createPagesBrowserClient`). Ready to plug Product Info & Strategy UIs into the shell.
-- **2025-11-15** – Landed Composer schema + tenancy work: created all `composer_*` tables in Supabase, enforced RLS with org-scoped policies (`docs/composer/01_schema_tenancy.md`), and published the canonical TypeScript types (`docs/composer/02_types_canonical.md` + `/lib/composer/types.ts`) so the frontend/backed/AI layers share the same model.
-- **2025-11-14** – Rebuilt the Composer PRD (v1.6) and captured the corresponding end-to-end implementation plan (`docs/06_composer_implementation_plan.md`) so future work can follow defined slices/workstreams without ambiguity.
-- **2025-11-13** – Migrated the N-Gram Processor into the new stack: FastAPI backend (`backend-core/app/routers/ngram.py` + services) with Supabase usage logging, plus a refreshed `/ngram` Next.js page and home screen shortcut. Local Supabase env + venv instructions captured in this doc for future sessions.
-- **2025-11-13** – Added Supabase-aware Next.js middleware to guard `/ngram`, ensuring logged-out users are redirected to the login screen before hitting protected pages.
-
-## Next Priorities
-- **Debrief review UX**: Add dismiss/approve/reject flows + editing of extracted tasks; brand+assignee suggestions powered by Command Center routing.
-- **ClickUp integration (later)**: When ready, implement Debrief → ClickUp via the shared ClickUp service (`docs/08_clickup_service_prd.md`).
-- **Scribe Lite Implementation**: Build the new "Wizard" UI (Inputs -> Topics -> Output) based on the Scribe Lite PRD and upcoming UI specs.
-- **Scribe Lite QA**: Verify the new flow against the canonical API reference.
-- **Composer decommission plan**: Execute `docs/17_composer_deprecation_plan.md` when Scribe B/C are stable (UI flag-off, code/schema cleanup with backups).
-- **N-Gram**: Monitor two-step negatives summary in prod; validate Render timeouts and file-size handling on large STRs.
-- **N-PAT**: Start implementation per `docs/03_npat_plan.md` (router, parser, workbook, frontend two-step).
-
-## Documentation Map (Quick Reference)
-- `docs/00_agency_os_architecture.md` — High-level blueprint for the Render services, Supabase auth setup, and domain migration strategy. Start here for infra questions or when onboarding collaborators.
-- `docs/01_ngram_migration.md` — Detailed checklist for splitting the legacy Ngram processor into the new frontend/backed pattern (dependencies, routers, CORS). Use when working on `/ngram`.
-- `docs/02_the_operator_prd.md` — **Deprecated** Operator PRD (kept for historical context; DB migration exists: `20250122000002_operator_tables.sql`). Current workflow is Debrief.
-- `docs/04_amazon_composer_prd.md` — Amazon listing generation workflow (input wizard, AI draft, review links, exports) and backend chaining details. **Deprecated** in favor of Scribe.
-- `docs/05_creative_brief_prd.md` — Creative Brief tool spec focusing on asset ingestion, AI tagging, storyboard editor, and storage constraints.
-- `docs/scribe_lite/scribe_lite_prd.md` — **Active** Scribe Lite PRD.
-- `docs/scribe_lite/scribe_lite_schema_api.md` — Canonical Schema & API Reference for Scribe Lite.
-- `docs/archive/scribe_legacy/` — Archived Scribe v1 documentation.
-- `docs/07_command_center_prd.md` — Command Center PRD (clients, brands, team, role assignments, Ghost Profiles).
-- `docs/07_command_center_schema_api.md` — Command Center canonical schema + API contract.
-- `docs/debrief_prd.md` — Debrief PRD (Google Meet notes → tasks → review; ClickUp later).
-- `docs/debrief_implementation_plan.md` — Staged Debrief implementation plan.
-- `docs/08_clickup_service_prd.md` — ClickUp Service integration spec covering multi-tenant API credential management, task/space/user caching with TTL, and sync status tracking. Database migration: `20250122000003_clickup_service_tables.sql`.
-- `docs/10_systems_overview.md` — Running list of every service, its repo path, Render deployment, and shared dependencies. Update this table whenever new tools or env vars are introduced.
-
-## Render Deployment Map
-- **Services (Render Project: “Ecomlabs Agency OS”)**
-  - `frontend-web` — Node/Next.js service deployed from `/frontend-web` (Render region: Virginia). Hosts the dashboard at `tools.ecomlabs.ca`.
-  - `backend-core` — Python FastAPI service deployed from `/backend-core` (Virginia). Provides APIs, agent orchestration, and communicates with Supabase.
-  - `worker-sync` — Python background worker deployed from `/worker-sync` (Virginia). Handles nightly syncs and long-running jobs.
-  - *Note:* Screenshot shows recent deploys failed; verify build logs before the next release so we catch configuration drift early.
-- **Env Group: `agency-os-env-var`**
-  - Shared across the services above so every deployment receives consistent secrets.
-  - Contains: `CLICKUP_API_TOKEN`, `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `MAX_UPLOAD_MB`, `NEXT_PUBLIC_BACKEND_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `OPENAI_API_KEY`, `OPENAI_MODEL_PRIMARY`, `OPENAI_MODEL_FALLBACK`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, and `SUPABASE_JWT_SECRET`.
-  - Keep Render as the source of truth; mirror critical values into local `.env.local` files as needed for development.
+> Development history for the project. For setup instructions and project overview, see [AGENTS.md](AGENTS.md).
 
 ---
-_Remember: keep this document short and actionable—link to the PRDs for deep dives instead of duplicating their content._
+
+## 2025-12-17 (EST)
+- **Command Center UI polish:** Redesigned Clients list into a searchable, filterable table with brand chips/counts and a collapsed archived section. Refreshed Manage Client → Brands to use an "Add New Brand" modal (marketplace pill multiselect) and a visual org-chart tree with dashed support line + optimistic assignment updates for faster UX.
+- **Command Center Tokens page:** Added `/command-center/tokens` with official OpenAI daily costs vs internal `ai_token_usage` attribution (range selector, rounded charts, fast-loading sections, CSV export of full selected range).
+- **Debrief UX upgrades:** Added per-meeting "Draft Email" (modal editor + copy + Gmail compose link) and meeting dismissal ("Remove" on `/debrief`, stored as `status='dismissed'`). Added meeting list pagination (10 at a time with "Show 10 more").
+
+## 2025-12-16 (EST)
+- **Command Center MVP shipped:** Implemented Ghost Profiles + merge-on-login, core schema (clients, brands, roles, assignments), admin-only UI (`/command-center`) with org-chart role slots, team roster, per-member assignment view, brand marketplaces, and safe archive/delete actions for test data. Added Debrief helper endpoints for brand+role routing.
+- **Debrief Stage 1–3 shipped (manual extraction):** Set up Google Workspace domain-wide delegation + impersonation, Drive folder ingestion, and Debrief MVP routes (`/debrief`) to sync "Notes by Gemini" into Supabase, view meetings, and manually run extraction per meeting (no ClickUp yet).
+- **Debrief token usage logging:** Generalized `ai_token_usage.stage` constraint to allow non-Scribe stages (migration `20251216000001_ai_token_usage_stage_check_generalize.sql`) and wired Debrief extraction to log OpenAI usage via `frontend-web/src/lib/ai/usageLogger.ts`.
+- **Auth hardening:** Updated Command Center route handlers to use `supabase.auth.getUser()` (verified identity) rather than trusting `getSession()` payloads, removing noisy warnings and improving server-side correctness.
+
+## 2025-12-12 (EST)
+- **AdScope Sponsored Brands Views + Data Accuracy Fixes:** Added SB analytics to AdScope (match/targeting types and ad formats) sourced from Bulk SB tabs. Implemented stable Bulk mappings for SB fields (`ad_format`, targeting expressions), new backend `views.sponsored_brands` payload, and corresponding frontend canvas/tab. Tightened SB targeting breakdown to use target-level SB entities only (Keyword + Product Targeting), removed negative keyword types from SB view, and added a spend-alignment warning when Bulk exports are campaign-rolled-up.
+- **AdScope Bidding Strategy Mapping Bug Fix:** Diagnosed incorrect bidding-strategy buckets (numeric values) to fuzzy matching falsely mapping `Bid` → `Bidding Strategy` due to substring logic. Added exclusion in `bulk_parser.py` so bid-like headers cannot match `Bidding Strategy`, restoring correct strategy names (e.g., Dynamic bids / Fixed bid) in Bidding & Placements view.
+- **AdScope UI Polish:** Fixed Explorer nav alignment/classes, added SB section in Explorer, and removed the hardcoded "Target: 30%" label from ACoS overview cards for cleaner presentation.
+
+## 2025-12-11 (EST)
+- **Supabase Auth Deadlock Fix:** Fixed critical auth bug causing homepage to hang on "Checking session..." indefinitely. Root cause: `async getUser()` inside `onAuthStateChange` callback triggered Supabase internal locking deadlock. Fix: (1) Changed initial auth check from `getUser()` to `getSession()`. (2) Removed async from `onAuthStateChange` callback. (3) Added `.catch()` handler to clear corrupted sessions. Commits: `b754d01`, `d143d4d`.
+- **Scribe Stage C Prompt Improvements:** Enhanced copy generation prompt in `copyGenerator.ts` to fix attribute override mode, SKU code leakage, and product name rephrasing issues.
+
+## 2025-12-10 (EST)
+- **AdScope Backend/Frontend Landing (testable):** Added FastAPI router `/adscope/audit` with memory/file caps, fuzzy bulk/STR parsing (header-row scan), date-range mismatch warning, and all 13 precomputed views; hardened optional-column handling (placements/price sensitivity/zombies) and inclusive budget cap date span. Frontend `/adscope` now has ingest UI, dark workspace with all view tabs, mock JSON contract, and server-side chat proxy (no client key leakage). Bulk tab selection prioritizes SP Campaigns per schema.
+
+## 2025-12-09 (EST)
+- **AdScope Parser & Metrics Fixes:** Resolved critical data accuracy issues. Multi-tab parsing for SP/SB/SD campaigns. Switched overview metrics source from STR to Bulk file. Added backfill logic for missing columns.
+- **Token Usage Tracking Refactor:** Generalized logging to support Scribe and AdScope. Migrated `scribe_usage_logs` to `ai_token_usage`. Consolidated logging into `frontend-web/src/lib/ai/usageLogger.ts`.
+- **Root Keyword Analysis Tool Shipped:** Backend `/root/process` with parsing, week bucketing, hierarchical aggregation, and formatted Excel workbook. Frontend `/root-keywords` with drag/drop upload.
+
+## 2025-12-08 (EST)
+- **N-Gram Special Character Preservation Fix:** Fixed token cleaning in `analytics.py` to preserve measurement symbols (`"`, `'`, `°`), brand symbols (`™`, `®`, `©`), and common characters (`&`, `+`, `#`). Added 23-test suite in `test_ngram_analytics.py`.
+
+## 2025-12-04 (EST)
+- **Scribe Stage C CSV Export & Dirty Regenerate:** Implemented `/api/scribe/projects/[projectId]/export-copy` with dynamic attribute columns. Dirty-state now forces full regenerate-all when stale.
+- **Scribe Test Coverage Expanded:** Added API tests for export-copy, generate-copy, generated-content. Composer tests quarantined via `describe.skip`.
+- **N-Gram Two-Step Negatives Flow:** Refreshed `/ngram` UI into two clear cards, added new collector for formatted NE summary (Excel).
+- **N-PAT PRD & Plan Ready:** Authored `docs/03_npat_prd.md` and `docs/03_npat_plan.md`.
+
+## 2025-12-03 (EST)
+- **Scribe Stage B Topic Selection Bug Fixed:** Resolved React state closure issue in `handleToggleTopic` causing selections not to persist.
+- **Scribe Stage C Attribute Preferences Specification Complete:** Documented feature allowing control of which attributes appear in title/bullets/description.
+
+## 2025-12-02 (EST)
+- **Scribe Stage B (Topics) Shipped:** Complete UI with topic generation workflow, 5-topic selection limit, dirty state detection, and Previous/Next navigation. Added `PATCH /api/scribe/projects/{projectId}/topics/{topicId}` endpoint.
+- **Scribe Stage A Polish:** Fixed EditSkuPanel save button, custom attributes persistence, keyword limits. Optimized with `Promise.all()` for parallel API calls.
+- **Scribe CSV Upload Bug Fixes:** Auto-detect delimiter, fixed field name mismatch, added duplicate handling.
+- **Scribe Lite Foundation Components:** Built `ScribeHeader` and `ScribeProgressTracker`. Replaced approval/locking with "Dirty State" model.
+- **Scribe Lite Restart:** Archived legacy Scribe frontend (`_legacy_v1`) and docs (`docs/archive/scribe_legacy`).
+
+## 2025-11-29 (EST)
+- **Scribe Stage navigation/approval guard fixes:** Normalized status handling so refreshes land on correct stage.
+
+## 2025-11-28 (EST)
+- **Scribe Stage C shipped (backend + UI):** Generate/regenerate/approve/edit routes, job runner, Stage C fields in CSV export, per-SKU editor.
+- **Scribe CSV export fixes:** RFC 4180 formatting with proper quoting and UTF-8 BOM.
+- **Scribe variant attribute values persistence fixed:** Replaced `upsert()` with manual check-then-update-or-insert.
+
+## 2025-11-27
+- **Scribe Stage C spec ready (docs):** PRD, implementation plan, schema, prompt/orchestration, and test plan updated.
+- **Scribe Stage B tests passing:** Gate, job, CSV edge, RLS/limits telemetry tests (Vitest).
+- **Scribe Stage B refinements:** Topics prompt updated to 3-bullet descriptions, token usage logging wired.
+- **Scribe Stage A polished & CSV upsert:** Per-SKU blocks, CSV import upserts by `sku_code`.
+
+## 2025-11-26
+- **Scribe per-SKU migration and docs aligned:** Applied Supabase migration to drop shared/default columns, enforce `sku_id` NOT NULL.
+
+## 2025-11-25
+- **Scribe Slice 1 (Projects Shell) Complete:** Projects API with owner scoping, frontend dashboard at `/scribe`.
+- **Scribe Stage A Grid In Progress:** Grid-centric layout with sticky SKU column, dynamic variant attribute columns.
+
+## 2025-11-22
+- **Composer Deprecated, Scribe Announced:** Paused Composer work. Initiated Scribe replacement.
+- **Fixed Keyword Grouping Generation:** Resolved three critical issues with the "GENERATE GROUPING PLAN" button.
+
+## 2025-11-21
+- **Database Migrations for Team Central, The Operator, and ClickUp Service:** Created 3 production-ready Supabase migrations.
+- **Composer Slice 2 Stage 7 (Keyword Grouping UI):** Full drag-and-drop interface, approval workflow, override tracking.
+
+## 2025-11-20
+- **Composer Slice 2 Stage 6 (Keyword Grouping APIs & AI Integration):** AI-powered keyword grouping with OpenAI integration, 4 grouping basis types, merge utility.
+- **Composer Slice 2 Stage 5 (Keyword Cleanup UI):** Tab-based navigation, collapsible keyword lists, grouped removed keywords by reason.
+- **Composer Slice 2 Stage 4 (Keyword Upload UI):** Scope-aware tabs, CSV/paste/manual inputs, dedupe/validation.
+- **Composer Slice 2 Stage 3 (Keyword Cleanup APIs & Logic):** Deterministic cleaning service, approval gating.
+- **Composer Slice 2 Stage 2 (Keyword Pool APIs):** Upload/merge endpoints, CSV parsing helpers.
+- **Composer Slice 2 Stage 1 (Schema & Backend Foundation):** Created keyword pipeline tables with RLS policies.
+
+## 2025-11-19
+- **Composer Slice 2 planning:** Aligned schema/types with keyword pool state machine.
+- **Composer Slice 1 polish:** Key-attribute highlight grid, keyword grouping override spec.
+- **Composer Slice 1 Surface 4 (Content Strategy):** StrategyToggle, SkuGroupsBuilder, GroupCard, full SKU groups API.
+
+## 2025-11-18
+- **Frontend migration to `@supabase/ssr`:** Fixed async cookies regression, aligned Composer fallback org.
+
+## 2025-11-17
+- **Composer Slice 1 Surface 3 (Product Info):** Autosave meta forms, FAQ editor, SKU intake with CSV import.
+
+## 2025-11-16
+- **Composer Slice 1 Surface 1+2:** Dashboard list/create, wizard frame with autosave shell.
+
+## 2025-11-15
+- **Composer schema + tenancy:** Created all `composer_*` tables, RLS policies, canonical TypeScript types.
+
+## 2025-11-14
+- **Composer PRD rebuild (v1.6):** End-to-end implementation plan.
+
+## 2025-11-13
+- **N-Gram Processor migration:** FastAPI backend + refreshed Next.js page.
+- **Supabase-aware middleware:** Guards `/ngram` for logged-out users.
