@@ -46,6 +46,13 @@ type ApiError = { error: { code: string; message: string } };
 const displayMember = (member: TeamMember) =>
   member.displayName ?? member.fullName ?? member.email;
 
+const initialsFor = (value: string) => {
+  const cleaned = value.trim();
+  if (!cleaned) return "—";
+  const parts = cleaned.split(/\s+/).slice(0, 2);
+  return parts.map((p) => p.slice(0, 1).toUpperCase()).join("");
+};
+
 const MARKETPLACE_OPTIONS = [
   { code: "CA", label: "Canada" },
   { code: "US", label: "US" },
@@ -60,24 +67,205 @@ const MARKETPLACE_OPTIONS = [
   { code: "AU", label: "Australia" },
 ] as const;
 
-const ORG_CHART_LAYOUT = {
-  top: [
-    { slug: "strategy_director", label: "Strategy Director" },
-    { slug: "brand_manager", label: "Brand Manager" },
-  ],
-  catalog: [
-    { slug: "catalog_strategist", label: "Catalog Strategist" },
-    { slug: "catalog_specialist", label: "Catalog Specialist" },
-  ],
-  ppc: [
-    { slug: "ppc_strategist", label: "PPC Strategist" },
-    { slug: "ppc_specialist", label: "PPC Specialist" },
-  ],
-  report: [{ slug: "report_specialist", label: "Report Specialist" }],
-} as const;
-
 const toggle = (current: string[], value: string) =>
   current.includes(value) ? current.filter((entry) => entry !== value) : [...current, value];
+
+function MarketplaceMultiSelect(props: {
+  value: string[];
+  disabled?: boolean;
+  onChange: (next: string[]) => void;
+}) {
+  const { value, onChange, disabled } = props;
+
+  return (
+    <div className="flex flex-wrap gap-2">
+      {MARKETPLACE_OPTIONS.map((marketplace) => {
+        const selected = value.includes(marketplace.code);
+        return (
+          <button
+            key={marketplace.code}
+            type="button"
+            onClick={() => onChange(toggle(value, marketplace.code))}
+            className={[
+              "rounded-full px-3 py-1.5 text-xs font-semibold shadow-sm transition",
+              selected
+                ? "bg-[#0a6fd6] text-white shadow-[0_10px_20px_rgba(10,111,214,0.35)] hover:bg-[#0959ab]"
+                : "bg-[#f1f5ff] text-[#0f172a] hover:bg-[#e7efff]",
+              disabled ? "cursor-not-allowed opacity-60 hover:bg-inherit" : "",
+            ].join(" ")}
+            aria-pressed={selected}
+            disabled={disabled}
+          >
+            {marketplace.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function OrgNode(props: {
+  roleLabel: string;
+  assignedMember: TeamMember | null;
+  activeMembers: TeamMember[];
+  value: string;
+  pending?: boolean;
+  disabled?: boolean;
+  onAssign: (teamMemberId: string) => void;
+}) {
+  const { roleLabel, assignedMember, activeMembers, value, onAssign, disabled, pending } = props;
+  const assignedLabel = assignedMember ? displayMember(assignedMember) : "";
+  const initials = assignedMember ? initialsFor(assignedLabel) : "—";
+
+  return (
+    <div className="relative z-10 w-64 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+      <div className="flex items-center justify-between gap-2">
+        <div className="truncate text-[11px] font-bold uppercase tracking-wide text-slate-400">{roleLabel}</div>
+        {pending ? <div className="text-[11px] font-semibold text-slate-400">Saving…</div> : null}
+      </div>
+
+      <div className="mt-2 flex items-center gap-2">
+        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#e8eefc] text-xs font-bold text-[#0f172a]">
+          {initials}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-sm font-semibold text-[#0f172a]">
+            {assignedMember ? assignedLabel : "Unassigned"}
+          </div>
+          {assignedMember ? (
+            <Link
+              href={`/command-center/team/${assignedMember.id}`}
+              className="text-xs font-semibold text-[#0a6fd6] hover:underline"
+            >
+              View profile
+            </Link>
+          ) : (
+            <div className="text-xs text-[#64748b]">Select below</div>
+          )}
+        </div>
+      </div>
+
+      <select
+        className="mt-3 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+        value={value}
+        onChange={(event) => onAssign(event.target.value)}
+        disabled={disabled}
+      >
+        <option value="">Unassigned</option>
+        {activeMembers.map((member) => (
+          <option key={member.id} value={member.id}>
+            {displayMember(member)}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+function BrandModal(props: {
+  open: boolean;
+  mode: "create" | "edit";
+  saving: boolean;
+  title: string;
+  brandName: string;
+  brandKeywords: string;
+  marketplaces: string[];
+  onClose: () => void;
+  onChangeName: (value: string) => void;
+  onChangeKeywords: (value: string) => void;
+  onChangeMarketplaces: (value: string[]) => void;
+  onSubmit: () => void;
+}) {
+  const {
+    open,
+    mode,
+    saving,
+    title,
+    brandName,
+    brandKeywords,
+    marketplaces,
+    onClose,
+    onChangeName,
+    onChangeKeywords,
+    onChangeMarketplaces,
+    onSubmit,
+  } = props;
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4 py-8">
+      <div className="w-full max-w-2xl rounded-3xl bg-white p-6 shadow-2xl">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-lg font-semibold text-[#0f172a]">{title}</h2>
+            <p className="mt-1 text-sm text-[#4c576f]">
+              {mode === "create" ? "Add a new brand under this client." : "Update brand details."}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-2xl bg-white px-3 py-2 text-sm font-semibold text-[#0f172a] shadow transition hover:shadow-lg"
+            disabled={saving}
+          >
+            Close
+          </button>
+        </div>
+
+        <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
+          <label className="space-y-1">
+            <div className="text-xs font-semibold uppercase tracking-wide text-[#4c576f]">Brand name</div>
+            <input
+              value={brandName}
+              onChange={(event) => onChangeName(event.target.value)}
+              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm"
+              placeholder="e.g. Acme Widgets"
+              disabled={saving}
+            />
+          </label>
+
+          <label className="space-y-1">
+            <div className="text-xs font-semibold uppercase tracking-wide text-[#4c576f]">Keywords</div>
+            <input
+              value={brandKeywords}
+              onChange={(event) => onChangeKeywords(event.target.value)}
+              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm"
+              placeholder="comma-separated"
+              disabled={saving}
+            />
+          </label>
+        </div>
+
+        <div className="mt-6">
+          <div className="text-xs font-semibold uppercase tracking-wide text-[#4c576f]">Marketplaces</div>
+          <div className="mt-3">
+            <MarketplaceMultiSelect value={marketplaces} onChange={onChangeMarketplaces} disabled={saving} />
+          </div>
+        </div>
+
+        <div className="mt-8 flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-[#0f172a] shadow transition hover:shadow-lg"
+            disabled={saving}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onSubmit}
+            className="rounded-2xl bg-[#0a6fd6] px-4 py-3 text-sm font-semibold text-white shadow-[0_15px_30px_rgba(10,111,214,0.35)] transition hover:bg-[#0959ab] disabled:cursor-not-allowed disabled:opacity-70"
+            disabled={saving || brandName.trim().length === 0}
+          >
+            {saving ? "Saving…" : mode === "create" ? "Add Brand" : "Save Changes"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function CommandCenterClientDetailPage() {
   const params = useParams();
@@ -99,6 +287,19 @@ export default function CommandCenterClientDetailPage() {
   const [editBrandName, setEditBrandName] = useState("");
   const [editBrandKeywords, setEditBrandKeywords] = useState("");
   const [editBrandMarketplaces, setEditBrandMarketplaces] = useState<string[]>([]);
+  const [brandModalOpen, setBrandModalOpen] = useState(false);
+  const [brandModalMode, setBrandModalMode] = useState<"create" | "edit">("create");
+  const [assigningKeys, setAssigningKeys] = useState<string[]>([]);
+
+  const isAssigning = useCallback((key: string) => assigningKeys.includes(key), [assigningKeys]);
+  const setAssigning = useCallback((key: string, next: boolean) => {
+    setAssigningKeys((current) => {
+      const exists = current.includes(key);
+      if (next) return exists ? current : [...current, key];
+      if (!exists) return current;
+      return current.filter((k) => k !== key);
+    });
+  }, []);
 
   useEffect(() => {
     if (!clientId) {
@@ -253,6 +454,8 @@ export default function CommandCenterClientDetailPage() {
     setEditBrandName(brand.name);
     setEditBrandKeywords((brand.productKeywords ?? []).join(", "));
     setEditBrandMarketplaces(brand.amazonMarketplaces ?? []);
+    setBrandModalMode("edit");
+    setBrandModalOpen(true);
   };
 
   const cancelBrandEdit = () => {
@@ -292,6 +495,7 @@ export default function CommandCenterClientDetailPage() {
 
     setSaving(false);
     cancelBrandEdit();
+    setBrandModalOpen(false);
     await refresh();
   };
 
@@ -325,33 +529,79 @@ export default function CommandCenterClientDetailPage() {
     setNewBrandKeywords("");
     setNewBrandMarketplaces([]);
     setSaving(false);
+    setBrandModalOpen(false);
     await refresh();
   };
 
   const onAssignForBrand = async (brandId: string, roleId: string, teamMemberId: string) => {
-    setSaving(true);
     setErrorMessage(null);
+    if (!clientId) return;
+    const safeClientId = clientId;
+
+    const optimisticId = `optimistic:${brandId}:${roleId}`;
+    setBootstrap((current) => {
+      if (!current) return current;
+      const existing = current.assignments.find(
+        (a) => a.clientId === safeClientId && a.brandId === brandId && a.roleId === roleId,
+      );
+      const nextAssignments = existing
+        ? current.assignments.map((a) =>
+            a.id === existing.id ? { ...a, teamMemberId } : a,
+          )
+        : [
+            {
+              id: optimisticId,
+              clientId: safeClientId,
+              brandId,
+              teamMemberId,
+              roleId,
+            },
+            ...current.assignments,
+          ];
+
+      return { ...current, assignments: nextAssignments };
+    });
 
     const response = await fetch("/api/command-center/assignments/upsert", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ clientId, roleId, teamMemberId, brandId }),
+      body: JSON.stringify({ clientId: safeClientId, roleId, teamMemberId, brandId }),
     });
 
-    const json = (await response.json()) as Partial<ApiError>;
-    if (!response.ok) {
-      setSaving(false);
+    const json = (await response.json()) as { assignment?: Assignment } & Partial<ApiError>;
+    if (!response.ok || !json.assignment) {
       setErrorMessage(json.error?.message ?? "Unable to save assignment");
+      await refresh();
       return;
     }
 
-    setSaving(false);
-    await refresh();
+    setBootstrap((current) => {
+      if (!current) return current;
+      const upserted = json.assignment!;
+      const withoutOptimistic = current.assignments.filter((a) => a.id !== optimisticId);
+      const withoutScope = withoutOptimistic.filter(
+        (a) =>
+          !(
+            a.clientId === upserted.clientId &&
+            a.brandId === upserted.brandId &&
+            a.roleId === upserted.roleId
+          ),
+      );
+      return { ...current, assignments: [upserted, ...withoutScope] };
+    });
   };
 
   const onRemoveAssignment = async (assignmentId: string) => {
-    setSaving(true);
     setErrorMessage(null);
+
+    setBootstrap((current) => {
+      if (!current) return current;
+      return { ...current, assignments: current.assignments.filter((a) => a.id !== assignmentId) };
+    });
+
+    if (assignmentId.startsWith("optimistic:")) {
+      return;
+    }
 
     const response = await fetch("/api/command-center/assignments/remove", {
       method: "POST",
@@ -361,13 +611,10 @@ export default function CommandCenterClientDetailPage() {
 
     const json = (await response.json()) as Partial<ApiError>;
     if (!response.ok) {
-      setSaving(false);
       setErrorMessage(json.error?.message ?? "Unable to remove assignment");
+      await refresh();
       return;
     }
-
-    setSaving(false);
-    await refresh();
   };
 
   if (loading) {
@@ -440,258 +687,256 @@ export default function CommandCenterClientDetailPage() {
         ) : null}
       </div>
 
-      <div className="rounded-3xl bg-white/95 p-8 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur">
-        <h2 className="text-lg font-semibold text-[#0f172a]">Brands</h2>
-        <div className="mt-4 flex flex-wrap gap-3">
-          <input
-            value={newBrandName}
-            onChange={(event) => setNewBrandName(event.target.value)}
-            className="min-w-[240px] flex-1 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm"
-            placeholder="Brand name"
-            disabled={saving}
-          />
-          <input
-            value={newBrandKeywords}
-            onChange={(event) => setNewBrandKeywords(event.target.value)}
-            className="min-w-[280px] flex-[2] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm"
-            placeholder="Keywords (comma-separated)"
-            disabled={saving}
-          />
+      <div className="space-y-6">
+        <div className="flex flex-wrap items-start justify-between gap-4 rounded-3xl bg-white/95 p-8 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur">
+          <div>
+            <h2 className="text-lg font-semibold text-[#0f172a]">Brands</h2>
+            <p className="mt-2 text-sm text-[#4c576f]">Manage brand details and assign org-chart roles.</p>
+          </div>
           <button
-            onClick={onAddBrand}
+            onClick={() => {
+              cancelBrandEdit();
+              setNewBrandName("");
+              setNewBrandKeywords("");
+              setNewBrandMarketplaces([]);
+              setBrandModalMode("create");
+              setBrandModalOpen(true);
+            }}
             className="rounded-2xl bg-[#0a6fd6] px-4 py-3 text-sm font-semibold text-white shadow-[0_15px_30px_rgba(10,111,214,0.35)] transition hover:bg-[#0959ab]"
-            disabled={saving || newBrandName.trim().length === 0}
+            disabled={saving}
           >
-            {saving ? "Saving…" : "Add Brand"}
+            Add New Brand
           </button>
         </div>
 
-        <div className="mt-4">
-          <div className="text-sm font-semibold text-[#0f172a]">Marketplaces</div>
-          <p className="mt-1 text-xs text-[#4c576f]">
-            Used by Debrief routing. Stored as codes (CA, US, MX, BR, UK, FR, DE, NL, IT, ES, AU).
-          </p>
-          <div className="mt-2 flex flex-wrap gap-3">
-            {MARKETPLACE_OPTIONS.map((marketplace) => (
-              <label
-                key={marketplace.code}
-                className="flex items-center gap-2 rounded-2xl bg-[#f1f5ff] px-3 py-2 text-sm text-[#0f172a]"
-              >
-                <input
-                  type="checkbox"
-                  checked={newBrandMarketplaces.includes(marketplace.code)}
-                  onChange={() =>
-                    setNewBrandMarketplaces((current) => toggle(current, marketplace.code))
-                  }
-                  disabled={saving}
-                />
-                {marketplace.label}
-              </label>
-            ))}
-          </div>
-        </div>
-
         {client.brands.length === 0 ? (
-          <p className="mt-6 text-sm text-[#4c576f]">No brands yet.</p>
+          <div className="rounded-3xl bg-white/95 p-8 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur">
+            <p className="text-sm text-[#4c576f]">No brands yet.</p>
+          </div>
         ) : (
-          <div className="mt-6 space-y-6">
-	            {client.brands.map((brand) => (
-	              <div key={brand.id} className="rounded-2xl border border-slate-200 bg-white p-4">
-	                <div className="flex flex-wrap items-start justify-between gap-4">
-	                  {editingBrandId === brand.id ? (
-	                    <div className="w-full space-y-4">
-	                      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-	                        <label className="space-y-1">
-	                          <div className="text-sm font-semibold text-[#0f172a]">Brand name</div>
-	                          <input
-	                            value={editBrandName}
-	                            onChange={(event) => setEditBrandName(event.target.value)}
-	                            className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm"
-	                            disabled={saving}
-	                          />
-	                        </label>
-	                        <label className="space-y-1">
-	                          <div className="text-sm font-semibold text-[#0f172a]">Keywords</div>
-	                          <input
-	                            value={editBrandKeywords}
-	                            onChange={(event) => setEditBrandKeywords(event.target.value)}
-	                            className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm"
-	                            placeholder="comma-separated"
-	                            disabled={saving}
-	                          />
-	                        </label>
-	                      </div>
+	          <div className="space-y-6">
+	            {client.brands.map((brand) => {
+	              const assignments = assignmentsForBrand(brand.id);
+	              const assignmentByRoleId = new Map(assignments.map((assignment) => [assignment.roleId, assignment]));
 
-	                      <div>
-	                        <div className="text-sm font-semibold text-[#0f172a]">Marketplaces</div>
-	                        <div className="mt-2 flex flex-wrap gap-3">
-	                          {MARKETPLACE_OPTIONS.map((marketplace) => (
-	                            <label
-	                              key={marketplace.code}
-	                              className="flex items-center gap-2 rounded-2xl bg-[#f1f5ff] px-3 py-2 text-sm text-[#0f172a]"
-	                            >
-	                              <input
-	                                type="checkbox"
-	                                checked={editBrandMarketplaces.includes(marketplace.code)}
-	                                onChange={() =>
-	                                  setEditBrandMarketplaces((current) =>
-	                                    toggle(current, marketplace.code),
-	                                  )
-	                                }
-	                                disabled={saving}
+	              const getSlot = (roleSlug: string) => {
+	                const key = `${brand.id}:${roleSlug}`;
+	                const role = roleBySlug.get(roleSlug) ?? null;
+	                if (!role) {
+	                  return {
+	                    key,
+	                    roleId: null as string | null,
+	                    assignment: null as Assignment | null,
+	                    member: null as TeamMember | null,
+	                  };
+	                }
+	                const assignment = assignmentByRoleId.get(role.id) ?? null;
+	                const member = assignment ? teamMemberById.get(assignment.teamMemberId) ?? null : null;
+	                return { key, roleId: role.id, assignment, member };
+	              };
+
+              const strategy = getSlot("strategy_director");
+              const brandManager = getSlot("brand_manager");
+              const catalogStrategist = getSlot("catalog_strategist");
+              const catalogSpecialist = getSlot("catalog_specialist");
+              const reportSpecialist = getSlot("report_specialist");
+              const ppcStrategist = getSlot("ppc_strategist");
+              const ppcSpecialist = getSlot("ppc_specialist");
+
+	              const assignHandler = async (slot: ReturnType<typeof getSlot>, teamMemberId: string) => {
+	                if (!slot.roleId) return;
+	                setAssigning(slot.key, true);
+	                try {
+	                  if (!teamMemberId) {
+	                    if (slot.assignment) await onRemoveAssignment(slot.assignment.id);
+	                    return;
+	                  }
+	                  await onAssignForBrand(brand.id, slot.roleId, teamMemberId);
+	                } finally {
+	                  setAssigning(slot.key, false);
+	                }
+	              };
+
+              return (
+                <div
+                  key={brand.id}
+                  className="rounded-3xl bg-white/95 p-8 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div className="min-w-0">
+                      <div className="truncate text-xl font-semibold text-[#0f172a]">{brand.name}</div>
+                      <div className="mt-2 flex flex-wrap gap-2 text-xs text-[#4c576f]">
+                        <span className="rounded-full bg-[#f1f5ff] px-3 py-1">
+                          Keywords: {brand.productKeywords.join(", ") || "—"}
+                        </span>
+                        <span className="rounded-full bg-[#f1f5ff] px-3 py-1">
+                          Marketplaces: {brand.amazonMarketplaces?.join(", ") || "—"}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        onClick={() => beginBrandEdit(brand)}
+                        className="rounded-2xl bg-white px-3 py-2 text-sm font-semibold text-[#0a6fd6] shadow transition hover:shadow-lg"
+                        disabled={saving}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => onDeleteBrand(brand.id)}
+                        className="rounded-2xl bg-white px-3 py-2 text-sm font-semibold text-[#b91c1c] shadow transition hover:shadow-lg"
+                        disabled={saving}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="mt-8">
+                    <div className="text-sm font-semibold text-[#0f172a]">Org Chart</div>
+                    <p className="mt-1 text-xs text-[#4c576f]">
+                      Solid lines are direct reports; dotted line is support.
+                    </p>
+
+	                    <div className="relative mt-6 flex flex-col items-center">
+	                      <OrgNode
+	                        roleLabel="Strategy Director"
+	                        assignedMember={strategy.member}
+	                        activeMembers={activeTeamMembers}
+	                        value={strategy.assignment?.teamMemberId ?? ""}
+	                        pending={isAssigning(strategy.key)}
+	                        disabled={saving || isAssigning(strategy.key) || !strategy.roleId}
+	                        onAssign={(value) => void assignHandler(strategy, value)}
+	                      />
+	                      <div className="h-6 border-l-2 border-slate-300" />
+	                      <OrgNode
+	                        roleLabel="Brand Manager"
+	                        assignedMember={brandManager.member}
+	                        activeMembers={activeTeamMembers}
+	                        value={brandManager.assignment?.teamMemberId ?? ""}
+	                        pending={isAssigning(brandManager.key)}
+	                        disabled={saving || isAssigning(brandManager.key) || !brandManager.roleId}
+	                        onAssign={(value) => void assignHandler(brandManager, value)}
+	                      />
+
+                      <div className="relative mt-6 w-full max-w-5xl">
+                        <div className="mx-auto h-6 w-0 border-l-2 border-slate-300" />
+                        <div className="mx-auto h-0 w-full border-t-2 border-slate-300" />
+
+                        <div className="relative grid grid-cols-1 gap-6 pt-6 lg:grid-cols-3">
+                          <div className="relative flex flex-col items-center">
+                            <div className="absolute -top-6 left-1/2 h-6 w-0 -translate-x-1/2 border-l-2 border-slate-300" />
+	                            <OrgNode
+	                              roleLabel="Catalog Strategist"
+	                              assignedMember={catalogStrategist.member}
+	                              activeMembers={activeTeamMembers}
+	                              value={catalogStrategist.assignment?.teamMemberId ?? ""}
+	                              pending={isAssigning(catalogStrategist.key)}
+	                              disabled={saving || isAssigning(catalogStrategist.key) || !catalogStrategist.roleId}
+	                              onAssign={(value) => void assignHandler(catalogStrategist, value)}
+	                            />
+	                            <div className="h-6 border-l-2 border-slate-300" />
+	                            <OrgNode
+	                              roleLabel="Catalog Specialist"
+	                              assignedMember={catalogSpecialist.member}
+	                              activeMembers={activeTeamMembers}
+	                              value={catalogSpecialist.assignment?.teamMemberId ?? ""}
+	                              pending={isAssigning(catalogSpecialist.key)}
+	                              disabled={saving || isAssigning(catalogSpecialist.key) || !catalogSpecialist.roleId}
+	                              onAssign={(value) => void assignHandler(catalogSpecialist, value)}
+	                            />
+	                          </div>
+
+	                          <div className="relative flex flex-col items-center">
+	                            <div className="absolute -top-6 left-1/2 h-6 w-0 -translate-x-1/2 border-l-2 border-dashed border-slate-300" />
+	                            <div className="pointer-events-none opacity-0">
+	                              <OrgNode
+	                                roleLabel="Spacer"
+	                                assignedMember={null}
+	                                activeMembers={activeTeamMembers}
+	                                value=""
+	                                disabled
+	                                onAssign={() => {}}
 	                              />
-	                              {marketplace.label}
-	                            </label>
-	                          ))}
-	                        </div>
-	                      </div>
+	                            </div>
+	                            <div className="h-6 border-l-2 border-dashed border-slate-300" />
+	                            <OrgNode
+	                              roleLabel="Report Specialist"
+	                              assignedMember={reportSpecialist.member}
+	                              activeMembers={activeTeamMembers}
+	                              value={reportSpecialist.assignment?.teamMemberId ?? ""}
+	                              pending={isAssigning(reportSpecialist.key)}
+	                              disabled={saving || isAssigning(reportSpecialist.key) || !reportSpecialist.roleId}
+	                              onAssign={(value) => void assignHandler(reportSpecialist, value)}
+	                            />
+	                          </div>
 
-	                      <div className="flex flex-wrap items-center gap-2">
-	                        <button
-	                          onClick={onSaveBrandEdit}
-	                          className="rounded-2xl bg-[#0a6fd6] px-4 py-3 text-sm font-semibold text-white shadow-[0_15px_30px_rgba(10,111,214,0.35)] transition hover:bg-[#0959ab]"
-	                          disabled={saving || editBrandName.trim().length === 0}
-	                        >
-	                          {saving ? "Saving…" : "Save"}
-	                        </button>
-	                        <button
-	                          onClick={cancelBrandEdit}
-	                          className="rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-[#0f172a] shadow transition hover:shadow-lg"
-	                          disabled={saving}
-	                        >
-	                          Cancel
-	                        </button>
-	                      </div>
-	                    </div>
-	                  ) : (
-	                    <>
-	                      <div>
-	                        <div className="text-sm font-semibold text-[#0f172a]">{brand.name}</div>
-	                        <div className="mt-1 text-xs text-[#4c576f]">
-	                          Keywords: {brand.productKeywords.join(", ") || "—"}
-	                        </div>
-	                        <div className="mt-1 text-xs text-[#4c576f]">
-	                          Marketplaces: {brand.amazonMarketplaces?.join(", ") || "—"}
-	                        </div>
-	                      </div>
-	                      <div className="flex flex-wrap items-center gap-2">
-	                        <button
-	                          onClick={() => beginBrandEdit(brand)}
-	                          className="rounded-2xl bg-white px-3 py-2 text-sm font-semibold text-[#0a6fd6] shadow transition hover:shadow-lg"
-	                          disabled={saving}
-	                        >
-	                          Edit
-	                        </button>
-	                        <button
-	                          onClick={() => onDeleteBrand(brand.id)}
-	                          className="rounded-2xl bg-white px-3 py-2 text-sm font-semibold text-[#b91c1c] shadow transition hover:shadow-lg"
-	                          disabled={saving}
-	                        >
-	                          Delete Brand
-	                        </button>
-	                      </div>
-	                    </>
-	                  )}
-	                </div>
-
-	                <div className="mt-6">
-	                  <div className="text-sm font-semibold text-[#0f172a]">Org Chart</div>
-                  <p className="mt-1 text-xs text-[#4c576f]">
-                    Assign roles per brand. Each role slot accepts a single team member.
-                  </p>
-
-                  {(() => {
-                    const assignments = assignmentsForBrand(brand.id);
-                    const assignmentByRoleId = new Map(assignments.map((assignment) => [assignment.roleId, assignment]));
-
-                    const renderSlot = (roleSlug: string, fallbackLabel: string) => {
-                      const role = roleBySlug.get(roleSlug);
-                      if (!role) return null;
-
-                      const existing = assignmentByRoleId.get(role.id) ?? null;
-                      const currentMember = existing ? teamMemberById.get(existing.teamMemberId) ?? null : null;
-
-                      return (
-                        <div
-                          key={`${brand.id}:${roleSlug}`}
-                          className="rounded-2xl border border-slate-200 bg-white px-4 py-3"
-                        >
-                          <div className="text-sm font-semibold text-[#0f172a]">{role.name || fallbackLabel}</div>
-                          <div className="mt-1 text-xs text-[#4c576f]">
-                            {currentMember ? (
-                              <Link
-                                href={`/command-center/team/${currentMember.id}`}
-                                className="font-semibold text-[#0a6fd6] hover:underline"
-                              >
-                                {displayMember(currentMember)}
-                              </Link>
-                            ) : (
-                              "Unassigned"
-                            )}
-                          </div>
-                          <div className="mt-3 flex flex-wrap items-center gap-2">
-                            <select
-                              className="min-w-[220px] flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
-                              value={existing?.teamMemberId ?? ""}
-                              onChange={(event) => onAssignForBrand(brand.id, role.id, event.target.value)}
-                              disabled={saving}
-                            >
-                              <option value="" disabled>
-                                Select team member…
-                              </option>
-                              {activeTeamMembers.map((member) => (
-                                <option key={member.id} value={member.id}>
-                                  {displayMember(member)}
-                                </option>
-                              ))}
-                            </select>
-                            {existing ? (
-                              <button
-                                onClick={() => onRemoveAssignment(existing.id)}
-                                className="rounded-2xl bg-white px-3 py-2 text-sm font-semibold text-[#b91c1c] shadow transition hover:shadow-lg"
-                                disabled={saving}
-                              >
-                                Remove
-                              </button>
-                            ) : null}
-                          </div>
-                        </div>
-                      );
-                    };
-
-                    return (
-                      <div className="mt-4 space-y-4">
-                        <div className="grid gap-4 md:grid-cols-2">
-                          {ORG_CHART_LAYOUT.top.map((slot) => renderSlot(slot.slug, slot.label))}
-                        </div>
-
-                        <div className="grid gap-4 lg:grid-cols-2">
-                          <div className="rounded-2xl border border-slate-200 bg-[#f8fafc] p-4">
-                            <div className="text-sm font-semibold text-[#0f172a]">Catalog</div>
-                            <div className="mt-3 space-y-3">
-                              {ORG_CHART_LAYOUT.catalog.map((slot) => renderSlot(slot.slug, slot.label))}
-                            </div>
-                          </div>
-                          <div className="rounded-2xl border border-slate-200 bg-[#f8fafc] p-4">
-                            <div className="text-sm font-semibold text-[#0f172a]">PPC</div>
-                            <div className="mt-3 space-y-3">
-                              {ORG_CHART_LAYOUT.ppc.map((slot) => renderSlot(slot.slug, slot.label))}
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="grid gap-4 md:grid-cols-2">
-                          {ORG_CHART_LAYOUT.report.map((slot) => renderSlot(slot.slug, slot.label))}
+                          <div className="relative flex flex-col items-center">
+                            <div className="absolute -top-6 left-1/2 h-6 w-0 -translate-x-1/2 border-l-2 border-slate-300" />
+	                            <OrgNode
+	                              roleLabel="PPC Strategist"
+	                              assignedMember={ppcStrategist.member}
+	                              activeMembers={activeTeamMembers}
+	                              value={ppcStrategist.assignment?.teamMemberId ?? ""}
+	                              pending={isAssigning(ppcStrategist.key)}
+	                              disabled={saving || isAssigning(ppcStrategist.key) || !ppcStrategist.roleId}
+	                              onAssign={(value) => void assignHandler(ppcStrategist, value)}
+	                            />
+	                            <div className="h-6 border-l-2 border-slate-300" />
+	                            <OrgNode
+	                              roleLabel="PPC Specialist"
+	                              assignedMember={ppcSpecialist.member}
+	                              activeMembers={activeTeamMembers}
+	                              value={ppcSpecialist.assignment?.teamMemberId ?? ""}
+	                              pending={isAssigning(ppcSpecialist.key)}
+	                              disabled={saving || isAssigning(ppcSpecialist.key) || !ppcSpecialist.roleId}
+	                              onAssign={(value) => void assignHandler(ppcSpecialist, value)}
+	                            />
+	                          </div>
                         </div>
                       </div>
-                    );
-                  })()}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
+
+      <BrandModal
+        open={brandModalOpen}
+        mode={brandModalMode}
+        saving={saving}
+        title={brandModalMode === "create" ? "Add New Brand" : "Edit Brand"}
+        brandName={brandModalMode === "create" ? newBrandName : editBrandName}
+        brandKeywords={brandModalMode === "create" ? newBrandKeywords : editBrandKeywords}
+        marketplaces={brandModalMode === "create" ? newBrandMarketplaces : editBrandMarketplaces}
+        onClose={() => {
+          setBrandModalOpen(false);
+          if (brandModalMode === "create") {
+            setNewBrandName("");
+            setNewBrandKeywords("");
+            setNewBrandMarketplaces([]);
+          } else {
+            cancelBrandEdit();
+          }
+        }}
+        onChangeName={(value) => (brandModalMode === "create" ? setNewBrandName(value) : setEditBrandName(value))}
+        onChangeKeywords={(value) =>
+          brandModalMode === "create" ? setNewBrandKeywords(value) : setEditBrandKeywords(value)
+        }
+        onChangeMarketplaces={(value) =>
+          brandModalMode === "create" ? setNewBrandMarketplaces(value) : setEditBrandMarketplaces(value)
+        }
+        onSubmit={() => {
+          if (brandModalMode === "create") {
+            onAddBrand();
+          } else {
+            onSaveBrandEdit();
+          }
+        }}
+      />
     </main>
   );
 }

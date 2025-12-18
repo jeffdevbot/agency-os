@@ -21,10 +21,21 @@ export default function DebriefDashboardPage() {
   const [syncing, setSyncing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [meetings, setMeetings] = useState<Meeting[]>([]);
+  const [removingId, setRemovingId] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [fetchedCount, setFetchedCount] = useState(0);
+
+  const pageSize = 10;
 
   const loadMeetings = useCallback(async () => {
     setErrorMessage(null);
-    const response = await fetch("/api/debrief/meetings", { cache: "no-store" });
+    setLoading(true);
+    setLoadingMore(false);
+    const url = new URL("/api/debrief/meetings", window.location.origin);
+    url.searchParams.set("limit", String(pageSize));
+    url.searchParams.set("offset", "0");
+    const response = await fetch(url.toString(), { cache: "no-store" });
     const json = (await response.json()) as { meetings?: Meeting[] } & Partial<ApiError>;
     if (!response.ok) {
       setMeetings([]);
@@ -32,12 +43,18 @@ export default function DebriefDashboardPage() {
       setErrorMessage(json.error?.message ?? "Unable to load meetings");
       return;
     }
-    setMeetings(json.meetings ?? []);
+    const next = json.meetings ?? [];
+    setMeetings(next);
+    setFetchedCount(next.length);
+    setHasMore(next.length === pageSize);
     setLoading(false);
   }, []);
 
   useEffect(() => {
-    fetch("/api/debrief/meetings", { cache: "no-store" })
+    const url = new URL("/api/debrief/meetings", window.location.origin);
+    url.searchParams.set("limit", String(pageSize));
+    url.searchParams.set("offset", "0");
+    fetch(url.toString(), { cache: "no-store" })
       .then(async (response) => {
         const json = (await response.json()) as { meetings?: Meeting[] } & Partial<ApiError>;
         if (!response.ok) {
@@ -46,7 +63,10 @@ export default function DebriefDashboardPage() {
           setErrorMessage(json.error?.message ?? "Unable to load meetings");
           return;
         }
-        setMeetings(json.meetings ?? []);
+        const next = json.meetings ?? [];
+        setMeetings(next);
+        setFetchedCount(next.length);
+        setHasMore(next.length === pageSize);
         setLoading(false);
       })
       .catch(() => {
@@ -69,6 +89,58 @@ export default function DebriefDashboardPage() {
     setSyncing(false);
     await loadMeetings();
   }, [loadMeetings]);
+
+  const onRemoveMeeting = useCallback(
+    async (meetingId: string) => {
+      const confirmed = window.confirm("Remove this meeting from Debrief? (It will be marked dismissed.)");
+      if (!confirmed) return;
+
+      setRemovingId(meetingId);
+      setErrorMessage(null);
+
+      const response = await fetch(`/api/debrief/meetings/${meetingId}/dismiss`, { method: "POST" });
+      const json = (await response.json()) as Partial<ApiError>;
+      if (!response.ok) {
+        setRemovingId(null);
+        setErrorMessage(json.error?.message ?? "Remove failed");
+        return;
+      }
+
+      setRemovingId(null);
+      await loadMeetings();
+    },
+    [loadMeetings],
+  );
+
+  const onLoadMore = useCallback(async () => {
+    if (loadingMore || loading || !hasMore) return;
+    setLoadingMore(true);
+    setErrorMessage(null);
+
+    const url = new URL("/api/debrief/meetings", window.location.origin);
+    url.searchParams.set("limit", String(pageSize));
+    url.searchParams.set("offset", String(fetchedCount));
+    const response = await fetch(url.toString(), { cache: "no-store" });
+    const json = (await response.json()) as { meetings?: Meeting[] } & Partial<ApiError>;
+    if (!response.ok) {
+      setLoadingMore(false);
+      setErrorMessage(json.error?.message ?? "Unable to load more meetings");
+      return;
+    }
+
+    const next = json.meetings ?? [];
+    setFetchedCount((current) => current + next.length);
+    setMeetings((current) => {
+      const seen = new Set(current.map((m) => m.id));
+      const merged = [...current];
+      for (const m of next) {
+        if (!seen.has(m.id)) merged.push(m);
+      }
+      return merged;
+    });
+    setHasMore(next.length === pageSize);
+    setLoadingMore(false);
+  }, [fetchedCount, hasMore, loading, loadingMore]);
 
   return (
     <main className="space-y-6">
@@ -110,37 +182,57 @@ export default function DebriefDashboardPage() {
         ) : meetings.length === 0 ? (
           <p className="mt-4 text-sm text-[#4c576f]">No meetings yet. Click “Sync Notes”.</p>
         ) : (
-          <div className="mt-4 divide-y divide-slate-200">
-            {meetings.map((meeting) => (
-              <div key={meeting.id} className="flex flex-wrap items-center justify-between gap-4 py-4">
-                <div className="min-w-[240px]">
-                  <div className="text-sm font-semibold text-[#0f172a]">{meeting.title}</div>
-                  <div className="mt-1 text-xs text-[#4c576f]">
-                    {meeting.ownerEmail} • {meeting.status}
+          <>
+            <div className="mt-4 divide-y divide-slate-200">
+              {meetings.map((meeting) => (
+                <div key={meeting.id} className="flex flex-wrap items-center justify-between gap-4 py-4">
+                  <div className="min-w-[240px]">
+                    <div className="text-sm font-semibold text-[#0f172a]">{meeting.title}</div>
+                    <div className="mt-1 text-xs text-[#4c576f]">
+                      {meeting.ownerEmail} • {meeting.status}
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <a
+                      href={meeting.googleDocUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="rounded-2xl bg-white px-3 py-2 text-sm font-semibold text-[#0f172a] shadow transition hover:shadow-lg"
+                    >
+                      Notes
+                    </a>
+                    <Link
+                      href={`/debrief/meetings/${meeting.id}`}
+                      className="rounded-2xl bg-white px-3 py-2 text-sm font-semibold text-[#0a6fd6] shadow transition hover:shadow-lg"
+                    >
+                      Review
+                    </Link>
+                    <button
+                      onClick={() => void onRemoveMeeting(meeting.id)}
+                      className="rounded-2xl bg-white px-3 py-2 text-sm font-semibold text-[#b91c1c] shadow transition hover:shadow-lg"
+                      disabled={removingId === meeting.id}
+                    >
+                      {removingId === meeting.id ? "Removing…" : "Remove"}
+                    </button>
                   </div>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <a
-                    href={meeting.googleDocUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="rounded-2xl bg-white px-3 py-2 text-sm font-semibold text-[#0f172a] shadow transition hover:shadow-lg"
-                  >
-                    Notes
-                  </a>
-                  <Link
-                    href={`/debrief/meetings/${meeting.id}`}
-                    className="rounded-2xl bg-white px-3 py-2 text-sm font-semibold text-[#0a6fd6] shadow transition hover:shadow-lg"
-                  >
-                    Review
-                  </Link>
-                </div>
+              ))}
+            </div>
+
+            {hasMore ? (
+              <div className="mt-6 flex justify-center">
+                <button
+                  onClick={() => void onLoadMore()}
+                  className="rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-[#0a6fd6] shadow transition hover:-translate-y-0.5 hover:shadow-lg disabled:opacity-70"
+                  disabled={loadingMore}
+                >
+                  {loadingMore ? "Loading…" : `Show ${pageSize} more`}
+                </button>
               </div>
-            ))}
-          </div>
+            ) : null}
+          </>
         )}
       </div>
     </main>
   );
 }
-

@@ -5,7 +5,7 @@
 
 The goal is to move from "scripts and spreadsheets" to "integrated software" that streamlines:
 1.  Ad Data Analysis (Ngram).
-2.  Project Management & SOPs (The Operator).
+2.  Meeting follow-ups & task capture (Debrief).
 3.  Content Creation (Scribe — replacing the deprecated Amazon Composer).
 4.  Creative Briefing (Creative Brief Tool).
 
@@ -99,16 +99,17 @@ We will run three distinct services within the same Render Project:
 * **Access:** Media Buyers (Advertising Specialists).
 * **Why Render?** Avoids Vercel's 4.5MB body limit and 10s timeout limits for heavy file processing.
 
-### 🕶 Tool 2: The Operator (New)
+### 🕶 Tool 2: The Operator (Deprecated)
 * **Host:**
     * **API:** `backend-core` (Chat Orchestrator, ClickUp Fetcher).
     * **Background:** `worker-sync` (Nightly Sync, SOP Generalizer).
-* **Function:** AI-driven interface for ClickUp and SOP management.
+* **Function:** Originally an AI-driven interface for ClickUp and SOP management.
 * **Core Features:**
     * **Chat Orchestrator:** Natural language query for project status.
     * **SOP Librarian:** Auto-generalizes tasks into canonical SOPs.
     * **ClickUp Fetcher:** Deterministic task creation/assignment.
 * **Backend:** Requires OpenAI (GPT-4o/mini) API key + ClickUp API Token.
+* **Status:** Deprecated — this scope evolved into Debrief (`/debrief`) for meeting-note ingestion + task extraction and review.
 
 ### ✍️ Tool 3: Scribe (New; replaces Amazon Composer)
 * **Host:** `frontend-web` (UI) + `backend-core` (Logic).

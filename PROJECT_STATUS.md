@@ -1,6 +1,6 @@
 # Project Status — Agency OS
 
-_Last updated: 2025-12-16 (EST)_
+_Last updated: 2025-12-17 (EST)_
 
 ## How to Use This File
 - Skim **Quick Recap**, **Recent Accomplishments**, and **Next Priorities** before coding.
@@ -18,9 +18,13 @@ _Last updated: 2025-12-16 (EST)_
   ```
 
 ## Quick Recap
-Agency OS consolidates internal tools (Ngram, The Operator, Creative Brief) behind a shared Next.js frontend, FastAPI backend, and Supabase auth stack deployed on Render. Supabase handles SSO (Google) plus the shared database, while the worker service manages nightly syncs and other heavy jobs. **Amazon Composer is deprecated** and will be replaced by the new **Scribe** project (simpler, more focused listing/content generation). **Scribe is currently being rebuilt ("Scribe Lite")** to simplify the UX, with legacy code archived.
+Agency OS consolidates internal tools (Ngram, Debrief, Creative Brief) behind a shared Next.js frontend, FastAPI backend, and Supabase auth stack deployed on Render. Supabase handles SSO (Google) plus the shared database, while the worker service manages nightly syncs and other heavy jobs. **Amazon Composer is deprecated** and will be replaced by the new **Scribe** project (simpler, more focused listing/content generation). **Scribe is currently being rebuilt ("Scribe Lite")** to simplify the UX, with legacy code archived.
 
 ## Recent Accomplishments
+- **2025-12-17 (EST)**
+  - **Command Center UI polish ✅:** Redesigned Clients list into a searchable, filterable table with brand chips/counts and a collapsed archived section. Refreshed Manage Client → Brands to use an “Add New Brand” modal (marketplace pill multiselect) and a visual org-chart tree with dashed support line + optimistic assignment updates for faster UX.
+  - **Command Center Tokens page ✅:** Added `/command-center/tokens` with official OpenAI daily costs vs internal `ai_token_usage` attribution (range selector, rounded charts, fast-loading sections, CSV export of full selected range).
+  - **Debrief UX upgrades ✅:** Added per-meeting “Draft Email” (modal editor + copy + Gmail compose link) and meeting dismissal (“Remove” on `/debrief`, stored as `status='dismissed'`). Added meeting list pagination (10 at a time with “Show 10 more”).
 - **2025-12-16 (EST)**
   - **Command Center MVP shipped ✅:** Implemented Ghost Profiles + merge-on-login, core schema (clients, brands, roles, assignments), admin-only UI (`/command-center`) with org-chart role slots, team roster, per-member assignment view, brand marketplaces, and safe archive/delete actions for test data. Added Debrief helper endpoints for brand+role routing.
   - **Debrief Stage 1–3 shipped (manual extraction) ✅:** Set up Google Workspace domain-wide delegation + impersonation, Drive folder ingestion, and Debrief MVP routes (`/debrief`) to sync “Notes by Gemini” into Supabase, view meetings, and manually run extraction per meeting (no ClickUp yet).
@@ -125,7 +129,7 @@ Agency OS consolidates internal tools (Ngram, The Operator, Creative Brief) behi
 ## Documentation Map (Quick Reference)
 - `docs/00_agency_os_architecture.md` — High-level blueprint for the Render services, Supabase auth setup, and domain migration strategy. Start here for infra questions or when onboarding collaborators.
 - `docs/01_ngram_migration.md` — Detailed checklist for splitting the legacy Ngram processor into the new frontend/backed pattern (dependencies, routers, CORS). Use when working on `/ngram`.
-- `docs/02_the_operator_prd.md` — Product + technical spec for The Operator AI assistant (M1). Covers UX flows, agent responsibilities, SOP management with AI embeddings, and multi-tenant data model. Database migration: `20250122000002_operator_tables.sql`.
+- `docs/02_the_operator_prd.md` — **Deprecated** Operator PRD (kept for historical context; DB migration exists: `20250122000002_operator_tables.sql`). Current workflow is Debrief.
 - `docs/04_amazon_composer_prd.md` — Amazon listing generation workflow (input wizard, AI draft, review links, exports) and backend chaining details. **Deprecated** in favor of Scribe.
 - `docs/05_creative_brief_prd.md` — Creative Brief tool spec focusing on asset ingestion, AI tagging, storyboard editor, and storage constraints.
 - `docs/scribe_lite/scribe_lite_prd.md` — **Active** Scribe Lite PRD.

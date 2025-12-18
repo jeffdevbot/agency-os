@@ -37,9 +37,6 @@ export default async function CommandCenterLayout({
             </span>
           </Link>
           <div className="flex items-center gap-4">
-            <Link href="/command-center" className="text-sm font-semibold text-[#0a6fd6] hover:underline">
-              Dashboard
-            </Link>
             <Link href="/" className="text-sm font-semibold text-[#0a6fd6] hover:underline">
               Back to Tools
             </Link>

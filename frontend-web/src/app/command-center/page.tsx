@@ -21,6 +21,12 @@ export default function CommandCenterHome() {
           >
             Team
           </Link>
+          <Link
+            href="/command-center/tokens"
+            className="rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-[#0a6fd6] shadow transition hover:-translate-y-0.5 hover:shadow-lg"
+          >
+            Tokens
+          </Link>
         </div>
       </div>
     </main>

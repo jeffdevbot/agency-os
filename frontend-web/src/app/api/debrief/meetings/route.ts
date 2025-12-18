@@ -7,6 +7,14 @@ export const runtime = "nodejs";
 export async function GET(request: NextRequest) {
   const url = new URL(request.url);
   const status = url.searchParams.get("status");
+  const includeDismissed = url.searchParams.get("includeDismissed") === "1";
+  const limitRaw = url.searchParams.get("limit");
+  const offsetRaw = url.searchParams.get("offset");
+
+  const limitParsed = limitRaw ? Number(limitRaw) : NaN;
+  const offsetParsed = offsetRaw ? Number(offsetRaw) : NaN;
+  const limit = Number.isFinite(limitParsed) ? Math.min(Math.max(Math.floor(limitParsed), 1), 50) : null;
+  const offset = Number.isFinite(offsetParsed) ? Math.max(Math.floor(offsetParsed), 0) : 0;
 
   const supabase = await createSupabaseRouteClient();
   const sessionResult = await requireSession(supabase);
@@ -20,6 +28,12 @@ export async function GET(request: NextRequest) {
 
   if (status) {
     query = query.eq("status", status);
+  } else if (!includeDismissed) {
+    query = query.neq("status", "dismissed");
+  }
+
+  if (limit !== null) {
+    query = query.range(offset, offset + limit - 1);
   }
 
   const { data, error } = await query;
@@ -43,4 +57,3 @@ export async function GET(request: NextRequest) {
     })),
   });
 }
-

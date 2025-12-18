@@ -36,6 +36,16 @@ type Task = {
 
 type ApiError = { error: { code: string; message: string } };
 
+const buildGmailComposeUrl = (subject: string, body: string) => {
+  const url = new URL("https://mail.google.com/mail/");
+  url.searchParams.set("view", "cm");
+  url.searchParams.set("fs", "1");
+  url.searchParams.set("tf", "1");
+  url.searchParams.set("su", subject);
+  url.searchParams.set("body", body);
+  return url.toString();
+};
+
 export default function DebriefMeetingPage() {
   const params = useParams();
   const rawMeetingId = params.meetingId;
@@ -50,6 +60,13 @@ export default function DebriefMeetingPage() {
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [draftTitle, setDraftTitle] = useState<string>("");
   const [draftDescription, setDraftDescription] = useState<string>("");
+
+  const [emailModalOpen, setEmailModalOpen] = useState(false);
+  const [emailLoading, setEmailLoading] = useState(false);
+  const [emailError, setEmailError] = useState<string | null>(null);
+  const [emailSubject, setEmailSubject] = useState("");
+  const [emailBody, setEmailBody] = useState("");
+  const [emailCopied, setEmailCopied] = useState(false);
 
   const reloadMeeting = async () => {
     if (!meetingId) return;
@@ -155,6 +172,52 @@ export default function DebriefMeetingPage() {
     await reloadMeeting();
   };
 
+  const closeEmailModal = () => {
+    setEmailModalOpen(false);
+    setEmailLoading(false);
+    setEmailError(null);
+    setEmailSubject("");
+    setEmailBody("");
+    setEmailCopied(false);
+  };
+
+  const generateDraftEmail = async () => {
+    if (!meetingId) return;
+    setEmailLoading(true);
+    setEmailError(null);
+    setEmailCopied(false);
+
+    const response = await fetch(`/api/debrief/meetings/${meetingId}/draft-email`, { method: "POST" });
+    const json = (await response.json()) as { subject?: string; body?: string } & Partial<ApiError>;
+    if (!response.ok) {
+      setEmailLoading(false);
+      setEmailError(json.error?.message ?? "Unable to draft email");
+      return;
+    }
+
+    setEmailSubject(String(json.subject ?? "").trim());
+    setEmailBody(String(json.body ?? "").trim());
+    setEmailLoading(false);
+  };
+
+  const onOpenDraftEmail = async () => {
+    setEmailModalOpen(true);
+    if (!emailSubject && !emailBody) {
+      await generateDraftEmail();
+    }
+  };
+
+  const copyEmailText = async () => {
+    const text = `${emailSubject ? `Subject: ${emailSubject}\n\n` : ""}${emailBody}`;
+    try {
+      await navigator.clipboard.writeText(text);
+      setEmailCopied(true);
+      setTimeout(() => setEmailCopied(false), 1200);
+    } catch {
+      setEmailError("Copy failed. Your browser may block clipboard access.");
+    }
+  };
+
   if (loading) {
     return (
       <main className="rounded-3xl bg-white/95 p-8 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur">
@@ -206,6 +269,13 @@ export default function DebriefMeetingPage() {
               View Notes
             </a>
             <button
+              onClick={() => void onOpenDraftEmail()}
+              className="rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-[#0f172a] shadow transition hover:-translate-y-0.5 hover:shadow-lg"
+              disabled={meeting.status === "processing"}
+            >
+              Draft Email
+            </button>
+            <button
               onClick={onExtract}
               className="rounded-2xl bg-[#0a6fd6] px-4 py-3 text-sm font-semibold text-white shadow-[0_15px_30px_rgba(10,111,214,0.35)] transition hover:bg-[#0959ab]"
               disabled={extracting || meeting.status === "processing"}
@@ -234,6 +304,90 @@ export default function DebriefMeetingPage() {
           </p>
         ) : null}
       </div>
+
+      {emailModalOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4 py-8">
+          <div className="w-full max-w-3xl rounded-3xl bg-white p-6 shadow-2xl">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <h2 className="text-lg font-semibold text-[#0f172a]">Draft Email</h2>
+                <p className="mt-1 text-sm text-[#4c576f]">This draft is not saved. Close to discard.</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => void generateDraftEmail()}
+                  className="rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-[#0a6fd6] shadow transition hover:shadow-lg disabled:opacity-70"
+                  disabled={emailLoading}
+                >
+                  {emailLoading ? "Drafting…" : "Regenerate"}
+                </button>
+                <button
+                  onClick={closeEmailModal}
+                  className="rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-[#0f172a] shadow transition hover:shadow-lg"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+
+            {emailError ? (
+              <p className="mt-4 rounded-2xl border border-[#f87171]/40 bg-[#fee2e2] px-4 py-3 text-sm text-[#991b1b]">
+                {emailError}
+              </p>
+            ) : null}
+
+            <div className="mt-6 space-y-4">
+              <label className="block">
+                <div className="text-xs font-semibold uppercase tracking-wide text-[#4c576f]">Subject</div>
+                <input
+                  value={emailSubject}
+                  onChange={(e) => setEmailSubject(e.target.value)}
+                  className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-[#0f172a]"
+                  placeholder="Subject line"
+                  disabled={emailLoading}
+                />
+              </label>
+
+              <label className="block">
+                <div className="text-xs font-semibold uppercase tracking-wide text-[#4c576f]">Body</div>
+                <textarea
+                  value={emailBody}
+                  onChange={(e) => setEmailBody(e.target.value)}
+                  className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-[#0f172a]"
+                  rows={12}
+                  placeholder={emailLoading ? "Drafting…" : "Email body"}
+                  disabled={emailLoading}
+                />
+              </label>
+
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="text-xs text-[#4c576f]">Edit as needed, then copy or open Gmail compose.</div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    onClick={() => void copyEmailText()}
+                    className="rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-[#0f172a] shadow transition hover:shadow-lg disabled:opacity-70"
+                    disabled={!emailBody}
+                  >
+                    {emailCopied ? "Copied" : "Copy Text"}
+                  </button>
+                  <a
+                    href={buildGmailComposeUrl(emailSubject, emailBody)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="rounded-2xl bg-[#0a6fd6] px-4 py-3 text-sm font-semibold text-white shadow-[0_15px_30px_rgba(10,111,214,0.35)] transition hover:bg-[#0959ab] aria-disabled:opacity-70"
+                    aria-disabled={!emailBody}
+                    onClick={(e) => {
+                      if (!emailBody) e.preventDefault();
+                    }}
+                  >
+                    Send Draft to Gmail
+                  </a>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <div className="rounded-3xl bg-white/95 p-8 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur">
         <h2 className="text-lg font-semibold text-[#0f172a]">Extracted Tasks</h2>
