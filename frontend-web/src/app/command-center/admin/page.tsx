@@ -48,6 +48,13 @@ const getParam = (params: SearchParams | undefined, key: string): string | undef
   return Array.isArray(raw) ? raw[0] : raw;
 };
 
+const parseRangeDays = (value: unknown): number => {
+  const n = typeof value === "string" ? Number(value) : NaN;
+  if (!Number.isFinite(n)) return 7;
+  if (n === 7 || n === 30) return n;
+  return 7;
+};
+
 const sanitizeSearchQuery = (value: string): string => {
   // Keep this conservative because it becomes part of a PostgREST filter string.
   return value
@@ -93,13 +100,14 @@ export default async function CommandCenterAdminPage(props: { searchParams?: Sea
   const qRaw = getParam(props.searchParams, "q")?.trim() || "";
   const q = sanitizeSearchQuery(qRaw);
   const userId = getParam(props.searchParams, "user")?.trim() || "";
+  const rangeDays = parseRangeDays(getParam(props.searchParams, "range"));
 
   const supabase = createSupabaseServiceClient();
 
   // eslint-disable-next-line react-hooks/purity
   const now = Date.now();
   const since24h = new Date(now - 24 * 60 * 60 * 1000).toISOString();
-  const since7d = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const sinceRange = new Date(now - rangeDays * 24 * 60 * 60 * 1000).toISOString();
   const queuedOlderThan15m = new Date(now - 15 * 60 * 1000).toISOString();
 
   const [
@@ -129,12 +137,12 @@ export default async function CommandCenterAdminPage(props: { searchParams?: Sea
         const total = await supabase
           .from("usage_events")
           .select("id", { count: "exact", head: true })
-          .gte("occurred_at", since7d)
+          .gte("occurred_at", sinceRange)
           .eq("tool", tool);
         const errors = await supabase
           .from("usage_events")
           .select("id", { count: "exact", head: true })
-          .gte("occurred_at", since7d)
+          .gte("occurred_at", sinceRange)
           .eq("tool", tool)
           .eq("status", "error");
         return { tool, total: total.count ?? 0, errors: errors.count ?? 0 };
@@ -144,14 +152,14 @@ export default async function CommandCenterAdminPage(props: { searchParams?: Sea
       ? supabase
           .from("app_error_events")
           .select("id, occurred_at, tool, severity, message, route, method, status_code, request_id, user_id, user_email")
-          .gte("occurred_at", since7d)
+          .gte("occurred_at", sinceRange)
           .eq("tool", toolFilter)
           .order("occurred_at", { ascending: false })
           .limit(50)
       : supabase
           .from("app_error_events")
           .select("id, occurred_at, tool, severity, message, route, method, status_code, request_id, user_id, user_email")
-          .gte("occurred_at", since7d)
+          .gte("occurred_at", sinceRange)
           .order("occurred_at", { ascending: false })
           .limit(50),
     q
@@ -177,7 +185,7 @@ export default async function CommandCenterAdminPage(props: { searchParams?: Sea
       ? supabase
           .from("app_error_events")
           .select("id, occurred_at, tool, severity, message, route, method, status_code, request_id, user_id, user_email")
-          .gte("occurred_at", since7d)
+          .gte("occurred_at", sinceRange)
           .eq("user_id", userId)
           .order("occurred_at", { ascending: false })
           .limit(30)
@@ -298,6 +306,18 @@ export default async function CommandCenterAdminPage(props: { searchParams?: Sea
                 </option>
               ))}
             </select>
+            <label className="ml-2 text-xs font-semibold text-slate-500" htmlFor="range">
+              Range
+            </label>
+            <select
+              id="range"
+              name="range"
+              defaultValue={String(rangeDays)}
+              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm"
+            >
+              <option value="7">7d</option>
+              <option value="30">30d</option>
+            </select>
             {q ? <input type="hidden" name="q" value={q} /> : null}
             {userId ? <input type="hidden" name="user" value={userId} /> : null}
             <button
@@ -358,7 +378,7 @@ export default async function CommandCenterAdminPage(props: { searchParams?: Sea
             </tbody>
           </table>
         </div>
-        <div className="mt-3 text-xs text-slate-500">Showing last 7 days · max 50 rows</div>
+        <div className="mt-3 text-xs text-slate-500">Showing last {rangeDays} days · max 50 rows</div>
       </Card>
 
       <Card title="User Lookup">
@@ -376,6 +396,7 @@ export default async function CommandCenterAdminPage(props: { searchParams?: Sea
             />
           </div>
           {toolFilter ? <input type="hidden" name="tool" value={toolFilter} /> : null}
+          <input type="hidden" name="range" value={String(rangeDays)} />
           <button
             type="submit"
             className="rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-[#0a6fd6] shadow transition hover:-translate-y-0.5 hover:shadow-lg"
@@ -401,7 +422,7 @@ export default async function CommandCenterAdminPage(props: { searchParams?: Sea
             {profileMatchesData.map((p) => (
               <Link
                 key={p.id}
-                href={`/command-center/admin?user=${encodeURIComponent(p.id)}${toolFilter ? `&tool=${encodeURIComponent(toolFilter)}` : ""}`}
+                href={`/command-center/admin?user=${encodeURIComponent(p.id)}&range=${encodeURIComponent(String(rangeDays))}${toolFilter ? `&tool=${encodeURIComponent(toolFilter)}` : ""}`}
                 className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg"
               >
                 <div className="text-sm font-semibold text-[#0f172a]">{p.email}</div>
@@ -429,10 +450,15 @@ export default async function CommandCenterAdminPage(props: { searchParams?: Sea
             </div>
 
             <div className="mt-4">
-              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Recent Errors (7d)</div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Recent Errors ({rangeDays}d)
+              </div>
               <div className="mt-3 space-y-2">
                 {selectedErrorsData.length === 0 ? (
-                  <div className="text-sm text-slate-600">No errors recorded for this user.</div>
+                  <div className="text-sm text-slate-600">
+                    No errors recorded for this user in the last {rangeDays} days. If error logging was just enabled,
+                    this will remain empty until a request/job fails.
+                  </div>
                 ) : (
                   selectedErrorsData.map((e) => (
                     <div key={e.id} className="rounded-xl border border-slate-200 px-3 py-2">
