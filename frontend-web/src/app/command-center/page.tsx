@@ -27,6 +27,12 @@ export default function CommandCenterHome() {
           >
             Tokens
           </Link>
+          <Link
+            href="/command-center/admin"
+            className="rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-[#0a6fd6] shadow transition hover:-translate-y-0.5 hover:shadow-lg"
+          >
+            Admin
+          </Link>
         </div>
       </div>
     </main>
