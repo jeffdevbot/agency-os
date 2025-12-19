@@ -115,6 +115,8 @@ async def process_campaign_report(
         {
             "user_id": user.get("sub"),
             "user_email": user.get("email"),
+            "tool": "root",
+            "action": "process",
             "file_name": file.filename,
             "file_size_bytes": total,
             "rows_processed": rows_processed,

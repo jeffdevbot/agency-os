@@ -25,10 +25,12 @@ order by ordinal_position;
 | `file_size_bytes`| `bigint`                     | YES      | —                  | Raw upload size |
 | `rows_processed` | `integer`                    | YES      | —                  | Domain-specific metric (e.g., rows parsed) |
 | `campaigns`      | `integer`                    | YES      | —                  | Domain-specific metric (e.g., campaign count) |
+| `tool`           | `text`                       | YES      | —                  | Tool identifier (e.g., `ngram`, `npat`, `root`, `adscope`) |
 | `status`         | `text`                       | YES      | —                  | Outcome string (`success`, `error`, …) |
 | `duration_ms`    | `integer`                    | YES      | —                  | Processing latency |
 | `app_version`    | `text`                       | YES      | —                  | Git/semantic version recorded by tool |
+| `meta`           | `jsonb`                      | NO       | `'{}'::jsonb`      | Tool-specific metrics (e.g., `rows_emitted`, memory, etc.) |
 
 When adding new tools:
 - Reuse this table for activity logging by inserting a row with the relevant metrics (unused columns can stay `NULL`).
-- If new metrics are needed, document schema changes here before altering Supabase.
+- Prefer adding new metrics to `meta` (JSON) rather than adding columns.

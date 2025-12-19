@@ -115,6 +115,8 @@ async def process_report(
         {
             "user_id": user.get("sub"),
             "user_email": user.get("email"),
+            "tool": "npat",
+            "action": "process",
             "file_name": file.filename,
             "file_size_bytes": total,
             "rows_processed": int(df.shape[0]),
@@ -238,6 +240,8 @@ async def collect_negatives(
         {
             "user_id": user.get("sub"),
             "user_email": user.get("email"),
+            "tool": "npat",
+            "action": "collect",
             "file_name": file.filename,
             "status": "success",
             "rows_emitted": len(rows_out) - 1,
