@@ -48,6 +48,16 @@ const getParam = (params: SearchParams | undefined, key: string): string | undef
   return Array.isArray(raw) ? raw[0] : raw;
 };
 
+const sanitizeSearchQuery = (value: string): string => {
+  // Keep this conservative because it becomes part of a PostgREST filter string.
+  return value
+    .trim()
+    .replace(/\s+/g, " ")
+    .replace(/[(),]/g, " ")
+    .replace(/\s+/g, " ")
+    .slice(0, 120);
+};
+
 const Card = (props: { title: string; children: React.ReactNode; right?: React.ReactNode }) => (
   <section className="rounded-3xl bg-white/95 p-8 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur">
     <div className="flex flex-wrap items-baseline justify-between gap-3">
@@ -80,7 +90,8 @@ const pct = (num: number, den: number): string => {
 
 export default async function CommandCenterAdminPage(props: { searchParams?: SearchParams }) {
   const toolFilter = getParam(props.searchParams, "tool")?.trim() || "";
-  const q = getParam(props.searchParams, "q")?.trim() || "";
+  const qRaw = getParam(props.searchParams, "q")?.trim() || "";
+  const q = sanitizeSearchQuery(qRaw);
   const userId = getParam(props.searchParams, "user")?.trim() || "";
 
   const supabase = createSupabaseServiceClient();
@@ -149,7 +160,7 @@ export default async function CommandCenterAdminPage(props: { searchParams?: Sea
           .select(
             "id, email, full_name, display_name, is_admin, role, allowed_tools, employment_status, bench_status, clickup_user_id, slack_user_id, updated_at",
           )
-          .ilike("email", `%${q}%`)
+          .or(`email.ilike.%${q}%,display_name.ilike.%${q}%,full_name.ilike.%${q}%`)
           .order("updated_at", { ascending: false })
           .limit(10)
       : Promise.resolve({ data: [] as ProfileRow[], error: null }),
@@ -191,6 +202,10 @@ export default async function CommandCenterAdminPage(props: { searchParams?: Sea
   const errorsData = (recentErrors.data ?? []) as AppErrorEvent[];
   const selectedErrorsData = (selectedUserErrors.data ?? []) as AppErrorEvent[];
   const profileMatchesData = (profileMatches.data ?? []) as ProfileRow[];
+  const profileSearchError =
+    q && profileMatches.error ? (profileMatches.error as unknown as { message?: string }).message : null;
+  const selectedProfileError =
+    userId && selectedProfile.error ? (selectedProfile.error as unknown as { message?: string }).message : null;
 
   const toolOptions = ["", "scribe", "debrief", "adscope", "ngram", "npat", "root", "clickup"];
 
@@ -350,13 +365,13 @@ export default async function CommandCenterAdminPage(props: { searchParams?: Sea
         <form method="get" className="flex flex-wrap items-end gap-3">
           <div className="min-w-[260px] flex-1">
             <label className="text-xs font-semibold text-slate-500" htmlFor="q">
-              Search by email
+              Search by email or name
             </label>
             <input
               id="q"
               name="q"
               defaultValue={q}
-              placeholder="e.g. jeff@…"
+              placeholder="e.g. jeff@… or Jeff"
               className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 shadow-sm"
             />
           </div>
@@ -369,9 +384,17 @@ export default async function CommandCenterAdminPage(props: { searchParams?: Sea
           </button>
         </form>
 
-        {q && profileMatchesData.length === 0 ? (
-          <div className="mt-4 text-sm text-slate-600">No matching users.</div>
-        ) : null}
+        {profileSearchError ? (
+          <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            User search error: {profileSearchError}
+          </div>
+        ) : q ? (
+          <div className="mt-4 text-sm text-slate-600">
+            Results for “{q}”: {profileMatchesData.length}
+          </div>
+        ) : (
+          <div className="mt-4 text-sm text-slate-600">Search to find a user, then click to view details.</div>
+        )}
 
         {profileMatchesData.length > 0 ? (
           <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -426,6 +449,10 @@ export default async function CommandCenterAdminPage(props: { searchParams?: Sea
                 )}
               </div>
             </div>
+          </div>
+        ) : selectedProfileError ? (
+          <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            User details error: {selectedProfileError}
           </div>
         ) : null}
       </Card>
