@@ -5,6 +5,7 @@ import { isUuid } from "@/lib/command-center/validators";
 import { createChatCompletion, parseJSONResponse, type ChatMessage } from "@/lib/composer/ai/openai";
 import { exportGoogleDocAsText } from "@/lib/debrief/googleDrive";
 import { logUsage } from "@/lib/ai/usageLogger";
+import { logAppError } from "@/lib/ai/errorLogger";
 
 export const runtime = "nodejs";
 
@@ -39,6 +40,8 @@ export async function POST(
   const { meetingId } = await params;
   const url = new URL(request.url);
   const replace = url.searchParams.get("replace") === "1";
+  const requestId = request.headers.get("x-request-id") ?? undefined;
+  const route = url.pathname;
 
   if (!isUuid(meetingId)) {
     return NextResponse.json(
@@ -266,6 +269,17 @@ export async function POST(
     return NextResponse.json({ extracted: rows.length });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    await logAppError({
+      tool: "debrief",
+      route,
+      method: request.method,
+      statusCode: 500,
+      requestId,
+      userId: sessionResult.user.id,
+      userEmail: sessionResult.user.email,
+      message,
+      meta: { meetingId, googleDocId: meeting.google_doc_id, replace, type: "extract_failed" },
+    });
     await supabase
       .from("debrief_meeting_notes")
       .update({ status: "failed", extraction_error: message })

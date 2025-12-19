@@ -3,11 +3,12 @@ import { createSupabaseRouteClient } from "@/lib/supabase/serverClient";
 import { requireAdmin, requireSession } from "@/lib/command-center/auth";
 import { isUuid } from "@/lib/command-center/validators";
 import { createClickUpTask } from "@/lib/clickup/api";
+import { logAppError } from "@/lib/ai/errorLogger";
 
 export const runtime = "nodejs";
 
 export async function POST(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ meetingId: string }> },
 ) {
   const { meetingId } = await params;
@@ -195,6 +196,28 @@ export async function POST(
 
   if (allSent && failed === 0) {
     await supabase.from("debrief_meeting_notes").update({ status: "processed" }).eq("id", meetingId);
+  }
+
+  if (failed > 0) {
+    await logAppError({
+      tool: "debrief",
+      route: new URL(request.url).pathname,
+      method: request.method,
+      statusCode: 500,
+      requestId: request.headers.get("x-request-id") ?? undefined,
+      userId: sessionResult.user.id,
+      userEmail: sessionResult.user.email,
+      message: `ClickUp send failed for ${failed} task(s)`,
+      meta: {
+        meetingId,
+        attempted,
+        created,
+        skipped,
+        failed,
+        type: "clickup_send_failed",
+        sampleErrors: results.filter((r) => r.error).slice(0, 20),
+      },
+    });
   }
 
   return NextResponse.json({

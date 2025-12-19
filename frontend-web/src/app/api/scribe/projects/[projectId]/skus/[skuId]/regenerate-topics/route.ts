@@ -1,16 +1,23 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createSupabaseRouteClient } from "@/lib/supabase/serverClient";
 import { processTopicsJob } from "@/lib/scribe/jobProcessor";
+import { logAppError } from "@/lib/ai/errorLogger";
 
 const isUuid = (value: unknown): value is string =>
   typeof value === "string" &&
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 
 export async function POST(
-  _request: NextRequest,
+  request: NextRequest,
   context: { params: Promise<{ projectId?: string; skuId?: string }> },
 ) {
-  const { projectId, skuId } = await context.params;
+  const requestId = request.headers.get("x-request-id") ?? undefined;
+  const route = new URL(request.url).pathname;
+  let userId: string | undefined;
+  let userEmail: string | undefined;
+
+  try {
+    const { projectId, skuId } = await context.params;
 
   if (!isUuid(projectId)) {
     return NextResponse.json(
@@ -30,6 +37,9 @@ export async function POST(
   const {
     data: { session },
   } = await supabase.auth.getSession();
+
+  userId = session?.user?.id;
+  userEmail = session?.user?.email;
 
   if (!session) {
     return NextResponse.json({ error: { code: "unauthorized", message: "Unauthorized" } }, { status: 401 });
@@ -105,7 +115,36 @@ export async function POST(
   // Trigger job processing asynchronously (don't await - let it run in background)
   void processTopicsJob(job.id).catch((error) => {
     console.error(`Background job processing failed for job ${job.id}:`, error);
+    void logAppError({
+      tool: "scribe",
+      route,
+      method: request.method,
+      statusCode: 500,
+      requestId,
+      userId,
+      userEmail,
+      message: error instanceof Error ? error.message : String(error),
+      meta: { jobId: job.id, projectId, skuId, stage: "stage_b", type: "background_job_failure" },
+    });
   });
 
   return NextResponse.json({ jobId: job.id });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await logAppError({
+      tool: "scribe",
+      route,
+      method: request.method,
+      statusCode: 500,
+      requestId,
+      userId,
+      userEmail,
+      message,
+      meta: { type: "route_error" },
+    });
+    return NextResponse.json(
+      { error: { code: "server_error", message } },
+      { status: 500 },
+    );
+  }
 }

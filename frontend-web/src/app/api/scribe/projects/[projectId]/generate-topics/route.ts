@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createSupabaseRouteClient } from "@/lib/supabase/serverClient";
 import { processTopicsJob } from "@/lib/scribe/jobProcessor";
+import { logAppError } from "@/lib/ai/errorLogger";
 
 const isUuid = (value: unknown): value is string =>
   typeof value === "string" &&
@@ -14,30 +15,39 @@ export async function POST(
   request: NextRequest,
   context: { params: Promise<{ projectId?: string }> },
 ) {
-  const { projectId } = await context.params;
-  if (!isUuid(projectId)) {
-    return NextResponse.json(
-      { error: { code: "validation_error", message: "invalid project id" } },
-      { status: 400 },
-    );
-  }
+  const requestId = request.headers.get("x-request-id") ?? undefined;
+  const route = new URL(request.url).pathname;
+  let userId: string | undefined;
+  let userEmail: string | undefined;
 
-  const supabase = await createSupabaseRouteClient();
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-
-  if (!session) {
-    return NextResponse.json({ error: { code: "unauthorized", message: "Unauthorized" } }, { status: 401 });
-  }
-
-  // Parse request body
-  let payload: GenerateTopicsPayload = {};
   try {
-    payload = (await request.json()) as GenerateTopicsPayload;
-  } catch {
-    // Empty body is fine - will use all SKUs
-  }
+    const { projectId } = await context.params;
+    if (!isUuid(projectId)) {
+      return NextResponse.json(
+        { error: { code: "validation_error", message: "invalid project id" } },
+        { status: 400 },
+      );
+    }
+
+    const supabase = await createSupabaseRouteClient();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    userId = session?.user?.id;
+    userEmail = session?.user?.email;
+
+    if (!session) {
+      return NextResponse.json({ error: { code: "unauthorized", message: "Unauthorized" } }, { status: 401 });
+    }
+
+    // Parse request body
+    let payload: GenerateTopicsPayload = {};
+    try {
+      payload = (await request.json()) as GenerateTopicsPayload;
+    } catch {
+      // Empty body is fine - will use all SKUs
+    }
 
   // Fetch project and verify ownership
   const { data: project, error: fetchError } = await supabase
@@ -128,7 +138,36 @@ export async function POST(
   // Trigger job processing asynchronously (don't await - let it run in background)
   void processTopicsJob(job.id).catch((error) => {
     console.error(`Background job processing failed for job ${job.id}:`, error);
+    void logAppError({
+      tool: "scribe",
+      route,
+      method: request.method,
+      statusCode: 500,
+      requestId,
+      userId,
+      userEmail,
+      message: error instanceof Error ? error.message : String(error),
+      meta: { jobId: job.id, projectId, stage: "stage_b", type: "background_job_failure" },
+    });
   });
 
   return NextResponse.json({ jobId: job.id });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await logAppError({
+      tool: "scribe",
+      route,
+      method: request.method,
+      statusCode: 500,
+      requestId,
+      userId,
+      userEmail,
+      message,
+      meta: { type: "route_error" },
+    });
+    return NextResponse.json(
+      { error: { code: "server_error", message } },
+      { status: 500 },
+    );
+  }
 }

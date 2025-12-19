@@ -233,6 +233,7 @@ ${wastedSpendSummary}`;
 
 import { createSupabaseRouteClient } from "@/lib/supabase/serverClient";
 import { logUsage } from "@/lib/ai/usageLogger";
+import { logAppError } from "@/lib/ai/errorLogger";
 
 export async function POST(request: Request) {
   try {
@@ -305,6 +306,15 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     console.error("AdScope chat API error:", error);
+    await logAppError({
+      tool: "adscope",
+      route: new URL(request.url).pathname,
+      method: request.method,
+      statusCode: 500,
+      requestId: request.headers.get("x-request-id") ?? undefined,
+      message: error instanceof Error ? error.message : "Chat request failed",
+      meta: { type: "chat_route_error" },
+    });
     return NextResponse.json(
       { detail: error instanceof Error ? error.message : "Chat request failed" },
       { status: 500 },

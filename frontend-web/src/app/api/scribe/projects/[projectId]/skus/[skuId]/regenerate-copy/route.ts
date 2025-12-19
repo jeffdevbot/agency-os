@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createSupabaseRouteClient } from "@/lib/supabase/serverClient";
 import { processCopyJob } from "@/lib/scribe/jobProcessor";
+import { logAppError } from "@/lib/ai/errorLogger";
 
 const isUuid = (value: unknown): value is string =>
   typeof value === "string" &&
@@ -14,33 +15,42 @@ export async function POST(
   request: NextRequest,
   context: { params: Promise<{ projectId?: string; skuId?: string }> },
 ) {
-  const { projectId, skuId } = await context.params;
+  const requestId = request.headers.get("x-request-id") ?? undefined;
+  const route = new URL(request.url).pathname;
+  let userId: string | undefined;
+  let userEmail: string | undefined;
 
-  if (!isUuid(projectId)) {
-    return NextResponse.json(
-      { error: { code: "validation_error", message: "invalid project id" } },
-      { status: 400 },
-    );
-  }
+  try {
+    const { projectId, skuId } = await context.params;
 
-  if (!isUuid(skuId)) {
-    return NextResponse.json(
-      { error: { code: "validation_error", message: "invalid sku id" } },
-      { status: 400 },
-    );
-  }
+    if (!isUuid(projectId)) {
+      return NextResponse.json(
+        { error: { code: "validation_error", message: "invalid project id" } },
+        { status: 400 },
+      );
+    }
 
-  const supabase = await createSupabaseRouteClient();
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
+    if (!isUuid(skuId)) {
+      return NextResponse.json(
+        { error: { code: "validation_error", message: "invalid sku id" } },
+        { status: 400 },
+      );
+    }
 
-  if (!session) {
-    return NextResponse.json(
-      { error: { code: "unauthorized", message: "Unauthorized" } },
-      { status: 401 },
-    );
-  }
+    const supabase = await createSupabaseRouteClient();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    userId = session?.user?.id;
+    userEmail = session?.user?.email;
+
+    if (!session) {
+      return NextResponse.json(
+        { error: { code: "unauthorized", message: "Unauthorized" } },
+        { status: 401 },
+      );
+    }
 
   // Parse request body
   const body = (await request.json().catch(() => ({}))) as RegenerateCopyPayload;
@@ -153,7 +163,36 @@ export async function POST(
   // Trigger job processing asynchronously
   void processCopyJob(job.id).catch((error) => {
     console.error(`Background job processing failed for job ${job.id}:`, error);
+    void logAppError({
+      tool: "scribe",
+      route,
+      method: request.method,
+      statusCode: 500,
+      requestId,
+      userId,
+      userEmail,
+      message: error instanceof Error ? error.message : String(error),
+      meta: { jobId: job.id, projectId, skuId, stage: "stage_c", type: "background_job_failure" },
+    });
   });
 
   return NextResponse.json({ jobId: job.id });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await logAppError({
+      tool: "scribe",
+      route,
+      method: request.method,
+      statusCode: 500,
+      requestId,
+      userId,
+      userEmail,
+      message,
+      meta: { type: "route_error" },
+    });
+    return NextResponse.json(
+      { error: { code: "server_error", message } },
+      { status: 500 },
+    );
+  }
 }

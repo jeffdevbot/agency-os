@@ -4,6 +4,7 @@ import { requireSession } from "@/lib/command-center/auth";
 import { isUuid } from "@/lib/command-center/validators";
 import { createChatCompletion, parseJSONResponse, type ChatMessage } from "@/lib/composer/ai/openai";
 import { logUsage } from "@/lib/ai/usageLogger";
+import { logAppError } from "@/lib/ai/errorLogger";
 
 export const runtime = "nodejs";
 
@@ -143,15 +144,26 @@ export async function POST(
 
     return NextResponse.json({ subject, body });
   } catch (error) {
+    const message = error instanceof Error ? error.message : "Draft email generation failed";
+    await logAppError({
+      tool: "debrief",
+      route: new URL(request.url).pathname,
+      method: request.method,
+      statusCode: 500,
+      requestId: request.headers.get("x-request-id") ?? undefined,
+      userId: sessionResult.user.id,
+      userEmail: sessionResult.user.email,
+      message,
+      meta: { meetingId, googleDocId: meeting?.google_doc_id, type: "draft_email_failed" },
+    });
     return NextResponse.json(
       {
         error: {
           code: "server_error",
-          message: error instanceof Error ? error.message : "Draft email generation failed",
+          message,
         },
       },
       { status: 500 },
     );
   }
 }
-

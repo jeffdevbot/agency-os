@@ -1,14 +1,17 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServiceClient } from "@/lib/supabase/serverClient";
 import { processTopicsJob } from "@/lib/scribe/jobProcessor";
+import { logAppError } from "@/lib/ai/errorLogger";
 
 /**
  * Job processor endpoint
  * This endpoint processes queued Scribe generation jobs
  * Can be called manually or by a cron job
  */
-export async function POST() {
+export async function POST(request: Request) {
   const supabase = createSupabaseServiceClient();
+  const requestId = request.headers.get("x-request-id") ?? undefined;
+  const route = new URL(request.url).pathname;
 
   try {
     // Fetch all queued jobs
@@ -49,6 +52,15 @@ export async function POST() {
         const errorMessage = error instanceof Error ? error.message : String(error);
         results.push({ jobId: job.id, status: "error", error: errorMessage });
         console.error(`Failed to process job ${job.id}:`, errorMessage);
+        await logAppError({
+          tool: "scribe",
+          route,
+          method: request.method,
+          statusCode: 500,
+          requestId,
+          message: errorMessage,
+          meta: { jobId: job.id, jobType: job.job_type, type: "job_processor_error" },
+        });
       }
     }
 
@@ -58,11 +70,21 @@ export async function POST() {
       results,
     });
   } catch (error) {
+    const message = error instanceof Error ? error.message : "Job processing failed";
+    await logAppError({
+      tool: "scribe",
+      route,
+      method: request.method,
+      statusCode: 500,
+      requestId,
+      message,
+      meta: { type: "job_processor_route_error" },
+    });
     return NextResponse.json(
       {
         error: {
           code: "server_error",
-          message: error instanceof Error ? error.message : "Job processing failed",
+          message,
         },
       },
       { status: 500 },

@@ -2,6 +2,7 @@ import { createSupabaseServiceClient } from "@/lib/supabase/serverClient";
 import { generateTopicsForSku } from "./topicsGenerator";
 import { generateCopyForSku, type TitleGenerationMode } from "./copyGenerator";
 import { logUsage } from "@/lib/ai/usageLogger";
+import { logAppError } from "@/lib/ai/errorLogger";
 import { assembleTitle, computeFixedTitleAndRemaining, parseTitleBlueprint, type SkuTitleData, type TitleBlueprint } from "./titleBlueprint";
 
 interface JobPayload {
@@ -33,6 +34,12 @@ type FormatPreferences = {
   bulletCapsHeaders?: boolean;
   descriptionParagraphs?: boolean;
 } | null;
+
+const summarizeSkuErrors = (errors: Record<string, string>): Array<{ skuId: string; error: string }> => {
+  return Object.entries(errors)
+    .slice(0, 20)
+    .map(([skuId, error]) => ({ skuId, error }));
+};
 
 export const processTopicsJob = async (jobId: string): Promise<void> => {
   const supabase = createSupabaseServiceClient();
@@ -100,6 +107,21 @@ export const processTopicsJob = async (jobId: string): Promise<void> => {
       totalCount: skuIds.length,
     };
 
+    if (finalStatus === "failed") {
+      await logAppError({
+        tool: "scribe",
+        message: `Topics job failed for ${Object.keys(errors).length} SKU(s)`,
+        meta: {
+          type: "scribe_topics_job_failed",
+          jobId,
+          projectId,
+          successCount,
+          totalCount: skuIds.length,
+          skuErrors: summarizeSkuErrors(errors),
+        },
+      });
+    }
+
     await supabase
       .from("scribe_generation_jobs")
       .update({
@@ -113,12 +135,18 @@ export const processTopicsJob = async (jobId: string): Promise<void> => {
       })
       .eq("id", jobId);
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await logAppError({
+      tool: "scribe",
+      message,
+      meta: { type: "scribe_topics_job_fatal", jobId, projectId },
+    });
     // Fatal error - mark job as failed
     await supabase
       .from("scribe_generation_jobs")
       .update({
         status: "failed",
-        error_message: error instanceof Error ? error.message : String(error),
+        error_message: message,
         completed_at: new Date().toISOString(),
       })
       .eq("id", jobId);
@@ -317,6 +345,21 @@ export const processCopyJob = async (jobId: string): Promise<void> => {
       totalCount: skuIds.length,
     };
 
+    if (finalStatus === "failed") {
+      await logAppError({
+        tool: "scribe",
+        message: `Copy job failed for ${Object.keys(errors).length} SKU(s)`,
+        meta: {
+          type: "scribe_copy_job_failed",
+          jobId,
+          projectId,
+          successCount,
+          totalCount: skuIds.length,
+          skuErrors: summarizeSkuErrors(errors),
+        },
+      });
+    }
+
     await supabase
       .from("scribe_generation_jobs")
       .update({
@@ -330,12 +373,18 @@ export const processCopyJob = async (jobId: string): Promise<void> => {
       })
       .eq("id", jobId);
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await logAppError({
+      tool: "scribe",
+      message,
+      meta: { type: "scribe_copy_job_fatal", jobId, projectId },
+    });
     // Fatal error - mark job as failed
     await supabase
       .from("scribe_generation_jobs")
       .update({
         status: "failed",
-        error_message: error instanceof Error ? error.message : String(error),
+        error_message: message,
         completed_at: new Date().toISOString(),
       })
       .eq("id", jobId);
