@@ -7,7 +7,7 @@
 Ecomlabs Tools is an internal platform for an Amazon/e-commerce marketing agency. It consolidates ad analytics, content creation, and ops tools into a single authenticated dashboard at `tools.ecomlabs.ca`.
 
 **Stack:**
-- **Frontend:** Next.js 14 + Tailwind CSS + TypeScript (`frontend-web/`)
+- **Frontend:** Next.js 16 (App Router) + React 19 + Tailwind CSS v4 + TypeScript (`frontend-web/`)
 - **Backend:** FastAPI + Python (`backend-core/`)
 - **Database/Auth:** Supabase (Google SSO, PostgreSQL with RLS)
 - **Deployment:** Render (Virginia region)
@@ -30,10 +30,10 @@ agency-os/
 ├── backend-core/          # FastAPI backend
 │   ├── app/routers/       # API endpoints (ngram, npat, adscope, root, clickup)
 │   └── app/services/      # Business logic per tool
-├── worker-sync/           # Background jobs (nightly syncs)
+├── lib/                   # Misc shared scripts/utilities (non-app)
 ├── supabase/migrations/   # Database migrations (timestamped SQL)
 ├── docs/                  # PRDs and specs (may be outdated; code is the spec)
-└── project_status.md      # Changelog of recent work
+└── PROJECT_STATUS.md      # Changelog of recent work
 ```
 
 ## Tools in production
@@ -58,7 +58,7 @@ npm install
 npm run dev          # starts on http://localhost:3000
 ```
 
-Requires `.env.local` with Supabase keys. Copy from Render env group or ask a teammate.
+Requires `frontend-web/.env.local`. Start from `frontend-web/.env.example` and fill values from Render env group (or ask a teammate).
 
 ### Backend (FastAPI)
 
@@ -72,7 +72,7 @@ pip install -r backend-core/requirements.txt
 
 # Export required env vars (get values from Render env group)
 export SUPABASE_URL="https://iqkmygvncovwdxagewal.supabase.co"
-export SUPABASE_SERVICE_ROLE="<from-render>"
+export SUPABASE_SERVICE_ROLE_KEY="<from-render>"  # preferred name (legacy: SUPABASE_SERVICE_ROLE also supported)
 export SUPABASE_JWT_SECRET="<from-render>"
 export OPENAI_API_KEY="<from-render>"
 export ENABLE_USAGE_LOGGING=1
@@ -102,6 +102,7 @@ npm run test:run -- -t "pattern"  # run specific tests
 
 ```bash
 source backend-core/.venv/bin/activate
+pip install pytest            # dev dependency (not pinned in requirements.txt yet)
 pytest backend-core/         # run all backend tests
 pytest backend-core/tests/test_ngram_analytics.py  # specific file
 ```
@@ -112,6 +113,7 @@ pytest backend-core/tests/test_ngram_analytics.py  # specific file
 # Frontend: lint + type check + tests
 npm -C frontend-web run lint
 npm -C frontend-web run build   # catches type errors
+npm -C frontend-web run typecheck
 npm -C frontend-web run test:run
 
 # Backend
@@ -138,8 +140,8 @@ pytest backend-core/
 
 - Each tool has a router in `backend-core/app/routers/<tool>.py`
 - Business logic in `backend-core/app/services/<tool>/`
-- All endpoints require auth via `user=Depends(require_user)`
-- File uploads stream in chunks with 40MB cap (`MAX_UPLOAD_MB`)
+- Tool endpoints require auth via `user=Depends(require_user)` (health checks do not)
+- File uploads stream in chunks with `MAX_UPLOAD_MB` defaulting to 40MB (override via env)
 - Log AI usage via `usage_logger` for token tracking
 
 ### Database
@@ -150,8 +152,9 @@ pytest backend-core/
 
 ### Auth patterns
 
-- Server-side: use `supabase.auth.getUser()` (verified) not `getSession()` (unverified)
-- Client-side: `getSession()` is fine for initial checks
+- Server-side authorization: prefer `supabase.auth.getUser()` (verified identity) when making access-control decisions.
+- Some legacy route handlers still use `getSession()`; be careful when changing auth flows (avoid breaking cookie/session behavior).
+- Client-side: `getSession()` is fine for initial checks.
 - Admin-only routes check `profile.team_role === 'admin'`
 
 ## Deployment
@@ -159,11 +162,15 @@ pytest backend-core/
 **Render services:**
 - `frontend-web` → `tools.ecomlabs.ca`
 - `backend-core` → API server
-- `worker-sync` → background jobs
+- Background jobs: not present in this repo (historically referenced as `worker-sync`)
 
 **Env group:** `agency-os-env-var` (shared across all services)
 
-Key env vars: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_JWT_SECRET`, `OPENAI_API_KEY`, `OPENAI_MODEL_PRIMARY`, `OPENAI_MODEL_FALLBACK`, `NEXT_PUBLIC_BACKEND_URL`
+Key env vars:
+- Supabase: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_JWT_SECRET`
+- Backend: `NEXT_PUBLIC_BACKEND_URL`, `BACKEND_ALLOWED_ORIGINS`, `MAX_UPLOAD_MB`, `APP_VERSION`
+- OpenAI: `OPENAI_API_KEY`, `OPENAI_MODEL_PRIMARY`, `OPENAI_MODEL_FALLBACK`
+- OpenAI admin spend view (optional): `OPENAI_ADMIN_API_KEY`, `OPENAI_ORG_ID`
 
 Deploys trigger automatically on push to main. Check Render dashboard for build logs if deploys fail.
 
@@ -183,4 +190,4 @@ Legacy code in `_legacy_v1` folders or `docs/archive/` can be ignored.
 
 ## Changelog
 
-See [project_status.md](project_status.md) for recent accomplishments and history.
+See [PROJECT_STATUS.md](PROJECT_STATUS.md) for recent accomplishments and history.

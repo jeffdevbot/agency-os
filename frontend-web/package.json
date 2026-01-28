@@ -22,12 +22,16 @@
     "framer-motion": "^12.23.26",
     "google-auth-library": "^10.5.0",
     "lucide-react": "^0.560.0",
-    "next": "^16.0.7",
+    "next": "^16.1.6",
     "posthog-js": "^1.302.2",
     "react": "19.2.0",
     "react-dom": "19.2.0",
     "react-markdown": "^10.1.0",
-    "recharts": "^3.5.1"
+    "recharts": "^3.5.1",
+    "server-only": "^0.0.1"
+  },
+  "overrides": {
+    "preact": "10.28.2"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -40,7 +44,7 @@
     "@types/react-dom": "^19",
     "@vitest/coverage-v8": "^3.2.4",
     "eslint": "^9",
-    "eslint-config-next": "16.0.3",
+    "eslint-config-next": "16.1.6",
     "jsdom": "^27.0.1",
     "tailwindcss": "^4",
     "typescript": "^5",

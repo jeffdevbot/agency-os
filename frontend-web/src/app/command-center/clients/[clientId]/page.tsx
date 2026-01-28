@@ -170,10 +170,14 @@ function BrandModal(props: {
   brandName: string;
   brandKeywords: string;
   marketplaces: string[];
+  clickupSpaceId: string;
+  clickupListId: string;
   onClose: () => void;
   onChangeName: (value: string) => void;
   onChangeKeywords: (value: string) => void;
   onChangeMarketplaces: (value: string[]) => void;
+  onChangeClickupSpaceId: (value: string) => void;
+  onChangeClickupListId: (value: string) => void;
   onSubmit: () => void;
 }) {
   const {
@@ -184,10 +188,14 @@ function BrandModal(props: {
     brandName,
     brandKeywords,
     marketplaces,
+    clickupSpaceId,
+    clickupListId,
     onClose,
     onChangeName,
     onChangeKeywords,
     onChangeMarketplaces,
+    onChangeClickupSpaceId,
+    onChangeClickupListId,
     onSubmit,
   } = props;
 
@@ -244,6 +252,32 @@ function BrandModal(props: {
           </div>
         </div>
 
+        <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
+          <label className="space-y-1">
+            <div className="text-xs font-semibold uppercase tracking-wide text-[#4c576f]">ClickUp Space ID (Brand)</div>
+            <input
+              value={clickupSpaceId}
+              onChange={(event) => onChangeClickupSpaceId(event.target.value)}
+              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm"
+              placeholder="e.g. 123456789"
+              disabled={saving}
+            />
+          </label>
+
+          <label className="space-y-1">
+            <div className="text-xs font-semibold uppercase tracking-wide text-[#4c576f]">
+              ClickUp List ID (Preferred)
+            </div>
+            <input
+              value={clickupListId}
+              onChange={(event) => onChangeClickupListId(event.target.value)}
+              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm"
+              placeholder="e.g. 987654321"
+              disabled={saving}
+            />
+          </label>
+        </div>
+
         <div className="mt-8 flex items-center justify-end gap-2">
           <button
             type="button"
@@ -282,11 +316,15 @@ export default function CommandCenterClientDetailPage() {
   const [newBrandName, setNewBrandName] = useState("");
   const [newBrandKeywords, setNewBrandKeywords] = useState("");
   const [newBrandMarketplaces, setNewBrandMarketplaces] = useState<string[]>([]);
+  const [newBrandClickupSpaceId, setNewBrandClickupSpaceId] = useState("");
+  const [newBrandClickupListId, setNewBrandClickupListId] = useState("");
 
   const [editingBrandId, setEditingBrandId] = useState<string | null>(null);
   const [editBrandName, setEditBrandName] = useState("");
   const [editBrandKeywords, setEditBrandKeywords] = useState("");
   const [editBrandMarketplaces, setEditBrandMarketplaces] = useState<string[]>([]);
+  const [editBrandClickupSpaceId, setEditBrandClickupSpaceId] = useState("");
+  const [editBrandClickupListId, setEditBrandClickupListId] = useState("");
   const [brandModalOpen, setBrandModalOpen] = useState(false);
   const [brandModalMode, setBrandModalMode] = useState<"create" | "edit">("create");
   const [assigningKeys, setAssigningKeys] = useState<string[]>([]);
@@ -454,6 +492,8 @@ export default function CommandCenterClientDetailPage() {
     setEditBrandName(brand.name);
     setEditBrandKeywords((brand.productKeywords ?? []).join(", "));
     setEditBrandMarketplaces(brand.amazonMarketplaces ?? []);
+    setEditBrandClickupSpaceId(brand.clickupSpaceId ?? "");
+    setEditBrandClickupListId(brand.clickupListId ?? "");
     setBrandModalMode("edit");
     setBrandModalOpen(true);
   };
@@ -463,6 +503,8 @@ export default function CommandCenterClientDetailPage() {
     setEditBrandName("");
     setEditBrandKeywords("");
     setEditBrandMarketplaces([]);
+    setEditBrandClickupSpaceId("");
+    setEditBrandClickupListId("");
   };
 
   const onSaveBrandEdit = async () => {
@@ -483,6 +525,8 @@ export default function CommandCenterClientDetailPage() {
         name: editBrandName,
         productKeywords: keywords,
         amazonMarketplaces: editBrandMarketplaces,
+        clickupSpaceId: editBrandClickupSpaceId,
+        clickupListId: editBrandClickupListId,
       }),
     });
 
@@ -515,6 +559,8 @@ export default function CommandCenterClientDetailPage() {
         name: newBrandName,
         productKeywords: keywords,
         amazonMarketplaces: newBrandMarketplaces,
+        clickupSpaceId: newBrandClickupSpaceId,
+        clickupListId: newBrandClickupListId,
       }),
     });
 
@@ -528,6 +574,8 @@ export default function CommandCenterClientDetailPage() {
     setNewBrandName("");
     setNewBrandKeywords("");
     setNewBrandMarketplaces([]);
+    setNewBrandClickupSpaceId("");
+    setNewBrandClickupListId("");
     setSaving(false);
     setBrandModalOpen(false);
     await refresh();
@@ -699,6 +747,8 @@ export default function CommandCenterClientDetailPage() {
               setNewBrandName("");
               setNewBrandKeywords("");
               setNewBrandMarketplaces([]);
+              setNewBrandClickupSpaceId("");
+              setNewBrandClickupListId("");
               setBrandModalMode("create");
               setBrandModalOpen(true);
             }}
@@ -912,12 +962,18 @@ export default function CommandCenterClientDetailPage() {
         brandName={brandModalMode === "create" ? newBrandName : editBrandName}
         brandKeywords={brandModalMode === "create" ? newBrandKeywords : editBrandKeywords}
         marketplaces={brandModalMode === "create" ? newBrandMarketplaces : editBrandMarketplaces}
+        clickupSpaceId={
+          brandModalMode === "create" ? newBrandClickupSpaceId : editBrandClickupSpaceId
+        }
+        clickupListId={brandModalMode === "create" ? newBrandClickupListId : editBrandClickupListId}
         onClose={() => {
           setBrandModalOpen(false);
           if (brandModalMode === "create") {
             setNewBrandName("");
             setNewBrandKeywords("");
             setNewBrandMarketplaces([]);
+            setNewBrandClickupSpaceId("");
+            setNewBrandClickupListId("");
           } else {
             cancelBrandEdit();
           }
@@ -928,6 +984,14 @@ export default function CommandCenterClientDetailPage() {
         }
         onChangeMarketplaces={(value) =>
           brandModalMode === "create" ? setNewBrandMarketplaces(value) : setEditBrandMarketplaces(value)
+        }
+        onChangeClickupSpaceId={(value) =>
+          brandModalMode === "create"
+            ? setNewBrandClickupSpaceId(value)
+            : setEditBrandClickupSpaceId(value)
+        }
+        onChangeClickupListId={(value) =>
+          brandModalMode === "create" ? setNewBrandClickupListId(value) : setEditBrandClickupListId(value)
         }
         onSubmit={() => {
           if (brandModalMode === "create") {

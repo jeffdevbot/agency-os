@@ -1,3 +1,5 @@
+import "server-only";
+
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
   content: string;
@@ -33,11 +35,6 @@ export interface ChatCompletionResult {
 
 const getDefaultModel = (): string => {
   const model = process.env.OPENAI_MODEL_PRIMARY || "gpt-5.1-nano";
-  console.log('[DEBUG] getDefaultModel:', {
-    OPENAI_MODEL_PRIMARY: process.env.OPENAI_MODEL_PRIMARY,
-    OPENAI_MODEL_FALLBACK: process.env.OPENAI_MODEL_FALLBACK,
-    defaultModel: model
-  });
   return model;
 };
 
@@ -137,13 +134,6 @@ export const createChatCompletion = async (
       options?.tools,
     );
   } catch (error) {
-    console.error('[DEBUG] Primary model call failed:', {
-      model,
-      providedModel: options?.model,
-      error: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined
-    });
-
     if (options?.model && options.model !== getDefaultModel()) {
       throw error;
     }
