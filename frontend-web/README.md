@@ -1,6 +1,6 @@
-## Agency OS Frontend
+## Ecomlabs Tools Frontend
 
-This package hosts the Next.js application that powers the Agency OS dashboard shell and login screen. It uses Supabase + Google OAuth for authentication and is deployed to Render as the `frontend-web` service.
+This package hosts the Next.js application that powers the Ecomlabs Tools dashboard and login. It uses Supabase + Google OAuth for authentication and is deployed to Render as the `frontend-web` service.
 
 ### Local development
 
@@ -21,7 +21,7 @@ This package hosts the Next.js application that powers the Agency OS dashboard s
 | --- | --- |
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL (https://*.supabase.co). |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Public anon key used by the browser client. |
-| `NEXT_PUBLIC_BACKEND_URL` | Placeholder for future API calls (point to the Render FastAPI service). |
+| `NEXT_PUBLIC_BACKEND_URL` | FastAPI backend base URL (local: http://localhost:8000; prod: Render `backend-core`). |
 
 ### Scripts
 

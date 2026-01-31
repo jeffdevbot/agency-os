@@ -21,6 +21,7 @@ Ecomlabs Tools is the internal platform that consolidates our ad analytics, SOP 
 - **ClickUp Service (backend-core)** — shared backend integration layer for ClickUp API calls (task creation + future sync). Routes live under `backend-core/app/routers/clickup.py`. Spec: `docs/08_clickup_service_prd.md`.
 
 ### In Flight / Upcoming
+- **Playbook / Vara** — Slack bot for Brand Managers to create ClickUp tasks from SOPs via DM. Specs: `docs/playbook_prd.md`, implementation: `docs/vara_implementation_guide.md`.
 - More tools planned; follow the docs folder for new PRDs and plans as they land.
 
 ### Other Specs
@@ -38,6 +39,35 @@ Each doc includes the UX, backend contracts, and Supabase schema changes needed 
 1. Read the architecture overview to internalize the Render + Supabase stack and auth flow.
 2. Pick the relevant PRD for the feature you plan to build and translate its requirements into issues/tasks.
 3. Keep docs and implementation in lockstep—when APIs, data models, or flows change, edit the corresponding doc so future contributors have a single source of truth.
+
+## Service Architecture
+
+| Service | Type | Purpose |
+|---------|------|---------|
+| `frontend-web` | Next.js | Web UI at tools.ecomlabs.ca |
+| `backend-core` | FastAPI | API endpoints, integrations |
+| `worker-sync` | Background | Render background worker (planned; no code in this repo yet) |
+
+All services are deployed on Render. See `docs/00_agency_os_architecture.md` for details.
+
+## Vara (Playbook Slack Bot)
+
+Vara is an AI-powered Slack bot that helps Brand Managers create ClickUp tasks from SOPs. Users DM Vara, pick a client, and request tasks like "start ngram research".
+
+**Implementation guide:** `docs/vara_implementation_guide.md` — standalone tasks for parallel development.
+
+**Key integration points:**
+- Slack API (events + interactions) → `backend-core` (TBD; add a `backend-core/app/routers/slack.py` router)
+- SOP sync from ClickUp Docs → `worker-sync/` (TBD; Render service exists but code is not in this repo yet)
+- Session storage → Supabase `playbook_slack_sessions` table
+- AI chat → OpenAI (`OPENAI_API_KEY`, models: gpt-4o / gpt-4o-mini)
+- Task creation → existing `backend-core/app/services/clickup.py`
+
+**Existing schema (no migration needed):**
+- `profiles.slack_user_id` — links Slack users to profiles
+- `profiles.clickup_user_id` — for task assignment
+- `brands.clickup_space_id` / `clickup_list_id` — where to create tasks
+- `ai_token_usage` — token logging (use `meta.stage = 'playbook'`)
 
 ## Local quickstarts
 
