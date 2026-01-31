@@ -92,19 +92,68 @@ class SlackService:
     async def aclose(self) -> None:
         await self._client.aclose()
 
-    async def post_message(self, *, channel: str, text: str) -> SlackMessageResponse:
+    async def post_message(
+        self,
+        *,
+        channel: str,
+        text: str,
+        blocks: Optional[list[dict[str, Any]]] = None,
+    ) -> SlackMessageResponse:
         channel = (channel or "").strip()
         if not channel:
             raise SlackAPIError("Slack post_message missing channel")
 
+        payload: dict[str, Any] = {"channel": channel, "text": text}
+        if blocks:
+            payload["blocks"] = blocks
+
         response = await self._client.post(
             "/chat.postMessage",
-            json={"channel": channel, "text": text},
+            json=payload,
         )
 
         if response.status_code == 401:
             raise SlackAuthError("Slack auth failed (401). Check SLACK_BOT_TOKEN.")
 
+        if response.status_code < 200 or response.status_code >= 300:
+            raise SlackAPIError(f"Slack API error ({response.status_code}): {response.text}")
+
+        try:
+            data = response.json()
+        except json.JSONDecodeError as exc:
+            raise SlackAPIError(f"Slack API returned invalid JSON: {exc}") from exc
+
+        if not data.get("ok"):
+            error = data.get("error")
+            raise SlackAPIError(f"Slack API error: {error or 'unknown_error'}")
+
+        return SlackMessageResponse(
+            ok=True,
+            ts=str(data.get("ts")) if data.get("ts") else None,
+            channel=str(data.get("channel")) if data.get("channel") else None,
+            raw=data,
+        )
+
+    async def update_message(
+        self,
+        *,
+        channel: str,
+        ts: str,
+        text: str,
+        blocks: Optional[list[dict[str, Any]]] = None,
+    ) -> SlackMessageResponse:
+        channel = (channel or "").strip()
+        ts = (ts or "").strip()
+        if not channel or not ts:
+            raise SlackAPIError("Slack update_message missing channel/ts")
+
+        payload: dict[str, Any] = {"channel": channel, "ts": ts, "text": text}
+        if blocks:
+            payload["blocks"] = blocks
+
+        response = await self._client.post("/chat.update", json=payload)
+        if response.status_code == 401:
+            raise SlackAuthError("Slack auth failed (401). Check SLACK_BOT_TOKEN.")
         if response.status_code < 200 or response.status_code >= 300:
             raise SlackAPIError(f"Slack API error ({response.status_code}): {response.text}")
 

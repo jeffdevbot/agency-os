@@ -1,7 +1,8 @@
+import asyncio
 from datetime import datetime
+from typing import Any
 
 import httpx
-from typing import Any
 
 from supabase import Client
 
@@ -80,11 +81,23 @@ class SOPSyncService:
                 
         return results
 
-    async def get_sop_by_category(self, category: str) -> dict[str, Any] | None:
-        """Get SOP content by category."""
-        response = self.db.table("playbook_sops") \
-            .select("*") \
-            .eq("category", category) \
-            .single() \
+    def _get_sop_by_category_sync(self, category: str) -> dict[str, Any] | None:
+        category = (category or "").strip()
+        if not category:
+            return None
+
+        response = (
+            self.db.table("playbook_sops")
+            .select("*")
+            .eq("category", category)
+            .limit(1)
             .execute()
-        return response.data
+        )
+        rows = response.data if isinstance(response.data, list) else []
+        if not rows:
+            return None
+        return rows[0] if isinstance(rows[0], dict) else None
+
+    async def get_sop_by_category(self, category: str) -> dict[str, Any] | None:
+        """Get SOP content by category without blocking the event loop."""
+        return await asyncio.to_thread(self._get_sop_by_category_sync, category)

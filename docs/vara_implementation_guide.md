@@ -1050,10 +1050,10 @@ Phases 2+3+6 can be combined into one PR. Phase 4 is independent and can be a se
 | Phase | Status | Files |
 |-------|--------|-------|
 | Phase 1 (Slack App) | ✅ Done | Slack admin config |
-| Phase 2 (Echo Bot) | ✅ Code complete | `services/slack.py`, `api/routes/slack.py` |
-| Phase 3 (Sessions) | 🔲 Not started | |
-| Phase 4 (SOP Sync) | ✅ Code complete | `services/sop_sync.py`, `routers/admin.py` |
-| Phase 5 (N-gram Flow) | 🔲 Not started | |
-| Phase 6 (Interactions) | 🔲 Not started | |
+| Phase 2 (Echo Bot) | ✅ Done | `services/slack.py`, `api/routes/slack.py` |
+| Phase 3 (Sessions) | ✅ Done | `services/playbook_session.py` |
+| Phase 4 (SOP Sync) | ✅ Done | `services/sop_sync.py` (tested: N-gram SOP 7481 chars synced) |
+| Phase 5 (N-gram Flow) | ✅ Done | `api/routes/slack.py` (deterministic flow) |
+| Phase 6 (Interactions) | ✅ Done | `api/routes/slack.py`, `services/slack.py` |
 | Phase 7 (Debrief) | 🔲 Not started | |
 | Phase 8 (AI Chat) | 🔲 Not started | |
