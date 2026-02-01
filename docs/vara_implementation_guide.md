@@ -1057,3 +1057,319 @@ Phases 2+3+6 can be combined into one PR. Phase 4 is independent and can be a se
 | Phase 6 (Interactions) | ✅ Done | `api/routes/slack.py`, `services/slack.py` |
 | Phase 7 (Debrief) | 🔲 Not started | |
 | Phase 8 (AI Chat) | 🔲 Not started | |
+
+---
+
+## Vara 2.0: Architecture Revision
+
+> **Status:** Planning complete, implementation pending
+> **Date:** 2025-01-31
+
+### The Problem with Phases 1-6
+
+The original implementation created a **keyword dispatcher**, not an AI assistant:
+
+```
+Current: User says "ngram" → Hardcoded function → Verbatim SOP copied to task
+```
+
+This adds zero value over a button click. The AI should:
+1. Understand natural language (not just keywords)
+2. Gather context through conversation
+3. **Personalize** the SOP with client specifics and user input
+4. Present drafts for approval and refinement
+
+### Gap Analysis
+
+| PRD Feature | Phases 1-6 Built | Gap |
+|-------------|------------------|-----|
+| Natural conversation | Keyword matching only | ❌ Missing AI brain |
+| Task preview + Approve/Reject/Edit | Immediate creation | ❌ No approval flow |
+| Conversational refinement | None | ❌ No conversation state |
+| AI enrichment (SOP + user context) | Verbatim SOP copy | ❌ No personalization |
+| Chat history in session | Just client_id | ❌ No message storage |
+| "What's the n-gram process?" | Not recognized | ❌ No SOP lookup |
+| Gated MCP for ClickUp queries | None | ❌ Phase 8 not started |
+
+**Core issue:** Even for a simple n-gram task, the system just copies the SOP. It can't:
+- Ask "Which campaigns should I focus on?"
+- Incorporate user's observation ("healthy chocolate terms not converting")
+- Generate a task description that's specific to this situation
+
+### Vara 2.0 Architecture
+
+**New flow:** Every message → AI with tools → Response/Action
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         EVERY MESSAGE                           │
+└─────────────────────────────────────┬───────────────────────────┘
+                                      │
+                                      ▼
+                        ┌─────────────────────────┐
+                        │    OpenAI API           │
+                        │  (system prompt + tools)│
+                        └─────────────┬───────────┘
+                                      │
+         ┌────────────┬───────────────┼───────────────┬────────────┐
+         ▼            ▼               ▼               ▼            ▼
+    switch_client  lookup_sop   create_task_draft  query_clickup  respond
+         │            │               │               │            │
+         ▼            ▼               ▼               ▼            ▼
+    Update session  Return SOP    Store draft +   MCP query    Text reply
+                    content       show preview     (gated)
+```
+
+### System Prompt
+
+```python
+VARA_SYSTEM_PROMPT = """You are Vara, an AI assistant for Brand Managers at Ecomlabs.
+
+## Your Role
+Help BMs create well-structured ClickUp tasks based on SOPs. You don't just copy SOPs -
+you adapt them with client-specific context and user input.
+
+## Current Session
+- User: {user_name} ({user_email})
+- Active Client: {client_name} (or "none selected")
+- Recent tasks for this client: {recent_tasks_summary}
+
+## Available Tools
+1. switch_client(client_name) - Change which client you're working on
+2. lookup_sop(category) - Get SOP template (ngram, content_audit, etc.)
+3. list_sops() - Show available SOP categories
+4. create_task_draft(title, description, sop_category) - Create draft for approval
+5. query_clickup(question) - Search ClickUp for tasks/info (ask before using - costs tokens)
+
+## Task Creation Flow
+When user wants to create a task:
+1. Identify which SOP applies (or if it's ad-hoc)
+2. Ask 1-2 clarifying questions to personalize:
+   - What specific campaigns/products?
+   - Any observations that triggered this?
+   - Timeline/priority?
+3. Use lookup_sop() to get the methodology
+4. Create a draft that ADAPTS the SOP with:
+   - Client name and specifics
+   - User's answers to clarifying questions
+   - Concrete action items (not generic placeholders)
+5. Call create_task_draft() to show preview for approval
+
+## Important Rules
+- Never create tasks without user approval
+- Keep the SOP structure/checklist intact, but personalize the details
+- If no client selected, ask them to pick one first
+- Be concise - this is Slack, not email
+"""
+```
+
+### Tool Definitions
+
+```python
+VARA_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "switch_client",
+            "description": "Change which client the user is working on",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "client_name": {
+                        "type": "string",
+                        "description": "Name of the client to switch to"
+                    }
+                },
+                "required": ["client_name"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "lookup_sop",
+            "description": "Get SOP template content by category. Use this to understand the methodology before creating a task.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "category": {
+                        "type": "string",
+                        "description": "SOP category (e.g., 'ngram', 'content_audit', 'bid_adjustment')"
+                    }
+                },
+                "required": ["category"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_sops",
+            "description": "List all available SOP categories",
+            "parameters": {"type": "object", "properties": {}}
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_task_draft",
+            "description": "Create a draft task for user approval. Call AFTER gathering context and adapting the SOP.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "Task title (include client/brand name)"
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Full task description - personalized SOP content with client specifics"
+                    },
+                    "sop_category": {
+                        "type": "string",
+                        "description": "Which SOP this is based on (or 'adhoc' for custom tasks)"
+                    }
+                },
+                "required": ["title", "description"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "query_clickup",
+            "description": "Query ClickUp for task information. Only use when user explicitly asks about existing tasks. This is expensive - ask for confirmation first.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "question": {
+                        "type": "string",
+                        "description": "What to search for in ClickUp"
+                    }
+                },
+                "required": ["question"]
+            }
+        }
+    }
+]
+```
+
+### Conversation Flow Example
+
+```
+User: I need to do ngram research for Mid-Day Squares
+
+Vara: [internally calls lookup_sop("ngram")]
+      Great, I'll help you create an N-gram optimization task for Mid-Day Squares.
+
+      A few quick questions:
+      1. Which campaigns should I focus on? (all, specific product lines, etc.)
+      2. Any specific search terms or patterns you've noticed that triggered this?
+
+User: Focus on the chocolate bar campaigns. I noticed a lot of spend on
+      "healthy chocolate" terms that aren't converting.
+
+Vara: [calls create_task_draft() with personalized content]
+
+      ┌─────────────────────────────────────────────────────────────┐
+      │ 📋 *N-gram Optimization: Mid-Day Squares - Chocolate Bars*  │
+      │                                                              │
+      │ *Focus:* Chocolate bar campaigns                            │
+      │ *Trigger:* High spend on "healthy chocolate" terms          │
+      │                                                              │
+      │ ## Objective                                                 │
+      │ Identify and negate non-converting search terms, with        │
+      │ specific attention to "healthy chocolate" variations.        │
+      │                                                              │
+      │ ## Checklist                                                 │
+      │ - [ ] Pull search term report (last 14 days)                │
+      │ - [ ] Filter for "healthy chocolate" terms - check CVR      │
+      │ - [ ] Identify other high-spend, low-CVR terms              │
+      │ - [ ] Add negatives (NE for exact, NP for broad patterns)   │
+      │ - [ ] Document in Keyword Master Sheet                      │
+      │                                                              │
+      │ [✓ Approve]  [Edit in ClickUp]  [Cancel]                    │
+      └─────────────────────────────────────────────────────────────┘
+
+User: Looks good, approve it
+
+Vara: [creates task in ClickUp via existing service]
+      ✅ Created: N-gram Optimization: Mid-Day Squares - Chocolate Bars
+      https://app.clickup.com/t/xyz
+      Assigned to you in the Mid-Day Squares space.
+```
+
+### What to Keep vs Rewrite
+
+| Component | Keep | Rewrite | Notes |
+|-----------|------|---------|-------|
+| `services/playbook_session.py` | ✅ | 🔄 | Add message history methods |
+| `services/sop_sync.py` | ✅ | | Already working |
+| `services/clickup.py` | ✅ | | Task creation works |
+| `services/slack.py` | ✅ | | post_message, update_message work |
+| `api/routes/slack.py` | | 🔄 | Replace `_handle_dm_event` with AI flow |
+| `_classify_message()` | | ❌ | Delete - AI handles intent |
+| Button handlers | ✅ | 🔄 | Add Approve/Edit/Cancel for drafts |
+
+### New Files
+
+```
+backend-core/app/services/vara_ai.py       # AI chat service with tool handling
+backend-core/app/services/vara_tools.py    # Tool implementations
+```
+
+### Session Context Schema
+
+Expand the `context` JSONB field in `playbook_slack_sessions`:
+
+```python
+context = {
+    "messages": [  # Last 10-15 messages for AI context
+        {"role": "user", "content": "I need to do ngram..."},
+        {"role": "assistant", "content": "Great, I'll help..."},
+    ],
+    "pending_draft": {  # Task awaiting approval
+        "title": "N-gram Optimization: Mid-Day Squares",
+        "description": "...",
+        "sop_category": "ngram",
+    },
+    "gathered_context": {  # User's answers to clarifying questions
+        "campaigns": "chocolate bar campaigns",
+        "trigger": "healthy chocolate terms not converting",
+    }
+}
+```
+
+### Implementation Phases (Revised)
+
+| Phase | Description | Scope |
+|-------|-------------|-------|
+| **2.1** | Create `vara_ai.py` - AI service with OpenAI tool calling | ~200 LOC |
+| **2.2** | Create `vara_tools.py` - Tool implementations | ~150 LOC |
+| **2.3** | Update `playbook_session.py` - Add message history methods | ~50 LOC |
+| **2.4** | Rewrite `_handle_dm_event` to use AI | ~100 LOC |
+| **2.5** | Add Approve/Edit/Cancel button handlers | ~80 LOC |
+| **2.6** | Token logging for all AI calls | ~30 LOC |
+
+**Total estimated:** ~600 LOC (mostly new, some replacement)
+
+### Environment Variables
+
+Existing (already configured):
+```
+OPENAI_API_KEY=sk-proj-...
+OPENAI_MODEL_PRIMARY=gpt-4o
+OPENAI_MODEL_FALLBACK=gpt-4o-mini
+```
+
+### Token Budget
+
+| Operation | Estimated Tokens | Cost (GPT-4o) |
+|-----------|------------------|---------------|
+| Base context (system prompt + session) | ~1,500 | - |
+| SOP lookup (returned to AI) | ~2,000 | - |
+| User message + response | ~500 | - |
+| **Per conversation turn** | ~4,000 | ~$0.04 |
+| **Task creation (3-4 turns)** | ~15,000 | ~$0.15 |
+
+Compare to current implementation: $0.00 (but zero value-add)
