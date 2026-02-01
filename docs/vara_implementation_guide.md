@@ -1311,11 +1311,194 @@ Vara: [creates task in ClickUp via existing service]
 | `_classify_message()` | | ❌ | Delete - AI handles intent |
 | Button handlers | ✅ | 🔄 | Add Approve/Edit/Cancel for drafts |
 
-### New Files
+### Modular Architecture
+
+**Problem with current structure:** `api/routes/slack.py` is 364 lines and mixes HTTP handling with business logic. This makes it hard to test, maintain, and extend.
+
+**Principle:** Routes handle HTTP only. Services handle business logic. Each module has one job.
 
 ```
-backend-core/app/services/vara_ai.py       # AI chat service with tool handling
-backend-core/app/services/vara_tools.py    # Tool implementations
+backend-core/app/
+├── api/routes/
+│   └── slack.py                    # ONLY HTTP handling (~80 LOC)
+│                                   # Parse request → call service → return response
+│
+├── services/
+│   ├── slack.py                    # Slack API client (keep as-is)
+│   ├── playbook_session.py         # Session CRUD (keep, add message methods)
+│   ├── sop_sync.py                 # SOP fetching (keep as-is)
+│   ├── clickup.py                  # ClickUp API (keep as-is)
+│   │
+│   └── vara/                       # NEW: Vara AI module
+│       ├── __init__.py             # Exports VaraService
+│       ├── service.py              # Main orchestrator (~150 LOC)
+│       │                           # handle_message() → AI loop → response
+│       ├── ai_client.py            # OpenAI wrapper (~100 LOC)
+│       │                           # chat(), handle_tool_calls()
+│       ├── tools.py                # Tool definitions + handlers (~200 LOC)
+│       │                           # TOOL_DEFINITIONS, execute_tool()
+│       └── prompts.py              # System prompts (~50 LOC)
+│                                   # VARA_SYSTEM_PROMPT, build_context()
+```
+
+**Module responsibilities:**
+
+| Module | Responsibility | Why Separate |
+|--------|---------------|--------------|
+| `routes/slack.py` | HTTP parsing, signature verification, response formatting | Thin layer, easy to test |
+| `vara/service.py` | Conversation orchestration, tool loop | Core business logic |
+| `vara/ai_client.py` | OpenAI API calls, retries, fallbacks | Swap models without touching logic |
+| `vara/tools.py` | Tool JSON schemas + execution handlers | Add tools without touching AI code |
+| `vara/prompts.py` | System prompt templates, context building | Non-engineers can edit prompts |
+
+**Example: Thin route handler**
+
+```python
+# api/routes/slack.py - delegates ALL logic to service
+@router.post("/events")
+async def slack_events(request: Request, background_tasks: BackgroundTasks):
+    body = await request.body()
+    _verify_request_or_401(signing_secret, request, body)
+    payload = _parse_json(body)
+
+    if payload.get("type") == "url_verification":
+        return JSONResponse({"challenge": payload["challenge"]})
+
+    if payload.get("type") == "event_callback":
+        event = payload.get("event", {})
+        if _is_user_dm(event):
+            # ALL business logic delegated to VaraService
+            background_tasks.add_task(
+                vara_service.handle_message,
+                slack_user_id=event["user"],
+                channel=event["channel"],
+                text=event.get("text", ""),
+            )
+
+    return JSONResponse({"ok": True})
+```
+
+**Example: VaraService orchestration**
+
+```python
+# services/vara/service.py
+class VaraService:
+    def __init__(
+        self,
+        ai_client: VaraAIClient,
+        session_service: PlaybookSessionService,
+        slack_service: SlackService,
+        sop_service: SOPSyncService,
+        clickup_service: ClickUpService,
+    ):
+        self.ai = ai_client
+        self.sessions = session_service
+        self.slack = slack_service
+        self.sop = sop_service
+        self.clickup = clickup_service
+
+    async def handle_message(self, slack_user_id: str, channel: str, text: str):
+        # 1. Get/create session
+        session = self.sessions.get_or_create_session(slack_user_id)
+
+        # 2. Build context for AI
+        context = build_context(session)
+        messages = context.get("messages", []) + [{"role": "user", "content": text}]
+
+        # 3. AI conversation loop (handles tool calls)
+        response = await self.ai.chat(messages=messages, tools=TOOL_DEFINITIONS)
+
+        while response.tool_calls:
+            tool_results = await self._execute_tools(response.tool_calls, session)
+            response = await self.ai.continue_with_tools(messages, tool_results)
+
+        # 4. Handle special responses (task draft → show preview)
+        if session.context.get("pending_draft"):
+            await self._send_task_preview(channel, session)
+        else:
+            await self.slack.post_message(channel=channel, text=response.content)
+
+        # 5. Save message history
+        self.sessions.append_message(session.id, "user", text)
+        self.sessions.append_message(session.id, "assistant", response.content)
+
+    async def _execute_tools(self, tool_calls: list, session) -> list:
+        """Execute tool calls and return results."""
+        results = []
+        for call in tool_calls:
+            result = await execute_tool(
+                name=call.function.name,
+                args=json.loads(call.function.arguments),
+                session=session,
+                services={
+                    "sop": self.sop,
+                    "clickup": self.clickup,
+                    "sessions": self.sessions,
+                }
+            )
+            results.append({"tool_call_id": call.id, "output": result})
+        return results
+```
+
+**Example: Tool definitions and handlers**
+
+```python
+# services/vara/tools.py
+
+TOOL_DEFINITIONS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "lookup_sop",
+            "description": "Get SOP template by category",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "category": {"type": "string"}
+                },
+                "required": ["category"]
+            }
+        }
+    },
+    # ... other tools
+]
+
+async def execute_tool(name: str, args: dict, session, services: dict) -> str:
+    """Route tool call to appropriate handler."""
+    handlers = {
+        "switch_client": handle_switch_client,
+        "lookup_sop": handle_lookup_sop,
+        "list_sops": handle_list_sops,
+        "create_task_draft": handle_create_task_draft,
+        "query_clickup": handle_query_clickup,
+    }
+
+    handler = handlers.get(name)
+    if not handler:
+        return f"Unknown tool: {name}"
+
+    return await handler(args, session, services)
+
+async def handle_lookup_sop(args: dict, session, services: dict) -> str:
+    """Fetch SOP content by category."""
+    category = args.get("category", "").strip()
+    sop = await services["sop"].get_sop_by_category(category)
+    if not sop:
+        return f"No SOP found for category: {category}"
+    return sop.get("content_md", "")
+
+async def handle_create_task_draft(args: dict, session, services: dict) -> str:
+    """Store draft in session for user approval."""
+    services["sessions"].update_context(session.id, {
+        "pending_draft": {
+            "title": args.get("title"),
+            "description": args.get("description"),
+            "sop_category": args.get("sop_category"),
+        }
+    })
+    return "Draft created. Showing preview to user for approval."
+
+# ... other handlers
 ```
 
 ### Session Context Schema
@@ -1342,16 +1525,48 @@ context = {
 
 ### Implementation Phases (Revised)
 
-| Phase | Description | Scope |
-|-------|-------------|-------|
-| **2.1** | Create `vara_ai.py` - AI service with OpenAI tool calling | ~200 LOC |
-| **2.2** | Create `vara_tools.py` - Tool implementations | ~150 LOC |
-| **2.3** | Update `playbook_session.py` - Add message history methods | ~50 LOC |
-| **2.4** | Rewrite `_handle_dm_event` to use AI | ~100 LOC |
-| **2.5** | Add Approve/Edit/Cancel button handlers | ~80 LOC |
-| **2.6** | Token logging for all AI calls | ~30 LOC |
+| Phase | Module | Description | Scope |
+|-------|--------|-------------|-------|
+| **2.1** | `vara/prompts.py` | System prompt + context builder | ~50 LOC |
+| **2.2** | `vara/tools.py` | Tool definitions (JSON schemas) | ~80 LOC |
+| **2.3** | `vara/ai_client.py` | OpenAI wrapper with tool loop | ~120 LOC |
+| **2.4** | `vara/tools.py` | Tool handlers (execute_tool, handlers) | ~150 LOC |
+| **2.5** | `vara/service.py` | VaraService orchestrator | ~150 LOC |
+| **2.6** | `playbook_session.py` | Add `append_message()`, `get_messages()` | ~40 LOC |
+| **2.7** | `routes/slack.py` | Slim down to HTTP-only, delegate to VaraService | ~-200 LOC |
+| **2.8** | `routes/slack.py` | Approve/Edit/Cancel button handlers | ~60 LOC |
+| **2.9** | `vara/ai_client.py` | Token logging for all AI calls | ~30 LOC |
 
-**Total estimated:** ~600 LOC (mostly new, some replacement)
+**Total new code:** ~680 LOC
+**Code removed:** ~200 LOC (business logic moved from routes to services)
+**Net change:** ~480 LOC
+
+### File Creation Order
+
+Recommended order to minimize integration issues:
+
+```
+1. vara/__init__.py          # Empty, just makes it a package
+2. vara/prompts.py           # No dependencies
+3. vara/tools.py             # Tool definitions (no handlers yet)
+4. vara/ai_client.py         # OpenAI wrapper
+5. vara/tools.py             # Add handlers
+6. vara/service.py           # Wire everything together
+7. playbook_session.py       # Add message history methods
+8. routes/slack.py           # Refactor to use VaraService
+```
+
+### Testing Strategy
+
+Each module can be tested independently:
+
+| Module | Test Approach |
+|--------|---------------|
+| `prompts.py` | Unit test `build_context()` with mock session |
+| `tools.py` | Unit test each handler with mock services |
+| `ai_client.py` | Mock OpenAI, test tool loop logic |
+| `service.py` | Integration test with mocked dependencies |
+| `routes/slack.py` | HTTP tests with mocked VaraService |
 
 ### Environment Variables
 
