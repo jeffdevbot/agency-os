@@ -6,6 +6,8 @@ import { createChatCompletion, parseJSONResponse, type ChatMessage } from "@/lib
 import { exportGoogleDocAsText } from "@/lib/debrief/googleDrive";
 import { logUsage } from "@/lib/ai/usageLogger";
 import { logAppError } from "@/lib/ai/errorLogger";
+import { simplifyNotesForExtraction, normalizeExtractedTasks } from "@/lib/debrief/meetingParser";
+import { reviewExtractedTasks } from "@/lib/debrief/taskReview";
 
 export const runtime = "nodejs";
 
@@ -21,17 +23,7 @@ type ExtractionResponse = {
   tasks: ExtractedTaskJson[];
 };
 
-const simplifyNotesForExtraction = (raw: string) => {
-  const normalized = raw.replace(/\r\n/g, "\n");
-  const headings = ["Suggested Next Steps:", "Suggested next steps:", "Next Steps:", "Action Items:"];
-  for (const heading of headings) {
-    const idx = normalized.indexOf(heading);
-    if (idx !== -1) {
-      return normalized.slice(Math.max(0, idx - 1500));
-    }
-  }
-  return normalized;
-};
+
 
 export async function POST(
   request: NextRequest,
@@ -183,18 +175,26 @@ export async function POST(
 
     const content = result.content ?? "";
     const parsed = parseJSONResponse<ExtractionResponse>(content);
-
     const tasks = Array.isArray(parsed.tasks) ? parsed.tasks : [];
-    const cleanedTasks = tasks
-      .map((task) => ({
-        rawText: String(task.raw_text ?? "").trim(),
-        title: String(task.title ?? "").trim(),
-        description:
-          task.description === undefined || task.description === null ? null : String(task.description).trim(),
-        brandId: task.brand_id ? String(task.brand_id) : null,
-        roleSlug: task.role_slug ? String(task.role_slug) : null,
-      }))
-      .filter((task) => task.title.length > 0);
+
+    // Use standalone parser for validation and normalization
+    const cleanedTasks = normalizeExtractedTasks(tasks);
+
+    // Quality Review (Logging only)
+    const droppedCount = tasks.length - cleanedTasks.length;
+    const reviewResult = reviewExtractedTasks(cleanedTasks, droppedCount);
+
+    // In V1, we just log this for observability. 
+    // In future, this could trigger a warming/blocking UI state.
+    if (reviewResult.severity !== "ok") {
+      console.log(JSON.stringify({
+        event: "debrief_quality_review",
+        meetingId,
+        severity: reviewResult.severity,
+        summary: reviewResult.summary,
+        flagsCount: reviewResult.flags.length
+      }));
+    }
 
     if (replace) {
       const { error: deleteError } = await supabase

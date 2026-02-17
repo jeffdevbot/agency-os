@@ -153,6 +153,67 @@ class ClickUpService:
 
         return list_id
 
+    async def get_tasks_in_list(
+        self,
+        list_id: str,
+        *,
+        date_updated_gt: int | None = None,
+        date_updated_lt: int | None = None,
+        page: int = 0,
+        include_closed: bool = False,
+        subtasks: bool = False,
+    ) -> list[dict[str, Any]]:
+        """Fetch tasks from a ClickUp list with optional date/page filters.
+
+        Date params are epoch milliseconds (ClickUp convention).
+        Returns raw task dicts from the ClickUp API.
+        """
+        params: dict[str, str] = {
+            "page": str(page),
+            "subtasks": str(subtasks).lower(),
+            "include_closed": str(include_closed).lower(),
+        }
+        if date_updated_gt is not None:
+            params["date_updated_gt"] = str(date_updated_gt)
+        if date_updated_lt is not None:
+            params["date_updated_lt"] = str(date_updated_lt)
+
+        query = "&".join(f"{k}={v}" for k, v in params.items())
+        data = await self._request("GET", f"/list/{list_id}/task?{query}")
+        tasks = data.get("tasks")
+        if not isinstance(tasks, list):
+            return []
+        return tasks
+
+    async def get_tasks_in_list_all_pages(
+        self,
+        list_id: str,
+        *,
+        date_updated_gt: int | None = None,
+        date_updated_lt: int | None = None,
+        include_closed: bool = False,
+        max_tasks: int = 200,
+    ) -> list[dict[str, Any]]:
+        """Paginate through all tasks in a list up to max_tasks."""
+        all_tasks: list[dict[str, Any]] = []
+        page = 0
+        while len(all_tasks) < max_tasks:
+            batch = await self.get_tasks_in_list(
+                list_id,
+                date_updated_gt=date_updated_gt,
+                date_updated_lt=date_updated_lt,
+                page=page,
+                include_closed=include_closed,
+            )
+            if not batch:
+                break
+            all_tasks.extend(batch)
+            page += 1
+            # ClickUp returns up to 100 per page; if fewer, we're done.
+            if len(batch) < 100:
+                break
+        return all_tasks[:max_tasks]
+
     async def create_task_in_list(
         self,
         list_id: str,

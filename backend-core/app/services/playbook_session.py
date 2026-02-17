@@ -293,6 +293,27 @@ class PlaybookSessionService:
         with_list = [b for b in with_space if b.get("clickup_list_id")]
         return (with_list[0] if with_list else with_space[0])
 
+    def get_all_brand_destinations_for_client(self, client_id: str) -> list[dict[str, Any]]:
+        """Return all brands with ClickUp destination fields for a client."""
+        client_id = (client_id or "").strip()
+        if not client_id:
+            return []
+
+        response = (
+            self.db.table("brands")
+            .select("id,name,clickup_space_id,clickup_list_id")
+            .eq("client_id", client_id)
+            .order("updated_at", desc=True)
+            .limit(50)
+            .execute()
+        )
+        rows = response.data if isinstance(response.data, list) else []
+        return [
+            r
+            for r in rows
+            if isinstance(r, dict) and (r.get("clickup_space_id") or r.get("clickup_list_id"))
+        ]
+
     def find_client_matches(self, profile_id: Optional[str], query: str) -> list[dict[str, Any]]:
         query_norm = " ".join((query or "").strip().lower().split())
         if not query_norm:
