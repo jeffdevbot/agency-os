@@ -20,7 +20,7 @@ Last updated: 2026-02-17 (night)
 | C4 | Concurrency + ClickUp reliability | Claude | todo | - | Advisory lock + retry/backoff + orphan handling |
 | C5 | Team identity sync/reconciliation | Claude | todo | - | `needs_review` admin decisions |
 | C6 | ClickUp space sync/classification | Claude | todo | - | `brand_scoped` vs `shared_service` |
-| C7 | `meeting_parser` standalone hardening | Claude | in_review | pending | Standalone parser + task review utility integrated; unit tests passing |
+| C7 | `meeting_parser` standalone hardening | Claude | done | merged (`9001c27`) | Parser/review modules integrated; unit tests, typecheck, and production build passing |
 | C8 | `client_context_builder` budget pack | Claude | todo | - | 4k token budget + metadata |
 
 ## 3. Open Blockers
@@ -32,6 +32,7 @@ Last updated: 2026-02-17 (night)
 - C1 smoke test: Slack DM query returned 6 linked tasks for `Distex` with status/assignee formatting (pass).
 - C1 runtime flag: `clickup_task_list_weekly` set to `implemented_in_code=true`, `enabled_default=true`.
 - C7 slice (Agent 2): `frontend-web/src/lib/debrief/__tests__/meetingParser.test.ts` and `frontend-web/src/lib/debrief/__tests__/taskReview.test.ts` passing (18 tests total).
+- C7 integration sanity: `frontend-web` typecheck and `next build` both pass with parser/review imports wired into debrief extract route.
 - Backend full test suite still has pre-existing unrelated failures outside these chunks.
 
 ## 4. Validation Checklist (Per Chunk)
