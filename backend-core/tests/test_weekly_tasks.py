@@ -79,6 +79,11 @@ class TestClassifyWeeklyTasks:
         assert intent == "weekly_tasks"
         assert "acme corp international" in params["client_name"].lower()
 
+    def test_client_name_trailing_punctuation_is_sanitized(self):
+        intent, params = _classify_message("what's being worked on this week for Distex?")
+        assert intent == "weekly_tasks"
+        assert params.get("client_name", "") == "distex"
+
 
 # ---------------------------------------------------------------------------
 # Formatting
