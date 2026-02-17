@@ -1,5 +1,7 @@
 import asyncio
 import json
+import re
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import parse_qs
 
@@ -66,6 +68,20 @@ def _build_client_picker_blocks(clients: list[dict[str, Any]]) -> list[dict[str,
     return blocks
 
 
+# Patterns that indicate a weekly task list query.
+# Captures an optional trailing client name after "for <client>".
+_WEEKLY_TASK_PATTERNS: list[re.Pattern[str]] = [
+    re.compile(
+        r"(?:what(?:'s| is) being worked on|what(?:'s| are) the tasks|"
+        r"show (?:me )?tasks|list tasks|weekly tasks|this week(?:'s)? tasks)"
+        r"(?:\s+(?:this week\s*)?(?:for\s+(.+))?)?$"
+    ),
+    re.compile(
+        r"tasks?\s+(?:this week\s+)?for\s+(.+?)(?:\s+this week)?$"
+    ),
+]
+
+
 def _classify_message(text: str) -> tuple[str, dict[str, Any]]:
     t = " ".join((text or "").strip().lower().split())
     if any(kw in t for kw in ("ngram", "n-gram", "keyword research")):
@@ -74,16 +90,219 @@ def _classify_message(text: str) -> tuple[str, dict[str, Any]]:
         return ("switch_client", {"client_name": t.removeprefix("switch to ").strip()})
     if t.startswith("work on "):
         return ("switch_client", {"client_name": t.removeprefix("work on ").strip()})
+
+    # Weekly task list queries
+    for pattern in _WEEKLY_TASK_PATTERNS:
+        m = pattern.search(t)
+        if m:
+            client_name = (m.group(1) or "").strip() if m.lastindex else ""
+            return ("weekly_tasks", {"client_name": client_name})
+
     return ("help", {})
 
 
 def _help_text() -> str:
     return (
-        "I can help you create ClickUp tasks from SOPs.\n\n"
+        "I can help you with ClickUp tasks and SOPs.\n\n"
         "Try:\n"
+        "- `what's being worked on this week for <client>`\n"
+        "- `show tasks for <client>`\n"
         "- `start ngram research`\n"
         "- `switch to <client name>`"
     )
+
+
+_WEEKLY_TASK_CAP = 200
+
+
+def _current_week_range_ms() -> tuple[int, int]:
+    """Return (start_ms, end_ms) for the current ISO week (Monday 00:00 UTC through Sunday 23:59)."""
+    now = datetime.now(timezone.utc)
+    monday = now - timedelta(days=now.weekday())
+    start = monday.replace(hour=0, minute=0, second=0, microsecond=0)
+    end = start + timedelta(days=7)
+    return int(start.timestamp() * 1000), int(end.timestamp() * 1000)
+
+
+def _format_task_line(task: dict[str, Any]) -> str:
+    name = str(task.get("name") or "Untitled")
+    url = task.get("url") or ""
+    status_obj = task.get("status")
+    status = str(status_obj.get("status") or "") if isinstance(status_obj, dict) else ""
+
+    assignees = task.get("assignees") or []
+    assignee_names = []
+    for a in (assignees if isinstance(assignees, list) else []):
+        if isinstance(a, dict):
+            assignee_names.append(str(a.get("username") or a.get("initials") or ""))
+
+    parts = []
+    if url:
+        parts.append(f"<{url}|{name}>")
+    else:
+        parts.append(name)
+    if status:
+        parts.append(f"[{status}]")
+    if assignee_names:
+        parts.append(f"({', '.join(n for n in assignee_names if n)})")
+    return "• " + " ".join(parts)
+
+
+def _format_weekly_tasks_response(
+    *,
+    client_name: str,
+    tasks: list[dict[str, Any]],
+    total_fetched: int,
+    brand_names: list[str],
+) -> str:
+    if not tasks:
+        brands = ", ".join(brand_names) if brand_names else "no brands"
+        return f"No tasks found this week for *{client_name}* (checked: {brands})."
+
+    header = f"*Tasks this week for {client_name}* ({len(tasks)} task{'s' if len(tasks) != 1 else ''}):\n"
+    lines = [_format_task_line(t) for t in tasks[:_WEEKLY_TASK_CAP]]
+    body = "\n".join(lines)
+
+    truncation = ""
+    if total_fetched > _WEEKLY_TASK_CAP:
+        truncation = f"\n\n_Showing {_WEEKLY_TASK_CAP} of {total_fetched} tasks. Check ClickUp for the full list._"
+
+    return header + body + truncation
+
+
+async def _handle_weekly_tasks(
+    *,
+    slack_user_id: str,
+    channel: str,
+    client_name_hint: str,
+    session_service: Any,
+    slack: Any,
+) -> None:
+    """Handle 'weekly tasks for <client>' intent."""
+    session = await asyncio.to_thread(session_service.get_or_create_session, slack_user_id)
+
+    # --- Resolve client ---
+    client_id: str | None = None
+    client_name: str = ""
+
+    if client_name_hint:
+        matches = await asyncio.to_thread(
+            session_service.find_client_matches, session.profile_id, client_name_hint
+        )
+        if not matches:
+            await slack.post_message(
+                channel=channel,
+                text=f"I couldn't find a client matching *{client_name_hint}*.",
+            )
+            return
+        if len(matches) > 1:
+            blocks = _build_client_picker_blocks(matches)
+            await slack.post_message(
+                channel=channel,
+                text=f"Multiple clients match *{client_name_hint}*. Pick one and ask again:",
+                blocks=blocks,
+            )
+            return
+        client_id = str(matches[0].get("id") or "")
+        client_name = str(matches[0].get("name") or client_name_hint)
+    elif session.active_client_id:
+        client_id = session.active_client_id
+        client_name = await asyncio.to_thread(session_service.get_client_name, client_id) or "Client"
+    else:
+        clients = await asyncio.to_thread(session_service.list_clients_for_picker, session.profile_id)
+        if clients:
+            blocks = _build_client_picker_blocks(clients)
+            await slack.post_message(
+                channel=channel,
+                text="Which client? Pick one and ask again:",
+                blocks=blocks,
+            )
+        else:
+            await slack.post_message(
+                channel=channel,
+                text="I couldn't find any clients. Ask an admin to assign you.",
+            )
+        return
+
+    if not client_id:
+        await slack.post_message(channel=channel, text="Could not resolve client.")
+        return
+
+    # --- Resolve brand destinations ---
+    destinations = await asyncio.to_thread(
+        session_service.get_all_brand_destinations_for_client, client_id
+    )
+    if not destinations:
+        await slack.post_message(
+            channel=channel,
+            text=f"No brands with ClickUp mapping found for *{client_name}*. Ask an admin to configure brand destinations.",
+        )
+        return
+
+    # --- Fetch tasks from ClickUp ---
+    start_ms, end_ms = _current_week_range_ms()
+    clickup = None
+    all_tasks: list[dict[str, Any]] = []
+    brand_names: list[str] = []
+
+    try:
+        clickup = get_clickup_service()
+
+        for dest in destinations:
+            list_id = dest.get("clickup_list_id")
+            space_id = dest.get("clickup_space_id")
+            brand_names.append(str(dest.get("name") or "Unknown"))
+
+            if list_id:
+                target_list_id = str(list_id)
+            elif space_id:
+                try:
+                    target_list_id = await clickup.resolve_default_list_id(str(space_id))
+                except (ClickUpConfigurationError, ClickUpError):
+                    continue
+            else:
+                continue
+
+            try:
+                tasks = await clickup.get_tasks_in_list_all_pages(
+                    target_list_id,
+                    date_updated_gt=start_ms,
+                    date_updated_lt=end_ms,
+                    include_closed=False,
+                    max_tasks=_WEEKLY_TASK_CAP + 1,
+                )
+                all_tasks.extend(tasks)
+            except ClickUpError:
+                # If one brand list fails, continue with others.
+                continue
+
+    except (ClickUpConfigurationError, ClickUpError) as exc:
+        await slack.post_message(
+            channel=channel,
+            text=f"Failed to fetch tasks from ClickUp: {exc}",
+        )
+        return
+    finally:
+        if clickup:
+            await clickup.aclose()
+
+    # Deduplicate tasks by ClickUp task id
+    seen_ids: set[str] = set()
+    unique_tasks: list[dict[str, Any]] = []
+    for t in all_tasks:
+        tid = str(t.get("id") or "")
+        if tid and tid not in seen_ids:
+            seen_ids.add(tid)
+            unique_tasks.append(t)
+
+    total_fetched = len(unique_tasks)
+    response_text = _format_weekly_tasks_response(
+        client_name=client_name,
+        tasks=unique_tasks,
+        total_fetched=total_fetched,
+        brand_names=brand_names,
+    )
+    await slack.post_message(channel=channel, text=response_text)
 
 
 async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> None:
@@ -95,6 +314,16 @@ async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> No
         await asyncio.to_thread(session_service.touch_session, session.id)
 
         intent, params = _classify_message(text)
+
+        if intent == "weekly_tasks":
+            await _handle_weekly_tasks(
+                slack_user_id=slack_user_id,
+                channel=channel,
+                client_name_hint=str(params.get("client_name") or ""),
+                session_service=session_service,
+                slack=slack,
+            )
+            return
 
         if intent == "switch_client":
             client_name = str(params.get("client_name") or "").strip()
