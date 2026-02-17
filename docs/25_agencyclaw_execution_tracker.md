@@ -9,7 +9,7 @@ Last updated: 2026-02-17 (evening)
 - [x] `20260217000003_client_brand_context_and_kpi_targets.sql` applied
 - [x] `20260217000004_agent_core_tables.sql` applied
 - [x] `20260217000005_skill_catalog_phase_2_6_seed.sql` applied
-- [ ] `20260217000006_clickup_space_skill_seed.sql` applied (confirm after run)
+- [x] `20260217000006_clickup_space_skill_seed.sql` applied
 
 ## 2. Chunk Progress
 | Chunk | Name | Owner | Status | PR/Commit | Notes |
@@ -24,7 +24,7 @@ Last updated: 2026-02-17 (evening)
 | C8 | `client_context_builder` budget pack | Claude | todo | - | 4k token budget + metadata |
 
 ## 3. Open Blockers
-- [ ] Confirm migration `20260217000006_clickup_space_skill_seed.sql` is applied.
+- [x] Confirm migration `20260217000006_clickup_space_skill_seed.sql` is applied.
 - [ ] Decide first chunk start timestamp and branch/PR convention.
 
 ## 3.1 Latest Validation Notes
