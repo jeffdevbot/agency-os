@@ -14,7 +14,7 @@ Last updated: 2026-02-17 (evening)
 ## 2. Chunk Progress
 | Chunk | Name | Owner | Status | PR/Commit | Notes |
 |---|---|---|---|---|---|
-| C1 | Weekly task read path (`clickup_task_list_weekly`) | Claude | in_review | pending | Implemented in backend + tests passing; pending skill catalog enable/flag decision and live Slack smoke test |
+| C1 | Weekly task read path (`clickup_task_list_weekly`) | Claude | done | merged (`da5e86f`) | Backend implementation and test coverage landed; post-merge smoke test runbook documented |
 | C2 | Task create flow (`clickup_task_create`) | Claude | todo | - | Thin-task clarify + draft path |
 | C3 | Confirmation + dedupe hardening | Claude | todo | - | 10-min expiry + interaction idempotency |
 | C4 | Concurrency + ClickUp reliability | Claude | todo | - | Advisory lock + retry/backoff + orphan handling |
