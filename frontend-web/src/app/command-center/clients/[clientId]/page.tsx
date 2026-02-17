@@ -786,7 +786,7 @@ export default function CommandCenterClientDetailPage() {
 	              };
 
               const strategy = getSlot("strategy_director");
-              const brandManager = getSlot("brand_manager");
+              const customerSuccessLead = getSlot("customer_success_lead");
               const catalogStrategist = getSlot("catalog_strategist");
               const catalogSpecialist = getSlot("catalog_specialist");
               const reportSpecialist = getSlot("report_specialist");
@@ -860,13 +860,13 @@ export default function CommandCenterClientDetailPage() {
 	                      />
 	                      <div className="h-6 border-l-2 border-slate-300" />
 	                      <OrgNode
-	                        roleLabel="Brand Manager"
-	                        assignedMember={brandManager.member}
+	                        roleLabel="Customer Success Lead"
+	                        assignedMember={customerSuccessLead.member}
 	                        activeMembers={activeTeamMembers}
-	                        value={brandManager.assignment?.teamMemberId ?? ""}
-	                        pending={isAssigning(brandManager.key)}
-	                        disabled={saving || isAssigning(brandManager.key) || !brandManager.roleId}
-	                        onAssign={(value) => void assignHandler(brandManager, value)}
+	                        value={customerSuccessLead.assignment?.teamMemberId ?? ""}
+	                        pending={isAssigning(customerSuccessLead.key)}
+	                        disabled={saving || isAssigning(customerSuccessLead.key) || !customerSuccessLead.roleId}
+	                        onAssign={(value) => void assignHandler(customerSuccessLead, value)}
 	                      />
 
                       <div className="relative mt-6 w-full max-w-5xl">
