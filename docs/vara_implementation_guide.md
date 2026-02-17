@@ -1188,13 +1188,13 @@ VARA_TOOLS = [
         "type": "function",
         "function": {
             "name": "lookup_sop",
-            "description": "Get SOP template content by category. Use this to understand the methodology before creating a task.",
+            "description": "Get SOP template content by category or alias. Accepts exact category names (e.g., 'ngram') or natural language aliases (e.g., 'keyword research', 'negative keywords'). Use this to understand the methodology before creating a task.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "category": {
                         "type": "string",
-                        "description": "SOP category (e.g., 'ngram', 'content_audit', 'bid_adjustment')"
+                        "description": "SOP category or alias (e.g., 'ngram', 'keyword research', 'negative keywords')"
                     }
                 },
                 "required": ["category"]
@@ -1237,22 +1237,345 @@ VARA_TOOLS = [
     {
         "type": "function",
         "function": {
-            "name": "query_clickup",
-            "description": "Query ClickUp for task information. Only use when user explicitly asks about existing tasks. This is expensive - ask for confirmation first.",
+            "name": "create_clickup_task",
+            "description": "Create a task in ClickUp. Only call AFTER user approves the draft via button click.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "question": {
+                    "title": {
                         "type": "string",
-                        "description": "What to search for in ClickUp"
+                        "description": "Task title"
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Task description in markdown"
+                    },
+                    "list_id": {
+                        "type": "string",
+                        "description": "ClickUp list ID (uses client's default if not provided)"
                     }
                 },
-                "required": ["question"]
+                "required": ["title", "description"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_recent_tasks",
+            "description": "Get recent tasks for the active client. Use to provide context about what's already been done.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "days": {
+                        "type": "integer",
+                        "description": "Number of days to look back (default: 14)"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum tasks to return (default: 10)"
+                    }
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "query_clickup",
+            "description": "Search ClickUp for task information. Only use when user explicitly asks about existing tasks. This is expensive - the system will ask for confirmation before enabling this tool.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search query (e.g., 'overdue tasks', 'n-gram tasks from last week')"
+                    },
+                    "client_id": {
+                        "type": "string",
+                        "description": "Client ID to scope the search (uses active client if not provided)"
+                    }
+                },
+                "required": ["query"]
             }
         }
     }
 ]
 ```
+
+### Tool Constants
+
+These constants define which tools are available in each path:
+
+```python
+# services/vara/tools.py
+
+# Tier 1: Free tools (no API calls, just local operations)
+TIER_1_TOOLS = [
+    "switch_client",      # Update session state
+    "lookup_sop",         # Read from Supabase cache
+    "list_sops",          # Read from Supabase cache
+    "create_task_draft",  # Store draft in session context
+]
+
+# Tier 2: Moderate tools (direct ClickUp API calls)
+TIER_2_TOOLS = [
+    "create_clickup_task",  # POST /list/{id}/task
+    "get_recent_tasks",     # GET /list/{id}/task with filters
+]
+
+# Tier 3: Expensive tools (search/aggregation, high token usage)
+TIER_3_TOOLS = [
+    "query_clickup",  # Search across spaces, requires processing results
+]
+
+# Standard path: Tier 1 + Tier 2 (always available)
+STANDARD_TOOLS = TIER_1_TOOLS + TIER_2_TOOLS
+
+# All tools: includes gated Tier 3 (only after user confirms)
+ALL_TOOLS = STANDARD_TOOLS + TIER_3_TOOLS
+
+def get_tool_definitions(tools: list[str]) -> list[dict]:
+    """Filter VARA_TOOLS to only include specified tool names."""
+    return [t for t in VARA_TOOLS if t["function"]["name"] in tools]
+```
+
+### query_clickup Implementation
+
+The `query_clickup` tool uses the **direct ClickUp API** (not the MCP server, which requires OAuth 2.1):
+
+```python
+# services/vara/tools.py
+
+async def handle_query_clickup(args: dict, session, services: dict) -> str:
+    """
+    Search ClickUp for tasks matching the query.
+
+    Uses direct ClickUp API v2:
+    - GET /team/{team_id}/task with search parameters
+    - Filters by space_id if client has ClickUp space configured
+    """
+    query = args.get("query", "").strip()
+    if not query:
+        return "No search query provided."
+
+    client_id = args.get("client_id") or session.active_client_id
+    if not client_id:
+        return "No client selected. Please switch to a client first."
+
+    # Get client's ClickUp space
+    destination = services["sessions"].get_brand_destination_for_client(client_id)
+    if not destination or not destination.get("clickup_space_id"):
+        return "This client doesn't have a ClickUp space configured."
+
+    clickup = services["clickup"]
+    space_id = destination["clickup_space_id"]
+
+    # Search tasks in the space
+    # Note: ClickUp search is limited - we fetch recent tasks and filter
+    try:
+        tasks = await clickup.get_tasks_in_space(
+            space_id=space_id,
+            include_closed=False,
+            order_by="updated",
+            limit=50,
+        )
+    except Exception as e:
+        return f"Failed to search ClickUp: {e}"
+
+    if not tasks:
+        return f"No tasks found in this client's space."
+
+    # Format results for AI to process
+    results = []
+    for task in tasks[:20]:  # Limit to avoid token bloat
+        status = task.get("status", {}).get("status", "unknown")
+        due = task.get("due_date")
+        due_str = f" (due: {due})" if due else ""
+        results.append(f"- {task['name']} [{status}]{due_str}")
+
+    return f"Found {len(tasks)} tasks. Top results:\n" + "\n".join(results)
+```
+
+**Future enhancement:** For richer search capabilities, integrate with [ClickUp's MCP server](https://developer.clickup.com/docs/connect-an-ai-assistant-to-clickups-mcp-server) which supports OAuth 2.1 with PKCE and provides orchestration, reporting, and advanced search features.
+
+### Tier 2 Tool Implementations
+
+**create_clickup_task** - Called after user approves a draft:
+
+```python
+async def handle_create_clickup_task(args: dict, session, services: dict) -> str:
+    """Create task in ClickUp after user approval."""
+    title = args.get("title", "").strip()
+    description = args.get("description", "")
+
+    if not title:
+        return "Task title is required."
+
+    client_id = session.active_client_id
+    if not client_id:
+        return "No client selected."
+
+    destination = services["sessions"].get_brand_destination_for_client(client_id)
+    if not destination or not destination.get("clickup_space_id"):
+        return "Client doesn't have ClickUp configured."
+
+    list_id = args.get("list_id") or destination.get("clickup_list_id")
+    space_id = destination["clickup_space_id"]
+
+    clickup = services["clickup"]
+    try:
+        task = await clickup.create_task_in_space(
+            space_id=space_id,
+            name=title,
+            description_md=description,
+            override_list_id=list_id,
+        )
+        return f"Task created: {task.url}"
+    except Exception as e:
+        return f"Failed to create task: {e}"
+```
+
+**get_recent_tasks** - Provides context about recent work:
+
+```python
+async def handle_get_recent_tasks(args: dict, session, services: dict) -> str:
+    """Get recent tasks for context."""
+    client_id = session.active_client_id
+    if not client_id:
+        return "No client selected."
+
+    destination = services["sessions"].get_brand_destination_for_client(client_id)
+    if not destination or not destination.get("clickup_space_id"):
+        return "Client doesn't have ClickUp configured."
+
+    days = args.get("days", 14)
+    limit = args.get("limit", 10)
+
+    clickup = services["clickup"]
+    try:
+        tasks = await clickup.get_tasks_in_space(
+            space_id=destination["clickup_space_id"],
+            days_back=days,
+            limit=limit,
+        )
+    except Exception as e:
+        return f"Failed to fetch tasks: {e}"
+
+    if not tasks:
+        return "No recent tasks found for this client."
+
+    results = []
+    for task in tasks:
+        status = task.get("status", {}).get("status", "unknown")
+        results.append(f"- {task['name']} [{status}]")
+
+    return f"Recent tasks ({len(tasks)}):\n" + "\n".join(results)
+```
+
+**Note on task creation flow:** The AI typically uses `create_task_draft` to store a draft, which triggers a Slack preview with Approve/Edit/Cancel buttons. When the user clicks Approve, the button handler calls `create_clickup_task` directly (not the AI). The AI only calls `create_clickup_task` if explicitly instructed to skip the approval flow.
+
+### SOP Mapping via Database Aliases
+
+**Problem:** The SOP lookup relies on exact category matches (e.g., `category="ngram"`). If someone says "do keyword research" or "n-gram optimization", the AI might call `lookup_sop("keyword research")` which won't find the SOP stored as `category="ngram"`.
+
+**Solution:** Store aliases directly in the `playbook_sops` table as a `text[]` column. Each SOP has a canonical `category` (e.g., "ngram") plus an array of `aliases` (e.g., `["n-gram", "keyword research", "negative keywords"]`).
+
+**Database schema (already implemented):**
+
+```sql
+-- Migration: 20250201000001_playbook_sops_aliases.sql
+ALTER TABLE public.playbook_sops
+ADD COLUMN IF NOT EXISTS aliases text[] DEFAULT '{}';
+
+-- GIN index for efficient array containment queries
+CREATE INDEX IF NOT EXISTS idx_playbook_sops_aliases
+  ON public.playbook_sops USING GIN (aliases);
+```
+
+**Seed data example:**
+
+```sql
+-- Migration: 20250201000002_seed_playbook_sops.sql
+INSERT INTO public.playbook_sops (clickup_doc_id, clickup_page_id, category, name, aliases)
+VALUES (
+  '18m2dn-4417', '18m2dn-1997', 'ngram',
+  'NGram Optimization SOP',
+  ARRAY['n-gram', 'ngram', 'n-gram research', 'ngram research', 'keyword research',
+        'n-gram optimization', 'ngram optimization', 'search term analysis',
+        'search term optimization', 'negative keyword', 'negative keywords']
+)
+ON CONFLICT (clickup_doc_id, clickup_page_id) DO UPDATE SET
+  category = EXCLUDED.category,
+  name = EXCLUDED.name,
+  aliases = EXCLUDED.aliases;
+```
+
+**Lookup implementation (in `services/sop_sync.py`):**
+
+```python
+async def get_sop_by_category_or_alias(self, query: str) -> dict[str, Any] | None:
+    """
+    Get SOP by category or alias.
+
+    First tries exact category match, then falls back to alias lookup.
+    This is the primary method for AI tool lookups.
+    """
+    # Try exact category first
+    sop = await self.get_sop_by_category(query)
+    if sop:
+        return sop
+
+    # Fall back to alias lookup (uses PostgreSQL array contains)
+    return await self.get_sop_by_alias(query)
+
+def _get_sop_by_alias_sync(self, alias: str) -> dict[str, Any] | None:
+    """Get SOP by alias (sync version). Uses PostgreSQL array contains."""
+    alias = (alias or "").strip().lower()
+    if not alias:
+        return None
+
+    # PostgreSQL array contains: aliases @> ARRAY['keyword research']
+    response = (
+        self.db.table("playbook_sops")
+        .select("*")
+        .filter("aliases", "cs", f"{{{alias}}}")
+        .limit(1)
+        .execute()
+    )
+    rows = response.data if isinstance(response.data, list) else []
+    return rows[0] if rows and isinstance(rows[0], dict) else None
+```
+
+**Using in `handle_lookup_sop`:**
+
+```python
+# services/vara/tools.py
+
+async def handle_lookup_sop(args: dict, session, services: dict) -> str:
+    """Fetch SOP content by category or alias."""
+    query = args.get("category", "").strip()
+
+    # Single call handles both exact category match and alias lookup
+    sop = await services["sop"].get_sop_by_category_or_alias(query)
+
+    if not sop:
+        available = await services["sop"].list_categories()
+        return f"No SOP found for: {query}. Available: {', '.join(available)}"
+
+    return sop.get("content_md", "")
+```
+
+**Why database-driven is better:**
+
+| Approach | Problem |
+|----------|---------|
+| Let AI figure it out | AI hallucinates categories or fails silently |
+| Hardcoded Python dict | Must redeploy to add aliases |
+| Fuzzy string matching | Unpredictable, might match wrong SOP |
+| **Database aliases** | No redeploy needed, edit in Supabase, queryable |
+
+**Maintenance:** When adding or updating SOP aliases, edit directly in Supabase (or add a new seed migration). No code changes required.
 
 ### Conversation Flow Example
 
@@ -1326,7 +1649,8 @@ backend-core/app/
 ├── services/
 │   ├── slack.py                    # Slack API client (keep as-is)
 │   ├── playbook_session.py         # Session CRUD (keep, add message methods)
-│   ├── sop_sync.py                 # SOP fetching (keep as-is)
+│   ├── sop_sync.py                 # SOP fetching + alias lookup
+│   │                               # get_sop_by_category_or_alias()
 │   ├── clickup.py                  # ClickUp API (keep as-is)
 │   │
 │   └── vara/                       # NEW: Vara AI module
@@ -1350,6 +1674,7 @@ backend-core/app/
 | `vara/ai_client.py` | OpenAI API calls, retries, fallbacks | Swap models without touching logic |
 | `vara/tools.py` | Tool JSON schemas + execution handlers | Add tools without touching AI code |
 | `vara/prompts.py` | System prompt templates, context building | Non-engineers can edit prompts |
+| `sop_sync.py` | SOP fetching + alias lookup | Database-driven, no redeploy to add aliases |
 
 **Example: Thin route handler**
 
@@ -1480,11 +1805,14 @@ async def execute_tool(name: str, args: dict, session, services: dict) -> str:
     return await handler(args, session, services)
 
 async def handle_lookup_sop(args: dict, session, services: dict) -> str:
-    """Fetch SOP content by category."""
-    category = args.get("category", "").strip()
-    sop = await services["sop"].get_sop_by_category(category)
+    """Fetch SOP content by category or alias."""
+    query = args.get("category", "").strip()
+    # Uses get_sop_by_category_or_alias which checks exact category first,
+    # then falls back to alias lookup in the database
+    sop = await services["sop"].get_sop_by_category_or_alias(query)
     if not sop:
-        return f"No SOP found for category: {category}"
+        available = await services["sop"].list_categories()
+        return f"No SOP found for: {query}. Available: {', '.join(available)}"
     return sop.get("content_md", "")
 
 async def handle_create_task_draft(args: dict, session, services: dict) -> str:
@@ -1537,6 +1865,8 @@ context = {
 | **2.8** | `routes/slack.py` | Approve/Edit/Cancel button handlers | ~60 LOC |
 | **2.9** | `vara/ai_client.py` | Token logging for all AI calls | ~30 LOC |
 
+**Note:** SOP alias resolution is handled by `sop_sync.py` (already implemented via `get_sop_by_category_or_alias()`). No separate mapping module needed.
+
 **Total new code:** ~680 LOC
 **Code removed:** ~200 LOC (business logic moved from routes to services)
 **Net change:** ~480 LOC
@@ -1550,11 +1880,13 @@ Recommended order to minimize integration issues:
 2. vara/prompts.py           # No dependencies
 3. vara/tools.py             # Tool definitions (no handlers yet)
 4. vara/ai_client.py         # OpenAI wrapper
-5. vara/tools.py             # Add handlers
+5. vara/tools.py             # Add handlers (uses sop_sync.get_sop_by_category_or_alias)
 6. vara/service.py           # Wire everything together
 7. playbook_session.py       # Add message history methods
 8. routes/slack.py           # Refactor to use VaraService
 ```
+
+**Note:** SOP alias lookup is already implemented in `services/sop_sync.py` via `get_sop_by_category_or_alias()`. No separate mapping module needed—aliases are stored in the database.
 
 ### Testing Strategy
 
@@ -1588,3 +1920,313 @@ OPENAI_MODEL_FALLBACK=gpt-4o-mini
 | **Task creation (3-4 turns)** | ~15,000 | ~$0.15 |
 
 Compare to current implementation: $0.00 (but zero value-add)
+
+### Tool Tiers & Cost Control
+
+To manage token costs, tools are organized into tiers based on expense:
+
+| Tier | Tools | Cost | When Available |
+|------|-------|------|----------------|
+| **Tier 1 (Free)** | `switch_client`, `lookup_sop`, `list_sops`, `create_task_draft` | ~0 tokens | Always |
+| **Tier 2 (Moderate)** | `create_clickup_task`, `get_recent_tasks` | ~500-1k tokens | Always |
+| **Tier 3 (Expensive)** | `query_clickup` (MCP) | ~2-5k tokens | Gated - requires user confirmation |
+
+**Key insight:** Cost control happens through **tool availability**, not AI routing. The AI doesn't decide which "lane" to use—we control which tools it can see.
+
+### Two-Path Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         USER MESSAGE                             │
+└─────────────────────────────────┬───────────────────────────────┘
+                                  │
+                                  ▼
+                    ┌─────────────────────────┐
+                    │     Pre-check: Is this  │
+                    │   an exploratory query? │
+                    └─────────────┬───────────┘
+                                  │
+              ┌───────────────────┴───────────────────┐
+              │ NO                                    │ YES
+              ▼                                       ▼
+    ┌─────────────────────┐             ┌─────────────────────────┐
+    │   STANDARD PATH     │             │   EXPLORATORY PATH      │
+    │                     │             │   (Gated)               │
+    │ Tools: Tier 1 + 2   │             │                         │
+    │ - switch_client     │             │ Bot: "This requires     │
+    │ - lookup_sop        │             │ searching ClickUp..."   │
+    │ - list_sops         │             │                         │
+    │ - create_task_draft │             │ [Continue] [Cancel]     │
+    │ - create_clickup_task│            │                         │
+    │ - get_recent_tasks  │             │ If Continue:            │
+    │                     │             │ Tools: Tier 1 + 2 + 3   │
+    │ AI handles naturally│             │ - query_clickup (MCP)   │
+    └─────────────────────┘             └─────────────────────────┘
+```
+
+### Pre-check Function
+
+Simple pattern matching to detect exploratory queries before calling the AI:
+
+```python
+# services/vara/routing.py
+
+import re
+
+EXPLORATORY_PATTERNS = [
+    r"\bwhat('s| is| are)\b.*\b(tasks?|work|overdue|pending|done)\b",
+    r"\bshow me\b.*\b(tasks?|work|what)\b",
+    r"\bhow many\b.*\b(tasks?|things)\b",
+    r"\blist\b.*\b(tasks?|overdue|pending)\b",
+    r"\bfind\b.*\b(tasks?|work)\b",
+    r"\bsearch\b",
+    r"\bwhat did (we|i|you)\b",
+    r"\bwhat have\b",
+]
+
+def is_exploratory_query(text: str) -> bool:
+    """
+    Detect if message needs MCP access (expensive).
+
+    Returns True for queries like:
+    - "What tasks are overdue for Whoosh?"
+    - "Show me what's being worked on"
+    - "Find the n-gram task from last week"
+
+    Returns False for:
+    - "Create an n-gram task"
+    - "Switch to Home Gifts USA"
+    - "Start keyword research"
+    """
+    text_lower = text.lower().strip()
+
+    # Quick exit for obvious task creation intents
+    if any(kw in text_lower for kw in ["create", "start", "make", "do", "run"]):
+        return False
+
+    # Check for exploratory patterns
+    for pattern in EXPLORATORY_PATTERNS:
+        if re.search(pattern, text_lower):
+            return True
+
+    return False
+```
+
+### Gating Flow for MCP
+
+When pre-check detects an exploratory query:
+
+```python
+# services/vara/service.py
+
+async def handle_message(self, slack_user_id: str, channel: str, text: str):
+    session = self.sessions.get_or_create_session(slack_user_id)
+
+    # Check if this needs MCP access
+    if is_exploratory_query(text):
+        # Store the query for later execution
+        self.sessions.update_context(session.id, {
+            "pending_mcp_query": text
+        })
+
+        # Send gating message
+        await self.slack.post_message(
+            channel=channel,
+            text="This requires searching ClickUp, which uses more resources.",
+            blocks=[
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": "This requires searching ClickUp, which uses more resources.\n\nWould you like to continue?"
+                    }
+                },
+                {
+                    "type": "actions",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "Continue"},
+                            "style": "primary",
+                            "action_id": "mcp_continue",
+                        },
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "Cancel"},
+                            "action_id": "mcp_cancel",
+                        }
+                    ]
+                }
+            ]
+        )
+        return
+
+    # Standard path - AI with Tier 1+2 tools only
+    await self._run_ai_with_tools(
+        session=session,
+        channel=channel,
+        text=text,
+        tool_names=STANDARD_TOOLS,  # switch_client, lookup_sop, list_sops,
+                                     # create_task_draft, create_clickup_task, get_recent_tasks
+    )
+
+async def handle_mcp_continue(self, session, channel: str):
+    """Called when user clicks Continue on exploratory query gate."""
+    pending_query = session.context.get("pending_mcp_query")
+    if not pending_query:
+        return
+
+    # Clear the pending query
+    self.sessions.update_context(session.id, {"pending_mcp_query": None})
+
+    # Run AI with ALL tools including query_clickup
+    await self._run_ai_with_tools(
+        session=session,
+        channel=channel,
+        text=pending_query,
+        tool_names=ALL_TOOLS,  # Includes query_clickup (Tier 3)
+    )
+
+async def _run_ai_with_tools(self, session, channel: str, text: str, tool_names: list[str]):
+    """Run AI conversation with specified tools available."""
+    from .tools import get_tool_definitions, execute_tool
+
+    # Get tool definitions for the specified tools
+    tools = get_tool_definitions(tool_names)
+
+    # Build context and run AI
+    context = build_context(session)
+    messages = context.get("messages", []) + [{"role": "user", "content": text}]
+
+    response = await self.ai.chat(messages=messages, tools=tools)
+
+    # Handle tool calls in a loop
+    while response.tool_calls:
+        tool_results = await self._execute_tools(response.tool_calls, session)
+        response = await self.ai.continue_with_tools(messages, tool_results)
+
+    # Send response and save history
+    if session.context.get("pending_draft"):
+        await self._send_task_preview(channel, session)
+    else:
+        await self.slack.post_message(channel=channel, text=response.content)
+
+    self.sessions.append_message(session.id, "user", text)
+    self.sessions.append_message(session.id, "assistant", response.content)
+```
+
+### Session Context & Chat Memory
+
+**How sessions work:**
+
+Sessions are defined by a 30-minute inactivity timeout. The `playbook_slack_sessions` table tracks:
+- `slack_user_id` — Who this session belongs to
+- `active_client_id` — Which client they're working on
+- `context` — JSONB field for conversation state
+- `last_message_at` — For timeout calculation
+
+**Chat memory within a session:**
+
+The `context` JSONB field stores the conversation history:
+
+```python
+context = {
+    "messages": [
+        {"role": "user", "content": "I need to do ngram for Mid-Day Squares", "ts": "2025-01-31T10:00:00Z"},
+        {"role": "assistant", "content": "Great, I'll help you...", "ts": "2025-01-31T10:00:05Z"},
+        {"role": "user", "content": "Focus on chocolate bars", "ts": "2025-01-31T10:00:30Z"},
+        # ... more messages
+    ],
+    "pending_draft": {...},  # Task awaiting approval
+    "pending_mcp_query": null,  # Query awaiting MCP gate approval
+}
+```
+
+**Managing context size:**
+
+| Strategy | Implementation |
+|----------|----------------|
+| **Keep recent messages** | Last 10-15 messages in full |
+| **Summarize old messages** | If session runs long (>15 messages), summarize earlier ones |
+| **Token budget** | Target ~4k tokens for messages (within 8k total context) |
+| **Session timeout** | After 30 min inactivity, start fresh (old context not needed) |
+
+**Adding message history methods to PlaybookSessionService:**
+
+```python
+# services/playbook_session.py (additions)
+
+MAX_MESSAGES = 15
+
+def append_message(self, session_id: str, role: str, content: str) -> None:
+    """Add a message to session chat history."""
+    session_id = (session_id or "").strip()
+    if not session_id or not content:
+        return
+
+    # Fetch current context
+    response = (
+        self.db.table("playbook_slack_sessions")
+        .select("context")
+        .eq("id", session_id)
+        .limit(1)
+        .execute()
+    )
+    rows = response.data if isinstance(response.data, list) else []
+    context = rows[0].get("context") if rows else {}
+    if not isinstance(context, dict):
+        context = {}
+
+    messages = context.get("messages", [])
+    if not isinstance(messages, list):
+        messages = []
+
+    # Add new message
+    messages.append({
+        "role": role,
+        "content": content,
+        "ts": _utc_now_iso(),
+    })
+
+    # Trim to max messages (keep most recent)
+    if len(messages) > MAX_MESSAGES:
+        messages = messages[-MAX_MESSAGES:]
+
+    context["messages"] = messages
+
+    self.db.table("playbook_slack_sessions").update({
+        "context": context,
+        "last_message_at": _utc_now_iso()
+    }).eq("id", session_id).execute()
+
+def get_messages(self, session_id: str) -> list[dict]:
+    """Get chat history for AI context."""
+    session_id = (session_id or "").strip()
+    if not session_id:
+        return []
+
+    response = (
+        self.db.table("playbook_slack_sessions")
+        .select("context")
+        .eq("id", session_id)
+        .limit(1)
+        .execute()
+    )
+    rows = response.data if isinstance(response.data, list) else []
+    if not rows:
+        return []
+
+    context = rows[0].get("context")
+    if not isinstance(context, dict):
+        return []
+
+    messages = context.get("messages", [])
+    return messages if isinstance(messages, list) else []
+```
+
+**Why this approach works:**
+
+1. **30-minute sessions are short** — Most sessions complete in 5-15 exchanges
+2. **Context stays small** — 10-15 messages ≈ 2-4k tokens (well under limits)
+3. **No cross-session memory needed** — The *output* of old sessions is the ClickUp tasks, which we surface via "recent tasks"
+4. **Fresh starts are fine** — Like Claude Code, each session is self-contained

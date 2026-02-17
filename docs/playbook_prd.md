@@ -111,21 +111,40 @@ Codify the BM playbook into an AI system that:
             (text, buttons, links)
 ```
 
-### 3.1 Request Classification
+### 3.1 Request Handling
 
-The classifier determines how to handle each user message:
+> **Note:** This section describes the v2.1 AI-first architecture. The original "classifier → handler" approach from Phases 1-6 has been superseded. See v2.1 Decisions (Section 15) for rationale.
 
-| Classification | Example | Handler | Token Cost |
-|----------------|---------|---------|------------|
-| `TASK_CREATE` | "Create n-gram task for Brand X" | Deterministic API + SOP | Low |
-| `SOP_LOOKUP` | "What's the n-gram process?" | Cached knowledge | Low |
-| `TASK_QUERY` | "What's being worked on for Client X?" | Gated MCP | High |
-| `GENERAL` | Open-ended questions | Gated MCP | High |
+**Every message goes through the AI** with available tools. Cost control happens through **tool availability**, not message classification:
 
-### 3.2 Gated MCP Access
+| Query Type | Pre-check | Tools Available | Token Cost |
+|------------|-----------|-----------------|------------|
+| Task creation, SOP lookup, client switching | Standard path | Tier 1 + 2 | Low-Medium |
+| Exploratory queries ("what tasks are overdue?") | Gated path | Tier 1 + 2 + 3 | High |
 
-For exploratory queries that don't map to known workflows, Playbook can use the ClickUp MCP. This is **gated** because MCP calls are token-expensive.
+The pre-check is simple pattern matching (not AI) that detects exploratory queries and shows a confirmation gate before enabling expensive tools.
 
+### 3.2 Tool Tiers & Cost Control
+
+Vara's tools are organized into tiers based on token cost:
+
+| Tier | Tools | Cost | Availability |
+|------|-------|------|--------------|
+| **Tier 1 (Free)** | `switch_client`, `lookup_sop`, `list_sops`, `create_task_draft` | ~0 tokens | Always |
+| **Tier 2 (Moderate)** | `create_clickup_task`, `get_recent_tasks` | ~500-1k tokens | Always |
+| **Tier 3 (Expensive)** | `query_clickup` (MCP) | ~2-5k tokens | Gated |
+
+**Key principle:** Cost control happens through **tool availability**, not AI routing. We control which tools the AI can see based on the query type.
+
+### 3.3 Gated Exploratory Queries
+
+For exploratory queries that don't map to known workflows, Playbook can search ClickUp. This is **gated** because these queries are token-expensive (AI must process search results).
+
+**Pre-check routing:** Before calling the AI, a simple pattern-matching function detects exploratory queries:
+- Exploratory: "What tasks are overdue?", "Show me what's being worked on", "Find the n-gram task"
+- Standard: "Create an n-gram task", "Switch to Home Gifts", "Start keyword research"
+
+**Gating flow:**
 ```
 User: "What tasks are overdue for Whoosh?"
 
@@ -134,18 +153,20 @@ Bot: "This requires searching ClickUp, which uses more resources.
 
 User: clicks [Continue]
 
-Bot: [Uses ClickUp MCP to query tasks]
+Bot: [AI now has access to query_clickup tool]
      "Found 3 overdue tasks for Whoosh: ..."
 ```
 
-### 3.3 Why This Architecture
+**Implementation note:** The `query_clickup` tool uses the **direct ClickUp API** (same `CLICKUP_API_TOKEN` used elsewhere). True MCP server integration (which requires OAuth 2.1 with PKCE) is a future enhancement option. See [ClickUp MCP docs](https://developer.clickup.com/docs/connect-an-ai-assistant-to-clickups-mcp-server) for reference.
+
+### 3.4 Why This Architecture
 
 - **Slack is where the team works** — No new UI to learn, mobile access built-in
 - **ClickUp is already a great editor** — Don't rebuild task editing
 - **SOPs cached locally** — Fast, cheap access to process knowledge
-- **MCP for flexibility** — Handle edge cases without hardcoding every workflow
+- **Direct API for flexibility** — Handle edge cases without hardcoding every workflow
 
-### 3.4 Infrastructure Decisions
+### 3.5 Infrastructure Decisions
 
 #### Slack User → Profile Mapping
 
@@ -538,9 +559,17 @@ Playbook uses **session-scoped context** with tiered loading to manage token usa
 ```
 
 **Chat history management:**
-- Keep last ~10-15 messages in full
-- If session runs long, summarize earlier messages
+- Keep last ~10-15 messages in full (~2-4k tokens)
+- If session runs long (>15 messages), trim oldest messages
 - Most sessions complete in 5-15 exchanges
+- Sessions timeout after 30 min inactivity → fresh start
+- No cross-session memory needed (ClickUp tasks are the "memory")
+
+**Why context doesn't "fill up":**
+1. Sessions are short (30 min timeout) and task-focused
+2. 10-15 messages is plenty for a task creation conversation
+3. When trimming, we keep the most recent context (most relevant)
+4. If a user needs info from a previous session, they can ask "what did we work on last time?" and we can query ClickUp recent tasks
 
 ### 6.2 Context Assembly
 
@@ -860,7 +889,13 @@ Bot: *SB Supply Weekly - Jan 27* has 3 tasks.
 
 ## 8. Data Model
 
-> **MVP Note:** The Slack bot MVP uses a simpler data model. The `playbook_slack_sessions` table (Section 3.4) handles session state. The tables below are reference designs for future phases when we need richer session history, scheduled optimizations, and multi-step workflows.
+> **Reference Design — Not for MVP Implementation**
+>
+> The Slack bot MVP uses a **simplified data model**:
+> - `playbook_slack_sessions` table with JSONB `context` field for chat history (see Section 3.4)
+> - `playbook_sops` table for cached SOP content (already implemented)
+>
+> The tables below are **reference designs for future phases** when we need richer session history, scheduled optimizations, and multi-step workflows. **Do not implement these tables for Vara 2.0.**
 
 ### 8.1 Core Tables
 
@@ -1559,6 +1594,17 @@ Handle queries that don't map to known workflows.
 18. ✅ **ClickUp credentials:** Service token in Render env var (`CLICKUP_API_TOKEN`), server-side only
 19. ✅ **Bot execution context:** Uses `SUPABASE_SERVICE_ROLE_KEY` (bypasses RLS, trusted backend)
 20. ✅ **Scheduled reminders:** Deferred to future phase (not MVP)
+
+### v2.1 AI Architecture Decisions (January 2025)
+21. ✅ **AI as brain:** Every message goes through OpenAI with tools (not keyword dispatcher)
+22. ✅ **Tool tiers:** Free (Tier 1) → Moderate (Tier 2) → Expensive/Gated (Tier 3)
+23. ✅ **Two-path architecture:** Standard path (Tier 1+2 tools) vs Exploratory path (all tools, gated)
+24. ✅ **Pre-check routing:** Simple regex patterns detect exploratory queries before AI call
+25. ✅ **Cost control via tool availability:** AI doesn't decide lanes; we control which tools it sees
+26. ✅ **Task personalization:** AI adapts SOPs with client context and user input (not verbatim copy)
+27. ✅ **Approval flow:** AI creates drafts; user approves/edits/cancels before ClickUp creation
+28. ✅ **Chat memory scope:** Session-scoped only (30 min timeout); last 10-15 messages kept in full
+29. ✅ **Modular architecture:** `services/vara/` package with separate modules for prompts, tools, AI client, service
 
 ---
 
