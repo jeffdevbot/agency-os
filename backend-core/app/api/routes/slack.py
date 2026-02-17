@@ -82,6 +82,12 @@ _WEEKLY_TASK_PATTERNS: list[re.Pattern[str]] = [
 ]
 
 
+def _sanitize_client_name_hint(value: str) -> str:
+    """Normalize captured client hints (e.g., 'distex?' -> 'distex')."""
+    collapsed = " ".join((value or "").strip().split())
+    return re.sub(r"[?!.,:;]+$", "", collapsed).strip()
+
+
 def _classify_message(text: str) -> tuple[str, dict[str, Any]]:
     t = " ".join((text or "").strip().lower().split())
     if any(kw in t for kw in ("ngram", "n-gram", "keyword research")):
@@ -95,7 +101,7 @@ def _classify_message(text: str) -> tuple[str, dict[str, Any]]:
     for pattern in _WEEKLY_TASK_PATTERNS:
         m = pattern.search(t)
         if m:
-            client_name = (m.group(1) or "").strip() if m.lastindex else ""
+            client_name = _sanitize_client_name_hint((m.group(1) or "")) if m.lastindex else ""
             return ("weekly_tasks", {"client_name": client_name})
 
     return ("help", {})
