@@ -2,14 +2,14 @@ import os
 from fastapi import APIRouter, Depends, HTTPException
 from supabase import create_client, Client
 
-from ..auth import require_user
+from ..auth import require_admin_user
 from ..config import settings
 from ..services.sop_sync import SOPSyncService
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 @router.post("/sync-sops")
-async def sync_sops(user=Depends(require_user)):
+async def sync_sops(user=Depends(require_admin_user)):
     """
     Manually trigger sync of SOPs from ClickUp to Supabase.
     """
