@@ -58,6 +58,30 @@ def _make_mocks(**session_overrides) -> tuple[MagicMock, AsyncMock]:
     return svc, slack
 
 
+from contextlib import contextmanager
+
+
+@contextmanager
+def _mock_reliability():
+    """Patch C4A reliability helpers so existing C2 tests pass unchanged.
+
+    - check_duplicate returns None (no duplicate)
+    - retry_with_backoff is passthrough (just calls fn)
+    - get_supabase_admin_client returns a mock DB
+    """
+    mock_db = MagicMock()
+
+    async def _passthrough_retry(fn, **_kwargs):
+        return await fn()
+
+    with (
+        patch("app.api.routes.slack.check_duplicate", return_value=None),
+        patch("app.api.routes.slack.retry_with_backoff", side_effect=_passthrough_retry),
+        patch("app.api.routes.slack.get_supabase_admin_client", return_value=mock_db),
+    ):
+        yield mock_db
+
+
 # ---------------------------------------------------------------------------
 # Intent classification
 # ---------------------------------------------------------------------------
@@ -247,7 +271,7 @@ class TestExecuteTaskCreate:
         session = FakeSession()
         fake_task = ClickUpTask(id="task123", url="https://app.clickup.com/t/task123")
 
-        with patch("app.api.routes.slack.get_clickup_service") as mock_cu:
+        with _mock_reliability(), patch("app.api.routes.slack.get_clickup_service") as mock_cu:
             cu = AsyncMock()
             cu.create_task_in_list.return_value = fake_task
             mock_cu.return_value = cu
@@ -274,7 +298,7 @@ class TestExecuteTaskCreate:
         session = FakeSession()
         fake_task = ClickUpTask(id="task123", url="https://app.clickup.com/t/task123")
 
-        with patch("app.api.routes.slack.get_clickup_service") as mock_cu:
+        with _mock_reliability(), patch("app.api.routes.slack.get_clickup_service") as mock_cu:
             cu = AsyncMock()
             cu.create_task_in_list.return_value = fake_task
             mock_cu.return_value = cu
@@ -337,7 +361,7 @@ class TestExecuteTaskCreate:
         svc, slack = _make_mocks()
         session = FakeSession()
 
-        with patch("app.api.routes.slack.get_clickup_service") as mock_cu:
+        with _mock_reliability(), patch("app.api.routes.slack.get_clickup_service") as mock_cu:
             cu = AsyncMock()
             cu.create_task_in_list.side_effect = ClickUpError("timeout")
             mock_cu.return_value = cu
@@ -362,7 +386,7 @@ class TestExecuteTaskCreate:
         session = FakeSession()
         fake_task = ClickUpTask(id="t1", url="https://clickup.com/t/t1")
 
-        with patch("app.api.routes.slack.get_clickup_service") as mock_cu:
+        with _mock_reliability(), patch("app.api.routes.slack.get_clickup_service") as mock_cu:
             cu = AsyncMock()
             cu.create_task_in_list.return_value = fake_task
             mock_cu.return_value = cu
@@ -391,7 +415,7 @@ class TestExecuteTaskCreate:
         svc, slack = _make_mocks()
         session = FakeSession()
 
-        with patch("app.api.routes.slack.get_clickup_service") as mock_cu:
+        with _mock_reliability(), patch("app.api.routes.slack.get_clickup_service") as mock_cu:
             cu = AsyncMock()
             cu.create_task_in_list.side_effect = ClickUpError("boom")
             mock_cu.return_value = cu
@@ -420,7 +444,7 @@ class TestExecuteTaskCreate:
         session = FakeSession()
         fake_task = ClickUpTask(id="t1", url="https://clickup.com/t/t1")
 
-        with patch("app.api.routes.slack.get_clickup_service") as mock_cu:
+        with _mock_reliability(), patch("app.api.routes.slack.get_clickup_service") as mock_cu:
             cu = AsyncMock()
             cu.create_task_in_list.return_value = fake_task
             mock_cu.return_value = cu
@@ -499,7 +523,7 @@ class TestExecuteTaskCreate:
         session = FakeSession()
         fake_task = ClickUpTask(id="t1", url="https://clickup.com/t/t1")
 
-        with patch("app.api.routes.slack.get_clickup_service") as mock_cu:
+        with _mock_reliability(), patch("app.api.routes.slack.get_clickup_service") as mock_cu:
             cu = AsyncMock()
             cu.create_task_in_list.return_value = fake_task
             mock_cu.return_value = cu
@@ -533,7 +557,7 @@ class TestExecuteTaskCreate:
         session = FakeSession()
         fake_task = ClickUpTask(id="t1", url="https://clickup.com/t/t1")
 
-        with patch("app.api.routes.slack.get_clickup_service") as mock_cu:
+        with _mock_reliability(), patch("app.api.routes.slack.get_clickup_service") as mock_cu:
             cu = AsyncMock()
             cu.create_task_in_space.return_value = fake_task
             mock_cu.return_value = cu
@@ -595,7 +619,7 @@ class TestPendingTaskContinuation:
         session = FakeSession(context={"pending_task_create": pending})
         fake_task = ClickUpTask(id="t1", url="https://clickup.com/t/t1")
 
-        with patch("app.api.routes.slack.get_clickup_service") as mock_cu:
+        with _mock_reliability(), patch("app.api.routes.slack.get_clickup_service") as mock_cu:
             cu = AsyncMock()
             cu.create_task_in_list.return_value = fake_task
             mock_cu.return_value = cu
@@ -627,7 +651,7 @@ class TestPendingTaskContinuation:
         session = FakeSession(context={"pending_task_create": pending})
         fake_task = ClickUpTask(id="t1", url="https://clickup.com/t/t1")
 
-        with patch("app.api.routes.slack.get_clickup_service") as mock_cu:
+        with _mock_reliability(), patch("app.api.routes.slack.get_clickup_service") as mock_cu:
             cu = AsyncMock()
             cu.create_task_in_list.return_value = fake_task
             mock_cu.return_value = cu

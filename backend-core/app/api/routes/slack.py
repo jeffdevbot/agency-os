@@ -11,6 +11,13 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from ...services.agencyclaw import orchestrate_dm_message
+from ...services.agencyclaw.clickup_reliability import (
+    RetryExhaustedError,
+    build_idempotency_key,
+    check_duplicate,
+    emit_orphan_event,
+    retry_with_backoff,
+)
 from ...services.ai_token_usage_logger import log_ai_token_usage
 from ...services.clickup import ClickUpError, ClickUpConfigurationError, get_clickup_service
 from ...services.playbook_session import get_playbook_session_service, get_supabase_admin_client
@@ -426,6 +433,9 @@ async def _execute_task_create(
 ) -> None:
     """Create a ClickUp task and report the result in Slack.
 
+    Wires C4A reliability primitives: idempotency key, duplicate suppression,
+    retry/backoff, and orphan detection.
+
     Always clears pending_task_create from session context, even on early failures.
     """
     clickup = None
@@ -453,28 +463,95 @@ async def _execute_task_create(
             )
             return
 
+        brand_id = str(destination.get("id") or "")
+
+        # --- C4A: Idempotency + duplicate suppression ---
+        idempotency_key = build_idempotency_key(brand_id, task_title)
+        try:
+            db = get_supabase_admin_client()
+            duplicate = await asyncio.to_thread(check_duplicate, db, idempotency_key)
+        except Exception as dedupe_exc:  # noqa: BLE001
+            _logger.warning("Dedupe check failed (fail-closed): %s", dedupe_exc)
+            await slack.post_message(
+                channel=channel,
+                text="I couldn't safely validate duplicate protection right now. Please try again in a minute.",
+            )
+            return
+
+        if duplicate:
+            cu_id = duplicate.get("clickup_task_id") or ""
+            if cu_id:
+                await slack.post_message(
+                    channel=channel,
+                    text=f"A task with that title was already created today (ClickUp `{cu_id}`). Skipping duplicate.",
+                )
+            else:
+                await slack.post_message(
+                    channel=channel,
+                    text="A task with that title was already created today. Skipping duplicate.",
+                )
+            return
+
         clickup_user_id = await asyncio.to_thread(
             session_service.get_profile_clickup_user_id, session.profile_id
         )
 
         clickup = get_clickup_service()
 
+        # --- C4A: Retry/backoff wrapper ---
         if list_id:
-            # Prefer direct list routing (works with list-only brands too)
-            task = await clickup.create_task_in_list(
-                list_id=str(list_id),
-                name=task_title,
-                description_md=task_description or "",
-                assignee_ids=[clickup_user_id] if clickup_user_id else None,
-            )
+            async def _create_fn():  # type: ignore[return]
+                return await clickup.create_task_in_list(
+                    list_id=str(list_id),
+                    name=task_title,
+                    description_md=task_description or "",
+                    assignee_ids=[clickup_user_id] if clickup_user_id else None,
+                )
         else:
-            # Fallback: resolve list from space
-            task = await clickup.create_task_in_space(
-                space_id=str(space_id),
-                name=task_title,
-                description_md=task_description or "",
-                assignee_ids=[clickup_user_id] if clickup_user_id else None,
+            async def _create_fn():  # type: ignore[return]
+                return await clickup.create_task_in_space(
+                    space_id=str(space_id),
+                    name=task_title,
+                    description_md=task_description or "",
+                    assignee_ids=[clickup_user_id] if clickup_user_id else None,
+                )
+
+        try:
+            task = await retry_with_backoff(_create_fn)
+        except RetryExhaustedError as exc:
+            await slack.post_message(
+                channel=channel,
+                text=f"Failed to create ClickUp task: {exc.last_error}",
             )
+            return
+
+        # --- C4A: Persist to agent_tasks + orphan detection ---
+        try:
+            await asyncio.to_thread(
+                lambda: db.table("agent_tasks").insert({
+                    "clickup_task_id": task.id,
+                    "client_id": client_id,
+                    "assignee_id": session.profile_id,
+                    "source": "slack_dm",
+                    "source_reference": idempotency_key,
+                    "skill_invoked": "clickup_task_create",
+                    "status": "pending",
+                }).execute()
+            )
+        except Exception as persist_exc:  # noqa: BLE001
+            _logger.warning("agent_tasks insert failed (orphan): %s", persist_exc)
+            try:
+                await asyncio.to_thread(
+                    emit_orphan_event,
+                    db,
+                    clickup_task=task,
+                    idempotency_key=idempotency_key,
+                    client_id=client_id,
+                    employee_id=session.profile_id,
+                    error=str(persist_exc),
+                )
+            except Exception:  # noqa: BLE001
+                pass  # Never break user response path
 
         url = task.url or ""
         link = f"<{url}|{task_title}>" if url else task_title
@@ -1023,6 +1100,15 @@ async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> No
     except SlackAPIError:
         # Keep the endpoint non-fatal; Slack will retry delivery if needed.
         pass
+    except Exception as exc:  # noqa: BLE001
+        _logger.warning("Unhandled error in _handle_dm_event: %s", exc, exc_info=True)
+        try:
+            await slack.post_message(
+                channel=channel,
+                text="Something went wrong while processing that. Please try again.",
+            )
+        except Exception:  # noqa: BLE001
+            pass  # Best-effort fallback — never re-raise
     finally:
         await slack.aclose()
 
