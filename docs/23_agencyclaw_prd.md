@@ -5,6 +5,7 @@
 ## 1. Product Intent
 AgencyClaw is the successor to Vara/Vora. It should:
 - Let team members chat naturally in Slack about meeting notes, SOP questions, and task creation.
+- Feel conversational and assistant-like in Slack (Jarvis-style), not command-syntax dependent.
 - Route work to the right assignee using Command Center mappings.
 - Create and track ClickUp tasks reliably.
 - Reuse as much existing Agency OS infrastructure as possible.
@@ -44,14 +45,26 @@ Migration rule:
 AgencyClaw v1 uses one orchestrator service with typed tool adapters.
 
 Components:
-- `Orchestrator`: intent parsing, policy checks, routing decisions.
+- `Orchestrator`: LLM-first intent parsing, policy checks, routing decisions.
+- `ConversationalRouter`: produces either direct reply, clarification question, or tool-call plan.
 - `KnowledgeService`: SOP lookup and answer assembly.
 - `RoleResolutionService`: map client/brand + role -> assignee.
 - `TaskExecutionService`: ClickUp task create/update + status tracking.
 - `AuditService`: structured event logging.
 - `SkillAdapters`: typed wrappers for existing tools.
+- `DeterministicFallbackRouter`: existing pattern-matching handlers used when model/tool routing fails.
 
 This design keeps a clean seam for future sub-agents without forcing early complexity.
+
+### 4.4 Runtime Routing Priority (v1)
+Slack DM runtime should follow this order:
+1. Resolve identity + policy context.
+2. Attempt LLM conversational routing (`reply`, `clarify`, or `tool_call`).
+3. Execute tool call via typed adapter when selected.
+4. If LLM/tool planning fails, fall back to deterministic intent handlers.
+
+Rule:
+- Existing deterministic routes are retained as resilience fallback, not the primary UX.
 
 ### 4.2 Future Multi-Agent Upgrade Path
 If needed later, split orchestrator responsibilities into:
@@ -80,6 +93,13 @@ Later:
 
 ### 5.2 Rename Strategy
 Reuse existing Slack integration and rename behavior/branding from Vara to AgencyClaw.
+
+### 5.3 Conversational UX Decision
+For Slack DM interactions, AgencyClaw is LLM-first:
+- Users should not need strict command phrasing for common requests.
+- Bot should ask natural clarifying questions when details are missing.
+- Tool actions remain policy-gated and auditable through typed adapters.
+- Deterministic classifier remains as fail-safe fallback path.
 
 ## 6. Debrief As Slack-Native Capability
 ### 6.1 Product Behavior
@@ -482,7 +502,7 @@ AgencyClaw adopts the useful parts of OpenClaw's skills model while keeping type
 Adopt now:
 - Skill identity + metadata (name, description, auth policy, idempotency strategy, owner service).
 - Per-skill enable/disable controls in config.
-- Explicit command-to-skill routing for user-invocable operations.
+- LLM-first tool routing for user-invocable operations, with deterministic command routing fallback.
 - Security posture: treat third-party/community skill packages as untrusted by default.
 
 Adopt later (optional):
@@ -678,6 +698,20 @@ Suggested skills:
 - `cc_clickup_space_classify` (`admin+`): set classification state for a space.
 - `cc_clickup_space_brand_map` (`admin+`): map/unmap a space to a brand.
 
+### 13.14 Conversational Orchestrator Rules (Slack DM)
+- Slack DM is LLM-first for conversational interaction quality.
+- Orchestrator response modes are:
+  - `reply`: answer directly without tool invocation.
+  - `clarify`: ask blocking follow-up for missing required fields.
+  - `tool_call`: invoke typed skill adapter with validated arguments.
+- `tool_call` is limited to enabled skills in `skill_catalog`.
+- For v1 scope, required tool-call coverage includes:
+  - `clickup_task_list_weekly`
+  - `clickup_task_create`
+- If model routing fails, times out, or returns invalid schema, runtime must transparently fall back to deterministic handlers.
+- Conversational mode must preserve all existing safeguards:
+  confirmation requirements, permission checks, idempotency, and audit logging.
+
 ## 14. Failure And Compensation Design
 For all multi-step actions:
 - Return per-step status to requesting user in Slack.
@@ -747,6 +781,15 @@ For all multi-step actions:
 - Add audit coverage and channel confirmation rules for all admin mutations.
 - Ship targeted prompts/playbooks for common ops commands (e.g., set Slack ID, set ClickUp ID, reassign role slot).
 
+### Phase 2.7: Slack Conversational Orchestrator
+- Add LLM-first DM routing that chooses `reply`, `clarify`, or `tool_call`.
+- Integrate `client_context_builder` output into orchestrator prompts.
+- Keep deterministic classifier as runtime fallback.
+- Add integration tests for:
+  natural-language weekly task retrieval,
+  thin task creation clarification,
+  fallback behavior on LLM/tool-plan failure.
+
 ### Phase 3: Threshold Automation
 - Metric ingest.
 - Rule evaluation.
@@ -761,6 +804,7 @@ For all multi-step actions:
 - OpenAI-centric stack.
 - Reuse existing FastAPI Slack integration.
 - One orchestrator in v1, with extensible seams.
+- Slack DM runtime is LLM-first conversational, with deterministic fallback retained for resilience.
 - Slack-native Debrief is the first flagship workflow.
 - Queue lanes are planned, but not mandatory for first release.
 - v1 skill runtime depends on `skill_catalog` + `skill_invocation_log`; policy override enforcement is deferred.
@@ -785,5 +829,5 @@ For all multi-step actions:
 - ClickUp space registry/classification is required for safe brand backlog routing.
 
 ---
-Document version: 1.9
-Last updated: 2026-02-17
+Document version: 1.10
+Last updated: 2026-02-18
