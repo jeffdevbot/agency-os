@@ -10,7 +10,7 @@ It is separate from `docs/23_agencyclaw_prd.md`:
 - Work one chunk at a time.
 - No scope expansion inside a chunk.
 - Every chunk ships with tests.
-- Every mutation path must preserve idempotency, confirmation, and audit requirements from PRD v1.9.
+- Every mutation path must preserve idempotency, confirmation, and audit requirements from PRD v1.10.
 - Unimplemented skills remain disabled in `skill_catalog`.
 
 ## 3. Definition Of Done (Per Chunk)
@@ -30,6 +30,7 @@ It is separate from `docs/23_agencyclaw_prd.md`:
 6. C6: ClickUp space sync/classification + brand mapping controls
 7. C7: Standalone `meeting_parser` + debrief review path hardening
 8. C8: `client_context_builder` + token budget enforcement + metadata
+9. C9: Slack conversational orchestrator (LLM-first tool calling)
 
 ## 5. Chunk Details
 ## C1: Weekly Task Read Path
@@ -108,13 +109,61 @@ It is separate from `docs/23_agencyclaw_prd.md`:
   - Deterministic output for same inputs.
   - Budget guardrails enforced and tested.
 
-## 6. Prompt Template (For Coding Agent)
+## C9: Slack Conversational Orchestrator (LLM-First)
+- Scope:
+  - Route Slack DM messages through an LLM orchestrator before deterministic intent handlers.
+  - Use tool-calling to invoke implemented skills (`clickup_task_list_weekly`, `clickup_task_create`) instead of pattern-only dispatch.
+  - Inject client context pack from `client_context_builder` with strict budget metadata.
+  - Preserve existing safety rails (confirmation, permission checks, idempotency hooks).
+- Acceptance:
+  - Natural-language queries and requests are handled without strict command phrasing.
+  - Clarifying questions are generated when required fields are missing.
+  - Tool results are returned in conversational responses, with task links preserved.
+  - Existing deterministic fallback path remains available if model/tool call fails.
+  - LLM token usage is logged to `ai_token_usage` using AgencyClaw stage labels.
+
+## 6. C9 Runtime Env Prerequisites
+Source of truth for deployed values:
+- Render env group: `agency-os-env-var`
+
+Required for Slack + LLM + ClickUp orchestration:
+- `OPENAI_API_KEY`
+- `OPENAI_MODEL_PRIMARY`
+- `OPENAI_MODEL_FALLBACK`
+- `SLACK_BOT_TOKEN`
+- `SLACK_SIGNING_SECRET`
+- `CLICKUP_API_TOKEN`
+- `CLICKUP_TEAM_ID`
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `SUPABASE_JWT_SECRET`
+- `ENABLE_USAGE_LOGGING=1`
+
+Optional (recommended for spend visibility):
+- `OPENAI_ADMIN_API_KEY`
+- `OPENAI_ORG_ID`
+
+Notes:
+- Do not store secret values in repo docs; only document key names.
+- Backend service must inherit the env group used by Slack runtime routes.
+
+## 7. C9 Token Telemetry Contract
+For every successful AgencyClaw LLM call in Slack orchestration:
+- Write usage row to `public.ai_token_usage`.
+- Use `tool='agencyclaw'`.
+- Include stage labels (for example: `intent_parse`, `client_context_builder`, `response_compose`).
+- Include contextual metadata when available:
+  `run_id`, `run_type`, `skill_id`, `client_id`, `channel_id`, `thread_ts`.
+
+Logging is best-effort and must not block user response paths.
+
+## 8. Prompt Template (For Coding Agent)
 ```text
 Implement Chunk <ID> in repo `agency-os`.
 
 Rules:
 - Work only within this chunk scope.
-- Use PRD `docs/23_agencyclaw_prd.md` (v1.9) as source of truth.
+- Use PRD `docs/23_agencyclaw_prd.md` (v1.10) as source of truth.
 - No extra features.
 - Add/update tests.
 - Keep migration changes separate unless this chunk requires schema.
@@ -125,4 +174,3 @@ Deliverables:
 3) Commands run and outcomes
 4) Risks/TODOs
 ```
-
