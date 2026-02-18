@@ -4,10 +4,14 @@ import json
 import os
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 import httpx
 
+
+
+from supabase import Client
 
 class SlackError(Exception):
     pass
@@ -23,6 +27,73 @@ class SlackAuthError(SlackError):
 
 class SlackAPIError(SlackError):
     pass
+
+
+class SlackReceiptService:
+    def __init__(self, db: Client):
+        self.db = db
+
+    def attempt_insert_dedupe(
+        self,
+        *,
+        event_key: str,
+        event_source: str,
+        slack_event_id: str = "",
+        event_type: str = "",
+        payload: dict[str, Any] | None = None,
+    ) -> bool:
+        """
+        Attempt to insert a new receipt record atomically.
+        Returns True if new (inserted), False if already exists (duplicate).
+        """
+        row = {
+            "event_key": event_key,
+            "event_source": event_source,
+            "slack_event_id": slack_event_id,
+            "event_type": event_type,
+            "request_payload": payload or {},
+            "status": "processing",
+        }
+        try:
+            # Supabase/PostgREST 'ignore_duplicates' behavior on insert is usually achieved 
+            # by `on_conflict` arg in newer SDKs, or checking exception.
+            # Using count='exact' to see if rows were inserted. 
+            # Note: supabase-py v2 `upsert` with ignore_duplicates might be safer via `on_conflict`? 
+            # But here we want INSERT ... ON CONFLICT DO NOTHING.
+            # Since strict 'do nothing' via pure SDK can be tricky, we'll try insert and catch error 
+            # OR use upsert with `on_conflict="event_key"` and `ignore_duplicates=True`.
+            
+            res = self.db.table("slack_event_receipts").upsert(
+                row, on_conflict="event_key", ignore_duplicates=True
+            ).execute()
+            
+            # If ignore_duplicates=True, effective response data is [] if conflict occurred (no insert),
+            # or data=[row] if inserted.
+            if not res.data:
+                return False
+            return True
+        except Exception:
+            # Fallback for older SDKs or unexpected constraint errors
+            return False
+
+    def update_status(self, event_key: str, status: str, payload: dict[str, Any] | None = None) -> None:
+        """Update receipt status (e.g., processed, failed)."""
+        # Keep status values aligned with DB constraint:
+        # ('processing', 'processed', 'ignored', 'failed', 'duplicate')
+        if status not in {"processing", "processed", "ignored", "failed", "duplicate"}:
+            status = "failed"
+
+        updates: dict[str, Any] = {"status": status}
+        if status in {"processed", "ignored", "failed", "duplicate"}:
+            updates["processed_at"] = datetime.now(timezone.utc).isoformat()
+        if payload is not None:
+            updates["response_payload"] = payload
+        
+        try:
+            self.db.table("slack_event_receipts").update(updates).eq("event_key", event_key).execute()
+        except Exception:
+            pass
+
 
 
 def verify_slack_signature(

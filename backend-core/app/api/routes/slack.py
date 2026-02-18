@@ -1,5 +1,7 @@
 import asyncio
 import json
+import logging
+import os
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -8,17 +10,34 @@ from urllib.parse import parse_qs
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from fastapi.responses import JSONResponse
 
+from ...services.agencyclaw import orchestrate_dm_message
+from ...services.ai_token_usage_logger import log_ai_token_usage
 from ...services.clickup import ClickUpError, ClickUpConfigurationError, get_clickup_service
-from ...services.playbook_session import get_playbook_session_service
+from ...services.playbook_session import get_playbook_session_service, get_supabase_admin_client
 from ...services.sop_sync import SOPSyncService
 from ...services.slack import (
     SlackAPIError,
+    SlackReceiptService,
     get_slack_service,
     get_slack_signing_secret,
     verify_slack_signature,
 )
 
+_logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/slack", tags=["slack"])
+
+
+def _is_llm_orchestrator_enabled() -> bool:
+    """Check if the LLM DM orchestrator feature flag is enabled."""
+    return os.environ.get("AGENCYCLAW_LLM_DM_ORCHESTRATOR", "").strip().lower() in {
+        "1", "true", "yes", "on",
+    }
+
+
+def _get_receipt_service() -> SlackReceiptService:
+    return SlackReceiptService(get_supabase_admin_client())
+
 
 
 def _parse_json(body: bytes) -> dict[str, Any]:
@@ -524,16 +543,50 @@ async def _handle_create_task(
         "client_id": client_id,
         "client_name": client_name,
         "task_title": task_title,
+        "timestamp": datetime.now(timezone.utc).isoformat(), # C3: Add timestamp for expiry
     }
     await asyncio.to_thread(
         session_service.update_context, session.id, {"pending_task_create": pending}
     )
+    
+    # C3: Confirmation Block Protocol
+    # Send interactive buttons for explicit confirmation
+    blocks = [
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": (
+                    f"Ready to create task *{task_title}* for *{client_name}*.\n\n"
+                    "Send a description to include, or click Create to proceed as draft."
+                )
+            }
+        },
+        {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "Create Task (Draft)"},
+                    "style": "primary",
+                    "action_id": "confirm_create_task_draft",
+                    "value": "confirmed"
+                },
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "Cancel"},
+                    "style": "danger",
+                    "action_id": "cancel_create_task",
+                    "value": "cancelled"
+                }
+            ]
+        }
+    ]
+    
     await slack.post_message(
         channel=channel,
-        text=(
-            f"Ready to create task *{task_title}* for *{client_name}*.\n\n"
-            "Send a description to include, or type `create anyway` to create as draft."
-        ),
+        text=f"Ready to create task '{task_title}'. Confirm?",
+        blocks=blocks,
     )
 
 
@@ -574,16 +627,49 @@ async def _handle_pending_task_continuation(
             "client_id": client_id,
             "client_name": client_name,
             "task_title": title,
+            "timestamp": datetime.now(timezone.utc).isoformat(), # C3: Add timestamp for expiry
         }
         await asyncio.to_thread(
             session_service.update_context, session.id, {"pending_task_create": new_pending}
         )
+        
+        # C3: Confirmation Block Protocol
+        blocks = [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": (
+                        f"Ready to create task *{title}* for *{client_name}*.\n\n"
+                        "Send a description to include, or click Create to proceed as draft."
+                    )
+                }
+            },
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "Create Task (Draft)"},
+                        "style": "primary",
+                        "action_id": "confirm_create_task_draft",
+                        "value": "confirmed"
+                    },
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "Cancel"},
+                        "style": "danger",
+                        "action_id": "cancel_create_task",
+                        "value": "cancelled"
+                    }
+                ]
+            }
+        ]
+        
         await slack.post_message(
             channel=channel,
-            text=(
-                f"Ready to create task *{title}* for *{client_name}*.\n\n"
-                "Send a description to include, or type `create anyway` to create as draft."
-            ),
+            text=f"Ready to create task '{title}'. Confirm?",
+            blocks=blocks,
         )
         return True
 
@@ -641,6 +727,107 @@ async def _handle_pending_task_continuation(
     return False
 
 
+async def _try_llm_orchestrator(
+    *,
+    text: str,
+    slack_user_id: str,
+    channel: str,
+    session: Any,
+    session_service: Any,
+    slack: Any,
+) -> bool:
+    """Attempt LLM-first orchestration.  Returns True if fully handled, False to fall back."""
+    try:
+        # Build lightweight client context pack for the orchestrator
+        client_context_pack = ""
+        if session.active_client_id:
+            client_name = await asyncio.to_thread(
+                session_service.get_client_name, session.active_client_id
+            )
+            client_context_pack = f"Active client: {client_name or 'Unknown'} (id={session.active_client_id})"
+
+        result = await orchestrate_dm_message(
+            text=text,
+            profile_id=session.profile_id,
+            slack_user_id=slack_user_id,
+            session_context=session.context,
+            client_context_pack=client_context_pack,
+        )
+
+        mode = result["mode"]
+
+        # --- Token telemetry (best-effort, fire-and-forget) ---
+        if result.get("tokens_in") is not None:
+            try:
+                await log_ai_token_usage(
+                    tool="agencyclaw",
+                    stage="intent_parse",
+                    user_id=session.profile_id,
+                    model=result.get("model_used"),
+                    prompt_tokens=result.get("tokens_in"),
+                    completion_tokens=result.get("tokens_out"),
+                    total_tokens=result.get("tokens_total"),
+                    meta={
+                        "run_type": "dm_orchestrate",
+                        "skill_id": result.get("skill_id"),
+                        "client_id": session.active_client_id,
+                        "channel_id": channel,
+                        "mode": mode,
+                    },
+                )
+            except Exception:  # noqa: BLE001
+                pass  # Never block response path
+
+        if mode == "fallback":
+            _logger.info("LLM orchestrator fallback: %s", result.get("reason", ""))
+            return False  # fall through to deterministic classifier
+
+        if mode == "reply":
+            reply_text = result.get("text") or "I'm not sure how to help with that."
+            await slack.post_message(channel=channel, text=reply_text)
+            return True
+
+        if mode == "clarify":
+            question = result.get("question") or "Could you provide more details?"
+            await slack.post_message(channel=channel, text=question)
+            return True
+
+        if mode == "tool_call":
+            skill_id = result.get("skill_id") or ""
+            args = result.get("args") or {}
+
+            if skill_id == "clickup_task_list_weekly":
+                await _handle_weekly_tasks(
+                    slack_user_id=slack_user_id,
+                    channel=channel,
+                    client_name_hint=str(args.get("client_name") or ""),
+                    session_service=session_service,
+                    slack=slack,
+                )
+                return True
+
+            if skill_id == "clickup_task_create":
+                await _handle_create_task(
+                    slack_user_id=slack_user_id,
+                    channel=channel,
+                    client_name_hint=str(args.get("client_name") or ""),
+                    task_title=str(args.get("task_title") or ""),
+                    session_service=session_service,
+                    slack=slack,
+                )
+                return True
+
+            # Unknown skill — fall through
+            _logger.warning("LLM orchestrator returned unknown skill: %s", skill_id)
+            return False
+
+        return False  # unknown mode — fall through
+
+    except Exception as exc:  # noqa: BLE001
+        _logger.warning("LLM orchestrator error: %s", exc)
+        return False  # fall through to deterministic classifier
+
+
 async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> None:
     session_service = get_playbook_session_service()
     slack = get_slack_service()
@@ -662,6 +849,20 @@ async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> No
             )
             if consumed:
                 return
+
+        # --- LLM orchestrator (feature-flagged) ---
+        if _is_llm_orchestrator_enabled():
+            handled = await _try_llm_orchestrator(
+                text=text,
+                slack_user_id=slack_user_id,
+                channel=channel,
+                session=session,
+                session_service=session_service,
+                slack=slack,
+            )
+            if handled:
+                return
+            # fallback mode → continue to deterministic classifier below
 
         intent, params = _classify_message(text)
 
@@ -852,10 +1053,7 @@ async def _handle_interaction(payload: dict[str, Any]) -> None:
 
     action = actions[0] if isinstance(actions[0], dict) else {}
     action_id = str(action.get("action_id") or "")
-    if not action_id.startswith("select_client_"):
-        return
-
-    client_id = str(action.get("value") or "").strip()
+    
     user = payload.get("user") if isinstance(payload.get("user"), dict) else {}
     channel = payload.get("channel") if isinstance(payload.get("channel"), dict) else {}
     message = payload.get("message") if isinstance(payload.get("message"), dict) else {}
@@ -864,40 +1062,141 @@ async def _handle_interaction(payload: dict[str, Any]) -> None:
     channel_id = str(channel.get("id") or "").strip()
     message_ts = str(message.get("ts") or "").strip()
 
-    if not client_id or not slack_user_id or not channel_id:
+    if not slack_user_id or not channel_id:
+        return
+
+    # C3: Interaction Dedupe
+    receipt_service = _get_receipt_service()
+    # Key: interaction:{user_id}:{action_id}:{message_ts}
+    # This ensures a user clicking the same button on the same message is deduped.
+    dedupe_key = f"interaction:{slack_user_id}:{action_id}:{message_ts}"[-255:] # Truncate if needed for DB key limit? Text column is usually fine.
+    
+    # Try atomic insert
+    is_new = await asyncio.to_thread(
+        receipt_service.attempt_insert_dedupe,
+        event_key=dedupe_key,
+        event_source="interactions",
+        payload=payload
+    )
+    
+    if not is_new:
+        # Already processing/processed. Ignore.
+        _logger.debug("Duplicate interaction ignored: %s", dedupe_key)
         return
 
     session_service = get_playbook_session_service()
     slack = get_slack_service()
+    
     try:
         session = await asyncio.to_thread(session_service.get_or_create_session, slack_user_id)
-        await asyncio.to_thread(session_service.set_active_client, session.id, client_id)
-        await asyncio.to_thread(session_service.update_context, session.id, {"pending_task": None})
+        
+        # --- Handle Client Selection ---
+        if action_id.startswith("select_client_"):
+            client_id = str(action.get("value") or "").strip()
+            if not client_id:
+                return
 
-        client_name = await asyncio.to_thread(session_service.get_client_name, client_id)
-        client_name = client_name or "that client"
+            await asyncio.to_thread(session_service.set_active_client, session.id, client_id)
+            await asyncio.to_thread(session_service.update_context, session.id, {"pending_task": None})
 
-        blocks = [
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": f"Now working on *{client_name}*.\n\nTry: `start ngram research`",
-                },
-            }
-        ]
+            client_name = await asyncio.to_thread(session_service.get_client_name, client_id)
+            client_name = client_name or "that client"
 
-        if message_ts:
+            blocks = [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"Now working on *{client_name}*.\n\nTry: `start ngram research`",
+                    },
+                }
+            ]
+            if message_ts:
+                await slack.update_message(
+                    channel=channel_id,
+                    ts=message_ts,
+                    text=f"Working on: {client_name}",
+                    blocks=blocks,
+                )
+            else:
+                await slack.post_message(channel=channel_id, text=f"Working on: {client_name}", blocks=blocks)
+            
+            receipt_service.update_status(dedupe_key, "processed")
+            return
+
+        # --- Handle Task Confirmation ---
+        if action_id == "confirm_create_task_draft":
+            pending = session.context.get("pending_task_create")
+            
+            # 1. Validate State
+            if not isinstance(pending, dict) or pending.get("awaiting") != "confirm_or_details":
+                await slack.post_message(channel=channel_id, text="No pending task to confirm.")
+                receipt_service.update_status(dedupe_key, "ignored", {"reason": "no_state"})
+                return
+
+            # 2. Check Expiry (10 mins)
+            ts_str = pending.get("timestamp")
+            if ts_str:
+                dt = datetime.fromisoformat(str(ts_str)).replace(tzinfo=timezone.utc) if "T" in str(ts_str) else None
+                # Basic parsing safe guard
+                try: 
+                    dt = datetime.fromisoformat(str(ts_str)) 
+                    # Ensure utc
+                    if dt.tzinfo is None: dt = dt.replace(tzinfo=timezone.utc)
+                    
+                    if datetime.now(timezone.utc) - dt > timedelta(minutes=10):
+                        # Expired
+                        await asyncio.to_thread(session_service.update_context, session.id, {"pending_task_create": None})
+                        await slack.update_message(
+                            channel=channel_id,
+                            ts=message_ts,
+                            text="Task creation timed out.",
+                            blocks=[]
+                        )
+                        receipt_service.update_status(dedupe_key, "ignored", {"reason": "expired"})
+                        return
+                except ValueError:
+                    pass # Invalid timestamp, assume valid or ignore?
+
+            # 3. Execute Mutation
+            # Update UI first to prevent double-clicks conceptually (though dedupe handles it technically)
             await slack.update_message(
                 channel=channel_id,
                 ts=message_ts,
-                text=f"Working on: {client_name}",
-                blocks=blocks,
+                text="Creating task...",
+                blocks=[]
             )
-        else:
-            await slack.post_message(channel=channel_id, text=f"Working on: {client_name}", blocks=blocks)
+            
+            await _execute_task_create(
+                channel=channel_id,
+                session=session,
+                session_service=session_service,
+                slack=slack,
+                client_id=pending.get("client_id", ""),
+                client_name=pending.get("client_name", ""),
+                task_title=pending.get("task_title", ""),
+                task_description="", # Draft
+            )
+            receipt_service.update_status(dedupe_key, "processed")
+            return
+
+        # --- Handle Cancellation ---
+        if action_id == "cancel_create_task":
+            await asyncio.to_thread(session_service.update_context, session.id, {"pending_task_create": None})
+            await slack.update_message(
+                channel=channel_id,
+                ts=message_ts,
+                text="Task creation cancelled.",
+                blocks=[]
+            )
+            receipt_service.update_status(dedupe_key, "processed")
+            return
+
     except SlackAPIError:
-        pass
+        receipt_service.update_status(dedupe_key, "failed")
+    except Exception as exc:  # noqa: BLE001
+        _logger.warning("Error handling interaction: %s", exc)
+        receipt_service.update_status(dedupe_key, "failed", {"error": str(exc)})
     finally:
         await slack.aclose()
 

@@ -171,7 +171,7 @@ class TestHandleCreateTask:
         assert ctx["pending_task_create"]["awaiting"] == "confirm_or_details"
         assert ctx["pending_task_create"]["task_title"] == "Fix landing page"
         msg = slack.post_message.call_args.kwargs["text"]
-        assert "create anyway" in msg.lower()
+        assert "confirm" in msg.lower()
 
     @pytest.mark.asyncio
     async def test_ambiguous_client(self):
@@ -580,7 +580,7 @@ class TestPendingTaskContinuation:
         assert ctx["pending_task_create"]["awaiting"] == "confirm_or_details"
         assert ctx["pending_task_create"]["task_title"] == "Fix the landing page"
         msg = slack.post_message.call_args.kwargs["text"]
-        assert "create anyway" in msg.lower()
+        assert "confirm" in msg.lower()
 
     @pytest.mark.asyncio
     async def test_confirm_draft_continuation(self):
