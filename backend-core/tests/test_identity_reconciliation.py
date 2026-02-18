@@ -85,3 +85,12 @@ def test_mixed_match_signals():
     assert result["outcome"] == "auto_match"
     assert "email_match" in result["reasons"]
     assert "clickup_id_match" in result["reasons"]
+
+def test_auto_match_updates_excludes_none_fields():
+    slack_user = SlackExternalUser(slack_user_id="U1", email="jeff@example.com", real_name="Jeff")
+    profiles = [
+        ExistingProfile(id="p1", slack_user_id=None, clickup_user_id="C1", email="jeff@example.com", is_admin=False)
+    ]
+    result = reconcile_identity(slack_user, None, profiles)
+    assert result["outcome"] == "auto_match"
+    assert result["suggested_action"]["updates"] == {"slack_user_id": "U1"}

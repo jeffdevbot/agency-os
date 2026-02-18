@@ -117,6 +117,12 @@ def reconcile_identity(
         }
         
     # Auto Match Success
+    updates: dict[str, str] = {}
+    if s_id and not profile.get("slack_user_id"):
+        updates["slack_user_id"] = s_id
+    if c_id and not profile.get("clickup_user_id"):
+        updates["clickup_user_id"] = c_id
+
     return {
         "outcome": "auto_match",
         "candidate_profile_ids": [match_id],
@@ -124,10 +130,6 @@ def reconcile_identity(
         "suggested_action": {
             "action": "update_profile",
             "profile_id": match_id,
-            "updates": {
-                # Only update outcome fields that are missing
-                "slack_user_id": s_id if not profile.get("slack_user_id") else None,
-                "clickup_user_id": c_id if not profile.get("clickup_user_id") else None,
-            }
+            "updates": updates,
         }
     }
