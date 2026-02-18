@@ -1,6 +1,6 @@
 # AgencyClaw Execution Tracker
 
-Last updated: 2026-02-17 (night, coverage matrix added)
+Last updated: 2026-02-17 (night, C2 in review)
 
 ## 1. Baseline Status
 - [x] PRD updated to v1.9 (`docs/23_agencyclaw_prd.md`)
@@ -15,7 +15,7 @@ Last updated: 2026-02-17 (night, coverage matrix added)
 | Chunk | Name | Owner | Status | PR/Commit | Notes |
 |---|---|---|---|---|---|
 | C1 | Weekly task read path (`clickup_task_list_weekly`) | Claude | done | merged (`da5e86f`), follow-up fix (`8211088`) | Slack smoke test passed with linked task list output; skill enabled in `skill_catalog` |
-| C2 | Task create flow (`clickup_task_create`) | Claude | todo | - | Thin-task clarify + draft path |
+| C2 | Task create flow (`clickup_task_create`) | Claude | in_review | committed (`07b4b7e`) | Multi-turn create flow, list-only brand support, intent-hijack guards, and regression tests landed; pending Slack smoke + skill enable |
 | C3 | Confirmation + dedupe hardening | Claude | todo | - | 10-min expiry + interaction idempotency |
 | C4 | Concurrency + ClickUp reliability | Claude | todo | - | Advisory lock + retry/backoff + orphan handling |
 | C5 | Team identity sync/reconciliation | Claude | todo | - | `needs_review` admin decisions |
@@ -33,6 +33,7 @@ Last updated: 2026-02-17 (night, coverage matrix added)
 - C1 runtime flag: `clickup_task_list_weekly` set to `implemented_in_code=true`, `enabled_default=true`.
 - C7 slice (Agent 2): `frontend-web/src/lib/debrief/__tests__/meetingParser.test.ts` and `frontend-web/src/lib/debrief/__tests__/taskReview.test.ts` passing (18 tests total).
 - C7 integration sanity: `frontend-web` typecheck and `next build` both pass with parser/review imports wired into debrief extract route.
+- C2 (Agent 1): `backend-core/tests/test_task_create.py` + `backend-core/tests/test_weekly_tasks.py` passing (85 tests total). Includes pending-state guards for both `title` and `confirm_or_details`.
 - Backend full test suite still has pre-existing unrelated failures outside these chunks.
 
 ## 4. Validation Checklist (Per Chunk)
