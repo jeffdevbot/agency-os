@@ -446,6 +446,7 @@ async def _execute_task_create(
     """
     clickup = None
     idempotency_key = ""
+    acquired_inflight = False
     try:
         if not session.profile_id:
             await slack.post_message(
@@ -484,6 +485,7 @@ async def _execute_task_create(
                 )
                 return
             _task_create_inflight.add(idempotency_key)
+            acquired_inflight = True
 
         try:
             db = get_supabase_admin_client()
@@ -585,7 +587,9 @@ async def _execute_task_create(
     except (ClickUpConfigurationError, ClickUpError) as exc:
         await slack.post_message(channel=channel, text=f"Failed to create ClickUp task: {exc}")
     finally:
-        _task_create_inflight.discard(idempotency_key)
+        if acquired_inflight:
+            async with _task_create_inflight_lock:
+                _task_create_inflight.discard(idempotency_key)
         # Clear pending state regardless of outcome — prevents stuck loops.
         await asyncio.to_thread(
             session_service.update_context, session.id, {"pending_task_create": None}

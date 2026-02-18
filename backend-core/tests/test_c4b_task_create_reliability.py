@@ -553,6 +553,8 @@ class TestConcurrencyGuard:
         assert "another operation" in msg.lower()
         assert "in progress" in msg.lower()
         mock_cu.assert_not_called()
+        # Key must survive — request B didn't acquire it, so it must not remove it
+        assert expected_key in _task_create_inflight
 
     @pytest.mark.asyncio
     async def test_successful_path_cleans_up_inflight(self):
