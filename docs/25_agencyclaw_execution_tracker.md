@@ -1,6 +1,6 @@
 # AgencyClaw Execution Tracker
 
-Last updated: 2026-02-17 (night, C2 in review)
+Last updated: 2026-02-18 (C8 merged; test pass updates recorded)
 
 ## 1. Baseline Status
 - [x] PRD updated to v1.9 (`docs/23_agencyclaw_prd.md`)
@@ -21,7 +21,7 @@ Last updated: 2026-02-17 (night, C2 in review)
 | C5 | Team identity sync/reconciliation | Claude | todo | - | `needs_review` admin decisions |
 | C6 | ClickUp space sync/classification | Claude | todo | - | `brand_scoped` vs `shared_service` |
 | C7 | `meeting_parser` standalone hardening | Claude | done | merged (`9001c27`) | Parser/review modules integrated; unit tests, typecheck, and production build passing |
-| C8 | `client_context_builder` budget pack | Claude | todo | - | 4k token budget + metadata |
+| C8 | `client_context_builder` budget pack | Claude | done | merged (`a26da6a`) | Deterministic 4k budget pack, strict section caps, omission metadata + tests |
 
 ## 3. Open Blockers
 - [x] Confirm migration `20260217000006_clickup_space_skill_seed.sql` is applied.
@@ -34,6 +34,7 @@ Last updated: 2026-02-17 (night, C2 in review)
 - C7 slice (Agent 2): `frontend-web/src/lib/debrief/__tests__/meetingParser.test.ts` and `frontend-web/src/lib/debrief/__tests__/taskReview.test.ts` passing (18 tests total).
 - C7 integration sanity: `frontend-web` typecheck and `next build` both pass with parser/review imports wired into debrief extract route.
 - C2 (Agent 1): `backend-core/tests/test_task_create.py` + `backend-core/tests/test_weekly_tasks.py` passing (85 tests total). Includes pending-state guards for both `title` and `confirm_or_details`.
+- C8 (Agent 2): `backend-core/tests/test_client_context_builder.py` passing (7 tests). Includes deterministic output, strict section caps, and deduplicated omission reasons.
 - Backend full test suite still has pre-existing unrelated failures outside these chunks.
 
 ## 4. Validation Checklist (Per Chunk)
@@ -56,7 +57,7 @@ Last updated: 2026-02-17 (night, C2 in review)
 | 6. Debrief As Slack-Native | C7 (+ later runtime wiring) | in_progress | C7 parser/review hardening done with tests/build pass | Add deeper runtime workflow checks as features expand |
 | 7. Permissions Model | C2-C6 (policy-sensitive) | in_progress | Identity mapping path in use (`profiles.slack_user_id`) | Complete explicit policy/tier enforcement coverage |
 | 8. Data Model | Baseline migrations | done_for_v1_scope | `000001`..`000006` applied | Add new migrations only when new chunk needs schema |
-| 9. Knowledge Base Strategy | C8 + SOP paths | in_progress | SOP/debrief paths exist; C8 pending | Complete `client_context_builder` implementation |
+| 9. Knowledge Base Strategy | C8 + SOP paths | mostly_done | SOP/debrief paths exist; C8 merged with budgeted context builder | Add runtime integration smoke when C8 is wired into orchestration path |
 | 10. Idempotency + Concurrency | C3, C4 | todo | Foundations exist (`slack_event_receipts`, `agent_runs`) | Implement C3/C4 behavior and tests |
 | 11. Queue Strategy | Deferred in plan | deferred | Explicitly deferred in PRD/plan | Revisit after C1-C8 completion |
 | 12. Google Meeting Notes Inputs | C7 | mostly_done | Debrief extraction flow and parser utilities validated | Add optional end-to-end runtime smoke as needed |
