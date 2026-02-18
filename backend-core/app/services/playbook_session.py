@@ -286,12 +286,12 @@ class PlaybookSessionService:
         rows = response.data if isinstance(response.data, list) else []
         candidates = [r for r in rows if isinstance(r, dict)]
 
-        # Prefer entries with a list id, but space id is required for our ClickUp helper.
-        with_space = [b for b in candidates if b.get("clickup_space_id")]
-        if not with_space:
+        # Prefer entries with a list id; accept either space_id or list_id.
+        with_mapping = [b for b in candidates if b.get("clickup_space_id") or b.get("clickup_list_id")]
+        if not with_mapping:
             return None
-        with_list = [b for b in with_space if b.get("clickup_list_id")]
-        return (with_list[0] if with_list else with_space[0])
+        with_list = [b for b in with_mapping if b.get("clickup_list_id")]
+        return (with_list[0] if with_list else with_mapping[0])
 
     def get_all_brand_destinations_for_client(self, client_id: str) -> list[dict[str, Any]]:
         """Return all brands with ClickUp destination fields for a client."""

@@ -88,14 +88,39 @@ def _sanitize_client_name_hint(value: str) -> str:
     return re.sub(r"[?!.,:;]+$", "", collapsed).strip()
 
 
+# Patterns for task creation intent.
+# Supports: "create task for <client>: <title>", "add a task: <title>", "new task for <client>", etc.
+_CREATE_TASK_PATTERN = re.compile(
+    r"(?:create|add|new)\s+(?:a\s+)?tasks?"
+    r"(?:\s+for\s+([^:]+?))?"  # optional "for <client>"
+    r"(?:\s*:\s*(.+))?"        # optional ": <title>"
+    r"$"
+)
+
+# Patterns for confirming a draft task creation.
+_CONFIRM_DRAFT_PATTERNS: list[re.Pattern[str]] = [
+    re.compile(r"^(?:create anyway|create as draft|just create it|yes,?\s*create(?:\s+it)?)$"),
+]
+
+
 def _classify_message(text: str) -> tuple[str, dict[str, Any]]:
-    t = " ".join((text or "").strip().lower().split())
+    original = " ".join((text or "").strip().split())
+    t = original.lower()
     if any(kw in t for kw in ("ngram", "n-gram", "keyword research")):
         return ("create_ngram_task", {})
     if t.startswith("switch to "):
         return ("switch_client", {"client_name": t.removeprefix("switch to ").strip()})
     if t.startswith("work on "):
         return ("switch_client", {"client_name": t.removeprefix("work on ").strip()})
+
+    # Task creation (check BEFORE weekly tasks — "create task for X" must not match "tasks for X")
+    m = _CREATE_TASK_PATTERN.match(t)
+    if m:
+        client_hint = _sanitize_client_name_hint(m.group(1) or "")
+        # Preserve original casing for the task title by extracting from original text
+        title_start = m.start(2) if m.group(2) else -1
+        task_title = original[title_start:].strip() if title_start >= 0 else ""
+        return ("create_task", {"client_name": client_hint, "task_title": task_title})
 
     # Weekly task list queries
     for pattern in _WEEKLY_TASK_PATTERNS:
@@ -104,6 +129,11 @@ def _classify_message(text: str) -> tuple[str, dict[str, Any]]:
             client_name = _sanitize_client_name_hint((m.group(1) or "")) if m.lastindex else ""
             return ("weekly_tasks", {"client_name": client_name})
 
+    # Confirm draft creation (only meaningful when pending state exists in session)
+    for pattern in _CONFIRM_DRAFT_PATTERNS:
+        if pattern.match(t):
+            return ("confirm_draft_task", {})
+
     return ("help", {})
 
 
@@ -111,6 +141,7 @@ def _help_text() -> str:
     return (
         "I can help you with ClickUp tasks and SOPs.\n\n"
         "Try:\n"
+        "- `create task for <client>: <title>`\n"
         "- `what's being worked on this week for <client>`\n"
         "- `show tasks for <client>`\n"
         "- `start ngram research`\n"
@@ -311,6 +342,305 @@ async def _handle_weekly_tasks(
     await slack.post_message(channel=channel, text=response_text)
 
 
+async def _resolve_client_for_task(
+    *,
+    client_name_hint: str,
+    session: Any,
+    session_service: Any,
+    channel: str,
+    slack: Any,
+) -> tuple[str | None, str]:
+    """Resolve client_id + client_name from hint or active session.
+
+    Returns (client_id, client_name).  client_id is None on failure (message already sent).
+    """
+    if client_name_hint:
+        matches = await asyncio.to_thread(
+            session_service.find_client_matches, session.profile_id, client_name_hint
+        )
+        if not matches:
+            await slack.post_message(
+                channel=channel,
+                text=f"I couldn't find a client matching *{client_name_hint}*.",
+            )
+            return None, ""
+        if len(matches) > 1:
+            blocks = _build_client_picker_blocks(matches)
+            await slack.post_message(
+                channel=channel,
+                text=f"Multiple clients match *{client_name_hint}*. Pick one and try again:",
+                blocks=blocks,
+            )
+            return None, ""
+        return str(matches[0].get("id") or ""), str(matches[0].get("name") or client_name_hint)
+
+    if session.active_client_id:
+        name = await asyncio.to_thread(session_service.get_client_name, session.active_client_id)
+        return session.active_client_id, name or "Client"
+
+    clients = await asyncio.to_thread(session_service.list_clients_for_picker, session.profile_id)
+    if clients:
+        blocks = _build_client_picker_blocks(clients)
+        await slack.post_message(
+            channel=channel,
+            text="Which client is this task for? Pick one and try again:",
+            blocks=blocks,
+        )
+    else:
+        await slack.post_message(
+            channel=channel,
+            text="I couldn't find any clients. Ask an admin to assign you.",
+        )
+    return None, ""
+
+
+async def _execute_task_create(
+    *,
+    channel: str,
+    session: Any,
+    session_service: Any,
+    slack: Any,
+    client_id: str,
+    client_name: str,
+    task_title: str,
+    task_description: str,
+) -> None:
+    """Create a ClickUp task and report the result in Slack.
+
+    Always clears pending_task_create from session context, even on early failures.
+    """
+    clickup = None
+    try:
+        if not session.profile_id:
+            await slack.post_message(
+                channel=channel,
+                text="I couldn't link your Slack user to a profile. Ask an admin to set `profiles.slack_user_id`.",
+            )
+            return
+
+        destination = await asyncio.to_thread(
+            session_service.get_brand_destination_for_client, client_id
+        )
+        list_id = destination.get("clickup_list_id") if destination else None
+        space_id = destination.get("clickup_space_id") if destination else None
+
+        if not destination or (not space_id and not list_id):
+            await slack.post_message(
+                channel=channel,
+                text=(
+                    f"No brand with ClickUp mapping found for *{client_name}*. "
+                    "Ask an admin to configure a ClickUp destination in Command Center."
+                ),
+            )
+            return
+
+        clickup_user_id = await asyncio.to_thread(
+            session_service.get_profile_clickup_user_id, session.profile_id
+        )
+
+        clickup = get_clickup_service()
+
+        if list_id:
+            # Prefer direct list routing (works with list-only brands too)
+            task = await clickup.create_task_in_list(
+                list_id=str(list_id),
+                name=task_title,
+                description_md=task_description or "",
+                assignee_ids=[clickup_user_id] if clickup_user_id else None,
+            )
+        else:
+            # Fallback: resolve list from space
+            task = await clickup.create_task_in_space(
+                space_id=str(space_id),
+                name=task_title,
+                description_md=task_description or "",
+                assignee_ids=[clickup_user_id] if clickup_user_id else None,
+            )
+
+        url = task.url or ""
+        link = f"<{url}|{task_title}>" if url else task_title
+        brand_name = destination.get("name") or ""
+        brand_note = f" (brand: {brand_name})" if brand_name else ""
+        draft_note = ""
+        if not task_description:
+            draft_note = "\n_Created as draft — add details directly in ClickUp._"
+        await slack.post_message(
+            channel=channel,
+            text=f"Task created: {link}{brand_note}{draft_note}",
+        )
+    except (ClickUpConfigurationError, ClickUpError) as exc:
+        await slack.post_message(channel=channel, text=f"Failed to create ClickUp task: {exc}")
+    finally:
+        # Clear pending state regardless of outcome — prevents stuck loops.
+        await asyncio.to_thread(
+            session_service.update_context, session.id, {"pending_task_create": None}
+        )
+        if clickup:
+            await clickup.aclose()
+
+
+async def _handle_create_task(
+    *,
+    slack_user_id: str,
+    channel: str,
+    client_name_hint: str,
+    task_title: str,
+    session_service: Any,
+    slack: Any,
+) -> None:
+    """Handle 'create task for <client>: <title>' intent."""
+    session = await asyncio.to_thread(session_service.get_or_create_session, slack_user_id)
+
+    # --- Resolve client ---
+    client_id, client_name = await _resolve_client_for_task(
+        client_name_hint=client_name_hint,
+        session=session,
+        session_service=session_service,
+        channel=channel,
+        slack=slack,
+    )
+    if not client_id:
+        return
+
+    # --- Missing title: ask for it ---
+    if not task_title:
+        pending = {
+            "awaiting": "title",
+            "client_id": client_id,
+            "client_name": client_name,
+        }
+        await asyncio.to_thread(
+            session_service.update_context, session.id, {"pending_task_create": pending}
+        )
+        await slack.post_message(
+            channel=channel,
+            text=f"What should the task be called for *{client_name}*? Send the title.",
+        )
+        return
+
+    # --- Have title, no description: offer draft or details ---
+    pending = {
+        "awaiting": "confirm_or_details",
+        "client_id": client_id,
+        "client_name": client_name,
+        "task_title": task_title,
+    }
+    await asyncio.to_thread(
+        session_service.update_context, session.id, {"pending_task_create": pending}
+    )
+    await slack.post_message(
+        channel=channel,
+        text=(
+            f"Ready to create task *{task_title}* for *{client_name}*.\n\n"
+            "Send a description to include, or type `create anyway` to create as draft."
+        ),
+    )
+
+
+async def _handle_pending_task_continuation(
+    *,
+    channel: str,
+    text: str,
+    session: Any,
+    session_service: Any,
+    slack: Any,
+    pending: dict[str, Any],
+) -> bool:
+    """Handle follow-up messages when a task create is pending.
+
+    Returns True if the message was consumed, False if it should fall through.
+    """
+    awaiting = pending.get("awaiting")
+
+    if awaiting == "title":
+        title = text.strip()
+        if not title:
+            return False  # empty — fall through to normal routing
+
+        # Guard: if the text matches a known intent, don't consume it as title.
+        probe_intent, _ = _classify_message(text)
+        if probe_intent != "help":
+            await asyncio.to_thread(
+                session_service.update_context, session.id, {"pending_task_create": None}
+            )
+            return False
+
+        client_id = pending.get("client_id", "")
+        client_name = pending.get("client_name", "")
+
+        # Got title — now offer confirm-or-details
+        new_pending = {
+            "awaiting": "confirm_or_details",
+            "client_id": client_id,
+            "client_name": client_name,
+            "task_title": title,
+        }
+        await asyncio.to_thread(
+            session_service.update_context, session.id, {"pending_task_create": new_pending}
+        )
+        await slack.post_message(
+            channel=channel,
+            text=(
+                f"Ready to create task *{title}* for *{client_name}*.\n\n"
+                "Send a description to include, or type `create anyway` to create as draft."
+            ),
+        )
+        return True
+
+    if awaiting == "confirm_or_details":
+        t_lower = " ".join(text.strip().lower().split())
+
+        # Check if user wants to create as draft
+        is_confirm = any(p.match(t_lower) for p in _CONFIRM_DRAFT_PATTERNS)
+
+        client_id = pending.get("client_id", "")
+        client_name = pending.get("client_name", "")
+        task_title = pending.get("task_title", "")
+
+        if is_confirm:
+            # Create as draft (no description)
+            await _execute_task_create(
+                channel=channel,
+                session=session,
+                session_service=session_service,
+                slack=slack,
+                client_id=client_id,
+                client_name=client_name,
+                task_title=task_title,
+                task_description="",
+            )
+            return True
+
+        # Guard: if the text matches a known intent, don't consume it as description.
+        # Clear pending state and fall through to normal routing.
+        probe_intent, _ = _classify_message(text)
+        if probe_intent != "help":
+            await asyncio.to_thread(
+                session_service.update_context, session.id, {"pending_task_create": None}
+            )
+            return False
+
+        # User sent description text — create with it
+        description = text.strip()
+        await _execute_task_create(
+            channel=channel,
+            session=session,
+            session_service=session_service,
+            slack=slack,
+            client_id=client_id,
+            client_name=client_name,
+            task_title=task_title,
+            task_description=description,
+        )
+        return True
+
+    # Unknown awaiting state — clear it
+    await asyncio.to_thread(
+        session_service.update_context, session.id, {"pending_task_create": None}
+    )
+    return False
+
+
 async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> None:
     session_service = get_playbook_session_service()
     slack = get_slack_service()
@@ -319,7 +649,40 @@ async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> No
         session = await asyncio.to_thread(session_service.get_or_create_session, slack_user_id)
         await asyncio.to_thread(session_service.touch_session, session.id)
 
+        # --- Multi-turn continuation for pending task create ---
+        pending = session.context.get("pending_task_create")
+        if isinstance(pending, dict) and pending.get("awaiting"):
+            consumed = await _handle_pending_task_continuation(
+                channel=channel,
+                text=text,
+                session=session,
+                session_service=session_service,
+                slack=slack,
+                pending=pending,
+            )
+            if consumed:
+                return
+
         intent, params = _classify_message(text)
+
+        if intent == "create_task":
+            await _handle_create_task(
+                slack_user_id=slack_user_id,
+                channel=channel,
+                client_name_hint=str(params.get("client_name") or ""),
+                task_title=str(params.get("task_title") or ""),
+                session_service=session_service,
+                slack=slack,
+            )
+            return
+
+        if intent == "confirm_draft_task":
+            # No pending state (already checked above) — nothing to confirm.
+            await slack.post_message(
+                channel=channel,
+                text="Nothing to confirm. Start with `create task for <client>: <title>`.",
+            )
+            return
 
         if intent == "weekly_tasks":
             await _handle_weekly_tasks(
