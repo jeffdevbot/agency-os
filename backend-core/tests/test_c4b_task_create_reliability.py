@@ -8,8 +8,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.api.routes.slack import _execute_task_create, _handle_dm_event
-from app.services.agencyclaw.clickup_reliability import RetryExhaustedError
+from app.api.routes.slack import (
+    _execute_task_create,
+    _handle_dm_event,
+    _task_create_inflight,
+)
+from app.services.agencyclaw.clickup_reliability import (
+    RetryExhaustedError,
+    build_idempotency_key,
+)
 from app.services.clickup import ClickUpAPIError, ClickUpError, ClickUpTask
 
 
@@ -503,3 +510,78 @@ class TestHandleDmEventSafetyNet:
                 channel="C1",
                 text="hello",
             )
+
+
+# ---------------------------------------------------------------------------
+# 7) Concurrency guard (C4C)
+# ---------------------------------------------------------------------------
+
+
+class TestConcurrencyGuard:
+    def setup_method(self):
+        _task_create_inflight.clear()
+
+    def teardown_method(self):
+        _task_create_inflight.clear()
+
+    @pytest.mark.asyncio
+    async def test_inflight_key_returns_conflict_message(self):
+        """When the idempotency key is already in-flight, user gets a
+        conflict message and ClickUp is never called."""
+        svc, slack = _make_mocks()
+        session = FakeSession()
+
+        # Compute the key that _execute_task_create will build
+        destination = svc.get_brand_destination_for_client.return_value
+        brand_id = str(destination.get("id") or "")
+        expected_key = build_idempotency_key(brand_id, _EXEC_DEFAULTS["task_title"])
+
+        # Pre-populate the inflight set
+        _task_create_inflight.add(expected_key)
+
+        with (
+            patch("app.api.routes.slack.get_clickup_service") as mock_cu,
+        ):
+            await _execute_task_create(
+                session=session,
+                session_service=svc,
+                slack=slack,
+                **_EXEC_DEFAULTS,
+            )
+
+        msg = slack.post_message.call_args.kwargs["text"]
+        assert "another operation" in msg.lower()
+        assert "in progress" in msg.lower()
+        mock_cu.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_successful_path_cleans_up_inflight(self):
+        """After a successful create, the inflight set must be empty."""
+        svc, slack = _make_mocks()
+        session = FakeSession()
+        mock_db = _make_mock_db()
+        fake_task = ClickUpTask(id="cu-guard", url="https://clickup.com/t/cu-guard")
+
+        async def _passthrough(fn, **_kw):
+            return await fn()
+
+        with (
+            patch("app.api.routes.slack.get_supabase_admin_client", return_value=mock_db),
+            patch("app.api.routes.slack.check_duplicate", return_value=None),
+            patch("app.api.routes.slack.retry_with_backoff", side_effect=_passthrough),
+            patch("app.api.routes.slack.get_clickup_service") as mock_cu,
+        ):
+            cu = AsyncMock()
+            cu.create_task_in_list.return_value = fake_task
+            mock_cu.return_value = cu
+
+            await _execute_task_create(
+                session=session,
+                session_service=svc,
+                slack=slack,
+                **_EXEC_DEFAULTS,
+            )
+
+        assert len(_task_create_inflight) == 0
+        msg = slack.post_message.call_args.kwargs["text"]
+        assert "Task created" in msg

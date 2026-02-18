@@ -32,6 +32,12 @@ from ...services.slack import (
 
 _logger = logging.getLogger(__name__)
 
+# C4C: In-memory concurrency guard for task mutations.
+# Prevents two simultaneous creates for the same target from racing past
+# the duplicate check.  Single-process only; see plan for multi-worker TODO.
+_task_create_inflight: set[str] = set()
+_task_create_inflight_lock = asyncio.Lock()
+
 router = APIRouter(prefix="/slack", tags=["slack"])
 
 
@@ -439,6 +445,7 @@ async def _execute_task_create(
     Always clears pending_task_create from session context, even on early failures.
     """
     clickup = None
+    idempotency_key = ""
     try:
         if not session.profile_id:
             await slack.post_message(
@@ -467,6 +474,17 @@ async def _execute_task_create(
 
         # --- C4A: Idempotency + duplicate suppression ---
         idempotency_key = build_idempotency_key(brand_id, task_title)
+
+        # --- C4C: Concurrency guard ---
+        async with _task_create_inflight_lock:
+            if idempotency_key in _task_create_inflight:
+                await slack.post_message(
+                    channel=channel,
+                    text="Another operation for this target is in progress. Please wait and try again.",
+                )
+                return
+            _task_create_inflight.add(idempotency_key)
+
         try:
             db = get_supabase_admin_client()
             duplicate = await asyncio.to_thread(check_duplicate, db, idempotency_key)
@@ -567,6 +585,7 @@ async def _execute_task_create(
     except (ClickUpConfigurationError, ClickUpError) as exc:
         await slack.post_message(channel=channel, text=f"Failed to create ClickUp task: {exc}")
     finally:
+        _task_create_inflight.discard(idempotency_key)
         # Clear pending state regardless of outcome — prevents stuck loops.
         await asyncio.to_thread(
             session_service.update_context, session.id, {"pending_task_create": None}
