@@ -32,7 +32,7 @@ Last updated: 2026-02-19 (C10F semantic pending resolver merged)
 | C10C | KB retrieval cascade + source-grounded drafts | Claude | done | merged (`c1d7c77`) | Tiered retrieval (SOP/internal/similar/external placeholder) + deterministic grounded draft builder with citations/clarify behavior |
 | C10D | Planner + capability-skill de-hardcoding | Claude | done | merged (`c43c6bd`) | Planner + deterministic executor landed behind feature flag; N-gram carve-out moved to planner path |
 | C10E | Lightweight durable preference memory | Claude | done | merged (`fecab25`) | Durable user preference store + default-client set/clear commands + resolver integration merged; migration `20260219000002` applied |
-| C10F | Semantic pending-state resolver hardening | Codex | done | merged (`pending`) | Added typed pending resolver service to decouple pending intent interpretation from route code; supports natural-language deferral/cancel/off-topic interruption without control-text leakage |
+| C10F | Semantic pending-state resolver hardening | Codex | done | merged (`3dbfd95`) | Added typed pending resolver service to decouple pending intent interpretation from route code; supports natural-language deferral/cancel/off-topic interruption without control-text leakage |
 
 ## 3. Open Blockers
 - [x] Confirm migration `20260217000006_clickup_space_skill_seed.sql` is applied.
