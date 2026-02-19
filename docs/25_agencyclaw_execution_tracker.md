@@ -1,6 +1,6 @@
 # AgencyClaw Execution Tracker
 
-Last updated: 2026-02-18 (C4A/C5A merged; C4/C5 moved to in_progress)
+Last updated: 2026-02-19 (C4/C5 merged through C4C + C5C; migration 000007 applied; C4D deferred)
 
 ## 1. Baseline Status
 - [x] PRD updated to v1.10 (`docs/23_agencyclaw_prd.md`)
@@ -10,6 +10,7 @@ Last updated: 2026-02-18 (C4A/C5A merged; C4/C5 moved to in_progress)
 - [x] `20260217000004_agent_core_tables.sql` applied
 - [x] `20260217000005_skill_catalog_phase_2_6_seed.sql` applied
 - [x] `20260217000006_clickup_space_skill_seed.sql` applied
+- [x] `20260217000007_agent_tasks_source_reference_index.sql` applied
 
 ## 2. Chunk Progress
 | Chunk | Name | Owner | Status | PR/Commit | Notes |
@@ -17,8 +18,8 @@ Last updated: 2026-02-18 (C4A/C5A merged; C4/C5 moved to in_progress)
 | C1 | Weekly task read path (`clickup_task_list_weekly`) | Claude | done | merged (`da5e86f`), follow-up fix (`8211088`) | Slack smoke test passed with linked task list output; skill enabled in `skill_catalog` |
 | C2 | Task create flow (`clickup_task_create`) | Claude | done | merged (`ec23b78`, builds on `07b4b7e`) | Slack smoke passed; confirm/cancel flow active; `skill_catalog` updated (`implemented_in_code=true`, `enabled_default=true`) |
 | C3 | Confirmation + dedupe hardening | Claude | done | merged (`ec23b78`) | Block Kit confirm/cancel, 10-min expiry, interaction dedupe via `slack_event_receipts` |
-| C4 | Concurrency + ClickUp reliability | Claude | in_progress | merged slice A (`164c23c`) | C4A primitives landed (idempotency key, duplicate check, retry/backoff, orphan event); advisory-lock integration still pending |
-| C5 | Team identity sync/reconciliation | Claude | in_progress | merged slice A (`164c23c`) | C5A reconciliation engine landed (`auto_match` / `new_profile` / `needs_review`); runtime sync wiring still pending |
+| C4 | Concurrency + ClickUp reliability | Claude | done | merged (`ee303b5`, `649b6cb`, `753a886`, `1422bdb`) | C4A-C4C landed: idempotency, duplicate suppression, retry/backoff, orphan event, indexed source reference, in-memory concurrency guard with ownership-safe release |
+| C5 | Team identity sync/reconciliation | Claude | done | merged (`164c23c`, `48713dc`) | C5A-C5C landed: deterministic reconciliation engine, runtime sync service, and admin endpoint `POST /admin/identity-sync/run` |
 | C6 | ClickUp space sync/classification | Claude | todo | - | `brand_scoped` vs `shared_service` |
 | C7 | `meeting_parser` standalone hardening | Claude | done | merged (`9001c27`) | Parser/review modules integrated; unit tests, typecheck, and production build passing |
 | C8 | `client_context_builder` budget pack | Claude | done | merged (`a26da6a`) | Deterministic 4k budget pack, strict section caps, omission metadata + tests |
@@ -28,6 +29,10 @@ Last updated: 2026-02-18 (C4A/C5A merged; C4/C5 moved to in_progress)
 - [x] Confirm migration `20260217000006_clickup_space_skill_seed.sql` is applied.
 - [x] Confirm backend service has C9 runtime env keys in `agency-os-env-var` (`OPENAI_API_KEY`, `OPENAI_MODEL_PRIMARY`, `OPENAI_MODEL_FALLBACK`, `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`, `CLICKUP_API_TOKEN`, `CLICKUP_TEAM_ID`, `ENABLE_USAGE_LOGGING=1`).
 - [ ] Decide first chunk start timestamp and branch/PR convention.
+
+## 3.2 Deferred Future Features
+- [x] `C4D` distributed cross-worker mutation lock explicitly deferred (pin for later hardening).
+  Current runtime keeps in-memory per-worker guard + idempotency key duplicate suppression.
 
 ## 3.1 Latest Validation Notes
 - C1 (Agent 1): `backend-core/tests/test_weekly_tasks.py` passing (37 tests). Added destination filter fix for list-only ClickUp mappings and trailing punctuation sanitization for client hints.
@@ -42,6 +47,8 @@ Last updated: 2026-02-18 (C4A/C5A merged; C4/C5 moved to in_progress)
 - Runtime validation: Slack DM chat flow passed end-to-end (weekly read + create task + clarify/confirm behavior).
 - Runtime validation: `ai_token_usage` now shows `tool='agencyclaw'` rows (model + token counts + meta) after enabling `ENABLE_USAGE_LOGGING=1`.
 - C4A/C5A merge (`164c23c`): `backend-core/tests/test_clickup_reliability.py` + `backend-core/tests/test_identity_reconciliation.py` passing (31 tests total).
+- C4B/C4C merge (`ee303b5`, `649b6cb`, `753a886`, `1422bdb`): `backend-core/tests/test_c4b_task_create_reliability.py`, `backend-core/tests/test_task_create.py`, and `backend-core/tests/test_weekly_tasks.py` passing (100 tests total).
+- C5B/C5C merge (`48713dc`): `backend-core/tests/test_identity_reconciliation.py`, `backend-core/tests/test_identity_sync_runtime.py`, and `backend-core/tests/test_admin_identity_sync.py` passing (18 tests total).
 - Backend full test suite still has pre-existing unrelated failures outside these chunks.
 
 ## 4. Validation Checklist (Per Chunk)
@@ -57,21 +64,21 @@ Last updated: 2026-02-18 (C4A/C5A merged; C4/C5 moved to in_progress)
 ## 5. Unified Coverage Matrix (PRD -> Plan -> Tracker)
 | PRD Section | Implementation Plan Mapping | Tracker Status | Evidence | Remaining Gap / Next Action |
 |---|---|---|---|---|
-| 1. Product Intent | Global (all chunks) | in_progress | C1, C2, C3, C7, C8, C9 completed; C4/C5 slice A merged | Continue phased delivery C4/C5 wiring + C6 |
+| 1. Product Intent | Global (all chunks) | in_progress | C1, C2, C3, C4, C5, C7, C8, C9 completed | Continue phased delivery with C6 |
 | 2. Current Reality (Codebase) | Global baseline | done | Existing routes/services reused; no Bolt migration | Maintain reuse-first approach |
 | 3. Naming + Role Standards | Baseline migrations | mostly_done | `20260217000001` applied; CSL rename landed | Verify all UI copy/runtime labels stay consistent |
-| 4. Architecture (v1) | C1-C9 foundation | in_progress | LLM-first DM orchestration merged with deterministic fallback | Complete C4-C6, then document runtime seams |
-| 5. Slack Runtime Decision | C1-C4 + C9 | in_progress | `/api/slack/events` + `/api/slack/interactions` active; C3/C9 merged | Finish C4 reliability/concurrency hardening |
+| 4. Architecture (v1) | C1-C9 foundation | in_progress | LLM-first DM orchestration merged with deterministic fallback; C4/C5 runtime wiring complete | Complete C6, then document runtime seams |
+| 5. Slack Runtime Decision | C1-C4 + C9 | mostly_done | `/api/slack/events` + `/api/slack/interactions` active; C3/C4/C9 merged | Add distributed (cross-worker) concurrency lock if required |
 | 6. Debrief As Slack-Native | C7 (+ later runtime wiring) | in_progress | C7 parser/review hardening done with tests/build pass | Add deeper runtime workflow checks as features expand |
-| 7. Permissions Model | C2-C6 (policy-sensitive) | in_progress | Identity mapping path in use; C5A deterministic reconciliation merged | Complete sync workflow wiring + admin decision runtime path |
+| 7. Permissions Model | C2-C6 (policy-sensitive) | in_progress | Identity mapping path in use; C5 runtime sync + admin execution endpoint merged | Add viewer/super_admin runtime assertions and tests where missing |
 | 8. Data Model | Baseline migrations | done_for_v1_scope | `000001`..`000006` applied | Add new migrations only when new chunk needs schema |
 | 9. Knowledge Base Strategy | C8 + C9 + SOP paths | in_progress | SOP/debrief paths exist; C8 + C9 merged | Expand context pack depth in runtime and run production smoke |
-| 10. Idempotency + Concurrency | C3, C4 | in_progress | C3 merged; C4A retry/idempotency primitives merged | Complete advisory-lock runtime integration and mutation call wiring |
+| 10. Idempotency + Concurrency | C3, C4 | mostly_done | C3 merged; C4A-C4C merged incl. duplicate suppression + in-memory guard | Upgrade to distributed lock (Redis or DB advisory lock) for multi-worker safety |
 | 11. Queue Strategy | Deferred in plan | deferred | Explicitly deferred in PRD/plan | Revisit after C1-C8 completion |
 | 12. Google Meeting Notes Inputs | C7 | mostly_done | Debrief extraction flow and parser utilities validated | Add optional end-to-end runtime smoke as needed |
 | 13. Skill Registry | C1-C9 | in_progress | Skills seeded via `000001`, `000005`, `000006`; C1 enabled | Enable each skill only when implemented and smoke-tested |
-| 14. Failure + Compensation | C3, C4 | in_progress | C3 merged; C4A orphan event emission + retry primitives merged | Integrate C4A helpers into live mutation paths |
-| 15. Phased Delivery Plan | C1-C9 roadmap | in_progress | C1, C2, C3, C7, C8, C9 done | Continue with C4-C6 |
+| 14. Failure + Compensation | C3, C4 | mostly_done | C3 merged; C4A-C4C helpers integrated into live task-create path | Add orphan reconciliation/sweep workflow |
+| 15. Phased Delivery Plan | C1-C9 roadmap | in_progress | C1, C2, C3, C4, C5, C7, C8, C9 done | Continue with C6 |
 | 16. Immediate Decisions Locked | Baseline + governance | mostly_done | Key architectural and migration decisions applied | Keep matrix/tracker synchronized as work lands |
 
 ## 6. Chunk-To-PRD Traceability

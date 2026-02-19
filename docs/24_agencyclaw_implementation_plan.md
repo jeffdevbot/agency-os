@@ -74,6 +74,9 @@ It is separate from `docs/23_agencyclaw_prd.md`:
 - Acceptance:
   - Concurrent writes to same entity do not race.
   - ClickUp 429/timeout behavior is deterministic and user-visible.
+- Status note:
+  - C4A-C4C shipped.
+  - `C4D` (distributed cross-worker lock via Redis/DB advisory lock) is pinned as a future hardening feature.
 
 ## C5: Team Identity Sync
 - Scope:

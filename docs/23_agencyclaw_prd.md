@@ -349,6 +349,11 @@ Required lock pattern:
 - If lock cannot be acquired immediately, fail fast with user-visible conflict message.
 - Do not silently queue behind lock in v1.
 
+Implementation status note (as of February 18, 2026):
+- C4C shipped with an in-memory per-worker guard for task-create mutation paths.
+- Cross-worker distributed lock (`C4D`) is intentionally deferred as a future hardening feature.
+- Duplicate suppression + idempotency key checks remain active in current runtime.
+
 v2 enhancement:
 - Move to queued lane execution once volume warrants.
 
@@ -827,7 +832,8 @@ For all multi-step actions:
 - Inbound ClickUp webhook sync is out of scope for v1.
 - Identity reconciliation supports `needs_review` admin confirmations in Slack with expiration + audit trail.
 - ClickUp space registry/classification is required for safe brand backlog routing.
+- Distributed cross-worker mutation lock (`C4D`) is deferred; current runtime uses per-worker in-memory guard + idempotency checks.
 
 ---
-Document version: 1.10
-Last updated: 2026-02-18
+Document version: 1.11
+Last updated: 2026-02-19
