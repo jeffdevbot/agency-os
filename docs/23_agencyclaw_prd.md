@@ -66,6 +66,23 @@ Slack DM runtime should follow this order:
 Rule:
 - Existing deterministic routes are retained as resilience fallback, not the primary UX.
 
+### 4.5 Runtime vs Skill Boundary (OpenClaw-style)
+AgencyClaw should keep a hard boundary between conversation runtime and modular skills:
+
+- Runtime layer responsibilities:
+  - conversation state and memory windows,
+  - actor/surface policy checks,
+  - clarification and confirmation workflows,
+  - plan/tool selection, retries, and fallback routing,
+  - audit envelope and telemetry.
+- Skill layer responsibilities:
+  - typed input schema,
+  - deterministic business operation execution,
+  - structured result/error payloads.
+- Runtime must not embed skill-specific business logic beyond safe routing/guards.
+- Skills must not own global conversation behavior.
+- “Add team member to client/brand role” is a skill-domain mutation (for example assignment upsert/remove), executed under runtime policy + confirmation gates.
+
 ### 4.2 Future Multi-Agent Upgrade Path
 If needed later, split orchestrator responsibilities into:
 - Librarian (knowledge)
@@ -966,7 +983,8 @@ Specific carve-out:
 - C10 sequencing is impact-first: clarify continuity -> conversation buffer -> policy gate -> KB grounding -> de-hardcode -> preferences.
 - Hardcoded N-gram deterministic branch is explicitly targeted for carve-out under planner de-hardcoding.
 - Lightweight durable preference memory is in-scope before Phase 4 semantic memory.
+- Runtime-vs-skill boundary is locked: runtime governs conversation/policy/confirmation, skills govern typed business execution.
 
 ---
-Document version: 1.16
+Document version: 1.17
 Last updated: 2026-02-19

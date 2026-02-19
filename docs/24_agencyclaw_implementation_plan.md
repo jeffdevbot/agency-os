@@ -16,6 +16,9 @@ It is separate from `docs/23_agencyclaw_prd.md`:
 - Clarify loops for mutation workflows must persist pending slot state until confirm/cancel.
 - Task drafts should be source-grounded where possible (SOP/internal docs/similar tasks).
 - Task draft/body formatting should follow `docs/26_agencyclaw_task_brief_standard.md`, including generic fallback templates when classification is uncertain.
+- Keep runtime-vs-skill separation strict:
+  runtime owns conversation/policy/confirmation/fallback; skills own typed business execution.
+- New capabilities should default to new modular skills, not new hardcoded intent branches.
 
 ## 3. Definition Of Done (Per Chunk)
 - Behavior implemented end-to-end for chunk scope.

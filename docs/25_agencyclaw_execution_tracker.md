@@ -1,9 +1,9 @@
 # AgencyClaw Execution Tracker
 
-Last updated: 2026-02-19 (task brief standard + ASIN guardrail + multi-user memory policy documented; C10D marked in review)
+Last updated: 2026-02-19 (runtime-vs-skill boundary documented; C10D in review; C10E in progress)
 
 ## 1. Baseline Status
-- [x] PRD updated to v1.16 (`docs/23_agencyclaw_prd.md`)
+- [x] PRD updated to v1.17 (`docs/23_agencyclaw_prd.md`)
 - [x] `20260217000001_agencyclaw_skill_catalog_and_csl_role.sql` applied
 - [x] `20260217000002_agencyclaw_runtime_isolation.sql` applied
 - [x] `20260217000003_client_brand_context_and_kpi_targets.sql` applied
