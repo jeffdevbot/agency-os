@@ -33,6 +33,12 @@ export default function CommandCenterHome() {
           >
             Admin
           </Link>
+          <Link
+            href="/command-center/clickup-spaces"
+            className="rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-[#0a6fd6] shadow transition hover:-translate-y-0.5 hover:shadow-lg"
+          >
+            ClickUp Spaces
+          </Link>
         </div>
       </div>
     </main>
