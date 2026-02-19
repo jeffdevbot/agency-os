@@ -1,6 +1,6 @@
 # AgencyClaw Execution Tracker
 
-Last updated: 2026-02-19 (docs tightened: C10B regression fixtures locked + C10B.5 buffer caps locked)
+Last updated: 2026-02-19 (C10B + C10B.5 completed and validated)
 
 ## 1. Baseline Status
 - [x] PRD updated to v1.14 (`docs/23_agencyclaw_prd.md`)
@@ -25,8 +25,8 @@ Last updated: 2026-02-19 (docs tightened: C10B regression fixtures locked + C10B
 | C7 | `meeting_parser` standalone hardening | Claude | done | merged (`9001c27`) | Parser/review modules integrated; unit tests, typecheck, and production build passing |
 | C8 | `client_context_builder` budget pack | Claude | done | merged (`a26da6a`) | Deterministic 4k budget pack, strict section caps, omission metadata + tests |
 | C9 | Slack conversational orchestrator (LLM-first) | Claude | done | merged (`ec23b78`) | Feature-flagged DM orchestration + tool routing + backend `ai_token_usage` telemetry |
-| C10B | Mutation clarify-state persistence loop hardening | Claude | todo | - | Prevent context drop loops in LLM clarify flows for task creation and similar mutations |
-| C10B.5 | Session conversation history buffer | Claude | todo | - | Add last-5 exchanges context with 1,500-token cap + deterministic eviction |
+| C10B | Mutation clarify-state persistence loop hardening | Claude | done | merged (`647f365`) | Clarify-mode skill/args continuity + pending mutation-state persistence hardened to prevent task-create loop regressions |
+| C10B.5 | Session conversation history buffer | Claude | done | merged (`647f365`) | Added bounded last-5 exchange buffer with 1,500-token cap + deterministic oldest-first eviction and role-based history injection |
 | C10A | Actor/surface context resolver + policy gate | Claude | todo | - | Add explicit who/where runtime context and enforce policy pre/post tool call |
 | C10C | KB retrieval cascade + source-grounded drafts | Claude | todo | - | SOP -> internal docs -> similar tasks -> external docs with citation/confidence output |
 | C10D | Planner + capability-skill de-hardcoding | Claude | todo | - | Reduce rigid intent branches, explicitly carve out N-gram hardcoded path, keep behavior parity |
@@ -36,8 +36,8 @@ Last updated: 2026-02-19 (docs tightened: C10B regression fixtures locked + C10B
 - [x] Confirm migration `20260217000006_clickup_space_skill_seed.sql` is applied.
 - [x] Confirm backend service has C9 runtime env keys in `agency-os-env-var` (`OPENAI_API_KEY`, `OPENAI_MODEL_PRIMARY`, `OPENAI_MODEL_FALLBACK`, `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`, `CLICKUP_API_TOKEN`, `CLICKUP_TEAM_ID`, `ENABLE_USAGE_LOGGING=1`).
 - [x] Decide first chunk start timestamp and branch/PR convention.
-- [ ] Start C10B implementation branch and land regression tests for clarify-loop transcripts.
-- [ ] Start C10B.5 branch and land recent-history buffer tests for follow-up coherence.
+- [x] Start C10B implementation branch and land regression tests for clarify-loop transcripts.
+- [x] Start C10B.5 branch and land recent-history buffer tests for follow-up coherence.
 - [ ] Start C10A implementation branch and land actor/surface policy gate tests.
 
 ## 3.3 Locked Regression Fixtures (C10B)
@@ -68,6 +68,8 @@ Last updated: 2026-02-19 (docs tightened: C10B regression fixtures locked + C10B
 - C6A merge (`698e144`): `backend-core/tests/test_clickup_space_registry.py` passing (20 tests).
 - C6B/C6B.1 merge (`5abb867`): frontend ClickUp spaces admin page + API client + tests (17 tests).
 - C6 live smoke (Render): `POST /admin/clickup-spaces/sync`, `GET /admin/clickup-spaces`, `POST /admin/clickup-spaces/classify`, filtered list, and map/unmap endpoints all returned 200.
+- C10B/C10B.5 merge (`647f365`): `backend-core/tests/test_c10b_clarify_persistence.py`, `backend-core/tests/test_conversation_buffer.py`, `backend-core/tests/test_slack_orchestrator.py`, `backend-core/tests/test_task_create.py`, `backend-core/tests/test_weekly_tasks.py`, `backend-core/tests/test_c9b_integration.py`, and `backend-core/tests/test_slack_hardening.py` passing (171 tests).
+- C10B/C10B.5 full-suite check after merge: `283 passed, 3 failed` (same pre-existing unrelated failures in `test_ngram_analytics.py`, `test_root_services.py`, `test_str_parser_spend.py`).
 - Backend full test suite still has pre-existing unrelated failures outside these chunks.
 
 ## 4. Validation Checklist (Per Chunk)
@@ -83,10 +85,10 @@ Last updated: 2026-02-19 (docs tightened: C10B regression fixtures locked + C10B
 ## 5. Unified Coverage Matrix (PRD -> Plan -> Tracker)
 | PRD Section | Implementation Plan Mapping | Tracker Status | Evidence | Remaining Gap / Next Action |
 |---|---|---|---|---|
-| 1. Product Intent | Global (all chunks) | in_progress | C1, C2, C3, C4, C5, C6, C7, C8, C9 completed | Execute C10B -> C10B.5 -> C10A -> C10C -> C10D -> C10E |
+| 1. Product Intent | Global (all chunks) | in_progress | C1, C2, C3, C4, C5, C6, C7, C8, C9, C10B, C10B.5 completed | Execute C10A -> C10C -> C10D -> C10E |
 | 2. Current Reality (Codebase) | Global baseline | done | Existing routes/services reused; no Bolt migration | Maintain reuse-first approach |
 | 3. Naming + Role Standards | Baseline migrations | mostly_done | `20260217000001` applied; CSL rename landed | Verify all UI copy/runtime labels stay consistent |
-| 4. Architecture (v1) | C1-C10 foundation | in_progress | LLM-first DM orchestration merged with deterministic fallback; C4/C5/C6 runtime wiring complete | Add clarify continuity + history buffer + policy gate + planner/capability runtime convergence |
+| 4. Architecture (v1) | C1-C10 foundation | in_progress | LLM-first DM orchestration merged with deterministic fallback; C4/C5/C6 runtime wiring complete; C10B/C10B.5 continuity+history landed | Add actor/surface policy gate + planner/capability runtime convergence |
 | 5. Slack Runtime Decision | C1-C4 + C9 | mostly_done | `/api/slack/events` + `/api/slack/interactions` active; C3/C4/C9 merged | Add distributed (cross-worker) concurrency lock if required |
 | 6. Debrief As Slack-Native | C7 (+ later runtime wiring) | in_progress | C7 parser/review hardening done with tests/build pass | Add deeper runtime workflow checks as features expand |
 | 7. Permissions Model | C2-C10 (policy-sensitive) | in_progress | Identity mapping path in use; C5 runtime sync + admin execution endpoint merged | Implement actor/surface-aware policy checks in orchestrator runtime (C10A) |
@@ -97,7 +99,7 @@ Last updated: 2026-02-19 (docs tightened: C10B regression fixtures locked + C10B
 | 12. Google Meeting Notes Inputs | C7 | mostly_done | Debrief extraction flow and parser utilities validated | Add optional end-to-end runtime smoke as needed |
 | 13. Skill Registry | C1-C9 | in_progress | Skills seeded via `000001`, `000005`, `000006`; C1 enabled | Enable each skill only when implemented and smoke-tested |
 | 14. Failure + Compensation | C3, C4 | mostly_done | C3 merged; C4A-C4C helpers integrated into live task-create path | Add orphan reconciliation/sweep workflow |
-| 15. Phased Delivery Plan | C1-C10 roadmap | in_progress | C1, C2, C3, C4, C5, C6, C7, C8, C9 done | Execute C10 impact-first order: B -> B.5 -> A -> C -> D -> E |
+| 15. Phased Delivery Plan | C1-C10 roadmap | in_progress | C1, C2, C3, C4, C5, C6, C7, C8, C9, C10B, C10B.5 done | Execute remaining C10 order: A -> C -> D -> E |
 | 16. Immediate Decisions Locked | Baseline + governance | mostly_done | Key architectural and migration decisions applied | Keep matrix/tracker synchronized as work lands |
 
 ## 6. Chunk-To-PRD Traceability
