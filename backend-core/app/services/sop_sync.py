@@ -81,7 +81,7 @@ class SOPSyncService:
                 name = page.get("name", "Untitled")
 
                 # Update content and name (preserve category and aliases from seed)
-                update_response = (
+                (
                     self.db.table("playbook_sops")
                     .update(
                         {
@@ -92,13 +92,22 @@ class SOPSyncService:
                     )
                     .eq("clickup_doc_id", doc_id)
                     .eq("clickup_page_id", page_id)
-                    .select("id")
                     .execute()
                 )
-                updated_rows = (
-                    update_response.data if isinstance(update_response.data, list) else []
+
+                # Verify a target row exists for this configured SOP.
+                verify_response = (
+                    self.db.table("playbook_sops")
+                    .select("id")
+                    .eq("clickup_doc_id", doc_id)
+                    .eq("clickup_page_id", page_id)
+                    .limit(1)
+                    .execute()
                 )
-                if not updated_rows:
+                verify_rows = (
+                    verify_response.data if isinstance(verify_response.data, list) else []
+                )
+                if not verify_rows:
                     raise RuntimeError(
                         f"no playbook_sops row found for doc_id={doc_id}, page_id={page_id}"
                     )

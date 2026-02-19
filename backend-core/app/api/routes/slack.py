@@ -20,6 +20,8 @@ from ...services.agencyclaw.policy_gate import (
     resolve_actor_context,
     resolve_surface_context,
 )
+from ...services.agencyclaw.grounded_task_draft import build_grounded_task_draft
+from ...services.agencyclaw.kb_retrieval import retrieve_kb_context
 from ...services.agencyclaw.clickup_reliability import (
     RetryExhaustedError,
     build_idempotency_key,
@@ -699,6 +701,36 @@ async def _handle_create_task(
     )
 
 
+async def _enrich_task_draft(
+    *,
+    task_title: str,
+    client_id: str,
+    client_name: str,
+) -> dict[str, Any] | None:
+    """C10C: Attempt KB retrieval + grounded draft.  Returns None on any failure."""
+    try:
+        db = get_supabase_admin_client()
+        retrieval = await retrieve_kb_context(
+            query=task_title,
+            client_id=client_id,
+            skill_id="clickup_task_create",
+            db=db,
+        )
+        if not retrieval["sources"]:
+            return None
+
+        draft = build_grounded_task_draft(
+            request_text=task_title,
+            client_name=client_name,
+            retrieved_context=retrieval,
+            task_title=task_title,
+        )
+        return draft
+    except Exception:
+        _logger.warning("C10C: KB retrieval/draft failed, continuing without enrichment", exc_info=True)
+        return None
+
+
 async def _handle_pending_task_continuation(
     *,
     channel: str,
@@ -793,7 +825,24 @@ async def _handle_pending_task_continuation(
         task_title = pending.get("task_title", "")
 
         if is_confirm:
-            # Create as draft (no description)
+            # C10C: Enrich with KB context if available
+            enriched_description = ""
+            draft = await _enrich_task_draft(
+                task_title=task_title,
+                client_id=client_id,
+                client_name=client_name,
+            )
+            if draft and not draft["needs_clarification"]:
+                parts: list[str] = []
+                if draft["description"]:
+                    parts.append(draft["description"])
+                if draft["checklist"]:
+                    parts.append("## Checklist\n" + "\n".join(f"- [ ] {s}" for s in draft["checklist"]))
+                if draft["citations"]:
+                    parts.append("---\nSources: " + ", ".join(c["title"] for c in draft["citations"]))
+                if parts:
+                    enriched_description = "\n\n".join(parts)
+
             await _execute_task_create(
                 channel=channel,
                 session=session,
@@ -802,7 +851,7 @@ async def _handle_pending_task_continuation(
                 client_id=client_id,
                 client_name=client_name,
                 task_title=task_title,
-                task_description="",
+                task_description=enriched_description,
             )
             return True
 
