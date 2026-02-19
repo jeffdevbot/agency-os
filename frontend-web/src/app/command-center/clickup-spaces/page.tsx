@@ -30,6 +30,102 @@ const classificationMeta = (c: SpaceClassification) => {
     return { label: "Unknown", cls: "bg-slate-100 text-slate-700" };
 };
 
+export type BrandDirectoryItem = {
+    id: string;
+    name: string;
+    clientName: string;
+};
+
+const isValidUUID = (str: string) => {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        str,
+    );
+};
+
+function BrandSearchSelect({
+    value,
+    onChange,
+    disabled,
+    options,
+}: {
+    value: string;
+    onChange: (val: string) => void;
+    disabled?: boolean;
+    options: BrandDirectoryItem[];
+}) {
+    const [search, setSearch] = useState("");
+    const [open, setOpen] = useState(false);
+
+    useEffect(() => {
+        const found = options.find((o) => o.id === value);
+        setSearch(found ? `${found.name} (${found.clientName})` : value);
+    }, [value, options]);
+
+    const filtered = useMemo(() => {
+        const q = search.trim().toLowerCase();
+        if (!q) return options;
+        return options.filter(
+            (o) =>
+                o.name.toLowerCase().includes(q) ||
+                o.clientName.toLowerCase().includes(q) ||
+                o.id.toLowerCase().includes(q),
+        );
+    }, [search, options]);
+
+    return (
+        <div className="relative">
+            <input
+                type="text"
+                value={search}
+                onChange={(e) => {
+                    setSearch(e.target.value);
+                    onChange(e.target.value);
+                    setOpen(true);
+                }}
+                onFocus={() => setOpen(true)}
+                onBlur={() => {
+                    setTimeout(() => setOpen(false), 200);
+                }}
+                disabled={disabled}
+                placeholder="Search brand or UUID…"
+                className="w-64 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-[#0f172a]"
+                title={value}
+            />
+            {open && filtered.length > 0 && (
+                <div className="absolute top-full left-0 z-50 mt-1 max-h-48 w-72 overflow-y-auto rounded-xl border border-slate-200 bg-white py-1 shadow-xl">
+                    {filtered.map((opt) => (
+                        <div
+                            key={opt.id}
+                            className="cursor-pointer px-3 py-2 hover:bg-slate-50"
+                            onMouseDown={(e) => {
+                                e.preventDefault();
+                                onChange(opt.id);
+                                setSearch(`${opt.name} (${opt.clientName})`);
+                                setOpen(false);
+                            }}
+                        >
+                            <div className="text-xs font-semibold text-[#0f172a]">
+                                {opt.name}{" "}
+                                <span className="font-normal text-slate-500">
+                                    ({opt.clientName})
+                                </span>
+                            </div>
+                            <div className="mt-0.5 font-mono text-[10px] text-slate-400">
+                                {opt.id}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+            {open && filtered.length === 0 && search && (
+                <div className="absolute top-full left-0 z-50 mt-1 w-72 rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-xl text-xs text-slate-500">
+                    Use raw UUID if not found.
+                </div>
+            )}
+        </div>
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -49,6 +145,9 @@ export default function ClickupSpacesPage() {
     const [classificationFilter, setClassificationFilter] = useState<
         "" | SpaceClassification
     >("");
+
+    // Brand directory
+    const [brandDirectory, setBrandDirectory] = useState<BrandDirectoryItem[]>([]);
 
     // Brand mapping inline edit
     const [editingBrandSpaceId, setEditingBrandSpaceId] = useState<string | null>(
@@ -84,11 +183,40 @@ export default function ClickupSpacesPage() {
         }
     }, [token, classificationFilter]);
 
+    const loadBrandDirectory = useCallback(async () => {
+        try {
+            const res = await fetch("/api/command-center/bootstrap", {
+                cache: "no-store",
+            });
+            if (!res.ok) return;
+            const json = await res.json();
+            const items: BrandDirectoryItem[] = [];
+            for (const client of json.clients || []) {
+                for (const brand of client.brands || []) {
+                    items.push({
+                        id: brand.id,
+                        name: brand.name,
+                        clientName: client.name,
+                    });
+                }
+            }
+            items.sort((a, b) => {
+                const c = a.clientName.localeCompare(b.clientName);
+                if (c !== 0) return c;
+                return a.name.localeCompare(b.name);
+            });
+            setBrandDirectory(items);
+        } catch (err) {
+            console.error("Failed to load brand directory", err);
+        }
+    }, []);
+
     useEffect(() => {
         if (token) {
             loadSpaces();
+            loadBrandDirectory();
         }
-    }, [token, loadSpaces]);
+    }, [token, loadSpaces, loadBrandDirectory]);
 
     // Filtered view ----------------------------------------------------------
     const filtered = useMemo(() => {
@@ -149,6 +277,10 @@ export default function ClickupSpacesPage() {
     const onMapBrand = useCallback(
         async (spaceId: string, brandId: string | null) => {
             if (!token) return;
+            if (brandId && !isValidUUID(brandId)) {
+                setErrorMessage("Invalid UUID format. Please select a brand from the dropdown or paste a valid UUID.");
+                return;
+            }
             setActionInFlight(spaceId);
             setErrorMessage(null);
             try {
@@ -316,14 +448,11 @@ export default function ClickupSpacesPage() {
                                             <td className="px-4 py-4">
                                                 {isEditing ? (
                                                     <div className="flex items-center gap-2">
-                                                        <input
+                                                        <BrandSearchSelect
                                                             value={editBrandValue}
-                                                            onChange={(e) =>
-                                                                setEditBrandValue(e.target.value)
-                                                            }
-                                                            className="w-48 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs"
-                                                            placeholder="Brand ID (UUID)"
+                                                            onChange={setEditBrandValue}
                                                             disabled={isActionTarget}
+                                                            options={brandDirectory}
                                                         />
                                                         <button
                                                             onClick={() =>
@@ -352,7 +481,13 @@ export default function ClickupSpacesPage() {
                                                     <div className="flex items-center gap-2">
                                                         {space.brand_id ? (
                                                             <span className="rounded-full bg-[#f1f5ff] px-3 py-1 text-xs font-semibold text-[#0f172a]">
-                                                                {space.brand_id}
+                                                                {(() => {
+                                                                    const b = brandDirectory.find(
+                                                                        (x) => x.id === space.brand_id,
+                                                                    );
+                                                                    if (b) return `${b.name} (${b.clientName})`;
+                                                                    return `${space.brand_id} (Unknown brand)`;
+                                                                })()}
                                                             </span>
                                                         ) : (
                                                             <span className="text-xs text-[#64748b]">
@@ -384,8 +519,7 @@ export default function ClickupSpacesPage() {
                                                 )}
                                                 {isEditing ? (
                                                     <p className="mt-1 text-xs text-[#64748b]">
-                                                        Enter the brand UUID. Brand lookup is not yet
-                                                        available from this endpoint.
+                                                        Type a name to search, or paste a raw UUID.
                                                     </p>
                                                 ) : null}
                                             </td>
