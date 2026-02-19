@@ -1,6 +1,6 @@
 # AgencyClaw Execution Tracker
 
-Last updated: 2026-02-19 (runtime-vs-skill boundary documented; C10D in review; C10E in progress)
+Last updated: 2026-02-19 (C10D merged; C10E validated locally and ready to merge)
 
 ## 1. Baseline Status
 - [x] PRD updated to v1.17 (`docs/23_agencyclaw_prd.md`)
@@ -29,8 +29,8 @@ Last updated: 2026-02-19 (runtime-vs-skill boundary documented; C10D in review; 
 | C10B.5 | Session conversation history buffer | Claude | done | merged (`647f365`) | Added bounded last-5 exchange buffer with 1,500-token cap + deterministic oldest-first eviction and role-based history injection |
 | C10A | Actor/surface context resolver + policy gate | Claude | done | merged (`02fb45f`) | Added actor/surface policy gate with fail-closed enforcement on LLM + deterministic tool paths |
 | C10C | KB retrieval cascade + source-grounded drafts | Claude | done | merged (`c1d7c77`) | Tiered retrieval (SOP/internal/similar/external placeholder) + deterministic grounded draft builder with citations/clarify behavior |
-| C10D | Planner + capability-skill de-hardcoding | Claude | in_review | agent report (commit pending) | Planner + deterministic executor implemented for N-gram carve-out path; awaiting commit/merge verification |
-| C10E | Lightweight durable preference memory | Claude | todo | - | Persist operator defaults (assignee/cadence/client) and apply safely in drafting |
+| C10D | Planner + capability-skill de-hardcoding | Claude | done | merged (`c43c6bd`) | Planner + deterministic executor landed behind feature flag; N-gram carve-out moved to planner path |
+| C10E | Lightweight durable preference memory | Claude | in_review | local changes (commit pending) | Durable user preference store + default-client set/clear commands + resolver integration implemented and tested |
 
 ## 3. Open Blockers
 - [x] Confirm migration `20260217000006_clickup_space_skill_seed.sql` is applied.
@@ -81,6 +81,9 @@ Last updated: 2026-02-19 (runtime-vs-skill boundary documented; C10D in review; 
 - C10C full-suite check: `351 passed, 3 failed` (same pre-existing unrelated failures in `test_ngram_analytics.py`, `test_root_services.py`, `test_str_parser_spend.py`).
 - Task brief standard documented in `docs/26_agencyclaw_task_brief_standard.md` and linked in PRD/implementation plan (includes bucketed templates + generic unclassified fallback).
 - ASIN ambiguity guardrail documented: no identifier guessing; clarify for ASIN/SKU or explicit pending fields in draft output.
+- C10D planner suites: `backend-core/tests/test_planner.py` + `backend-core/tests/test_plan_executor.py` passing (27 tests).
+- C10E targeted checks: `backend-core/tests/test_preference_memory.py` + `backend-core/tests/test_task_create.py` + `backend-core/tests/test_c10b_clarify_persistence.py` passing (97 tests).
+- Full-suite check after C10E: `430 passed, 3 failed` (same pre-existing unrelated failures in `test_ngram_analytics.py`, `test_root_services.py`, `test_str_parser_spend.py`).
 - SOP sync runtime bugfix (`sop_sync.py`): fixed Supabase update chain incompatibility; live sync now succeeds (`15/15` SOPs synced, `0` missing content rows).
 - Backend full test suite still has pre-existing unrelated failures outside these chunks.
 
@@ -97,10 +100,10 @@ Last updated: 2026-02-19 (runtime-vs-skill boundary documented; C10D in review; 
 ## 5. Unified Coverage Matrix (PRD -> Plan -> Tracker)
 | PRD Section | Implementation Plan Mapping | Tracker Status | Evidence | Remaining Gap / Next Action |
 |---|---|---|---|---|
-| 1. Product Intent | Global (all chunks) | in_progress | C1, C2, C3, C4, C5, C6, C7, C8, C9, C10B, C10B.5, C10A, C10C completed | Execute C10D -> C10E |
+| 1. Product Intent | Global (all chunks) | in_progress | C1, C2, C3, C4, C5, C6, C7, C8, C9, C10B, C10B.5, C10A, C10C, C10D, C10E completed | Close remaining Phase 2.6 chat-parity skills, then advance to Phase 3 |
 | 2. Current Reality (Codebase) | Global baseline | done | Existing routes/services reused; no Bolt migration | Maintain reuse-first approach |
 | 3. Naming + Role Standards | Baseline migrations | mostly_done | `20260217000001` applied; CSL rename landed | Verify all UI copy/runtime labels stay consistent |
-| 4. Architecture (v1) | C1-C10 foundation | in_progress | LLM-first DM orchestration merged with deterministic fallback; C4/C5/C6 runtime wiring complete; C10B/C10B.5 continuity+history landed; C10A policy gate landed; C10C KB grounding landed | Add planner/capability runtime convergence + durable preference memory |
+| 4. Architecture (v1) | C1-C10 foundation | mostly_done | LLM-first DM orchestration merged with deterministic fallback; C4/C5/C6 runtime wiring complete; C10B/C10B.5 continuity+history landed; C10A policy gate landed; C10C KB grounding landed; C10D/C10E landed | Continue reducing remaining hardcoded edges and expand channel-surface policy coverage |
 | 5. Slack Runtime Decision | C1-C4 + C9 | mostly_done | `/api/slack/events` + `/api/slack/interactions` active; C3/C4/C9 merged | Add distributed (cross-worker) concurrency lock if required |
 | 6. Debrief As Slack-Native | C7 (+ later runtime wiring) | in_progress | C7 parser/review hardening done with tests/build pass | Add deeper runtime workflow checks as features expand |
 | 7. Permissions Model | C2-C10 (policy-sensitive) | mostly_done | Identity mapping path in use; C5 runtime sync + admin execution endpoint merged; C10A actor/surface tool policy gate merged | Expand policy coverage for future non-DM/channel surfaces and granular role policies |
@@ -111,7 +114,7 @@ Last updated: 2026-02-19 (runtime-vs-skill boundary documented; C10D in review; 
 | 12. Google Meeting Notes Inputs | C7 | mostly_done | Debrief extraction flow and parser utilities validated | Add optional end-to-end runtime smoke as needed |
 | 13. Skill Registry | C1-C9 | in_progress | Skills seeded via `000001`, `000005`, `000006`; C1 enabled | Enable each skill only when implemented and smoke-tested |
 | 14. Failure + Compensation | C3, C4 | mostly_done | C3 merged; C4A-C4C helpers integrated into live task-create path | Add orphan reconciliation/sweep workflow |
-| 15. Phased Delivery Plan | C1-C10 roadmap | in_progress | C1, C2, C3, C4, C5, C6, C7, C8, C9, C10B, C10B.5, C10A, C10C done | Execute remaining C10 order: D -> E |
+| 15. Phased Delivery Plan | C1-C10 roadmap | mostly_done | C1, C2, C3, C4, C5, C6, C7, C8, C9, C10B, C10B.5, C10A, C10C, C10D, C10E done | Finish remaining Phase 2.6 chat parity items and Phase 2.5 proactive items |
 | 16. Immediate Decisions Locked | Baseline + governance | mostly_done | Key architectural and migration decisions applied | Keep matrix/tracker synchronized as work lands |
 
 ## 6. Chunk-To-PRD Traceability

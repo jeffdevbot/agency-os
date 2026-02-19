@@ -34,6 +34,7 @@ from ...services.agencyclaw.clickup_reliability import (
 )
 from ...services.ai_token_usage_logger import log_ai_token_usage
 from ...services.clickup import ClickUpError, ClickUpConfigurationError, get_clickup_service
+from ...services.agencyclaw.preference_memory import PreferenceMemoryService
 from ...services.playbook_session import get_playbook_session_service, get_supabase_admin_client
 from ...services.sop_sync import SOPSyncService
 from ...services.slack import (
@@ -165,6 +166,14 @@ def _classify_message(text: str) -> tuple[str, dict[str, Any]]:
         return ("switch_client", {"client_name": t.removeprefix("switch to ").strip()})
     if t.startswith("work on "):
         return ("switch_client", {"client_name": t.removeprefix("work on ").strip()})
+
+    # C10E: Set / clear default client preferences
+    if t.startswith("set my default client to "):
+        return ("set_default_client", {"client_name": t.removeprefix("set my default client to ").strip()})
+    if t.startswith("set default client "):
+        return ("set_default_client", {"client_name": t.removeprefix("set default client ").strip()})
+    if t in ("clear my defaults", "clear defaults", "clear my default client"):
+        return ("clear_defaults", {})
 
     # Task creation (check BEFORE weekly tasks — "create task for X" must not match "tasks for X")
     m = _CREATE_TASK_PATTERN.match(t)
@@ -402,10 +411,13 @@ async def _resolve_client_for_task(
     session_service: Any,
     channel: str,
     slack: Any,
+    pref_service: Any | None = None,
 ) -> tuple[str | None, str]:
     """Resolve client_id + client_name from hint or active session.
 
     Returns (client_id, client_name).  client_id is None on failure (message already sent).
+
+    Precedence: explicit hint > actor preference > session active client > picker.
     """
     if client_name_hint:
         matches = await asyncio.to_thread(
@@ -426,6 +438,16 @@ async def _resolve_client_for_task(
             )
             return None, ""
         return str(matches[0].get("id") or ""), str(matches[0].get("name") or client_name_hint)
+
+    # C10E: Check actor preference (durable default)
+    if pref_service and session.profile_id:
+        pref_client_id = await asyncio.to_thread(
+            pref_service.get_default_client_id, session.profile_id
+        )
+        if pref_client_id:
+            name = await asyncio.to_thread(session_service.get_client_name, pref_client_id)
+            if name:
+                return pref_client_id, name
 
     if session.active_client_id:
         name = await asyncio.to_thread(session_service.get_client_name, session.active_client_id)
@@ -627,6 +649,7 @@ async def _handle_create_task(
     task_title: str,
     session_service: Any,
     slack: Any,
+    pref_service: Any | None = None,
 ) -> None:
     """Handle 'create task for <client>: <title>' intent."""
     session = await asyncio.to_thread(session_service.get_or_create_session, slack_user_id)
@@ -638,6 +661,7 @@ async def _handle_create_task(
         session_service=session_service,
         channel=channel,
         slack=slack,
+        pref_service=pref_service,
     )
     if not client_id:
         return
@@ -718,6 +742,7 @@ async def _handle_ngram_research(
     client_name_hint: str,
     session_service: Any,
     slack: Any,
+    pref_service: Any | None = None,
 ) -> None:
     """C10D: Handle ngram_research skill via SOP-grounded task creation.
 
@@ -733,6 +758,7 @@ async def _handle_ngram_research(
         session_service=session_service,
         channel=channel,
         slack=slack,
+        pref_service=pref_service,
     )
     if not client_id:
         return
@@ -1206,12 +1232,14 @@ async def _try_llm_orchestrator(
 
                 # Always resolve client (uses active-client fallback / picker
                 # when hint is empty) — never write pending with empty client_id.
+                pref_service = PreferenceMemoryService(session_service.db)
                 client_id, client_name = await _resolve_client_for_task(
                     client_name_hint=client_name_hint,
                     session=session,
                     session_service=session_service,
                     channel=channel,
                     slack=slack,
+                    pref_service=pref_service,
                 )
                 if not client_id:
                     return True  # picker/error already posted
@@ -1334,6 +1362,7 @@ async def _check_tool_policy(
 
 async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> None:
     session_service = get_playbook_session_service()
+    pref_service = PreferenceMemoryService(session_service.db)
     slack = get_slack_service()
 
     try:
@@ -1400,6 +1429,7 @@ async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> No
                 task_title=str(params.get("task_title") or ""),
                 session_service=session_service,
                 slack=slack,
+                pref_service=pref_service,
             )
             return
 
@@ -1468,6 +1498,68 @@ async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> No
             await slack.post_message(
                 channel=channel,
                 text=f"Now working on *{client_display}*.\n\nTry: `start ngram research`",
+            )
+            return
+
+        # C10E: Set default client preference
+        if intent == "set_default_client":
+            client_name = str(params.get("client_name") or "").strip()
+            if not client_name:
+                await slack.post_message(
+                    channel=channel,
+                    text="Usage: `set my default client to <client name>`",
+                )
+                return
+
+            if not session.profile_id:
+                await slack.post_message(
+                    channel=channel,
+                    text="I can't save preferences — your Slack account isn't linked to a profile yet.",
+                )
+                return
+
+            matches = await asyncio.to_thread(
+                session_service.find_client_matches, session.profile_id, client_name
+            )
+            if not matches:
+                await slack.post_message(
+                    channel=channel,
+                    text=f"I couldn't find a client matching *{client_name}*.",
+                )
+                return
+            if len(matches) > 1:
+                blocks = _build_client_picker_blocks(matches)
+                await slack.post_message(
+                    channel=channel,
+                    text=f"Multiple clients match *{client_name}*. Be more specific:",
+                    blocks=blocks,
+                )
+                return
+
+            client_id = str(matches[0].get("id") or "")
+            client_display = str(matches[0].get("name") or client_name)
+            await asyncio.to_thread(pref_service.set_default_client, session.profile_id, client_id)
+            # Also set as active for this session
+            await asyncio.to_thread(session_service.set_active_client, session.id, client_id)
+            await slack.post_message(
+                channel=channel,
+                text=f"Default client set to *{client_display}*. This will persist across sessions.",
+            )
+            return
+
+        # C10E: Clear default client preference
+        if intent == "clear_defaults":
+            if not session.profile_id:
+                await slack.post_message(
+                    channel=channel,
+                    text="I can't manage preferences — your Slack account isn't linked to a profile yet.",
+                )
+                return
+
+            await asyncio.to_thread(pref_service.clear_default_client, session.profile_id)
+            await slack.post_message(
+                channel=channel,
+                text="Default client cleared. I'll ask you to pick a client each time.",
             )
             return
 
