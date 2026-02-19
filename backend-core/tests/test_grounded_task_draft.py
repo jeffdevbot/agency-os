@@ -19,6 +19,8 @@ import pytest
 from app.services.agencyclaw.grounded_task_draft import (
     DraftResult,
     _extract_checklist,
+    _has_product_identifier,
+    _is_product_scoped,
     build_grounded_task_draft,
 )
 from app.services.agencyclaw.kb_retrieval import RetrievalResult, RetrievedSource, SourceTier
@@ -171,21 +173,29 @@ class TestSopDraft:
 
 class TestInternalDocDraft:
     def test_internal_doc_source(self):
-        ctx = _retrieval([_internal_source()])
+        ctx = _retrieval([_internal_source(
+            content="Guide for onboarding workflows",
+            name="Onboarding Guide",
+            source_id="onboarding",
+        )])
         draft = build_grounded_task_draft(
-            request_text="setup coupons",
+            request_text="setup onboarding",
             client_name="Distex",
             retrieved_context=ctx,
         )
 
         assert "Related doc:" in draft["description"]
-        assert "Coupon Setup Guide" in draft["description"]
+        assert "Onboarding Guide" in draft["description"]
         assert draft["needs_clarification"] is False
 
     def test_internal_doc_citation(self):
-        ctx = _retrieval([_internal_source()])
+        ctx = _retrieval([_internal_source(
+            content="Guide for onboarding workflows",
+            name="Onboarding Guide",
+            source_id="onboarding",
+        )])
         draft = build_grounded_task_draft(
-            request_text="setup coupons",
+            request_text="setup onboarding",
             client_name="Distex",
             retrieved_context=ctx,
         )
@@ -354,3 +364,135 @@ class TestChecklistExtraction:
         content = "1. Same step\n2. Same step\n3. Different step"
         result = _extract_checklist(content)
         assert result == ["Same step", "Different step"]
+
+
+# ---------------------------------------------------------------------------
+# C10C.1: ASIN guardrail unit tests
+# ---------------------------------------------------------------------------
+
+
+class TestProductScopeDetection:
+    def test_coupon_is_product_scoped(self):
+        assert _is_product_scoped("create coupon for summer sale") is True
+
+    def test_discount_is_product_scoped(self):
+        assert _is_product_scoped("set up discount for Black Friday") is True
+
+    def test_listing_is_product_scoped(self):
+        assert _is_product_scoped("update listing content") is True
+
+    def test_catalog_is_product_scoped(self):
+        assert _is_product_scoped("add catalog entries") is True
+
+    def test_generic_task_not_product_scoped(self):
+        assert _is_product_scoped("update blog copy") is False
+
+    def test_ngram_not_product_scoped(self):
+        assert _is_product_scoped("run ngram research") is False
+
+    def test_asin_keyword_is_product_scoped(self):
+        assert _is_product_scoped("look up this ASIN") is True
+
+    def test_punctuation_coupon_question(self):
+        assert _is_product_scoped("coupon?") is True
+
+    def test_punctuation_listing_comma(self):
+        assert _is_product_scoped("listing, please") is True
+
+    def test_punctuation_products_exclaim(self):
+        assert _is_product_scoped("update products!") is True
+
+    def test_has_asin_identifier(self):
+        assert _has_product_identifier("coupon for B08XYZ1234") is True
+
+    def test_no_identifier(self):
+        assert _has_product_identifier("create coupon for summer sale") is False
+
+    def test_has_sku_identifier(self):
+        assert _has_product_identifier("discount for SKU ABC-123-DEF") is True
+
+
+class TestAsinGuardrail:
+    def test_product_scoped_no_asin_needs_clarification(self):
+        """Product-scoped request without ASIN → needs_clarification=True + open_questions."""
+        ctx = _retrieval([_sop_source()])
+        draft = build_grounded_task_draft(
+            request_text="create coupon for summer sale",
+            client_name="Distex",
+            retrieved_context=ctx,
+        )
+
+        assert draft["needs_clarification"] is True
+        assert len(draft["open_questions"]) >= 1
+        assert "ASIN" in draft["open_questions"][0]
+
+    def test_product_scoped_with_asin_normal(self):
+        """Product-scoped request with ASIN → no override, normal SOP flow."""
+        ctx = _retrieval([_sop_source()])
+        draft = build_grounded_task_draft(
+            request_text="create coupon for B08XYZ1234",
+            client_name="Distex",
+            retrieved_context=ctx,
+        )
+
+        assert draft["needs_clarification"] is False
+        assert draft["open_questions"] == []
+
+    def test_non_product_scoped_unchanged(self):
+        """Non-product request → no guardrail, normal SOP flow."""
+        ctx = _retrieval([_sop_source()])
+        draft = build_grounded_task_draft(
+            request_text="run ngram analysis",
+            client_name="Distex",
+            retrieved_context=ctx,
+        )
+
+        assert draft["needs_clarification"] is False
+        assert draft["open_questions"] == []
+
+    def test_product_scoped_no_asin_clarification_question(self):
+        """Clarification question mentions ASIN/SKU."""
+        ctx = _retrieval([_sop_source()])
+        draft = build_grounded_task_draft(
+            request_text="create listing for new product",
+            client_name="Distex",
+            retrieved_context=ctx,
+        )
+
+        assert "ASIN" in (draft["clarification_question"] or "")
+
+    def test_product_scoped_no_evidence_stacks(self):
+        """No evidence + product-scoped → needs_clarification + open_questions."""
+        ctx = _empty_retrieval()
+        draft = build_grounded_task_draft(
+            request_text="create discount for product",
+            client_name="Distex",
+            retrieved_context=ctx,
+        )
+
+        assert draft["needs_clarification"] is True
+        assert len(draft["open_questions"]) >= 1
+        assert any("ASIN" in q for q in draft["open_questions"])
+
+    def test_product_scoped_internal_doc_overridden(self):
+        """Internal doc normally doesn't need clarification, but product-scope overrides."""
+        ctx = _retrieval([_internal_source()])
+        draft = build_grounded_task_draft(
+            request_text="setup coupons for store",
+            client_name="Distex",
+            retrieved_context=ctx,
+        )
+
+        assert draft["needs_clarification"] is True
+        assert len(draft["open_questions"]) >= 1
+
+    def test_open_questions_empty_for_non_product(self):
+        """Baseline: non-product task has empty open_questions."""
+        ctx = _retrieval([_sop_source()])
+        draft = build_grounded_task_draft(
+            request_text="run ngram",
+            client_name="Distex",
+            retrieved_context=ctx,
+        )
+
+        assert draft["open_questions"] == []

@@ -22,6 +22,9 @@ from ...services.agencyclaw.policy_gate import (
 )
 from ...services.agencyclaw.grounded_task_draft import build_grounded_task_draft
 from ...services.agencyclaw.kb_retrieval import retrieve_kb_context
+from ...services.agencyclaw.plan_executor import execute_plan
+from ...services.agencyclaw.planner import generate_plan
+from ...services.agencyclaw.tool_registry import get_tool_descriptions_for_prompt
 from ...services.agencyclaw.clickup_reliability import (
     RetryExhaustedError,
     build_idempotency_key,
@@ -55,6 +58,13 @@ router = APIRouter(prefix="/slack", tags=["slack"])
 def _is_llm_orchestrator_enabled() -> bool:
     """Check if the LLM DM orchestrator feature flag is enabled."""
     return os.environ.get("AGENCYCLAW_LLM_DM_ORCHESTRATOR", "").strip().lower() in {
+        "1", "true", "yes", "on",
+    }
+
+
+def _is_planner_enabled() -> bool:
+    """Check if the C10D planner feature flag is enabled."""
+    return os.environ.get("AGENCYCLAW_ENABLE_PLANNER", "").strip().lower() in {
         "1", "true", "yes", "on",
     }
 
@@ -701,6 +711,137 @@ async def _handle_create_task(
     )
 
 
+async def _handle_ngram_research(
+    *,
+    slack_user_id: str,
+    channel: str,
+    client_name_hint: str,
+    session_service: Any,
+    slack: Any,
+) -> None:
+    """C10D: Handle ngram_research skill via SOP-grounded task creation.
+
+    Fetches the N-gram SOP and routes through the standard create-task flow,
+    gaining C4A reliability and C10C KB enrichment.
+    """
+    session = await asyncio.to_thread(session_service.get_or_create_session, slack_user_id)
+
+    # Resolve client (reuse existing helper)
+    client_id, client_name = await _resolve_client_for_task(
+        client_name_hint=client_name_hint,
+        session=session,
+        session_service=session_service,
+        channel=channel,
+        slack=slack,
+    )
+    if not client_id:
+        return
+
+    # Verify SOP exists
+    sop_service = SOPSyncService(clickup_token="", supabase_client=session_service.db)
+    sop = await sop_service.get_sop_by_category("ngram")
+    sop_md = str((sop or {}).get("content_md") or "")
+    if not sop_md.strip():
+        await slack.post_message(
+            channel=channel,
+            text="N-gram SOP not found (category='ngram'). Ask an admin to run the SOP sync.",
+        )
+        return
+
+    # Route through standard create-task flow with pre-filled title
+    task_title = f"N-gram Research: {client_name}"
+    await _handle_create_task(
+        slack_user_id=slack_user_id,
+        channel=channel,
+        client_name_hint=client_name,
+        task_title=task_title,
+        session_service=session_service,
+        slack=slack,
+    )
+
+
+async def _try_planner(
+    *,
+    text: str,
+    slack_user_id: str,
+    channel: str,
+    session: Any,
+    session_service: Any,
+    slack: Any,
+) -> bool:
+    """C10D: Attempt planner-driven execution.  Returns True if handled."""
+    if not _is_planner_enabled():
+        return False
+
+    try:
+        # Build context
+        client_context_pack = ""
+        if session.active_client_id:
+            client_name = await asyncio.to_thread(
+                session_service.get_client_name, session.active_client_id
+            )
+            client_context_pack = f"Active client: {client_name or 'Unknown'} (id={session.active_client_id})"
+
+        # KB retrieval for planner context (non-fatal)
+        kb_summary = ""
+        try:
+            db = get_supabase_admin_client()
+            retrieval = await retrieve_kb_context(
+                query=text, client_id=str(session.active_client_id or ""), db=db,
+            )
+            if retrieval["sources"]:
+                kb_summary = "\n".join(
+                    f"- [{s['tier']}] {s['title']}: {s['content'][:200]}"
+                    for s in retrieval["sources"][:3]
+                )
+        except Exception:
+            pass
+
+        # Generate plan
+        plan = await generate_plan(
+            text=text,
+            session_context=session.context,
+            client_context_pack=client_context_pack,
+            kb_context_summary=kb_summary,
+        )
+
+        if not plan or not plan["steps"]:
+            return False
+
+        # Build handler dispatch map
+        handler_map = {
+            "clickup_task_create": _handle_create_task,
+            "clickup_task_list_weekly": _handle_weekly_tasks,
+            "ngram_research": _handle_ngram_research,
+        }
+
+        # Execute plan
+        result = await execute_plan(
+            plan=plan,
+            slack_user_id=slack_user_id,
+            channel=channel,
+            session=session,
+            session_service=session_service,
+            slack=slack,
+            check_policy=_check_tool_policy,
+            handler_map=handler_map,
+        )
+
+        # Persist conversation history
+        summary = f"[Planned: {plan['intent']} — {result['steps_succeeded']}/{result['steps_attempted']} steps]"
+        recent = session.context.get("recent_exchanges") or []
+        updated = append_exchange(recent, text, summary)
+        await asyncio.to_thread(
+            session_service.update_context, session.id,
+            {"recent_exchanges": compact_exchanges(updated)},
+        )
+
+        return True
+    except Exception:
+        _logger.warning("C10D: Planner failed, falling through", exc_info=True)
+        return False
+
+
 async def _enrich_task_draft(
     *,
     task_title: str,
@@ -832,6 +973,18 @@ async def _handle_pending_task_continuation(
                 client_id=client_id,
                 client_name=client_name,
             )
+
+            # C10C.1: If draft has open_questions (e.g. missing ASIN), ask before creating
+            if draft and draft.get("open_questions"):
+                question = draft.get("clarification_question") or "Could you provide more details?"
+                pending["awaiting"] = "asin_or_pending"
+                pending["draft"] = dict(draft)  # stash for reuse
+                await asyncio.to_thread(
+                    session_service.update_context, session.id, {"pending_task_create": pending}
+                )
+                await slack.post_message(channel=channel, text=question)
+                return True
+
             if draft and not draft["needs_clarification"]:
                 parts: list[str] = []
                 if draft["description"]:
@@ -864,8 +1017,27 @@ async def _handle_pending_task_continuation(
             )
             return False
 
-        # User sent description text — create with it
+        # User sent description text
         description = text.strip()
+
+        # C10C.1: Check if task+description is product-scoped without identifiers
+        from app.services.agencyclaw.grounded_task_draft import (
+            _ASIN_CLARIFICATION,
+            _ASIN_OPEN_QUESTION,
+            _has_product_identifier,
+            _is_product_scoped,
+        )
+
+        combined_text = f"{task_title} {description}"
+        if _is_product_scoped(combined_text) and not _has_product_identifier(combined_text):
+            pending["awaiting"] = "asin_or_pending"
+            pending["draft"] = {"description": description, "open_questions": [_ASIN_OPEN_QUESTION]}
+            await asyncio.to_thread(
+                session_service.update_context, session.id, {"pending_task_create": pending}
+            )
+            await slack.post_message(channel=channel, text=_ASIN_CLARIFICATION)
+            return True
+
         await _execute_task_create(
             channel=channel,
             session=session,
@@ -875,6 +1047,70 @@ async def _handle_pending_task_continuation(
             client_name=client_name,
             task_title=task_title,
             task_description=description,
+        )
+        return True
+
+    if awaiting == "asin_or_pending":
+        from app.services.agencyclaw.grounded_task_draft import _has_product_identifier
+
+        t_lower = text.strip().lower()
+        client_id = pending.get("client_id", "")
+        client_name = pending.get("client_name", "")
+        task_title = pending.get("task_title", "")
+        stashed_draft = pending.get("draft") or {}
+
+        # Path A: User chose "create with ASIN pending"
+        if "asin pending" in t_lower or "create anyway" in t_lower:
+            open_qs = stashed_draft.get("open_questions", [])
+            parts: list[str] = []
+            if stashed_draft.get("description"):
+                parts.append(stashed_draft["description"])
+            if open_qs:
+                parts.append("## Unresolved\n- " + "\n- ".join(open_qs))
+            parts.append("**First step:** Resolve ASIN(s)/SKU(s) before executing this task.")
+            description = "\n\n".join(parts)
+
+            await _execute_task_create(
+                channel=channel,
+                session=session,
+                session_service=session_service,
+                slack=slack,
+                client_id=client_id,
+                client_name=client_name,
+                task_title=task_title,
+                task_description=description,
+            )
+            return True
+
+        # Path B: User provided identifier(s)
+        if _has_product_identifier(text):
+            parts = []
+            if stashed_draft.get("description"):
+                parts.append(stashed_draft["description"])
+            parts.append(f"Product identifiers: {text.strip()}")
+            description = "\n\n".join(parts)
+
+            await _execute_task_create(
+                channel=channel,
+                session=session,
+                session_service=session_service,
+                slack=slack,
+                client_id=client_id,
+                client_name=client_name,
+                task_title=task_title,
+                task_description=description,
+            )
+            return True
+
+        # Path C: User typed something else — re-ask, don't auto-create
+        from app.services.agencyclaw.grounded_task_draft import _ASIN_CLARIFICATION
+
+        await slack.post_message(
+            channel=channel,
+            text=(
+                "I still need ASIN(s) or SKU(s) for this task. "
+                "Please provide them, or say \"create with ASIN pending\" to proceed without."
+            ),
         )
         return True
 
@@ -1117,6 +1353,17 @@ async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> No
             )
             if consumed:
                 return
+
+        # --- C10D: Planner (feature-flagged) ---
+        if await _try_planner(
+            text=text,
+            slack_user_id=slack_user_id,
+            channel=channel,
+            session=session,
+            session_service=session_service,
+            slack=slack,
+        ):
+            return
 
         # --- LLM orchestrator (feature-flagged) ---
         if _is_llm_orchestrator_enabled():

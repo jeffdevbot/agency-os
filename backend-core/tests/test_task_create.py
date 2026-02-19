@@ -779,3 +779,300 @@ class TestC1RegressionFromC2:
     def test_help_default_still_works(self):
         intent, _ = _classify_message("hello there")
         assert intent == "help"
+
+
+# ---------------------------------------------------------------------------
+# C10C.1: ASIN clarification flow
+# ---------------------------------------------------------------------------
+
+
+class TestAsinClarificationFlow:
+    """Integration tests for the ASIN ambiguity guardrail in the confirm path."""
+
+    @pytest.mark.asyncio
+    async def test_confirm_with_asin_needed_asks_for_asin(self):
+        """When enriched draft has open_questions, confirm asks for ASIN instead of creating."""
+        svc, slack = _make_mocks()
+        pending = {
+            "awaiting": "confirm_or_details",
+            "client_id": "client-1",
+            "client_name": "Distex",
+            "task_title": "Create coupon for summer sale",
+        }
+        session = FakeSession(context={"pending_task_create": pending})
+
+        # Mock _enrich_task_draft to return a draft with open_questions
+        mock_draft = {
+            "title": "Create coupon for summer sale",
+            "description": "Per SOP: Coupon Setup",
+            "checklist": [],
+            "citations": [],
+            "confidence": 0.9,
+            "needs_clarification": True,
+            "clarification_question": "Please provide ASIN(s) or say \"create with ASIN pending\".",
+            "open_questions": ["ASIN(s) or SKU(s) required for this product-scoped task."],
+            "source_tiers_used": ["sop"],
+        }
+
+        with patch("app.api.routes.slack._enrich_task_draft", new_callable=AsyncMock, return_value=mock_draft):
+            consumed = await _handle_pending_task_continuation(
+                channel="C1",
+                text="create anyway",
+                session=session,
+                session_service=svc,
+                slack=slack,
+                pending=pending,
+            )
+
+        assert consumed is True
+        # Should have asked for ASIN, not created the task
+        msg = slack.post_message.call_args.kwargs["text"]
+        assert "ASIN" in msg
+        # Pending state should be updated to asin_or_pending
+        ctx = svc.update_context.call_args[0][1]
+        assert ctx["pending_task_create"]["awaiting"] == "asin_or_pending"
+
+    @pytest.mark.asyncio
+    async def test_asin_pending_creates_with_unresolved(self):
+        """User says 'asin pending' → task created with unresolved section."""
+        svc, slack = _make_mocks()
+        pending = {
+            "awaiting": "asin_or_pending",
+            "client_id": "client-1",
+            "client_name": "Distex",
+            "task_title": "Create coupon",
+            "draft": {
+                "description": "Per SOP: Coupon Setup",
+                "open_questions": ["ASIN(s) or SKU(s) required for this product-scoped task."],
+            },
+        }
+        session = FakeSession(context={"pending_task_create": pending})
+        fake_task = ClickUpTask(id="t1", url="https://clickup.com/t/t1")
+
+        with _mock_reliability(), patch("app.api.routes.slack.get_clickup_service") as mock_cu:
+            cu = AsyncMock()
+            cu.create_task_in_list.return_value = fake_task
+            mock_cu.return_value = cu
+
+            consumed = await _handle_pending_task_continuation(
+                channel="C1",
+                text="create with asin pending",
+                session=session,
+                session_service=svc,
+                slack=slack,
+                pending=pending,
+            )
+
+        assert consumed is True
+        call_kwargs = cu.create_task_in_list.call_args.kwargs
+        assert "Unresolved" in call_kwargs["description_md"]
+        assert "ASIN" in call_kwargs["description_md"]
+        assert "First step" in call_kwargs["description_md"]
+
+    @pytest.mark.asyncio
+    async def test_user_provides_asin_creates_with_identifier(self):
+        """User replies with ASIN → task created with identifier in body."""
+        svc, slack = _make_mocks()
+        pending = {
+            "awaiting": "asin_or_pending",
+            "client_id": "client-1",
+            "client_name": "Distex",
+            "task_title": "Create coupon",
+            "draft": {
+                "description": "Per SOP: Coupon Setup",
+                "open_questions": ["ASIN(s) or SKU(s) required."],
+            },
+        }
+        session = FakeSession(context={"pending_task_create": pending})
+        fake_task = ClickUpTask(id="t1", url="https://clickup.com/t/t1")
+
+        with _mock_reliability(), patch("app.api.routes.slack.get_clickup_service") as mock_cu:
+            cu = AsyncMock()
+            cu.create_task_in_list.return_value = fake_task
+            mock_cu.return_value = cu
+
+            consumed = await _handle_pending_task_continuation(
+                channel="C1",
+                text="B08XYZ1234",
+                session=session,
+                session_service=svc,
+                slack=slack,
+                pending=pending,
+            )
+
+        assert consumed is True
+        call_kwargs = cu.create_task_in_list.call_args.kwargs
+        assert "Product identifiers:" in call_kwargs["description_md"]
+        assert "B08XYZ1234" in call_kwargs["description_md"]
+
+    @pytest.mark.asyncio
+    async def test_non_product_confirm_unchanged(self):
+        """Non-product task confirm path works as before (regression)."""
+        svc, slack = _make_mocks()
+        pending = {
+            "awaiting": "confirm_or_details",
+            "client_id": "client-1",
+            "client_name": "Distex",
+            "task_title": "Fix landing page",
+        }
+        session = FakeSession(context={"pending_task_create": pending})
+        fake_task = ClickUpTask(id="t1", url="https://clickup.com/t/t1")
+
+        # Mock _enrich_task_draft to return a draft WITHOUT open_questions
+        mock_draft = {
+            "title": "Fix landing page",
+            "description": "Per SOP: Copy Updates",
+            "checklist": ["Review copy", "Update CTA"],
+            "citations": [{"source_id": "copy", "title": "Copy SOP", "tier": "sop"}],
+            "confidence": 0.9,
+            "needs_clarification": False,
+            "clarification_question": None,
+            "open_questions": [],
+            "source_tiers_used": ["sop"],
+        }
+
+        with (
+            _mock_reliability(),
+            patch("app.api.routes.slack._enrich_task_draft", new_callable=AsyncMock, return_value=mock_draft),
+            patch("app.api.routes.slack.get_clickup_service") as mock_cu,
+        ):
+            cu = AsyncMock()
+            cu.create_task_in_list.return_value = fake_task
+            mock_cu.return_value = cu
+
+            consumed = await _handle_pending_task_continuation(
+                channel="C1",
+                text="create anyway",
+                session=session,
+                session_service=svc,
+                slack=slack,
+                pending=pending,
+            )
+
+        assert consumed is True
+        # Task was created (not held for ASIN)
+        cu.create_task_in_list.assert_called_once()
+        call_kwargs = cu.create_task_in_list.call_args.kwargs
+        assert "Per SOP" in call_kwargs["description_md"]
+
+    @pytest.mark.asyncio
+    async def test_asin_freetext_reasks_no_create(self):
+        """User types non-identifier text in asin_or_pending → re-asks, no task created."""
+        svc, slack = _make_mocks()
+        pending = {
+            "awaiting": "asin_or_pending",
+            "client_id": "client-1",
+            "client_name": "Distex",
+            "task_title": "Create coupon",
+            "draft": {
+                "description": "",
+                "open_questions": ["ASIN(s) or SKU(s) required."],
+            },
+        }
+        session = FakeSession(context={"pending_task_create": pending})
+
+        consumed = await _handle_pending_task_continuation(
+            channel="C1",
+            text="just go ahead with the summer promo ones",
+            session=session,
+            session_service=svc,
+            slack=slack,
+            pending=pending,
+        )
+
+        assert consumed is True
+        # Should re-ask, not create
+        msg = slack.post_message.call_args.kwargs["text"]
+        assert "ASIN" in msg
+        assert "pending" in msg.lower()
+
+    @pytest.mark.asyncio
+    async def test_freetext_description_product_scoped_asks_asin(self):
+        """Free-text description for product-scoped task → asks ASIN, doesn't create."""
+        svc, slack = _make_mocks()
+        pending = {
+            "awaiting": "confirm_or_details",
+            "client_id": "client-1",
+            "client_name": "Distex",
+            "task_title": "Create coupon for summer sale",
+        }
+        session = FakeSession(context={"pending_task_create": pending})
+
+        consumed = await _handle_pending_task_continuation(
+            channel="C1",
+            text="Set up 20% off coupon for the summer promo",
+            session=session,
+            session_service=svc,
+            slack=slack,
+            pending=pending,
+        )
+
+        assert consumed is True
+        # Should ask for ASIN, not create
+        msg = slack.post_message.call_args.kwargs["text"]
+        assert "ASIN" in msg
+        # Should transition to asin_or_pending
+        ctx = svc.update_context.call_args[0][1]
+        assert ctx["pending_task_create"]["awaiting"] == "asin_or_pending"
+
+    @pytest.mark.asyncio
+    async def test_freetext_description_non_product_creates(self):
+        """Free-text description for non-product task → creates normally (regression)."""
+        svc, slack = _make_mocks()
+        pending = {
+            "awaiting": "confirm_or_details",
+            "client_id": "client-1",
+            "client_name": "Distex",
+            "task_title": "Fix landing page",
+        }
+        session = FakeSession(context={"pending_task_create": pending})
+        fake_task = ClickUpTask(id="t1", url="https://clickup.com/t/t1")
+
+        with _mock_reliability(), patch("app.api.routes.slack.get_clickup_service") as mock_cu:
+            cu = AsyncMock()
+            cu.create_task_in_list.return_value = fake_task
+            mock_cu.return_value = cu
+
+            consumed = await _handle_pending_task_continuation(
+                channel="C1",
+                text="The hero section copy needs updating for Q2 campaign.",
+                session=session,
+                session_service=svc,
+                slack=slack,
+                pending=pending,
+            )
+
+        assert consumed is True
+        cu.create_task_in_list.assert_called_once()
+        call_kwargs = cu.create_task_in_list.call_args.kwargs
+        assert "Q2 campaign" in call_kwargs["description_md"]
+
+    @pytest.mark.asyncio
+    async def test_freetext_description_with_asin_creates(self):
+        """Free-text description with ASIN for product-scoped task → creates normally."""
+        svc, slack = _make_mocks()
+        pending = {
+            "awaiting": "confirm_or_details",
+            "client_id": "client-1",
+            "client_name": "Distex",
+            "task_title": "Create coupon",
+        }
+        session = FakeSession(context={"pending_task_create": pending})
+        fake_task = ClickUpTask(id="t1", url="https://clickup.com/t/t1")
+
+        with _mock_reliability(), patch("app.api.routes.slack.get_clickup_service") as mock_cu:
+            cu = AsyncMock()
+            cu.create_task_in_list.return_value = fake_task
+            mock_cu.return_value = cu
+
+            consumed = await _handle_pending_task_continuation(
+                channel="C1",
+                text="Set up coupon for B08XYZ1234",
+                session=session,
+                session_service=svc,
+                slack=slack,
+                pending=pending,
+            )
+
+        assert consumed is True
+        cu.create_task_in_list.assert_called_once()

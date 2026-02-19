@@ -36,6 +36,7 @@ class DraftResult(TypedDict):
     confidence: float
     needs_clarification: bool
     clarification_question: str | None
+    open_questions: list[str]
     source_tiers_used: list[str]
 
 
@@ -59,6 +60,56 @@ def _extract_checklist(content: str) -> list[str]:
             seen.add(stripped)
             steps.append(stripped)
     return steps
+
+
+# ---------------------------------------------------------------------------
+# C10C.1: Product-scope detection
+# ---------------------------------------------------------------------------
+
+_PRODUCT_SCOPE_KEYWORDS = frozenset({
+    "coupon", "coupons", "discount", "discounts",
+    "listing", "listings", "catalog",
+    "product", "products", "sku", "asin",
+})
+
+_ASIN_RE = re.compile(r"\b[A-Z0-9]{10}\b")
+_SKU_RE = re.compile(r"\b[A-Z0-9][-A-Z0-9]{3,18}[A-Z0-9]\b")
+
+
+_WORD_RE = re.compile(r"\w+")
+
+
+def _is_product_scoped(text: str) -> bool:
+    """Return True if request text involves product-level operations."""
+    words = set(w.lower() for w in _WORD_RE.findall(text))
+    return bool(words & _PRODUCT_SCOPE_KEYWORDS)
+
+
+def _has_product_identifier(text: str) -> bool:
+    """Return True if text contains at least one ASIN or SKU-like identifier."""
+    return bool(_ASIN_RE.search(text)) or bool(_SKU_RE.search(text))
+
+
+_ASIN_OPEN_QUESTION = "ASIN(s) or SKU(s) required for this product-scoped task."
+_ASIN_CLARIFICATION = (
+    "This looks like a product-level task but no ASIN/SKU was provided. "
+    "Please reply with the ASIN(s) or SKU(s), or say \"create with ASIN pending\"."
+)
+
+
+def _apply_asin_guardrail(
+    draft: DraftResult,
+    product_scoped: bool,
+    has_identifier: bool,
+) -> DraftResult:
+    """C10C.1: If product-scoped without identifiers, force clarification."""
+    if not product_scoped or has_identifier:
+        return draft
+
+    draft["needs_clarification"] = True
+    draft["open_questions"].append(_ASIN_OPEN_QUESTION)
+    draft["clarification_question"] = _ASIN_CLARIFICATION
+    return draft
 
 
 # ---------------------------------------------------------------------------
@@ -86,8 +137,12 @@ def build_grounded_task_draft(
     sources = retrieved_context["sources"]
     overall_confidence = retrieved_context["overall_confidence"]
 
+    # --- C10C.1: detect product-scope for post-processing ---
+    product_scoped = _is_product_scoped(request_text)
+    has_identifier = _has_product_identifier(request_text) if product_scoped else False
+
     if not sources:
-        return DraftResult(
+        draft = DraftResult(
             title=title,
             description="",
             checklist=[],
@@ -98,8 +153,10 @@ def build_grounded_task_draft(
                 "I don't have an SOP or reference for this task. "
                 "Could you provide more details about what needs to be done?"
             ),
+            open_questions=[],
             source_tiers_used=[],
         )
+        return _apply_asin_guardrail(draft, product_scoped, has_identifier)
 
     # Find the best source by tier priority
     best_sop = next((s for s in sources if s["tier"] == SourceTier.SOP), None)
@@ -114,7 +171,7 @@ def build_grounded_task_draft(
         content = best_sop["content"]
         checklist = _extract_checklist(content)
 
-        return DraftResult(
+        draft = DraftResult(
             title=title,
             description=f"Per SOP: {sop_name}\n\n{content}",
             checklist=checklist,
@@ -126,15 +183,17 @@ def build_grounded_task_draft(
             confidence=overall_confidence,
             needs_clarification=False,
             clarification_question=None,
+            open_questions=[],
             source_tiers_used=tiers_used,
         )
+        return _apply_asin_guardrail(draft, product_scoped, has_identifier)
 
     # Case 2: Internal doc
     if best_internal:
         doc_name = best_internal["title"]
         content = best_internal["content"]
 
-        return DraftResult(
+        draft = DraftResult(
             title=title,
             description=f"Related doc: {doc_name}\n\n{content}",
             checklist=[],
@@ -146,8 +205,10 @@ def build_grounded_task_draft(
             confidence=overall_confidence,
             needs_clarification=False,
             clarification_question=None,
+            open_questions=[],
             source_tiers_used=tiers_used,
         )
+        return _apply_asin_guardrail(draft, product_scoped, has_identifier)
 
     # Case 3: Similar tasks only
     if best_similar:
@@ -158,7 +219,7 @@ def build_grounded_task_draft(
             tier=SourceTier.SIMILAR_TASK,
         )]
 
-        return DraftResult(
+        draft = DraftResult(
             title=title,
             description=f"Similar recent tasks found for {client_name}:\n{content}",
             checklist=[],
@@ -169,11 +230,13 @@ def build_grounded_task_draft(
                 "I found similar tasks but no SOP for this. "
                 "Could you describe what steps should be included?"
             ),
+            open_questions=[],
             source_tiers_used=tiers_used,
         )
+        return _apply_asin_guardrail(draft, product_scoped, has_identifier)
 
     # Should not reach here (sources is non-empty), but fail safe
-    return DraftResult(
+    draft = DraftResult(
         title=title,
         description="",
         checklist=[],
@@ -181,5 +244,7 @@ def build_grounded_task_draft(
         confidence=0.0,
         needs_clarification=True,
         clarification_question="Could you provide more details about what needs to be done?",
+        open_questions=[],
         source_tiers_used=tiers_used,
     )
+    return _apply_asin_guardrail(draft, product_scoped, has_identifier)
