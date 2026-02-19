@@ -164,6 +164,27 @@ Required flow:
 Runtime rule:
 - Skill invocation and mutation paths must not execute without a resolved `profiles.id`.
 
+### 7.3 Actor + Surface Context (required for policy)
+AgencyClaw must evaluate permissions with both actor identity and conversation surface.
+
+Required actor context:
+- `profile_id`
+- `slack_user_id`
+- resolved tier (`super_admin` / `admin` / `member` / `viewer`)
+- `is_admin`
+
+Required surface context:
+- `surface_type`: `dm`, `channel`, or `thread`
+- `channel_id`
+- `channel_scope`: `internal`, `client_scoped`, or `unknown`
+- resolved `client_id` / `brand_id` when available
+
+Policy rule:
+- Mutation authorization is computed from `(actor_tier, surface_scope, requested_skill)`.
+- Unknown channel scope must fail closed for mutations.
+- DM scope can allow broader operations than client-scoped channels, but still tier-gated.
+- Runtime must pass actor/surface context into orchestrator prompt + post-tool policy gate.
+
 ## 8. Data Model
 ### 8.1 Use Existing Tables
 - `public.playbook_sops`
@@ -308,10 +329,21 @@ v1:
 - Keep `playbook_sops` as curated internal knowledge source.
 - Keep alias lookup + category lookup.
 - Do not block v1 on vector search.
+- Use retrieval cascade with trust ordering:
+  1) curated SOPs (`playbook_sops`)
+  2) approved internal docs/playbooks
+  3) similar historical ClickUp tasks (client-first)
+  4) external materials (lowest trust)
+
+Behavior rule:
+- Task drafts must be source-grounded when knowledge is available.
+- If no strong source match exists, agent must say so explicitly and ask targeted clarifying questions.
+- Do not silently invent SOP-backed procedures.
 
 v2:
 - Add vector semantics and external ingestion.
 - Prefer separate `knowledge_documents` table for external/transcript materials to avoid mixing trust semantics with curated SOP cache.
+- Add ingestion/approval flow for non-SOP documents (playbooks, transcripts, notes) before high-trust use in task drafting.
 
 ## 10. Idempotency And Concurrency (must-have)
 ### 10.1 Idempotency (Slack retries)
@@ -716,6 +748,51 @@ Suggested skills:
 - If model routing fails, times out, or returns invalid schema, runtime must transparently fall back to deterministic handlers.
 - Conversational mode must preserve all existing safeguards:
   confirmation requirements, permission checks, idempotency, and audit logging.
+- Clarify mode for mutation workflows must persist pending slot state (`pending_*`) so follow-up user messages continue the same workflow.
+- While pending mutation state exists, generic conversational `reply` is disallowed; runtime must either:
+  continue slot-fill/confirmation flow or explicitly cancel it.
+- Orchestrator prompt context must include actor + surface context (who + where).
+- Orchestrator prompt context must include a bounded recent conversation window
+  (locked at last 5 user+assistant exchanges) to reduce stateless per-message behavior.
+
+### 13.17 Conversation Memory And Preferences (v1.5 bridge)
+- Keep lightweight session conversation buffer for orchestrator context:
+  store last 5 user+assistant exchanges (10 messages) in session context (rolling window).
+- History buffer hard cap: 1,500 tokens estimated.
+- Eviction rule: remove oldest full exchange first until both limits are satisfied
+  (<= 5 exchanges and <= 1,500 tokens).
+- Buffer is short-term/ephemeral (session-scoped), not long-term memory.
+- Add lightweight durable user preferences for operator defaults
+  (for example default assignee, preferred cadence, default client hints).
+- Preference memory is explicit key/value state with auditability; full semantic memory remains Phase 4.
+
+### 13.15 Actor + Surface Policy Gate Rules
+- Pre-tool policy gate:
+  - Resolve actor + surface context before orchestrator tool execution.
+  - Reject skills not allowed for current tier/surface with explicit reason.
+- Post-tool policy gate:
+  - Validate final mutation intent again before execution (defense in depth).
+- Scope defaulting:
+  - In `client_scoped` channels, prefer channel client scope over free-text client guesses.
+  - In DM, use active client + clarification when ambiguous.
+- Confirmation policy:
+  - Use self-confirmation for v1 mutation paths.
+  - Keep admin-approval flow deferred.
+
+### 13.16 Knowledge Retrieval And Drafting Rules
+- Retrieval cascade for mutation drafting:
+  1) SOP lookup
+  2) internal docs/playbooks
+  3) similar historical tasks
+  4) external documents/transcripts
+- Draft response contract:
+  - include concise draft title/description/checklist
+  - include source citations (for example: SOP category/title, historical task links)
+  - include confidence tier (`high`, `medium`, `low`)
+- Confidence behavior:
+  - `high`: proceed to confirmation-ready draft
+  - `medium`: ask focused clarification before confirmation
+  - `low`: do not execute; ask user to choose/confirm source direction
 
 ## 14. Failure And Compensation Design
 For all multi-step actions:
@@ -795,6 +872,25 @@ For all multi-step actions:
   thin task creation clarification,
   fallback behavior on LLM/tool-plan failure.
 
+### Phase 2.8: Jarvis Runtime Hardening
+Execution order (locked):
+1. Clarify-state continuity first:
+   enforce pending-state continuity for mutation clarifications (no context-dropping loops).
+2. Conversation buffer:
+   add bounded recent-message context for orchestrator prompt input.
+3. Actor/surface safety:
+   add actor + surface context resolver and policy gate pipeline.
+4. KB grounding:
+   add retrieval cascade (SOP -> internal docs -> similar tasks -> external materials).
+5. Planner de-hardcoding:
+   reduce hardcoded intent branches by shifting to reusable capability skills + planner execution.
+6. Preference memory:
+   add lightweight durable user preference memory for defaults.
+
+Specific carve-out:
+- Replace the hardcoded N-gram deterministic task creation branch with planner + capability-skill execution.
+- Preserve behavior parity while removing intent-specific coupling from runtime routing.
+
 ### Phase 3: Threshold Automation
 - Metric ingest.
 - Rule evaluation.
@@ -833,7 +929,13 @@ For all multi-step actions:
 - Identity reconciliation supports `needs_review` admin confirmations in Slack with expiration + audit trail.
 - ClickUp space registry/classification is required for safe brand backlog routing.
 - Distributed cross-worker mutation lock (`C4D`) is deferred; current runtime uses per-worker in-memory guard + idempotency checks.
+- Actor + surface context is mandatory for orchestrator policy decisions.
+- Mutation drafts should be source-grounded via KB retrieval cascade; silent invention is prohibited.
+- Hardcoded single-intent branches are transitional; planner + capability-skill routing is the target runtime shape.
+- C10 sequencing is impact-first: clarify continuity -> conversation buffer -> policy gate -> KB grounding -> de-hardcode -> preferences.
+- Hardcoded N-gram deterministic branch is explicitly targeted for carve-out under planner de-hardcoding.
+- Lightweight durable preference memory is in-scope before Phase 4 semantic memory.
 
 ---
-Document version: 1.11
+Document version: 1.14
 Last updated: 2026-02-19
