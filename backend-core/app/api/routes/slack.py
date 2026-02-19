@@ -24,6 +24,7 @@ from ...services.agencyclaw.grounded_task_draft import build_grounded_task_draft
 from ...services.agencyclaw.kb_retrieval import retrieve_kb_context
 from ...services.agencyclaw.plan_executor import execute_plan
 from ...services.agencyclaw.planner import generate_plan
+from ...services.agencyclaw.pending_resolution import resolve_pending_action
 from ...services.agencyclaw.tool_registry import get_tool_descriptions_for_prompt
 from ...services.agencyclaw.clickup_reliability import (
     RetryExhaustedError,
@@ -155,27 +156,6 @@ _CREATE_TASK_PATTERN = re.compile(
 _CONFIRM_DRAFT_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"^(?:create anyway|create as draft|just create it|yes,?\s*create(?:\s+it)?)$"),
 ]
-
-_ASIN_PENDING_HINTS: tuple[str, ...] = (
-    "asin",
-    "sku",
-    "pending",
-    "create",
-    "go ahead",
-    "proceed",
-    "coupon",
-    "promo",
-    "listing",
-    "product",
-    "identifier",
-)
-
-
-def _looks_like_asin_pending_followup(text: str) -> bool:
-    t = " ".join((text or "").strip().lower().split())
-    if not t:
-        return False
-    return any(hint in t for hint in _ASIN_PENDING_HINTS)
 
 
 def _classify_message(text: str) -> tuple[str, dict[str, Any]]:
@@ -919,6 +899,34 @@ async def _enrich_task_draft(
         return None
 
 
+def _compose_asin_pending_description(stashed_draft: dict[str, Any] | None) -> str:
+    """Build unresolved-task description when user proceeds without identifiers."""
+    from app.services.agencyclaw.grounded_task_draft import _ASIN_OPEN_QUESTION
+
+    draft = stashed_draft or {}
+    open_qs = list(draft.get("open_questions") or [])
+    if not open_qs:
+        open_qs = [_ASIN_OPEN_QUESTION]
+
+    parts: list[str] = []
+    if draft.get("description"):
+        parts.append(str(draft["description"]))
+
+    checklist = draft.get("checklist") or []
+    if isinstance(checklist, list) and checklist:
+        parts.append("## Checklist\n" + "\n".join(f"- [ ] {s}" for s in checklist))
+
+    citations = draft.get("citations") or []
+    if isinstance(citations, list) and citations:
+        titles = [str(c.get("title")) for c in citations if isinstance(c, dict) and c.get("title")]
+        if titles:
+            parts.append("---\nSources: " + ", ".join(titles))
+
+    parts.append("## Unresolved\n- " + "\n- ".join(open_qs))
+    parts.append("**First step:** Resolve ASIN(s)/SKU(s) before executing this task.")
+    return "\n\n".join(parts)
+
+
 async def _handle_pending_task_continuation(
     *,
     channel: str,
@@ -1003,16 +1011,63 @@ async def _handle_pending_task_continuation(
         return True
 
     if awaiting == "confirm_or_details":
-        t_lower = " ".join(text.strip().lower().split())
-
-        # Check if user wants to create as draft
-        is_confirm = any(p.match(t_lower) for p in _CONFIRM_DRAFT_PATTERNS)
+        from app.services.agencyclaw.grounded_task_draft import (
+            _ASIN_CLARIFICATION,
+            _ASIN_OPEN_QUESTION,
+            _has_product_identifier,
+            _is_product_scoped,
+        )
+        probe_intent, _ = _classify_message(text)
+        pending_action = resolve_pending_action(
+            awaiting="confirm_or_details",
+            text=text,
+            known_intent=probe_intent,
+            has_identifier=_has_product_identifier(text),
+        )
 
         client_id = pending.get("client_id", "")
         client_name = pending.get("client_name", "")
         task_title = pending.get("task_title", "")
+        stashed_draft = pending.get("draft") if isinstance(pending.get("draft"), dict) else None
 
-        if is_confirm:
+        if pending_action["action"] == "interrupt":
+            await asyncio.to_thread(
+                session_service.update_context, session.id, {"pending_task_create": None}
+            )
+            return False
+
+        if pending_action["action"] == "cancel":
+            await asyncio.to_thread(
+                session_service.update_context, session.id, {"pending_task_create": None}
+            )
+            await slack.post_message(channel=channel, text="Okay, canceled task creation.")
+            return True
+
+        if pending_action["action"] == "off_topic":
+            return False
+
+        if pending_action["action"] == "proceed_with_asin_pending":
+            if not stashed_draft:
+                draft = await _enrich_task_draft(
+                    task_title=task_title,
+                    client_id=client_id,
+                    client_name=client_name,
+                )
+                stashed_draft = dict(draft) if draft else {}
+            description = _compose_asin_pending_description(stashed_draft)
+            await _execute_task_create(
+                channel=channel,
+                session=session,
+                session_service=session_service,
+                slack=slack,
+                client_id=client_id,
+                client_name=client_name,
+                task_title=task_title,
+                task_description=description,
+            )
+            return True
+
+        if pending_action["action"] == "proceed_draft":
             # C10C: Enrich with KB context if available
             enriched_description = ""
             draft = await _enrich_task_draft(
@@ -1055,25 +1110,8 @@ async def _handle_pending_task_continuation(
             )
             return True
 
-        # Guard: if the text matches a known intent, don't consume it as description.
-        # Clear pending state and fall through to normal routing.
-        probe_intent, _ = _classify_message(text)
-        if probe_intent != "help":
-            await asyncio.to_thread(
-                session_service.update_context, session.id, {"pending_task_create": None}
-            )
-            return False
-
-        # User sent description text
+        # User sent descriptive details
         description = text.strip()
-
-        # C10C.1: Check if task+description is product-scoped without identifiers
-        from app.services.agencyclaw.grounded_task_draft import (
-            _ASIN_CLARIFICATION,
-            _ASIN_OPEN_QUESTION,
-            _has_product_identifier,
-            _is_product_scoped,
-        )
 
         combined_text = f"{task_title} {description}"
         if _is_product_scoped(combined_text) and not _has_product_identifier(combined_text):
@@ -1100,23 +1138,34 @@ async def _handle_pending_task_continuation(
     if awaiting == "asin_or_pending":
         from app.services.agencyclaw.grounded_task_draft import _has_product_identifier
 
-        t_lower = text.strip().lower()
+        probe_intent, _ = _classify_message(text)
+        pending_action = resolve_pending_action(
+            awaiting="asin_or_pending",
+            text=text,
+            known_intent=probe_intent,
+            has_identifier=_has_product_identifier(text),
+        )
+
         client_id = pending.get("client_id", "")
         client_name = pending.get("client_name", "")
         task_title = pending.get("task_title", "")
         stashed_draft = pending.get("draft") or {}
 
-        # Path A: User chose "create with ASIN pending"
-        if "asin pending" in t_lower or "create anyway" in t_lower:
-            open_qs = stashed_draft.get("open_questions", [])
-            parts: list[str] = []
-            if stashed_draft.get("description"):
-                parts.append(stashed_draft["description"])
-            if open_qs:
-                parts.append("## Unresolved\n- " + "\n- ".join(open_qs))
-            parts.append("**First step:** Resolve ASIN(s)/SKU(s) before executing this task.")
-            description = "\n\n".join(parts)
+        if pending_action["action"] == "interrupt":
+            await asyncio.to_thread(
+                session_service.update_context, session.id, {"pending_task_create": None}
+            )
+            return False
 
+        if pending_action["action"] == "cancel":
+            await asyncio.to_thread(
+                session_service.update_context, session.id, {"pending_task_create": None}
+            )
+            await slack.post_message(channel=channel, text="Okay, canceled task creation.")
+            return True
+
+        if pending_action["action"] == "proceed_with_asin_pending":
+            description = _compose_asin_pending_description(stashed_draft)
             await _execute_task_create(
                 channel=channel,
                 session=session,
@@ -1129,8 +1178,7 @@ async def _handle_pending_task_continuation(
             )
             return True
 
-        # Path B: User provided identifier(s)
-        if _has_product_identifier(text):
+        if pending_action["action"] == "provide_identifier":
             parts = []
             if stashed_draft.get("description"):
                 parts.append(stashed_draft["description"])
@@ -1149,36 +1197,15 @@ async def _handle_pending_task_continuation(
             )
             return True
 
-        # Explicit cancel support for this pending sub-flow.
-        if t_lower in {"cancel", "cancel task", "never mind", "nevermind", "stop", "abort"}:
-            await asyncio.to_thread(
-                session_service.update_context, session.id, {"pending_task_create": None}
-            )
-            await slack.post_message(channel=channel, text="Okay, canceled task creation.")
-            return True
-
-        # If the message is a known intent (switch/list/create/etc.), clear and fall through.
-        probe_intent, _ = _classify_message(text)
-        if probe_intent != "help":
-            await asyncio.to_thread(
-                session_service.update_context, session.id, {"pending_task_create": None}
-            )
+        if pending_action["action"] == "off_topic":
             return False
 
-        # Off-topic conversational messages should pass through (Jarvis behavior)
-        # rather than being trapped by ASIN prompts.
-        if not _looks_like_asin_pending_followup(text):
-            return False
-
-        # Path C: User typed something else — re-ask, don't auto-create
+        # Unclear ASIN-related follow-up: re-ask without creating.
         from app.services.agencyclaw.grounded_task_draft import _ASIN_CLARIFICATION
 
         await slack.post_message(
             channel=channel,
-            text=(
-                "I still need ASIN(s) or SKU(s) for this task. "
-                "Please provide them, or say \"create with ASIN pending\" to proceed without."
-            ),
+            text=_ASIN_CLARIFICATION,
         )
         return True
 

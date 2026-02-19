@@ -833,6 +833,84 @@ class TestAsinClarificationFlow:
         assert ctx["pending_task_create"]["awaiting"] == "asin_or_pending"
 
     @pytest.mark.asyncio
+    async def test_confirm_with_asin_pending_paraphrase_creates_unresolved(self):
+        """Natural-language ASIN deferral in confirm state should create unresolved task directly."""
+        svc, slack = _make_mocks()
+        pending = {
+            "awaiting": "confirm_or_details",
+            "client_id": "client-1",
+            "client_name": "Distex",
+            "task_title": "Set up 20% coupon for Thorinox",
+        }
+        session = FakeSession(context={"pending_task_create": pending})
+        fake_task = ClickUpTask(id="t1", url="https://clickup.com/t/t1")
+
+        mock_draft = {
+            "title": "Set up 20% coupon for Thorinox",
+            "description": "Per SOP: Coupon Setup",
+            "checklist": ["Validate coupon window"],
+            "citations": [{"title": "Coupons Promotion SOP"}],
+            "confidence": 0.95,
+            "needs_clarification": True,
+            "clarification_question": "Please provide ASIN(s) or SKU(s).",
+            "open_questions": ["ASIN(s) or SKU(s) required for this product-scoped task."],
+            "source_tiers_used": ["sop"],
+        }
+
+        with (
+            _mock_reliability(),
+            patch("app.api.routes.slack._enrich_task_draft", new_callable=AsyncMock, return_value=mock_draft),
+            patch("app.api.routes.slack.get_clickup_service") as mock_cu,
+        ):
+            cu = AsyncMock()
+            cu.create_task_in_list.return_value = fake_task
+            mock_cu.return_value = cu
+
+            consumed = await _handle_pending_task_continuation(
+                channel="C1",
+                text="go ahead without asin for now",
+                session=session,
+                session_service=svc,
+                slack=slack,
+                pending=pending,
+            )
+
+        assert consumed is True
+        cu.create_task_in_list.assert_called_once()
+        description = cu.create_task_in_list.call_args.kwargs["description_md"]
+        assert "Unresolved" in description
+        assert "ASIN" in description
+        assert "go ahead without asin for now" not in description
+        posted = [c.kwargs.get("text", "") for c in slack.post_message.await_args_list]
+        assert not any("This looks like a product-level task" in t for t in posted)
+
+    @pytest.mark.asyncio
+    async def test_confirm_offtopic_falls_through(self):
+        """Off-topic chat while awaiting confirm/details should not be consumed as task details."""
+        svc, slack = _make_mocks()
+        pending = {
+            "awaiting": "confirm_or_details",
+            "client_id": "client-1",
+            "client_name": "Distex",
+            "task_title": "Set up 20% coupon for Thorinox",
+        }
+        session = FakeSession(context={"pending_task_create": pending})
+
+        consumed = await _handle_pending_task_continuation(
+            channel="C1",
+            text="what is plato all about?",
+            session=session,
+            session_service=svc,
+            slack=slack,
+            pending=pending,
+        )
+
+        assert consumed is False
+        # Pending state should remain untouched so user can resume.
+        assert svc.update_context.call_count == 0
+        slack.post_message.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_asin_pending_creates_with_unresolved(self):
         """User says 'asin pending' → task created with unresolved section."""
         svc, slack = _make_mocks()
