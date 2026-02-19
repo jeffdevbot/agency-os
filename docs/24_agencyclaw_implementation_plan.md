@@ -15,6 +15,7 @@ It is separate from `docs/23_agencyclaw_prd.md`:
 - Actor + surface context (`who` + `where`) must be available before mutation execution.
 - Clarify loops for mutation workflows must persist pending slot state until confirm/cancel.
 - Task drafts should be source-grounded where possible (SOP/internal docs/similar tasks).
+- Task draft/body formatting should follow `docs/26_agencyclaw_task_brief_standard.md`, including generic fallback templates when classification is uncertain.
 
 ## 3. Definition Of Done (Per Chunk)
 - Behavior implemented end-to-end for chunk scope.
@@ -193,11 +194,14 @@ Locked regression fixtures for C10B:
   - Implement retrieval cascade:
     SOP -> internal docs/playbooks -> similar historical tasks -> external docs.
   - Compose task drafts with citations + confidence tier.
+  - Emit task descriptions using task-type templates from `docs/26_agencyclaw_task_brief_standard.md` with generic fallback support.
   - If no high-quality source found, ask focused clarify questions instead of inventing.
 - Acceptance:
   - “Coupon code task” style prompt produces source-cited draft when data exists.
   - Fallback to similar-task retrieval works when SOP is missing.
   - Tests verify citation metadata and confidence behavior.
+  - Tests verify non-bucket requests get generic fallback brief output (not empty/looping clarify behavior).
+  - Tests verify ambiguous product mentions (no ASIN/SKU) trigger clarification or explicit "ASIN pending" draft fields; no identifier guessing.
 
 ## C10D: Planner + Capability Skills (De-hardcode)
 - Scope:
@@ -217,10 +221,13 @@ Locked regression fixtures for C10B:
   - Add durable key/value preference store for operator defaults (for example assignee, cadence, default client hints).
   - Load preferences into orchestrator context and drafting flows where relevant.
   - Keep explicit user override behavior (request text can override stored defaults).
+  - Enforce multi-user isolation semantics for channel surfaces:
+    actor-scoped preferences, requester-bound pending state, and separate `requested_by` vs `confirmed_by` audit metadata.
 - Acceptance:
   - Preferences can be set/read/applied in runtime with tests.
   - Preference application is visible in draft output metadata.
   - Incorrect/stale preferences fail safe and trigger clarification.
+  - Tests prove one user's preferences are not applied to another user in the same channel/thread.
 
 ## 6. C9 Runtime Env Prerequisites
 Source of truth for deployed values:

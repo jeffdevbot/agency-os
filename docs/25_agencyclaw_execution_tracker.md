@@ -1,9 +1,9 @@
 # AgencyClaw Execution Tracker
 
-Last updated: 2026-02-19 (C10C completed and validated; SOP sync runtime bugfix bundled)
+Last updated: 2026-02-19 (task brief standard + ASIN guardrail + multi-user memory policy documented; C10D marked in review)
 
 ## 1. Baseline Status
-- [x] PRD updated to v1.14 (`docs/23_agencyclaw_prd.md`)
+- [x] PRD updated to v1.16 (`docs/23_agencyclaw_prd.md`)
 - [x] `20260217000001_agencyclaw_skill_catalog_and_csl_role.sql` applied
 - [x] `20260217000002_agencyclaw_runtime_isolation.sql` applied
 - [x] `20260217000003_client_brand_context_and_kpi_targets.sql` applied
@@ -29,7 +29,7 @@ Last updated: 2026-02-19 (C10C completed and validated; SOP sync runtime bugfix 
 | C10B.5 | Session conversation history buffer | Claude | done | merged (`647f365`) | Added bounded last-5 exchange buffer with 1,500-token cap + deterministic oldest-first eviction and role-based history injection |
 | C10A | Actor/surface context resolver + policy gate | Claude | done | merged (`02fb45f`) | Added actor/surface policy gate with fail-closed enforcement on LLM + deterministic tool paths |
 | C10C | KB retrieval cascade + source-grounded drafts | Claude | done | merged (`c1d7c77`) | Tiered retrieval (SOP/internal/similar/external placeholder) + deterministic grounded draft builder with citations/clarify behavior |
-| C10D | Planner + capability-skill de-hardcoding | Claude | todo | - | Reduce rigid intent branches, explicitly carve out N-gram hardcoded path, keep behavior parity |
+| C10D | Planner + capability-skill de-hardcoding | Claude | in_review | agent report (commit pending) | Planner + deterministic executor implemented for N-gram carve-out path; awaiting commit/merge verification |
 | C10E | Lightweight durable preference memory | Claude | todo | - | Persist operator defaults (assignee/cadence/client) and apply safely in drafting |
 
 ## 3. Open Blockers
@@ -49,6 +49,10 @@ Last updated: 2026-02-19 (C10C completed and validated; SOP sync runtime bugfix 
 ## 3.2 Deferred Future Features
 - [x] `C4D` distributed cross-worker mutation lock explicitly deferred (pin for later hardening).
   Current runtime keeps in-memory per-worker guard + idempotency key duplicate suppression.
+- [ ] `catalog_lookup` skill for product-level disambiguation (ASIN/SKU candidate lookup per client/brand).
+  Until implemented, runtime must clarify missing identifiers or create explicit "ASIN pending" drafts with unresolved fields.
+- [ ] Multi-user channel memory hardening under C10E:
+  actor-scoped preferences only, requester-bound pending state, and explicit `requested_by` vs `confirmed_by` audit fields.
 
 ## 3.1 Latest Validation Notes
 - C1 (Agent 1): `backend-core/tests/test_weekly_tasks.py` passing (37 tests). Added destination filter fix for list-only ClickUp mappings and trailing punctuation sanitization for client hints.
@@ -75,6 +79,8 @@ Last updated: 2026-02-19 (C10C completed and validated; SOP sync runtime bugfix 
 - C10C implementation: `backend-core/tests/test_kb_retrieval.py` + `backend-core/tests/test_grounded_task_draft.py` passing (38 tests).
 - C10C targeted check (C9B-C10C): `223 passed, 0 failed`.
 - C10C full-suite check: `351 passed, 3 failed` (same pre-existing unrelated failures in `test_ngram_analytics.py`, `test_root_services.py`, `test_str_parser_spend.py`).
+- Task brief standard documented in `docs/26_agencyclaw_task_brief_standard.md` and linked in PRD/implementation plan (includes bucketed templates + generic unclassified fallback).
+- ASIN ambiguity guardrail documented: no identifier guessing; clarify for ASIN/SKU or explicit pending fields in draft output.
 - SOP sync runtime bugfix (`sop_sync.py`): fixed Supabase update chain incompatibility; live sync now succeeds (`15/15` SOPs synced, `0` missing content rows).
 - Backend full test suite still has pre-existing unrelated failures outside these chunks.
 

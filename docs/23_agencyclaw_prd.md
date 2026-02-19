@@ -765,6 +765,17 @@ Suggested skills:
 - Add lightweight durable user preferences for operator defaults
   (for example default assignee, preferred cadence, default client hints).
 - Preference memory is explicit key/value state with auditability; full semantic memory remains Phase 4.
+- Multi-user surface rules (channels/threads):
+  - Preferences are actor-scoped (per `profile_id`), never shared globally across channel participants.
+  - Pending mutation state is thread/request scoped and should remain bound to requester by default.
+  - Runtime must record and distinguish `requested_by` and `confirmed_by` for mutation actions.
+  - Preference resolution precedence:
+    1) explicit message content
+    2) active pending thread state
+    3) actor-scoped preferences
+    4) optional channel defaults (if configured)
+    5) org/client defaults
+  - One user's preferences must never be applied to another user implicitly.
 
 ### 13.15 Actor + Surface Policy Gate Rules
 - Pre-tool policy gate:
@@ -793,6 +804,26 @@ Suggested skills:
   - `high`: proceed to confirmation-ready draft
   - `medium`: ask focused clarification before confirmation
   - `low`: do not execute; ask user to choose/confirm source direction
+
+### 13.16.1 Task Brief Composition Standard
+- For recurring operations, AgencyClaw should produce a concise Task Brief and link the canonical SOP, rather than pasting the full SOP body by default.
+- Task Brief generation should follow `docs/26_agencyclaw_task_brief_standard.md`.
+- Preferred task-type buckets:
+  - `ppc_optimization`
+  - `promotions`
+  - `catalog_account_health`
+  - `generic_operations` (fallback)
+- If a request does not cleanly map to a bucket, runtime must use the generic unclassified fallback contract and ask targeted clarification before mutation when needed.
+- Silent invention is prohibited: when evidence is weak, the assistant must ask for missing variables instead of fabricating execution details.
+
+### 13.18 Entity Disambiguation Guardrails (v1)
+- AgencyClaw must not guess product entities (for example ASIN/SKU) when user language is ambiguous.
+- If entity-level precision is required for execution and identifiers are missing, runtime must ask focused clarification (for example: "Please provide ASIN(s), or confirm create with ASIN pending.").
+- If user chooses to proceed without identifiers, task draft/body must include explicit unresolved fields:
+  - `open_questions` (missing ASIN/SKU list),
+  - `needs_clarification=true`,
+  - first-step instruction to resolve identifiers before execution.
+- While catalog lookup skill is not implemented, this clarify/pending pattern is mandatory for product-scoped mutations.
 
 ## 14. Failure And Compensation Design
 For all multi-step actions:
@@ -937,5 +968,5 @@ Specific carve-out:
 - Lightweight durable preference memory is in-scope before Phase 4 semantic memory.
 
 ---
-Document version: 1.14
+Document version: 1.16
 Last updated: 2026-02-19
