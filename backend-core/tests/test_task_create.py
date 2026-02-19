@@ -987,6 +987,90 @@ class TestAsinClarificationFlow:
         assert "pending" in msg.lower()
 
     @pytest.mark.asyncio
+    async def test_asin_offtopic_message_falls_through(self):
+        """Off-topic chat in asin_or_pending should not be trapped by ASIN re-asks."""
+        svc, slack = _make_mocks()
+        pending = {
+            "awaiting": "asin_or_pending",
+            "client_id": "client-1",
+            "client_name": "Distex",
+            "task_title": "Create coupon",
+            "draft": {
+                "description": "",
+                "open_questions": ["ASIN(s) or SKU(s) required."],
+            },
+        }
+        session = FakeSession(context={"pending_task_create": pending})
+
+        consumed = await _handle_pending_task_continuation(
+            channel="C1",
+            text="you there?",
+            session=session,
+            session_service=svc,
+            slack=slack,
+            pending=pending,
+        )
+
+        assert consumed is False
+        assert svc.update_context.call_count == 0
+        slack.post_message.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_asin_known_intent_clears_state_and_falls_through(self):
+        """Known intents should escape asin_or_pending and route normally."""
+        svc, slack = _make_mocks()
+        pending = {
+            "awaiting": "asin_or_pending",
+            "client_id": "client-1",
+            "client_name": "Distex",
+            "task_title": "Create coupon",
+            "draft": {"description": "", "open_questions": ["ASIN required"]},
+        }
+        session = FakeSession(context={"pending_task_create": pending})
+
+        consumed = await _handle_pending_task_continuation(
+            channel="C1",
+            text="what are the tasks for distex",
+            session=session,
+            session_service=svc,
+            slack=slack,
+            pending=pending,
+        )
+
+        assert consumed is False
+        ctx = svc.update_context.call_args[0][1]
+        assert ctx["pending_task_create"] is None
+        slack.post_message.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_asin_cancel_clears_state(self):
+        """Explicit cancel should end asin_or_pending immediately."""
+        svc, slack = _make_mocks()
+        pending = {
+            "awaiting": "asin_or_pending",
+            "client_id": "client-1",
+            "client_name": "Distex",
+            "task_title": "Create coupon",
+            "draft": {"description": "", "open_questions": ["ASIN required"]},
+        }
+        session = FakeSession(context={"pending_task_create": pending})
+
+        consumed = await _handle_pending_task_continuation(
+            channel="C1",
+            text="cancel",
+            session=session,
+            session_service=svc,
+            slack=slack,
+            pending=pending,
+        )
+
+        assert consumed is True
+        ctx = svc.update_context.call_args[0][1]
+        assert ctx["pending_task_create"] is None
+        msg = slack.post_message.call_args.kwargs["text"]
+        assert "canceled" in msg.lower()
+
+    @pytest.mark.asyncio
     async def test_freetext_description_product_scoped_asks_asin(self):
         """Free-text description for product-scoped task → asks ASIN, doesn't create."""
         svc, slack = _make_mocks()

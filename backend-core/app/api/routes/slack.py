@@ -156,6 +156,27 @@ _CONFIRM_DRAFT_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"^(?:create anyway|create as draft|just create it|yes,?\s*create(?:\s+it)?)$"),
 ]
 
+_ASIN_PENDING_HINTS: tuple[str, ...] = (
+    "asin",
+    "sku",
+    "pending",
+    "create",
+    "go ahead",
+    "proceed",
+    "coupon",
+    "promo",
+    "listing",
+    "product",
+    "identifier",
+)
+
+
+def _looks_like_asin_pending_followup(text: str) -> bool:
+    t = " ".join((text or "").strip().lower().split())
+    if not t:
+        return False
+    return any(hint in t for hint in _ASIN_PENDING_HINTS)
+
 
 def _classify_message(text: str) -> tuple[str, dict[str, Any]]:
     original = " ".join((text or "").strip().split())
@@ -1127,6 +1148,27 @@ async def _handle_pending_task_continuation(
                 task_description=description,
             )
             return True
+
+        # Explicit cancel support for this pending sub-flow.
+        if t_lower in {"cancel", "cancel task", "never mind", "nevermind", "stop", "abort"}:
+            await asyncio.to_thread(
+                session_service.update_context, session.id, {"pending_task_create": None}
+            )
+            await slack.post_message(channel=channel, text="Okay, canceled task creation.")
+            return True
+
+        # If the message is a known intent (switch/list/create/etc.), clear and fall through.
+        probe_intent, _ = _classify_message(text)
+        if probe_intent != "help":
+            await asyncio.to_thread(
+                session_service.update_context, session.id, {"pending_task_create": None}
+            )
+            return False
+
+        # Off-topic conversational messages should pass through (Jarvis behavior)
+        # rather than being trapped by ASIN prompts.
+        if not _looks_like_asin_pending_followup(text):
+            return False
 
         # Path C: User typed something else — re-ask, don't auto-create
         from app.services.agencyclaw.grounded_task_draft import _ASIN_CLARIFICATION

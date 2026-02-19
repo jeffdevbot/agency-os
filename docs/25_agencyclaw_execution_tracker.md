@@ -1,6 +1,6 @@
 # AgencyClaw Execution Tracker
 
-Last updated: 2026-02-19 (C10D merged; C10E validated locally and ready to merge)
+Last updated: 2026-02-19 (C10E merged; ASIN interruption hardening merged)
 
 ## 1. Baseline Status
 - [x] PRD updated to v1.17 (`docs/23_agencyclaw_prd.md`)
@@ -12,6 +12,7 @@ Last updated: 2026-02-19 (C10D merged; C10E validated locally and ready to merge
 - [x] `20260217000006_clickup_space_skill_seed.sql` applied
 - [x] `20260217000007_agent_tasks_source_reference_index.sql` applied
 - [x] `20260219000001_clickup_space_registry.sql` applied
+- [x] `20260219000002_agencyclaw_user_preferences.sql` applied
 
 ## 2. Chunk Progress
 | Chunk | Name | Owner | Status | PR/Commit | Notes |
@@ -30,7 +31,7 @@ Last updated: 2026-02-19 (C10D merged; C10E validated locally and ready to merge
 | C10A | Actor/surface context resolver + policy gate | Claude | done | merged (`02fb45f`) | Added actor/surface policy gate with fail-closed enforcement on LLM + deterministic tool paths |
 | C10C | KB retrieval cascade + source-grounded drafts | Claude | done | merged (`c1d7c77`) | Tiered retrieval (SOP/internal/similar/external placeholder) + deterministic grounded draft builder with citations/clarify behavior |
 | C10D | Planner + capability-skill de-hardcoding | Claude | done | merged (`c43c6bd`) | Planner + deterministic executor landed behind feature flag; N-gram carve-out moved to planner path |
-| C10E | Lightweight durable preference memory | Claude | in_review | local changes (commit pending) | Durable user preference store + default-client set/clear commands + resolver integration implemented and tested |
+| C10E | Lightweight durable preference memory | Claude | done | merged (`fecab25`) | Durable user preference store + default-client set/clear commands + resolver integration merged; migration `20260219000002` applied |
 
 ## 3. Open Blockers
 - [x] Confirm migration `20260217000006_clickup_space_skill_seed.sql` is applied.
@@ -84,6 +85,7 @@ Last updated: 2026-02-19 (C10D merged; C10E validated locally and ready to merge
 - C10D planner suites: `backend-core/tests/test_planner.py` + `backend-core/tests/test_plan_executor.py` passing (27 tests).
 - C10E targeted checks: `backend-core/tests/test_preference_memory.py` + `backend-core/tests/test_task_create.py` + `backend-core/tests/test_c10b_clarify_persistence.py` passing (97 tests).
 - Full-suite check after C10E: `430 passed, 3 failed` (same pre-existing unrelated failures in `test_ngram_analytics.py`, `test_root_services.py`, `test_str_parser_spend.py`).
+- ASIN interruption hardening: pending `asin_or_pending` flow now supports intent escape + cancel + off-topic fallthrough to normal routing; regression tests added in `backend-core/tests/test_task_create.py` (`59 passed`) and targeted continuity suites remain green (`54 passed`).
 - SOP sync runtime bugfix (`sop_sync.py`): fixed Supabase update chain incompatibility; live sync now succeeds (`15/15` SOPs synced, `0` missing content rows).
 - Backend full test suite still has pre-existing unrelated failures outside these chunks.
 
