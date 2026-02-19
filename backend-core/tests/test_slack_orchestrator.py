@@ -404,3 +404,87 @@ class TestOrchestrateClarify:
         assert result["mode"] == "clarify"
         assert result["question"] == "Could you be more specific?"
         assert result["missing_fields"] == []
+
+
+# ---------------------------------------------------------------------------
+# Orchestrator: conversation history (C10B.5)
+# ---------------------------------------------------------------------------
+
+
+class TestOrchestrateConversationHistory:
+    @pytest.mark.asyncio
+    async def test_recent_exchanges_injected_as_messages(self):
+        """Verify history appears as alternating user/assistant messages before current text."""
+        llm_response = _fake_completion({
+            "mode": "reply",
+            "text": "Still working on the landing page.",
+            "confidence": 0.9,
+        })
+
+        history = [
+            {"user": "what am I working on?", "assistant": "You have 1 task: Fix landing page."},
+        ]
+
+        captured_messages = []
+
+        async def _capture_completion(messages, **_kwargs):
+            captured_messages.extend(messages)
+            return llm_response
+
+        with patch(
+            "app.services.agencyclaw.slack_orchestrator.call_chat_completion",
+            new_callable=AsyncMock,
+            side_effect=_capture_completion,
+        ):
+            result = await orchestrate_dm_message(
+                text="any updates on that?",
+                **_DEFAULT_KWARGS,
+                recent_exchanges=history,
+            )
+
+        assert result["mode"] == "reply"
+
+        # Messages should be: system, user-history, assistant-history, current-user
+        assert len(captured_messages) == 4
+        assert captured_messages[0]["role"] == "system"
+        assert captured_messages[1]["role"] == "user"
+        assert captured_messages[1]["content"] == "what am I working on?"
+        assert captured_messages[2]["role"] == "assistant"
+        assert captured_messages[2]["content"] == "You have 1 task: Fix landing page."
+        assert captured_messages[3]["role"] == "user"
+        assert captured_messages[3]["content"] == "any updates on that?"
+
+        # History is injected as role-based messages, NOT duplicated in system prompt
+        assert "Recent conversation" not in captured_messages[0]["content"]
+
+    @pytest.mark.asyncio
+    async def test_empty_exchanges_backward_compatible(self):
+        """No history = same behavior as before C10B.5."""
+        llm_response = _fake_completion({
+            "mode": "reply",
+            "text": "Hello!",
+            "confidence": 0.95,
+        })
+
+        captured_messages = []
+
+        async def _capture_completion(messages, **_kwargs):
+            captured_messages.extend(messages)
+            return llm_response
+
+        with patch(
+            "app.services.agencyclaw.slack_orchestrator.call_chat_completion",
+            new_callable=AsyncMock,
+            side_effect=_capture_completion,
+        ):
+            result = await orchestrate_dm_message(
+                text="hello", **_DEFAULT_KWARGS
+            )
+
+        assert result["mode"] == "reply"
+        # Should be just system + current user (no history injected)
+        assert len(captured_messages) == 2
+        assert captured_messages[0]["role"] == "system"
+        assert captured_messages[1]["role"] == "user"
+        # No transcript block in system prompt (history is role-based only)
+        assert "Recent conversation" not in captured_messages[0]["content"]

@@ -11,6 +11,10 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from ...services.agencyclaw import orchestrate_dm_message
+from ...services.agencyclaw.conversation_buffer import (
+    append_exchange,
+    compact_exchanges,
+)
 from ...services.agencyclaw.clickup_reliability import (
     RetryExhaustedError,
     build_idempotency_key,
@@ -846,12 +850,17 @@ async def _try_llm_orchestrator(
             )
             client_context_pack = f"Active client: {client_name or 'Unknown'} (id={session.active_client_id})"
 
+        # C10B.5: Read bounded conversation history from session context
+        raw_exchanges = session.context.get("recent_exchanges") or []
+        recent_exchanges = compact_exchanges(raw_exchanges)
+
         result = await orchestrate_dm_message(
             text=text,
             profile_id=session.profile_id,
             slack_user_id=slack_user_id,
             session_context=session.context,
             client_context_pack=client_context_pack,
+            recent_exchanges=recent_exchanges,
         )
 
         mode = result["mode"]
@@ -885,16 +894,71 @@ async def _try_llm_orchestrator(
         if mode == "reply":
             reply_text = result.get("text") or "I'm not sure how to help with that."
             await slack.post_message(channel=channel, text=reply_text)
+            # C10B.5: Append exchange and persist
+            updated = append_exchange(recent_exchanges, text, reply_text)
+            await asyncio.to_thread(
+                session_service.update_context, session.id,
+                {"recent_exchanges": compact_exchanges(updated)},
+            )
             return True
 
         if mode == "clarify":
             question = result.get("question") or "Could you provide more details?"
+            clarify_skill_id = result.get("skill_id") or ""
+            clarify_args = result.get("args") or {}
+
+            # C10B: For mutation skills, persist pending state so the next
+            # message routes through _handle_pending_task_continuation instead
+            # of re-entering the LLM with no context.
+            if clarify_skill_id == "clickup_task_create":
+                client_name_hint = str(clarify_args.get("client_name") or "")
+                task_title = str(clarify_args.get("task_title") or "")
+
+                # Always resolve client (uses active-client fallback / picker
+                # when hint is empty) — never write pending with empty client_id.
+                client_id, client_name = await _resolve_client_for_task(
+                    client_name_hint=client_name_hint,
+                    session=session,
+                    session_service=session_service,
+                    channel=channel,
+                    slack=slack,
+                )
+                if not client_id:
+                    return True  # picker/error already posted
+
+                if not task_title:
+                    pending = {
+                        "awaiting": "title",
+                        "client_id": client_id,
+                        "client_name": client_name,
+                    }
+                else:
+                    pending = {
+                        "awaiting": "confirm_or_details",
+                        "client_id": client_id,
+                        "client_name": client_name,
+                        "task_title": task_title,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    }
+
+                await asyncio.to_thread(
+                    session_service.update_context, session.id,
+                    {"pending_task_create": pending},
+                )
+
             await slack.post_message(channel=channel, text=question)
+            # C10B.5: Append exchange and persist
+            updated = append_exchange(recent_exchanges, text, question)
+            await asyncio.to_thread(
+                session_service.update_context, session.id,
+                {"recent_exchanges": compact_exchanges(updated)},
+            )
             return True
 
         if mode == "tool_call":
             skill_id = result.get("skill_id") or ""
             args = result.get("args") or {}
+            tool_summary = ""
 
             if skill_id == "clickup_task_list_weekly":
                 await _handle_weekly_tasks(
@@ -904,9 +968,9 @@ async def _try_llm_orchestrator(
                     session_service=session_service,
                     slack=slack,
                 )
-                return True
+                tool_summary = f"[Ran weekly task list for {args.get('client_name', 'client')}]"
 
-            if skill_id == "clickup_task_create":
+            elif skill_id == "clickup_task_create":
                 await _handle_create_task(
                     slack_user_id=slack_user_id,
                     channel=channel,
@@ -915,11 +979,21 @@ async def _try_llm_orchestrator(
                     session_service=session_service,
                     slack=slack,
                 )
-                return True
+                tool_summary = f"[Started task creation for {args.get('client_name', 'client')}]"
 
-            # Unknown skill — fall through
-            _logger.warning("LLM orchestrator returned unknown skill: %s", skill_id)
-            return False
+            else:
+                # Unknown skill — fall through
+                _logger.warning("LLM orchestrator returned unknown skill: %s", skill_id)
+                return False
+
+            # C10B.5: Persist conversation history after tool execution
+            if tool_summary:
+                updated = append_exchange(recent_exchanges, text, tool_summary)
+                await asyncio.to_thread(
+                    session_service.update_context, session.id,
+                    {"recent_exchanges": compact_exchanges(updated)},
+                )
+            return True
 
         return False  # unknown mode — fall through
 

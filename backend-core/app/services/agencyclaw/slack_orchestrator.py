@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from typing import Any, TypedDict
 
+from .conversation_buffer import Exchange, exchanges_to_chat_messages
 from .openai_client import (
     ChatMessage,
     OpenAIError,
@@ -65,7 +66,14 @@ def _build_system_prompt(
     if session_context.get("active_client_id"):
         session_summary_parts.append(f"Active client ID: {session_context['active_client_id']}")
     if session_context.get("pending_task_create"):
-        session_summary_parts.append("A task creation is in progress (pending state exists).")
+        ptc = session_context["pending_task_create"]
+        pending_parts = ["A task creation is in progress."]
+        pending_parts.append(f"  Awaiting: {ptc.get('awaiting', 'unknown')}")
+        if ptc.get("client_name"):
+            pending_parts.append(f"  Client: {ptc['client_name']}")
+        if ptc.get("task_title"):
+            pending_parts.append(f"  Title: {ptc['task_title']}")
+        session_summary_parts.append("\n".join(pending_parts))
     session_summary = "\n".join(session_summary_parts) if session_summary_parts else "No active session state."
 
     return f"""\
@@ -90,7 +98,7 @@ Choose one mode:
    Include all arguments you can extract. If a required argument is missing, use "clarify" instead.
 
 2. **clarify** — The request likely maps to a tool but required information is missing.
-   Return: {{"mode": "clarify", "question": "<what to ask>", "missing_fields": ["field1", ...], "confidence": 0.0-1.0}}
+   Return: {{"mode": "clarify", "skill_id": "<tool_name>", "args": {{<partial args collected so far>}}, "question": "<what to ask>", "missing_fields": ["field1", ...], "confidence": 0.0-1.0}}
 
 3. **reply** — The message is conversational, a greeting, or a question you can answer directly.
    Return: {{"mode": "reply", "text": "<your response>", "confidence": 0.0-1.0}}
@@ -110,6 +118,7 @@ async def orchestrate_dm_message(
     slack_user_id: str,
     session_context: dict[str, Any],
     client_context_pack: str,
+    recent_exchanges: list[Exchange] | None = None,
 ) -> OrchestratorResult:
     """Classify a Slack DM and return an action decision.
 
@@ -121,8 +130,12 @@ async def orchestrate_dm_message(
     """
     system_prompt = _build_system_prompt(client_context_pack, session_context)
 
+    # C10B.5: Inject bounded conversation history as alternating messages
+    history_messages = exchanges_to_chat_messages(recent_exchanges or [])
+
     messages: list[ChatMessage] = [
         {"role": "system", "content": system_prompt},
+        *history_messages,
         {"role": "user", "content": text},
     ]
 
@@ -161,8 +174,8 @@ async def orchestrate_dm_message(
                     text=None,
                     question=f"I need a bit more info to proceed. What's the {', '.join(missing)}?",
                     missing_fields=missing,
-                    skill_id=None,
-                    args=None,
+                    skill_id=skill_id,
+                    args=args,
                     confidence=confidence,
                     reason=None,
                     tokens_in=_tokens_in,
@@ -193,8 +206,8 @@ async def orchestrate_dm_message(
             text=None,
             question=str(parsed.get("question", "Could you provide more details?")),
             missing_fields=parsed.get("missing_fields") or [],
-            skill_id=None,
-            args=None,
+            skill_id=parsed.get("skill_id"),
+            args=parsed.get("args") if isinstance(parsed.get("args"), dict) else None,
             confidence=confidence,
             reason=None,
             tokens_in=_tokens_in,
