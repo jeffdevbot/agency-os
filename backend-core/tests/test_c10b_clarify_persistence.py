@@ -449,6 +449,8 @@ class TestClarifyClientResolution:
 
 
 class TestToolCallHistoryPersistence:
+    _ALLOW_POLICY = {"allowed": True, "reason_code": "allowed", "user_message": "", "meta": {}}
+
     @pytest.mark.asyncio
     async def test_weekly_tasks_persists_exchange(self):
         """After tool_call for weekly tasks, recent_exchanges is updated."""
@@ -464,6 +466,7 @@ class TestToolCallHistoryPersistence:
             patch("app.api.routes.slack.orchestrate_dm_message", new_callable=AsyncMock, return_value=result),
             patch("app.api.routes.slack.log_ai_token_usage", new_callable=AsyncMock),
             patch("app.api.routes.slack._handle_weekly_tasks", new_callable=AsyncMock),
+            patch("app.api.routes.slack._check_tool_policy", new_callable=AsyncMock, return_value=self._ALLOW_POLICY),
         ):
             handled = await _try_llm_orchestrator(
                 text="show tasks for Distex",
@@ -496,6 +499,7 @@ class TestToolCallHistoryPersistence:
             patch("app.api.routes.slack.orchestrate_dm_message", new_callable=AsyncMock, return_value=result),
             patch("app.api.routes.slack.log_ai_token_usage", new_callable=AsyncMock),
             patch("app.api.routes.slack._handle_create_task", new_callable=AsyncMock),
+            patch("app.api.routes.slack._check_tool_policy", new_callable=AsyncMock, return_value=self._ALLOW_POLICY),
         ):
             handled = await _try_llm_orchestrator(
                 text="create task for Distex: Fix bug",

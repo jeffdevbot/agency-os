@@ -56,6 +56,9 @@ def _make_mocks(**session_overrides) -> tuple[MagicMock, AsyncMock]:
     return svc, slack
 
 
+_ALLOW_POLICY = {"allowed": True, "reason_code": "allowed", "user_message": "", "meta": {}}
+
+
 def _make_orchestrator_result(**overrides) -> OrchestratorResult:
     """Build a minimal OrchestratorResult with sensible defaults."""
     base: dict[str, Any] = {
@@ -203,6 +206,7 @@ class TestOrchestratorToolCallWeekly:
             patch("app.api.routes.slack.orchestrate_dm_message", new_callable=AsyncMock, return_value=result),
             patch("app.api.routes.slack._handle_weekly_tasks", new_callable=AsyncMock) as mock_weekly,
             patch("app.api.routes.slack.log_ai_token_usage", new_callable=AsyncMock),
+            patch("app.api.routes.slack._check_tool_policy", new_callable=AsyncMock, return_value=_ALLOW_POLICY),
         ):
             await _handle_dm_event(slack_user_id="U123", channel="C1", text="show tasks for Distex")
 
@@ -233,6 +237,7 @@ class TestOrchestratorToolCallCreate:
             patch("app.api.routes.slack.orchestrate_dm_message", new_callable=AsyncMock, return_value=result),
             patch("app.api.routes.slack._handle_create_task", new_callable=AsyncMock) as mock_create,
             patch("app.api.routes.slack.log_ai_token_usage", new_callable=AsyncMock),
+            patch("app.api.routes.slack._check_tool_policy", new_callable=AsyncMock, return_value=_ALLOW_POLICY),
         ):
             await _handle_dm_event(
                 slack_user_id="U123", channel="C1", text="create task for Distex: Fix landing page"

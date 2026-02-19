@@ -15,6 +15,11 @@ from ...services.agencyclaw.conversation_buffer import (
     append_exchange,
     compact_exchanges,
 )
+from ...services.agencyclaw.policy_gate import (
+    evaluate_tool_policy,
+    resolve_actor_context,
+    resolve_surface_context,
+)
 from ...services.agencyclaw.clickup_reliability import (
     RetryExhaustedError,
     build_idempotency_key,
@@ -958,6 +963,23 @@ async def _try_llm_orchestrator(
         if mode == "tool_call":
             skill_id = result.get("skill_id") or ""
             args = result.get("args") or {}
+
+            # C10A: Policy gate before execution
+            policy = await _check_tool_policy(
+                slack_user_id=slack_user_id,
+                session=session,
+                channel=channel,
+                skill_id=skill_id,
+                args=args,
+            )
+            if not policy["allowed"]:
+                _logger.info(
+                    "C10A policy denied: reason=%s skill=%s",
+                    policy["reason_code"], skill_id,
+                )
+                await slack.post_message(channel=channel, text=policy["user_message"])
+                return True
+
             tool_summary = ""
 
             if skill_id == "clickup_task_list_weekly":
@@ -1002,6 +1024,29 @@ async def _try_llm_orchestrator(
         return False  # fall through to deterministic classifier
 
 
+async def _check_tool_policy(
+    *,
+    slack_user_id: str,
+    session: Any,
+    channel: str,
+    skill_id: str,
+    args: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """C10A: Resolve actor/surface and evaluate tool policy.
+
+    Returns the PolicyDecision dict.  Caller should check ``allowed`` and
+    post ``user_message`` on deny.
+    """
+    actor = await asyncio.to_thread(
+        resolve_actor_context,
+        get_supabase_admin_client(),
+        slack_user_id,
+        session.profile_id,
+    )
+    surface = resolve_surface_context(channel)
+    return evaluate_tool_policy(actor, surface, skill_id, args, session.context)
+
+
 async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> None:
     session_service = get_playbook_session_service()
     slack = get_slack_service()
@@ -1041,6 +1086,17 @@ async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> No
         intent, params = _classify_message(text)
 
         if intent == "create_task":
+            # C10A: Policy gate for deterministic path
+            policy = await _check_tool_policy(
+                slack_user_id=slack_user_id,
+                session=session,
+                channel=channel,
+                skill_id="clickup_task_create",
+            )
+            if not policy["allowed"]:
+                await slack.post_message(channel=channel, text=policy["user_message"])
+                return
+
             await _handle_create_task(
                 slack_user_id=slack_user_id,
                 channel=channel,
@@ -1060,6 +1116,17 @@ async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> No
             return
 
         if intent == "weekly_tasks":
+            # C10A: Policy gate for deterministic path
+            policy = await _check_tool_policy(
+                slack_user_id=slack_user_id,
+                session=session,
+                channel=channel,
+                skill_id="clickup_task_list_weekly",
+            )
+            if not policy["allowed"]:
+                await slack.post_message(channel=channel, text=policy["user_message"])
+                return
+
             await _handle_weekly_tasks(
                 slack_user_id=slack_user_id,
                 channel=channel,
