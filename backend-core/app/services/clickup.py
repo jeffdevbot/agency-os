@@ -109,6 +109,15 @@ class ClickUpService:
 
         raise ClickUpAPIError("Unexpected ClickUp request failure")
 
+    async def list_spaces(self, *, team_id: str | None = None) -> list[dict[str, Any]]:
+        """GET /team/{team_id}/space — list all spaces in the workspace."""
+        tid = team_id or self.team_id
+        data = await self._request("GET", f"/team/{tid}/space")
+        return [
+            {"id": str(s["id"]), "name": str(s.get("name", "")), "team_id": tid}
+            for s in data.get("spaces", [])
+        ]
+
     async def get_space_lists(self, space_id: str) -> list[dict[str, Any]]:
         data = await self._request("GET", f"/space/{space_id}/list")
         lists = data.get("lists")
