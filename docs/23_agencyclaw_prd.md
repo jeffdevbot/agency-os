@@ -859,6 +859,22 @@ Suggested skills:
   - first-step instruction to resolve identifiers before execution.
 - While catalog lookup skill is not implemented, this clarify/pending pattern is mandatory for product-scoped mutations.
 
+### 13.18.1 Catalog Lookup Contract Acceptance (C12C)
+- C12C introduces a deterministic `catalog_lookup` skill contract for ASIN/SKU candidate resolution.
+- Input contract requires `client_id` + `query`; supports optional `brand_id` and bounded `limit`.
+- Output contract returns ranked `candidates[]` with:
+  `asin`, `sku`, `title`, `confidence`, `match_reason`, plus `resolution_status`.
+- `resolution_status` must be one of:
+  - `exact`: one unambiguous exact identifier match,
+  - `ambiguous`: candidates exist but no single unambiguous exact match,
+  - `none`: no candidates.
+- Matching/ranking order is locked:
+  exact ASIN/SKU -> prefix ASIN/SKU -> token-contains title.
+- Runtime acceptance rule:
+  - no silent identifier guessing under any status,
+  - `ambiguous` must force explicit user clarification before mutation,
+  - `none` must force explicit ASIN/SKU input or explicit "identifier pending" confirmation path.
+
 ## 14. Failure And Compensation Design
 For all multi-step actions:
 - Return per-step status to requesting user in Slack.

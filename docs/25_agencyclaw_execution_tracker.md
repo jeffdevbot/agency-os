@@ -1,6 +1,6 @@
 # AgencyClaw Execution Tracker
 
-Last updated: 2026-02-20 (C11F-A merged; docs source-of-truth synced)
+Last updated: 2026-02-20 (C12A landed; docs source-of-truth synced)
 
 ## 1. Baseline Status
 - [x] PRD updated to v1.18 (`docs/23_agencyclaw_prd.md`)
@@ -38,6 +38,7 @@ Last updated: 2026-02-20 (C11F-A merged; docs source-of-truth synced)
 | C11D | Brand context resolver (destination-vs-brand split) | Codex | done | merged (`694d900`) | Resolver + runtime wiring landed with hardening: punctuation-safe product scope, title-step re-resolution, invalid brand-button guard; Slack smoke passed |
 | C11E | Admin remediation skill for unmapped brands | Claude | done | foundation (`04a8589`), wiring (`f8729b6`) | Remediation preview + apply wired into Slack classifier/handler/policy; admin-only; 39 integration tests + 8 unit tests passing; no regressions in 208-test targeted suite |
 | C11F-A | Conversational runtime cleanup (LLM-first) | Claude | done | merged (`d0d7328`) | Removed command-style fallback in LLM-first mode; tightened orchestrator prompt for natural replies; 11 tests + 314-test regression suite green |
+| C12A | Command Center assignment mutation skills | Claude | done | pending commit | Admin-only `cc_assignment_upsert` + `cc_assignment_remove` skills; service layer with fuzzy person resolve, role aliases, brand-scoped slots; classifier + handler + dual dispatcher wiring; 53 integration tests + 674-test full suite green (3 pre-existing unrelated failures) |
 
 ## 3. Open Blockers
 - [x] Confirm migration `20260217000006_clickup_space_skill_seed.sql` is applied.
@@ -108,6 +109,8 @@ Last updated: 2026-02-20 (C11F-A merged; docs source-of-truth synced)
 - C11E wiring: `test_c11e_remediation_integration.py` (39 passed), `test_brand_mapping_remediation.py` (8 passed), `test_c11a_command_center_integration.py` (36 passed). Targeted regression suite (task_create, weekly_tasks, slack_hardening, c10b, c9b, command_center_lookup, c10a_policy_gate): 208 passed, 0 failed.
 - C11F-A: `test_c11f_conversational_cleanup.py` (11 passed). Broad regression suite (c9b, slack_orchestrator, c10b, task_create, weekly_tasks, slack_hardening, c11a, c11e, c10a_policy_gate, command_center_lookup): 314 passed, 0 failed.
 - C11A UX clarification (`e19dce7`): client lookup output now explicitly states assignment/access scope to reduce confusion when users see only assigned clients.
+- C12A: `test_c12a_assignment_integration.py` (53 passed). Full regression suite: 674 passed, 3 failed (same pre-existing unrelated failures in `test_ngram_analytics.py`, `test_root_services.py`, `test_str_parser_spend.py`).
+- C12C prep (docs/scaffolding only): added `docs/29_catalog_lookup_contract.md`, tightened PRD/plan acceptance wording, and added isolated contract tests (`backend-core/tests/test_catalog_lookup_contract.py`) with no Slack runtime wiring changes.
 - Backend full test suite still has pre-existing unrelated failures outside these chunks.
 
 ## 4. Validation Checklist (Per Chunk)
@@ -137,7 +140,7 @@ Last updated: 2026-02-20 (C11F-A merged; docs source-of-truth synced)
 | 12. Google Meeting Notes Inputs | C7 | mostly_done | Debrief extraction flow and parser utilities validated | Add optional end-to-end runtime smoke as needed |
 | 13. Skill Registry | C1-C9 | in_progress | Skills seeded via `000001`, `000005`, `000006`; C1 enabled | Enable each skill only when implemented and smoke-tested |
 | 14. Failure + Compensation | C3, C4 | mostly_done | C3 merged; C4A-C4C helpers integrated into live task-create path | Add orphan reconciliation/sweep workflow |
-| 15. Phased Delivery Plan | C1-C11 roadmap | mostly_done | C1, C2, C3, C4, C5, C6, C7, C8, C9, C10B, C10B.5, C10A, C10C, C10D, C10E, C10F, C11A, C11B, C11D, C11E done | Remaining Phase 2.6 chat-parity mutations |
+| 15. Phased Delivery Plan | C1-C12 roadmap | mostly_done | C1, C2, C3, C4, C5, C6, C7, C8, C9, C10B, C10B.5, C10A, C10C, C10D, C10E, C10F, C11A, C11B, C11D, C11E, C11F-A, C12A done | Remaining Phase 2.6 chat-parity features |
 | 16. Immediate Decisions Locked | Baseline + governance | mostly_done | Key architectural and migration decisions applied | Keep matrix/tracker synchronized as work lands |
 
 ## 6. Chunk-To-PRD Traceability
@@ -162,3 +165,5 @@ Last updated: 2026-02-20 (C11F-A merged; docs source-of-truth synced)
 | C11B | 4, 5, 13, 15 | 10, 14 |
 | C11D | 4, 7, 13, 15 | 9, 10, 14 |
 | C11E | 4, 7, 13, 15 | 10, 14 |
+| C11F-A | 4, 5, 13, 15 | 10 |
+| C12A | 4, 7, 13, 15 | 5, 8, 10 |
