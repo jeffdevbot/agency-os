@@ -1008,5 +1008,5 @@ Specific carve-out:
 - Runtime-vs-skill boundary is locked: runtime governs conversation/policy/confirmation, skills govern typed business execution.
 
 ---
-Document version: 1.17
-Last updated: 2026-02-19
+Document version: 1.18
+Last updated: 2026-02-20

@@ -1,55 +1,40 @@
 # AgencyClaw Session Handoff
 
-Last updated: 2026-02-17
+Last updated: 2026-02-20
 
 ## 1. Current State Snapshot
-- PRD is current at `docs/23_agencyclaw_prd.md` version 1.9.
-- Core migrations 00001 to 00005 are reported as applied.
-- New migration 00006 exists for ClickUp space skills and needs apply confirmation.
-- Implementation has not started yet for chunk C1 (build phase ready).
+- PRD source of truth: `docs/23_agencyclaw_prd.md` version `1.18`.
+- Execution source of truth: `docs/25_agencyclaw_execution_tracker.md`.
+- Migrations through `20260219000002_agencyclaw_user_preferences.sql` are marked applied in tracker.
+- Completed runtime chunks include C1 through C11F-A.
+- Current active work has moved into Phase 2.6 chat-parity mutations (C12x).
 
-## 2. What Was Completed
-- Added core schema + policy migrations for AgencyClaw:
-  - skill catalog + role rename
-  - runtime isolation + Slack dedupe receipts
-  - client/brand context + KPI targets
-  - core `agent_events`, `agent_tasks`, `threshold_rules`
-  - Phase 2.6 skill seeding
-  - ClickUp space skill seeding migration
-- Expanded PRD with:
-  - super_admin resolution model
-  - Slack identity resolution
-  - atomic dedupe and advisory lock rules
-  - confirmation protocol
-  - ClickUp reliability rules
-  - identity sync reconciliation
-  - ClickUp space classification model
+## 2. Recently Landed
+- C11D: Brand context resolver for destination-vs-brand split.
+- C11E: Admin remediation preview/apply for unmapped ClickUp brand mappings.
+- C11F-A: LLM-first conversational cleanup (no command-menu fallback in normal LLM-first path).
 
-## 3. Immediate Next Step
-Start chunk C1 from `docs/24_agencyclaw_implementation_plan.md`.
-
-Recommended first command set:
-```bash
-git checkout -b feat/agencyclaw-c1-weekly-task-read
-```
-
-Then run implementation prompt for C1 against coding agent.
+## 3. How To Resume Safely
+1. Read these in order:
+   - `docs/25_agencyclaw_execution_tracker.md` (status, commits, next actions)
+   - `docs/24_agencyclaw_implementation_plan.md` (chunk contract)
+   - `docs/23_agencyclaw_prd.md` (behavior/policy decisions)
+2. Pick only the next `planned` or `in_progress` chunk from tracker.
+3. Do not change completed chunk behavior unless fixing a verified bug/regression.
 
 ## 4. Session Resume Prompt
-Use this at the start of a new session:
 ```text
-Resume AgencyClaw implementation.
+Resume AgencyClaw implementation from tracker state.
 Read:
-1) docs/23_agencyclaw_prd.md
+1) docs/25_agencyclaw_execution_tracker.md
 2) docs/24_agencyclaw_implementation_plan.md
-3) docs/25_agencyclaw_execution_tracker.md
-4) docs/26_agencyclaw_session_handoff.md
+3) docs/23_agencyclaw_prd.md
 
-Then continue with the next chunk still marked `todo` in the tracker.
-Do not change completed chunk behavior unless fixing a bug.
+Implement only the next planned/in-progress chunk.
+Preserve behavior of completed chunks unless fixing a confirmed bug.
+Update tests and tracker with commit hash + validation notes.
 ```
 
 ## 5. Notes
-- Keep PRD decisions stable; use tracker for execution state.
-- Keep chunk scope strict to avoid regressions and context drift.
-
+- Avoid using this file as the execution ledger; use `docs/25_agencyclaw_execution_tracker.md`.
+- Keep PRD version references consistent across docs when bumping.

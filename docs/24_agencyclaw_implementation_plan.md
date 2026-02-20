@@ -10,7 +10,7 @@ It is separate from `docs/23_agencyclaw_prd.md`:
 - Work one chunk at a time.
 - No scope expansion inside a chunk.
 - Every chunk ships with tests.
-- Every mutation path must preserve idempotency, confirmation, and audit requirements from PRD v1.14.
+- Every mutation path must preserve idempotency, confirmation, and audit requirements from PRD v1.18.
 - Unimplemented skills remain disabled in `skill_catalog`.
 - Actor + surface context (`who` + `where`) must be available before mutation execution.
 - Clarify loops for mutation workflows must persist pending slot state until confirm/cancel.
@@ -46,10 +46,15 @@ It is separate from `docs/23_agencyclaw_prd.md`:
 13. C10C: KB retrieval cascade + source-grounded draft composer
 14. C10D: Reduce hardcoded intent paths into planner + capability skills (includes N-gram carve-out)
 15. C10E: Lightweight durable preference memory (operator defaults)
-16. C11A: Command Center read-only lookup skills in chat (clients/brands/mapping audit)
-17. C11B: LLM-first fallback cleanup (disable broad regex fallback by default)
-18. C11D: Brand context resolver for shared-destination + multi-brand clients
-19. C11E: Admin remediation skill for unmapped brands (dry-run -> confirm apply)
+16. C10F: Semantic pending-state resolver hardening
+17. C11A: Command Center read-only lookup skills in chat (clients/brands/mapping audit)
+18. C11B: LLM-first fallback cleanup (disable broad regex fallback by default)
+19. C11D: Brand context resolver for shared-destination + multi-brand clients
+20. C11E: Admin remediation skill for unmapped brands (dry-run -> confirm apply)
+21. C11F-A: Conversational runtime cleanup (LLM-first, no command menus)
+22. C12A: Assignment mutations in chat (`cc_assignment_upsert` / `cc_assignment_remove`)
+23. C12B: Brand CRUD mutations in chat (`cc_brand_create` / `cc_brand_update`)
+24. C12C: `catalog_lookup` skill for product-level disambiguation (ASIN/SKU)
 
 ## 5. Chunk Details
 ## C1: Weekly Task Read Path
@@ -311,7 +316,7 @@ Implement Chunk <ID> in repo `agency-os`.
 
 Rules:
 - Work only within this chunk scope.
-- Use PRD `docs/23_agencyclaw_prd.md` (v1.14) as source of truth.
+- Use PRD `docs/23_agencyclaw_prd.md` (v1.18) as source of truth.
 - No extra features.
 - Add/update tests.
 - Keep migration changes separate unless this chunk requires schema.

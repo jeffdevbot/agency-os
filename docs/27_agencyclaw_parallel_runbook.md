@@ -1,7 +1,7 @@
 # AgencyClaw Parallel Runbook (Non-Conflicting Work)
 
 ## Purpose
-This doc captures two parallel tracks that can move while C11E runtime wiring is in progress:
+This doc captures two parallel tracks that can move after C11E/C11F-A landed:
 1) client/brand/ClickUp onboarding model (including shared destination patterns), and
 2) remaining legacy deterministic branch cleanup plan.
 

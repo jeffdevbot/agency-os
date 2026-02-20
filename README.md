@@ -21,7 +21,7 @@ Ecomlabs Tools is the internal platform that consolidates our ad analytics, SOP 
 - **ClickUp Service (backend-core)** — shared backend integration layer for ClickUp API calls (task creation + future sync). Routes live under `backend-core/app/routers/clickup.py`. Spec: `docs/08_clickup_service_prd.md`.
 
 ### In Flight / Upcoming
-- **Playbook / Vara** — Slack bot for Brand Managers to create ClickUp tasks from SOPs via DM. Specs: `docs/playbook_prd.md`, implementation: `docs/vara_implementation_guide.md`.
+- **AgencyClaw** — Slack assistant for agency operations (task creation, weekly status, command-center skills, SOP-grounded drafting). Specs: `docs/23_agencyclaw_prd.md`, implementation: `docs/24_agencyclaw_implementation_plan.md`, tracker: `docs/25_agencyclaw_execution_tracker.md`.
 - More tools planned; follow the docs folder for new PRDs and plans as they land.
 
 ### Other Specs
@@ -50,16 +50,16 @@ Each doc includes the UX, backend contracts, and Supabase schema changes needed 
 
 All services are deployed on Render. See `docs/00_agency_os_architecture.md` for details.
 
-## Vara (Playbook Slack Bot)
+## AgencyClaw (Slack Assistant)
 
-Vara is an AI-powered Slack bot that helps Brand Managers create ClickUp tasks from SOPs. Users DM Vara, pick a client, and request tasks like "start ngram research".
+AgencyClaw is the successor to the legacy Vara/Playbook bot and is now the active Slack runtime for operations workflows.
 
-**Implementation guide:** `docs/vara_implementation_guide.md` — standalone tasks for parallel development.
+**Primary docs:** `docs/23_agencyclaw_prd.md`, `docs/24_agencyclaw_implementation_plan.md`, `docs/25_agencyclaw_execution_tracker.md`.
 
 **Key integration points:**
 - Slack API (events + interactions) → `backend-core` (TBD; add a `backend-core/app/routers/slack.py` router)
 - SOP sync from ClickUp Docs → `worker-sync/` (TBD; Render service exists but code is not in this repo yet)
-- Session storage → Supabase `playbook_slack_sessions` table
+- Session storage → Supabase `playbook_slack_sessions` table (legacy table name retained)
 - AI chat → OpenAI (`OPENAI_API_KEY`, models: gpt-4o / gpt-4o-mini)
 - Task creation → existing `backend-core/app/services/clickup.py`
 
@@ -67,7 +67,7 @@ Vara is an AI-powered Slack bot that helps Brand Managers create ClickUp tasks f
 - `profiles.slack_user_id` — links Slack users to profiles
 - `profiles.clickup_user_id` — for task assignment
 - `brands.clickup_space_id` / `clickup_list_id` — where to create tasks
-- `ai_token_usage` — token logging (use `meta.stage = 'playbook'`)
+- `ai_token_usage` — token logging (use `tool='agencyclaw'` + stage labels)
 
 ## Local quickstarts
 
