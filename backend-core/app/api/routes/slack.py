@@ -61,6 +61,9 @@ from ...services.agencyclaw.slack_pending_flow import (
     compose_asin_pending_description as _pending_flow_compose_asin_pending_description,
     handle_pending_task_continuation as _pending_flow_handle_pending_task_continuation,
 )
+from ...services.agencyclaw.slack_orchestrator_runtime import (
+    try_llm_orchestrator_runtime as _runtime_try_llm_orchestrator,
+)
 from ...services.agencyclaw.slack_cc_dispatch import (
     format_remediation_apply_result as _cc_format_remediation_apply_result,
     format_remediation_preview as _cc_format_remediation_preview,
@@ -1096,241 +1099,24 @@ async def _try_llm_orchestrator(
     session_service: Any,
     slack: Any,
 ) -> bool:
-    """Attempt LLM-first orchestration.  Returns True if fully handled, False to fall back."""
-    try:
-        # Build lightweight client context pack for the orchestrator
-        client_context_pack = ""
-        if session.active_client_id:
-            client_name = await asyncio.to_thread(
-                session_service.get_client_name, session.active_client_id
-            )
-            client_context_pack = f"Active client: {client_name or 'Unknown'} (id={session.active_client_id})"
-
-        # C10B.5: Read bounded conversation history from session context
-        raw_exchanges = session.context.get("recent_exchanges") or []
-        recent_exchanges = compact_exchanges(raw_exchanges)
-
-        result = await orchestrate_dm_message(
-            text=text,
-            profile_id=session.profile_id,
-            slack_user_id=slack_user_id,
-            session_context=session.context,
-            client_context_pack=client_context_pack,
-            recent_exchanges=recent_exchanges,
-        )
-
-        mode = result["mode"]
-
-        # --- Token telemetry (best-effort, fire-and-forget) ---
-        if result.get("tokens_in") is not None:
-            try:
-                await log_ai_token_usage(
-                    tool="agencyclaw",
-                    stage="intent_parse",
-                    user_id=session.profile_id,
-                    model=result.get("model_used"),
-                    prompt_tokens=result.get("tokens_in"),
-                    completion_tokens=result.get("tokens_out"),
-                    total_tokens=result.get("tokens_total"),
-                    meta={
-                        "run_type": "dm_orchestrate",
-                        "skill_id": result.get("skill_id"),
-                        "client_id": session.active_client_id,
-                        "channel_id": channel,
-                        "mode": mode,
-                    },
-                )
-            except Exception:  # noqa: BLE001
-                pass  # Never block response path
-
-        if mode == "fallback":
-            _logger.info("LLM orchestrator fallback: %s", result.get("reason", ""))
-            return False  # fall through to deterministic classifier
-
-        if mode == "reply":
-            reply_text = result.get("text") or "I'm not sure how to help with that."
-            await slack.post_message(channel=channel, text=reply_text)
-            # C10B.5: Append exchange and persist
-            updated = append_exchange(recent_exchanges, text, reply_text)
-            await asyncio.to_thread(
-                session_service.update_context, session.id,
-                {"recent_exchanges": compact_exchanges(updated)},
-            )
-            return True
-
-        if mode == "clarify":
-            question = result.get("question") or "Could you provide more details?"
-            clarify_skill_id = result.get("skill_id") or ""
-            clarify_args = result.get("args") or {}
-
-            # C10B: For mutation skills, persist pending state so the next
-            # message routes through _handle_pending_task_continuation instead
-            # of re-entering the LLM with no context.
-            if clarify_skill_id == "clickup_task_create":
-                client_name_hint = str(clarify_args.get("client_name") or "")
-                task_title = str(clarify_args.get("task_title") or "")
-
-                # Always resolve client (uses active-client fallback / picker
-                # when hint is empty) — never write pending with empty client_id.
-                pref_service = PreferenceMemoryService(session_service.db)
-                client_id, client_name = await _resolve_client_for_task(
-                    client_name_hint=client_name_hint,
-                    session=session,
-                    session_service=session_service,
-                    channel=channel,
-                    slack=slack,
-                    pref_service=pref_service,
-                )
-                if not client_id:
-                    return True  # picker/error already posted
-
-                # C11D: Resolve brand context
-                resolution = await _resolve_brand_for_task(
-                    client_id=client_id,
-                    client_name=client_name,
-                    task_text=task_title,
-                    brand_hint="",
-                    session=session,
-                    session_service=session_service,
-                    channel=channel,
-                    slack=slack,
-                )
-
-                if resolution["mode"] == "no_destination":
-                    await slack.post_message(
-                        channel=channel,
-                        text=f"No ClickUp destination configured for *{client_name}*.",
-                    )
-                    return True
-
-                if resolution["mode"] in ("ambiguous_brand", "ambiguous_destination"):
-                    pending = {
-                        "awaiting": "brand",
-                        "client_id": client_id,
-                        "client_name": client_name,
-                        "task_title": task_title,
-                        "brand_candidates": [
-                            {"id": str(b.get("id") or ""), "name": str(b.get("name") or "")}
-                            for b in resolution["candidates"]
-                        ],
-                    }
-                    await asyncio.to_thread(
-                        session_service.update_context, session.id,
-                        {"pending_task_create": pending},
-                    )
-                    return True  # picker already posted
-
-                brand_ctx = resolution["brand_context"]
-                brand_id = str(brand_ctx["id"]) if brand_ctx else None
-                brand_name = str(brand_ctx["name"]) if brand_ctx else None
-
-                if not task_title:
-                    pending = {
-                        "awaiting": "title",
-                        "client_id": client_id,
-                        "client_name": client_name,
-                        "brand_id": brand_id,
-                        "brand_name": brand_name,
-                        "brand_resolution_mode": resolution["mode"],
-                    }
-                else:
-                    pending = {
-                        "awaiting": "confirm_or_details",
-                        "client_id": client_id,
-                        "client_name": client_name,
-                        "brand_id": brand_id,
-                        "brand_name": brand_name,
-                        "brand_resolution_mode": resolution["mode"],
-                        "task_title": task_title,
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
-                    }
-
-                await asyncio.to_thread(
-                    session_service.update_context, session.id,
-                    {"pending_task_create": pending},
-                )
-
-            await slack.post_message(channel=channel, text=question)
-            # C10B.5: Append exchange and persist
-            updated = append_exchange(recent_exchanges, text, question)
-            await asyncio.to_thread(
-                session_service.update_context, session.id,
-                {"recent_exchanges": compact_exchanges(updated)},
-            )
-            return True
-
-        if mode == "tool_call":
-            skill_id = result.get("skill_id") or ""
-            args = result.get("args") or {}
-
-            # C10A: Policy gate before execution
-            policy = await _check_skill_policy(
-                slack_user_id=slack_user_id,
-                session=session,
-                channel=channel,
-                skill_id=skill_id,
-                args=args,
-            )
-            if not policy["allowed"]:
-                _logger.info(
-                    "C10A policy denied: reason=%s skill=%s",
-                    policy["reason_code"], skill_id,
-                )
-                await slack.post_message(channel=channel, text=policy["user_message"])
-                return True
-
-            skill_summary = ""
-
-            if skill_id == "clickup_task_list_weekly":
-                await _handle_weekly_tasks(
-                    slack_user_id=slack_user_id,
-                    channel=channel,
-                    client_name_hint=str(args.get("client_name") or ""),
-                    session_service=session_service,
-                    slack=slack,
-                )
-                skill_summary = f"[Ran weekly task list for {args.get('client_name', 'client')}]"
-
-            elif skill_id == "clickup_task_create":
-                await _handle_create_task(
-                    slack_user_id=slack_user_id,
-                    channel=channel,
-                    client_name_hint=str(args.get("client_name") or ""),
-                    task_title=str(args.get("task_title") or ""),
-                    session_service=session_service,
-                    slack=slack,
-                )
-                skill_summary = f"[Started task creation for {args.get('client_name', 'client')}]"
-
-            elif skill_id in ("cc_client_lookup", "cc_brand_list_all", "cc_brand_clickup_mapping_audit", "cc_brand_mapping_remediation_preview", "cc_brand_mapping_remediation_apply", "cc_assignment_upsert", "cc_assignment_remove", "cc_brand_create", "cc_brand_update"):
-                skill_summary = await _handle_cc_skill(
-                    skill_id=skill_id,
-                    args=args,
-                    session=session,
-                    session_service=session_service,
-                    channel=channel,
-                    slack=slack,
-                )
-
-            else:
-                # Unknown skill — fall through
-                _logger.warning("LLM orchestrator returned unknown skill: %s", skill_id)
-                return False
-
-            # C10B.5: Persist conversation history after skill execution
-            if skill_summary:
-                updated = append_exchange(recent_exchanges, text, skill_summary)
-                await asyncio.to_thread(
-                    session_service.update_context, session.id,
-                    {"recent_exchanges": compact_exchanges(updated)},
-                )
-            return True
-
-        return False  # unknown mode — fall through
-
-    except Exception as exc:  # noqa: BLE001
-        _logger.warning("LLM orchestrator error: %s", exc)
-        return False  # fall through to deterministic classifier
+    return await _runtime_try_llm_orchestrator(
+        text=text,
+        slack_user_id=slack_user_id,
+        channel=channel,
+        session=session,
+        session_service=session_service,
+        slack=slack,
+        logger=_logger,
+        orchestrate_dm_message_fn=orchestrate_dm_message,
+        log_ai_token_usage_fn=log_ai_token_usage,
+        check_skill_policy_fn=_check_skill_policy,
+        handle_weekly_tasks_fn=_handle_weekly_tasks,
+        handle_create_task_fn=_handle_create_task,
+        handle_cc_skill_fn=_handle_cc_skill,
+        resolve_client_for_task_fn=_resolve_client_for_task,
+        resolve_brand_for_task_fn=_resolve_brand_for_task,
+        preference_memory_service_factory=PreferenceMemoryService,
+    )
 
 
 async def _check_skill_policy(

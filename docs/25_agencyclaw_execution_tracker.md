@@ -43,6 +43,10 @@ Last updated: 2026-02-20 (C12C Path-1 runtime landed)
 | C12C-prep | Catalog lookup contract/docs scaffolding | Codex | done | merged (`2036d19`) | Contract + fixtures only (`docs/29_catalog_lookup_contract.md`, `catalog_lookup_contract.py`, isolated tests); no Slack runtime wiring |
 | C12C | Product identifier guardrail (Path-1, no catalog dependency) | Claude + Codex | done | pending commit | Runtime fail-closed clarify/pending flow wired with deterministic identifier extraction and no lookup/guessing; explicit pending cues expanded; targeted guardrail tests passing |
 | C13A | Strict LLM-first deterministic gating | Claude | done | pending commit | In strict LLM mode (orchestrator on, legacy fallback off), deterministic classifier now allows only control intents (`switch_client`, `set_default_client`, `clear_defaults`). Non-control intents (`create_task`, `weekly_tasks`, `cc_*`) no longer execute via deterministic fallback. |
+| C14A | Slack runtime decomposition phase 1 (helper extraction) | Codex | done | merged (`14cd21b`) | Extracted pure routing/helpers (`slack_helpers.py`) while keeping endpoint handlers in `slack.py`; no behavior change. |
+| C14B | Pending task-create continuation extraction | Codex | done | merged (`efff226`) | Extracted pending continuation flow (`slack_pending_flow.py`) with compatibility wrappers in `slack.py`; pending FSM/messages preserved. |
+| C14C | Command Center dispatch extraction | Codex | done | merged (`59088ff`) | Extracted CC dispatch/remediation formatting/client-hint helpers (`slack_cc_dispatch.py`) with injected dependencies for patch compatibility. |
+| C14D | LLM orchestrator runtime extraction | Codex | done | pending commit | Extracted `_try_llm_orchestrator` runtime into `slack_orchestrator_runtime.py` with thin wrapper/dependency injection in `slack.py`; no behavior change. |
 
 ## 3. Open Blockers
 - [x] Confirm migration `20260217000006_clickup_space_skill_seed.sql` is applied.
@@ -142,6 +146,7 @@ Last updated: 2026-02-20 (C12C Path-1 runtime landed)
 - C14A decomposition (phase 1): extracted pure Slack routing helpers into `backend-core/app/services/agencyclaw/slack_helpers.py` (intent classification/patterns, strict LLM deterministic gating helpers, identifier extraction, and weekly formatting utilities) while keeping endpoint handlers in `slack.py`; behavior-preserving targeted suite remained green.
 - C14B decomposition (phase 1): extracted pending task-create continuation flow (`_compose_asin_pending_description`, `_handle_pending_task_continuation`) into `backend-core/app/services/agencyclaw/slack_pending_flow.py` with `slack.py` compatibility wrappers; pending FSM behavior/messages preserved in targeted regression suites.
 - C14C decomposition (phase 1): extracted Command Center dispatch and remediation format/client-hint helpers into `backend-core/app/services/agencyclaw/slack_cc_dispatch.py` with `slack.py` compatibility wrappers; CC routing behavior preserved in targeted integration suites.
+- C14D decomposition (phase 1): extracted LLM orchestrator runtime (`_try_llm_orchestrator`) into `backend-core/app/services/agencyclaw/slack_orchestrator_runtime.py` with a thin wrapper/dependency-injection bridge in `slack.py`; orchestrator routing behavior preserved in targeted suites.
 - Backend full test suite still has pre-existing unrelated failures outside these chunks.
 
 ## 4. Validation Checklist (Per Chunk)
