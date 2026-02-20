@@ -104,7 +104,9 @@ def test_aggregate_parent_first_order():
         "Framelane [DE] | P1 | SPA | MKW | Br.M",
         "Framelane [DE] | P1 | SPA | MKW | Br.M | 0 - gen",
     ]
-    assert "Framelane [ES]" in labels[-2:]
+    # ES root must appear after all DE nodes (DFS order) — ES subtree has 6 levels
+    es_root_idx = labels.index("Framelane [ES]")
+    assert es_root_idx >= 6  # after entire DE subtree
 
 
 def test_workbook_builds_file(tmp_path):

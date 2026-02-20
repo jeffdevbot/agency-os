@@ -106,6 +106,7 @@ def fuzzy_match_column(col_name: str, candidates: list[str]) -> bool:
 def map_columns(df: pd.DataFrame, debug: bool = True) -> dict[str, str]:
     """Map DataFrame columns to internal keys using fuzzy matching."""
     column_map = {}
+    claimed: set[str] = set()  # prevent the same column being grabbed by two keys
     df_columns = df.columns.tolist()
 
     if debug:
@@ -117,8 +118,11 @@ def map_columns(df: pd.DataFrame, debug: bool = True) -> dict[str, str]:
 
     for internal_key, candidates in STR_COLUMN_MAP.items():
         for df_col in df_columns:
+            if df_col in claimed:
+                continue
             if fuzzy_match_column(df_col, candidates):
                 column_map[internal_key] = df_col
+                claimed.add(df_col)
                 if debug and internal_key == "spend":
                     print(f"[STR Parser] Matched 'spend' to column '{df_col}'")
                 break

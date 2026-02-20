@@ -54,10 +54,9 @@ class TestCleanQueryStr:
         assert clean_query_str("test----word") == "test-word"
 
     def test_converts_underscores_to_spaces(self):
-        """Underscores should be converted to spaces."""
+        """Underscores should be converted to spaces (then whitespace-collapsed)."""
         assert clean_query_str("hello_world") == "hello world"
-        assert clean_query_str("test___word") == "test   word"  # Multiple underscores → multiple spaces
-        # Note: multiple spaces are collapsed later
+        assert clean_query_str("test___word") == "test word"  # Multiple underscores → spaces → collapsed
 
     def test_collapses_whitespace(self):
         """Multiple spaces should be collapsed to single space."""
