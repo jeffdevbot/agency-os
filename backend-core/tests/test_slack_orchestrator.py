@@ -76,6 +76,10 @@ class TestToolRegistry:
         errors = validate_skill_call("clickup_task_list", {})
         assert errors == []
 
+    def test_validate_task_list_window_days_accepts_int(self):
+        errors = validate_skill_call("clickup_task_list", {"window": "last_n_days", "window_days": 14})
+        assert errors == []
+
     def test_validate_unknown_arg(self):
         errors = validate_skill_call("clickup_task_list_weekly", {"bogus": "value"})
         assert any("Unknown argument" in e for e in errors)

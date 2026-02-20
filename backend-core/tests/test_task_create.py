@@ -157,7 +157,7 @@ class TestClassifyCreateTask:
 
     def test_weekly_tasks_not_captured_as_create(self):
         intent, _ = _classify_message("show tasks for Distex")
-        assert intent == "weekly_tasks"
+        assert intent == "task_list"
 
 
 # ---------------------------------------------------------------------------
@@ -837,7 +837,7 @@ class TestC1RegressionFromC2:
 
     def test_weekly_tasks_still_works(self):
         intent, params = _classify_message("what's being worked on this week for Distex")
-        assert intent == "weekly_tasks"
+        assert intent == "task_list"
 
     def test_help_default_still_works(self):
         intent, _ = _classify_message("hello there")

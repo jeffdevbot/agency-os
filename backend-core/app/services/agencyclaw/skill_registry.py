@@ -283,8 +283,25 @@ def validate_skill_call(skill_id: str, args: dict[str, Any]) -> list[str]:
             if value is None or (isinstance(value, str) and not value.strip()):
                 errors.append(f"Missing required argument: {arg_name}")
                 continue
-        if value is not None and arg_def["type"] == "string" and not isinstance(value, str):
-            errors.append(f"Argument {arg_name} must be a string, got {type(value).__name__}")
+        if value is not None and arg_def["type"] == "string":
+            # C16B: accept numeric or numeric-string window_days for canonical task-list skill.
+            if (
+                arg_name == "window_days"
+                and skill_id in {"clickup_task_list", "clickup_task_list_weekly"}
+            ):
+                if isinstance(value, bool):
+                    errors.append(f"Argument {arg_name} must be an int or numeric string, got bool")
+                elif isinstance(value, int):
+                    pass
+                elif isinstance(value, str):
+                    if value.strip() and not value.strip().isdigit():
+                        errors.append(f"Argument {arg_name} must be an int or numeric string, got {value!r}")
+                else:
+                    errors.append(
+                        f"Argument {arg_name} must be an int or numeric string, got {type(value).__name__}"
+                    )
+            elif not isinstance(value, str):
+                errors.append(f"Argument {arg_name} must be a string, got {type(value).__name__}")
 
     # Flag any unknown args
     known = set(arg_schemas.keys())

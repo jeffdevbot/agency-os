@@ -194,7 +194,7 @@ async def try_llm_orchestrator_runtime(
             skill_summary = ""
 
             if skill_id in ("clickup_task_list", "clickup_task_list_weekly"):
-                await deps.handle_weekly_tasks_fn(
+                await deps.handle_task_list_fn(
                     slack_user_id=slack_user_id,
                     channel=channel,
                     client_name_hint=str(args.get("client_name") or ""),

@@ -45,7 +45,7 @@ class TestClassifyWeeklyTasks:
     )
     def test_weekly_tasks_with_client(self, text: str):
         intent, params = _classify_message(text)
-        assert intent == "weekly_tasks"
+        assert intent == "task_list"
         assert params.get("client_name", "").lower().strip() == "distex"
 
     @pytest.mark.parametrize(
@@ -59,7 +59,7 @@ class TestClassifyWeeklyTasks:
     )
     def test_weekly_tasks_no_client(self, text: str):
         intent, params = _classify_message(text)
-        assert intent == "weekly_tasks"
+        assert intent == "task_list"
         assert params.get("client_name", "") == ""
 
     def test_ngram_no_legacy_intent(self):
@@ -77,23 +77,23 @@ class TestClassifyWeeklyTasks:
 
     def test_multi_word_client_name(self):
         intent, params = _classify_message("tasks for Acme Corp International")
-        assert intent == "weekly_tasks"
+        assert intent == "task_list"
         assert "acme corp international" in params["client_name"].lower()
 
     def test_client_name_trailing_punctuation_is_sanitized(self):
         intent, params = _classify_message("what's being worked on this week for Distex?")
-        assert intent == "weekly_tasks"
+        assert intent == "task_list"
         assert params.get("client_name", "").lower() == "distex"
 
     def test_this_month_window_parsed(self):
         intent, params = _classify_message("show tasks for Distex this month")
-        assert intent == "weekly_tasks"
+        assert intent == "task_list"
         assert params.get("client_name", "").lower() == "distex"
         assert params.get("window") == "this_month"
 
     def test_last_14_days_window_parsed(self):
         intent, params = _classify_message("tasks for Distex last 14 days")
-        assert intent == "weekly_tasks"
+        assert intent == "task_list"
         assert params.get("client_name", "").lower() == "distex"
         assert params.get("window") == "last_n_days"
         assert params.get("window_days") == 14

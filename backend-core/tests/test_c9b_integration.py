@@ -129,6 +129,7 @@ class TestStrictModeHelpers:
             ("switch_client", True),
             ("set_default_client", True),
             ("clear_defaults", True),
+            ("task_list", False),
             ("create_task", False),
             ("weekly_tasks", False),
             ("cc_brand_list_all", False),
@@ -297,6 +298,30 @@ class TestOrchestratorToolCallWeekly:
         call_kwargs = mock_task_list.call_args.kwargs
         assert call_kwargs["client_name_hint"] == "Distex"
         assert call_kwargs["window"] == "this_month"
+
+    @pytest.mark.asyncio
+    async def test_tool_call_task_list_window_days_int_routes(self):
+        svc, slack = _make_mocks()
+        result = _make_orchestrator_result(
+            mode="tool_call",
+            skill_id="clickup_task_list",
+            args={"client_name": "Distex", "window": "last_n_days", "window_days": 14},
+        )
+
+        with (
+            patch("app.api.routes.slack._is_llm_orchestrator_enabled", return_value=True),
+            patch("app.api.routes.slack.get_playbook_session_service", return_value=svc),
+            patch("app.api.routes.slack.get_slack_service", return_value=slack),
+            patch("app.api.routes.slack.orchestrate_dm_message", new_callable=AsyncMock, return_value=result),
+            patch("app.api.routes.slack._handle_weekly_tasks", new_callable=AsyncMock) as mock_task_list,
+            patch("app.api.routes.slack.log_ai_token_usage", new_callable=AsyncMock),
+            patch("app.api.routes.slack._check_skill_policy", new_callable=AsyncMock, return_value=_ALLOW_POLICY),
+        ):
+            await _handle_dm_event(slack_user_id="U123", channel="C1", text="show tasks for Distex last 14 days")
+
+        call_kwargs = mock_task_list.call_args.kwargs
+        assert call_kwargs["window"] == "last_n_days"
+        assert call_kwargs["window_days"] == 14
 
 
 # ---------------------------------------------------------------------------

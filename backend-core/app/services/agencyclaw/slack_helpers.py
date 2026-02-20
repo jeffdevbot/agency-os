@@ -186,7 +186,7 @@ def _classify_message(text: str) -> tuple[str, dict[str, Any]]:
     # Task list queries (weekly default, optional custom windows).
     task_list_params = _task_list_params_from_text(original)
     if task_list_params is not None:
-        return ("weekly_tasks", task_list_params)
+        return ("task_list", task_list_params)
 
     # Confirm draft creation (only meaningful when pending state exists in session)
     for pattern in _CONFIRM_DRAFT_PATTERNS:

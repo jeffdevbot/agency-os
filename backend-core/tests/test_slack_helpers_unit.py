@@ -106,7 +106,7 @@ class TestDeterministicControlIntent:
         assert _is_deterministic_control_intent(intent) is True
 
     @pytest.mark.parametrize("intent", [
-        "weekly_tasks", "create_task", "help", "cc_client_lookup",
+        "task_list", "weekly_tasks", "create_task", "help", "cc_client_lookup",
         "cc_brand_list_all", "cc_assignment_upsert",
     ])
     def test_non_control_intents_rejected(self, intent: str) -> None:
@@ -119,6 +119,7 @@ class TestShouldBlockDeterministicIntent:
             "AGENCYCLAW_LLM_DM_ORCHESTRATOR": "1",
             "AGENCYCLAW_ENABLE_LEGACY_INTENTS": "0",
         }):
+            assert _should_block_deterministic_intent("task_list") is True
             assert _should_block_deterministic_intent("weekly_tasks") is True
 
     def test_allows_control_in_strict_mode(self) -> None:
@@ -238,16 +239,16 @@ class TestClassifyMessage:
     # Weekly tasks
     def test_weekly_tasks(self) -> None:
         intent, params = _classify_message("what's being worked on this week for Distex")
-        assert intent == "weekly_tasks"
+        assert intent == "task_list"
         assert "distex" in params["client_name"].lower()
 
     def test_show_tasks(self) -> None:
         intent, _ = _classify_message("show me tasks")
-        assert intent == "weekly_tasks"
+        assert intent == "task_list"
 
     def test_list_tasks(self) -> None:
         intent, _ = _classify_message("list tasks")
-        assert intent == "weekly_tasks"
+        assert intent == "task_list"
 
     # Confirm draft
     def test_confirm_draft(self) -> None:
