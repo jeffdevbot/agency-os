@@ -20,11 +20,11 @@ from .skill_registry import (
     validate_skill_call,
 )
 
-_VALID_MODES = {"reply", "clarify", "tool_call"}
+_VALID_MODES = {"reply", "clarify", "tool_call", "plan_request"}
 
 
 class OrchestratorResult(TypedDict):
-    mode: str  # "reply" | "clarify" | "tool_call" | "fallback"
+    mode: str  # "reply" | "clarify" | "tool_call" | "plan_request" | "fallback"
     text: str | None
     question: str | None
     missing_fields: list[str] | None
@@ -107,6 +107,10 @@ Choose one mode:
    Use this for greetings, small talk, questions about yourself, and anything that doesn't need a tool.
    Be friendly and natural — do NOT list available commands or suggest command syntax.
 
+4. **plan_request** — Use this only for complex, multi-step operational requests that require planning/execution sequencing.
+   Return: {{"mode": "plan_request", "args": {{"request_text": "<full user request>"}}, "confidence": 0.0-1.0}}
+   Do not use this for normal single-skill requests.
+
 Rules:
 - Always return valid JSON with the "mode" field.
 - For tool_call, only use skill_ids from the available skills list.
@@ -131,6 +135,7 @@ async def orchestrate_dm_message(
     - reply: direct text response
     - clarify: ask a clarifying question (with missing_fields)
     - tool_call: invoke a registered skill
+    - plan_request: delegate to planner runtime
     - fallback: LLM call failed, caller should use deterministic routing
     """
     system_prompt = _build_system_prompt(client_context_pack, session_context)
@@ -213,6 +218,26 @@ async def orchestrate_dm_message(
             missing_fields=parsed.get("missing_fields") or [],
             skill_id=parsed.get("skill_id"),
             args=parsed.get("args") if isinstance(parsed.get("args"), dict) else None,
+            confidence=confidence,
+            reason=None,
+            tokens_in=_tokens_in,
+            tokens_out=_tokens_out,
+            tokens_total=_tokens_total,
+            model_used=_model_used,
+        )
+
+    if mode == "plan_request":
+        args = parsed.get("args") if isinstance(parsed.get("args"), dict) else {"request_text": text}
+        request_text = str(args.get("request_text") or "").strip()
+        if not request_text:
+            args = {"request_text": text}
+        return OrchestratorResult(
+            mode="plan_request",
+            text=None,
+            question=None,
+            missing_fields=None,
+            skill_id=None,
+            args=args,
             confidence=confidence,
             reason=None,
             tokens_in=_tokens_in,

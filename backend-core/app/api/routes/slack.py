@@ -870,6 +870,7 @@ async def _try_llm_orchestrator(
         resolve_client_for_task_fn=_resolve_client_for_task,
         resolve_brand_for_task_fn=_resolve_brand_for_task,
         preference_memory_service_factory=PreferenceMemoryService,
+        try_planner_fn=_try_planner,
     )
     return await _runtime_try_llm_orchestrator(
         text=text,
@@ -910,7 +911,6 @@ async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> No
         get_slack_service_fn=get_slack_service,
         preference_memory_service_factory=PreferenceMemoryService,
         handle_pending_task_continuation_fn=_handle_pending_task_continuation,
-        try_planner_fn=_try_planner,
         is_llm_orchestrator_enabled_fn=_is_llm_orchestrator_enabled,
         try_llm_orchestrator_fn=_try_llm_orchestrator,
         classify_message_fn=_classify_message,

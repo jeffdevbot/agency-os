@@ -245,6 +245,23 @@ async def try_llm_orchestrator_runtime(
                 )
             return True
 
+        if mode == "plan_request":
+            plan_args = result.get("args") or {}
+            planner_text = text
+            if isinstance(plan_args, dict):
+                delegated_text = str(plan_args.get("request_text") or "").strip()
+                if delegated_text:
+                    planner_text = delegated_text
+
+            return await deps.try_planner_fn(
+                text=planner_text,
+                slack_user_id=slack_user_id,
+                channel=channel,
+                session=session,
+                session_service=session_service,
+                slack=slack,
+            )
+
         return False
 
     except Exception as exc:  # noqa: BLE001

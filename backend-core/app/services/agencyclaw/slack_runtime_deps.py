@@ -34,6 +34,7 @@ class SlackOrchestratorRuntimeDeps:
     resolve_client_for_task_fn: Callable[..., Awaitable[tuple[str | None, str]]]
     resolve_brand_for_task_fn: Callable[..., Awaitable[dict[str, Any]]]
     preference_memory_service_factory: Callable[..., Any]
+    try_planner_fn: Callable[..., Awaitable[bool]]
 
 
 @dataclass(frozen=True)
@@ -42,7 +43,6 @@ class SlackDMRuntimeDeps:
     get_slack_service_fn: Callable[[], SlackClientProtocol]
     preference_memory_service_factory: Callable[[Any], Any]
     handle_pending_task_continuation_fn: Callable[..., Awaitable[bool]]
-    try_planner_fn: Callable[..., Awaitable[bool]]
     is_llm_orchestrator_enabled_fn: Callable[[], bool]
     try_llm_orchestrator_fn: Callable[..., Awaitable[bool]]
     classify_message_fn: Callable[[str], tuple[str, dict[str, Any]]]

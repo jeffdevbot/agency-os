@@ -15,6 +15,7 @@ from app.api.routes.slack import (
     _is_llm_orchestrator_enabled,
     _is_llm_strict_mode,
     _should_block_deterministic_intent,
+    _try_planner,
     _try_llm_orchestrator,
 )
 from app.services.agencyclaw.slack_orchestrator import OrchestratorResult
@@ -194,6 +195,23 @@ class TestOrchestratorReplyMode:
             sent_text = slack.post_message.call_args_list[0].kwargs.get("text", "")
             assert "Hi there" in sent_text
 
+    @pytest.mark.asyncio
+    async def test_reply_mode_does_not_invoke_planner(self):
+        svc, slack = _make_mocks()
+        result = _make_orchestrator_result(mode="reply", text="Just chatting.")
+
+        with (
+            patch("app.api.routes.slack._is_llm_orchestrator_enabled", return_value=True),
+            patch("app.api.routes.slack.get_playbook_session_service", return_value=svc),
+            patch("app.api.routes.slack.get_slack_service", return_value=slack),
+            patch("app.api.routes.slack.orchestrate_dm_message", new_callable=AsyncMock, return_value=result),
+            patch("app.api.routes.slack._try_planner", new_callable=AsyncMock) as mock_planner,
+            patch("app.api.routes.slack.log_ai_token_usage", new_callable=AsyncMock),
+        ):
+            await _handle_dm_event(slack_user_id="U123", channel="C1", text="hey how are you?")
+
+        mock_planner.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # Flag ON → clarify mode
@@ -289,6 +307,77 @@ class TestOrchestratorToolCallCreate:
             assert call_kwargs["client_name_hint"] == "Distex"
 
 
+class TestOrchestratorPlannerDelegation:
+    @pytest.mark.asyncio
+    async def test_plan_request_routes_to_planner(self):
+        svc, slack = _make_mocks()
+        result = _make_orchestrator_result(
+            mode="plan_request",
+            args={"request_text": "for distex list weekly tasks then create follow-ups"},
+            skill_id=None,
+        )
+
+        with (
+            patch("app.api.routes.slack._is_llm_orchestrator_enabled", return_value=True),
+            patch("app.api.routes.slack.get_playbook_session_service", return_value=svc),
+            patch("app.api.routes.slack.get_slack_service", return_value=slack),
+            patch("app.api.routes.slack.orchestrate_dm_message", new_callable=AsyncMock, return_value=result),
+            patch("app.api.routes.slack._try_planner", new_callable=AsyncMock, return_value=True) as mock_planner,
+            patch("app.api.routes.slack.log_ai_token_usage", new_callable=AsyncMock),
+        ):
+            await _handle_dm_event(slack_user_id="U123", channel="C1", text="complex request")
+
+        mock_planner.assert_called_once()
+        planner_kwargs = mock_planner.call_args.kwargs
+        assert planner_kwargs["text"] == "for distex list weekly tasks then create follow-ups"
+        assert planner_kwargs["session_service"] is svc
+        assert planner_kwargs["slack"] is slack
+
+    @pytest.mark.asyncio
+    async def test_planner_uses_existing_skill_rails(self):
+        svc, slack = _make_mocks()
+        session = svc.get_or_create_session.return_value
+
+        fake_plan = {
+            "intent": "multi_step",
+            "steps": [
+                {
+                    "skill_id": "clickup_task_list_weekly",
+                    "args": {"client_name": "Distex"},
+                    "reason": "Get context first",
+                },
+                {
+                    "skill_id": "clickup_task_create",
+                    "args": {"client_name": "Distex", "task_title": "Follow up blockers"},
+                    "reason": "Create follow-up action",
+                },
+            ],
+            "confidence": 0.85,
+        }
+        fake_result = {"steps_attempted": 2, "steps_succeeded": 2, "step_results": []}
+
+        with (
+            patch("app.api.routes.slack._is_planner_enabled", return_value=True),
+            patch("app.api.routes.slack.generate_plan", new_callable=AsyncMock, return_value=fake_plan),
+            patch("app.api.routes.slack.execute_plan", new_callable=AsyncMock, return_value=fake_result) as mock_exec,
+            patch("app.api.routes.slack.retrieve_kb_context", new_callable=AsyncMock, return_value={"sources": []}),
+        ):
+            handled = await _try_planner(
+                text="complex request",
+                slack_user_id="U123",
+                channel="C1",
+                session=session,
+                session_service=svc,
+                slack=slack,
+            )
+
+        assert handled is True
+        exec_kwargs = mock_exec.call_args.kwargs
+        assert exec_kwargs["handler_map"]["clickup_task_create"].__name__ == "_handle_create_task"
+        assert exec_kwargs["handler_map"]["clickup_task_list_weekly"].__name__ == "_handle_weekly_tasks"
+        assert exec_kwargs["check_policy"].__name__ == "_check_skill_policy"
+
+
 # ---------------------------------------------------------------------------
 # Flag ON → fallback mode → deterministic classifier
 # ---------------------------------------------------------------------------
@@ -338,11 +427,13 @@ class TestOrchestratorFallbackMode:
             patch("app.api.routes.slack.get_playbook_session_service", return_value=svc),
             patch("app.api.routes.slack.get_slack_service", return_value=slack),
             patch("app.api.routes.slack.orchestrate_dm_message", new_callable=AsyncMock, return_value=result),
+            patch("app.api.routes.slack._try_planner", new_callable=AsyncMock) as mock_planner,
             patch("app.api.routes.slack.log_ai_token_usage", new_callable=AsyncMock),
             patch("app.api.routes.slack._handle_weekly_tasks", new_callable=AsyncMock) as mock_weekly,
         ):
             await _handle_dm_event(slack_user_id="U123", channel="C1", text="show tasks for Distex")
 
+        mock_planner.assert_not_called()
         mock_weekly.assert_not_called()
         sent_text = slack.post_message.call_args_list[0].kwargs.get("text", "")
         assert "not sure what to do" in sent_text.lower()

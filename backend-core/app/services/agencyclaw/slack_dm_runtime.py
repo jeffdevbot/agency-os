@@ -15,7 +15,7 @@ async def handle_dm_event_runtime(
     text: str,
     deps: SlackDMRuntimeDeps,
 ) -> None:
-    """Handle Slack DM event with planner/orchestrator/deterministic routing."""
+    """Handle Slack DM event with pending/orchestrator/deterministic routing."""
     session_service = deps.get_session_service_fn()
     pref_service = deps.preference_memory_service_factory(session_service.db)
     slack = deps.get_slack_service_fn()
@@ -36,16 +36,6 @@ async def handle_dm_event_runtime(
             )
             if consumed:
                 return
-
-        if await deps.try_planner_fn(
-            text=text,
-            slack_user_id=slack_user_id,
-            channel=channel,
-            session=session,
-            session_service=session_service,
-            slack=slack,
-        ):
-            return
 
         if deps.is_llm_orchestrator_enabled_fn():
             handled = await deps.try_llm_orchestrator_fn(

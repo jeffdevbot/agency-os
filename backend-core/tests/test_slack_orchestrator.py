@@ -152,6 +152,29 @@ class TestOrchestrateToolCall:
         assert result["args"]["task_title"] == "Fix landing page"
 
     @pytest.mark.asyncio
+    async def test_complex_request_can_delegate_to_planner(self):
+        llm_response = _fake_completion({
+            "mode": "plan_request",
+            "args": {"request_text": "For Distex, list weekly tasks and then create follow-up tasks for blockers."},
+            "confidence": 0.89,
+        })
+
+        with patch(
+            "app.services.agencyclaw.slack_orchestrator.call_chat_completion",
+            new_callable=AsyncMock,
+            return_value=llm_response,
+        ):
+            result = await orchestrate_dm_message(
+                text="For Distex, list weekly tasks and then create follow-up tasks for blockers.",
+                **_DEFAULT_KWARGS,
+            )
+
+        assert result["mode"] == "plan_request"
+        assert isinstance(result["args"], dict)
+        assert "distex" in str(result["args"].get("request_text", "")).lower()
+        assert result["tokens_total"] == 80
+
+    @pytest.mark.asyncio
     async def test_thin_create_asks_clarification(self):
         """LLM correctly returns clarify when title is missing."""
         llm_response = _fake_completion({
