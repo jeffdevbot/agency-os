@@ -140,6 +140,7 @@ Last updated: 2026-02-20 (C12C Path-1 runtime landed)
 - C13B routing cleanup: extracted strict-mode deterministic gating into helpers (`_is_llm_strict_mode`, `_is_deterministic_control_intent`, `_should_block_deterministic_intent`) with no behavior change; targeted suites remain green.
 - C13C alias cleanup: removed temporary tool->skill compatibility aliases from `skill_registry`, `policy_gate`, `slack.py`, and `agencyclaw.__init__`; canonical naming only (`SKILL_SCHEMAS`, `validate_skill_call`, `get_skill_descriptions_for_prompt`, `evaluate_skill_policy`, `_check_skill_policy`). No behavior change observed in targeted regression suites.
 - C14A decomposition (phase 1): extracted pure Slack routing helpers into `backend-core/app/services/agencyclaw/slack_helpers.py` (intent classification/patterns, strict LLM deterministic gating helpers, identifier extraction, and weekly formatting utilities) while keeping endpoint handlers in `slack.py`; behavior-preserving targeted suite remained green.
+- C14B decomposition (phase 1): extracted pending task-create continuation flow (`_compose_asin_pending_description`, `_handle_pending_task_continuation`) into `backend-core/app/services/agencyclaw/slack_pending_flow.py` with `slack.py` compatibility wrappers; pending FSM behavior/messages preserved in targeted regression suites.
 - Backend full test suite still has pre-existing unrelated failures outside these chunks.
 
 ## 4. Validation Checklist (Per Chunk)
