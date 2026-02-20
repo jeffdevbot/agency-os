@@ -2,7 +2,6 @@ import asyncio
 import json
 import logging
 import os
-from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import parse_qs
 
@@ -81,7 +80,6 @@ from ...services.agencyclaw.slack_cc_dispatch import (
     handle_cc_skill as _cc_handle_cc_skill,
     resolve_cc_client_hint as _cc_resolve_cc_client_hint,
 )
-from ...services.agencyclaw.skill_registry import get_skill_descriptions_for_prompt
 from ...services.agencyclaw.slack_helpers import (
     _WEEKLY_TASK_CAP,
     _classify_message,
