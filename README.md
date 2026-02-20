@@ -52,12 +52,19 @@ All services are deployed on Render. See `docs/00_agency_os_architecture.md` for
 
 ## AgencyClaw (Slack Assistant)
 
-AgencyClaw is the successor to the legacy Vara/Playbook bot and is now the active Slack runtime for operations workflows.
+AgencyClaw is the successor to the legacy Vara/Playbook bot and is the active Slack runtime for agency operations workflows.
+
+It provides:
+- Natural-language DM conversation (LLM-first orchestration, with deterministic execution rails).
+- ClickUp task operations (weekly status reads + task creation with confirmation/reliability guards).
+- SOP-grounded drafting via retrieval cascade.
+- Command Center chat skills (client/brand lookup, mapping audit, remediation).
+- Policy enforcement by actor/surface context (fail-closed on denied actions).
 
 **Primary docs:** `docs/23_agencyclaw_prd.md`, `docs/24_agencyclaw_implementation_plan.md`, `docs/25_agencyclaw_execution_tracker.md`.
 
 **Key integration points:**
-- Slack API (events + interactions) → `backend-core` (TBD; add a `backend-core/app/routers/slack.py` router)
+- Slack API (events + interactions) → `backend-core/app/api/routes/slack.py` (`/api/slack/events`, `/api/slack/interactions`)
 - SOP sync from ClickUp Docs → `worker-sync/` (TBD; Render service exists but code is not in this repo yet)
 - Session storage → Supabase `playbook_slack_sessions` table (legacy table name retained)
 - AI chat → OpenAI (`OPENAI_API_KEY`, models: gpt-4o / gpt-4o-mini)
