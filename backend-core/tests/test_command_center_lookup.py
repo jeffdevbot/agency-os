@@ -385,6 +385,12 @@ class TestFormatClientList:
 
         assert "inactive" in text
 
+    def test_includes_access_scope_note(self):
+        clients = [_client_row("Distex")]
+        text = format_client_list(clients)
+
+        assert "results reflect clients you currently have access to" in text.lower()
+
 
 class TestFormatBrandList:
     def test_output_shows_mapping_status(self):

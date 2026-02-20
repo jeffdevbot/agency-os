@@ -320,6 +320,11 @@ def format_client_list(clients: list[dict[str, Any]]) -> str:
 
     if len(clients) >= _MAX_RESULTS:
         lines.append(f"\n_Showing first {_MAX_RESULTS}. Use a search query to narrow results._")
+
+    lines.append(
+        "\n_Note: results reflect clients you currently have access to "
+        "(assignment-scoped for most users)._"
+    )
     return "\n".join(lines)
 
 
