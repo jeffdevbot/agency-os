@@ -980,7 +980,7 @@ Specific carve-out:
 - Rule evaluation.
 - Task creation with duplicate suppression.
 
-### Phase 4: Advanced Memory And External Knowledge
+### Phase 4: Advanced Memory And External Knowledge (Optional)
 - Vector retrieval.
 - External source ingestion (e.g. YouTube transcripts).
 - Optional multi-agent decomposition.
@@ -1022,7 +1022,10 @@ Specific carve-out:
 - Hardcoded N-gram deterministic branch is explicitly targeted for carve-out under planner de-hardcoding.
 - Lightweight durable preference memory is in-scope before Phase 4 semantic memory.
 - Runtime-vs-skill boundary is locked: runtime governs conversation/policy/confirmation, skills govern typed business execution.
+- C12C delivery is locked to Path-1 for v1: fail-closed ASIN/SKU clarification + explicit identifier-pending flow, without requiring live product-catalog integration.
+- Live catalog lookup integration is optional later and not a near-term release dependency.
+- Queue lanes, cross-user approval workflow, webhook ingestion, vector retrieval, and external transcript ingestion are explicitly deferred/optional backlog, not active release commitments.
 
 ---
-Document version: 1.18
+Document version: 1.19
 Last updated: 2026-02-20

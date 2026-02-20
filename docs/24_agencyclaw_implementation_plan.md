@@ -10,7 +10,7 @@ It is separate from `docs/23_agencyclaw_prd.md`:
 - Work one chunk at a time.
 - No scope expansion inside a chunk.
 - Every chunk ships with tests.
-- Every mutation path must preserve idempotency, confirmation, and audit requirements from PRD v1.18.
+- Every mutation path must preserve idempotency, confirmation, and audit requirements from PRD v1.19.
 - Unimplemented skills remain disabled in `skill_catalog`.
 - Actor + surface context (`who` + `where`) must be available before mutation execution.
 - Clarify loops for mutation workflows must persist pending slot state until confirm/cancel.
@@ -21,6 +21,20 @@ It is separate from `docs/23_agencyclaw_prd.md`:
 - New capabilities should default to new modular skills, not new hardcoded intent branches.
 - Brand-aware routing must follow explicit policy:
   resolve destination (`space/list`) separately from brand context (`brand_id`), and never guess ambiguous brands.
+
+## 2.1 Scope Freeze (Near-Term)
+- Committed for active delivery:
+  - C1 through C12B shipped behavior.
+  - C12C Path-1 runtime: fail-closed ASIN/SKU clarification and explicit identifier-pending path.
+- Deferred indefinitely (not release blockers):
+  - Distributed cross-worker lock (`C4D`) unless production contention demands it.
+  - Queue lanes and async orchestration expansion.
+  - Cross-user admin approval workflow beyond self-confirmation.
+  - Inbound ClickUp webhook sync.
+- Optional backlog (not near-term commitments):
+  - Vector semantic retrieval.
+  - External transcript/document ingestion.
+  - Multi-agent decomposition.
 
 ## 3. Definition Of Done (Per Chunk)
 - Behavior implemented end-to-end for chunk scope.
@@ -54,7 +68,7 @@ It is separate from `docs/23_agencyclaw_prd.md`:
 21. C11F-A: Conversational runtime cleanup (LLM-first, no command menus)
 22. C12A: Assignment mutations in chat (`cc_assignment_upsert` / `cc_assignment_remove`)
 23. C12B: Brand CRUD mutations in chat (`cc_brand_create` / `cc_brand_update`)
-24. C12C: `catalog_lookup` skill for product-level disambiguation (ASIN/SKU)
+24. C12C: Product identifier guardrail (Path-1, no catalog dependency)
 
 ## 5. Chunk Details
 ## C1: Weekly Task Read Path
@@ -275,22 +289,19 @@ Locked regression fixtures for C10B:
   - Apply updates only missing fields on safe items; unsafe items are skipped.
   - Tests cover dry-run, ambiguity block, apply success, and apply failure reporting.
 
-## C12C: Catalog Lookup Contract + Fixtures (Prep Scope)
+## C12C: Product Identifier Guardrail (Path-1)
 - Scope:
-  - Define implementation-ready `catalog_lookup` contract for ASIN/SKU disambiguation.
-  - Publish standalone contract doc (`docs/29_catalog_lookup_contract.md`) with input/output schemas and ranking semantics.
-  - Add isolated contract module/tests only (no Slack/runtime wiring in this chunk).
+  - Enforce fail-closed product identifier behavior without a live product catalog integration.
+  - For product-scoped task mutations with missing identifier:
+    require explicit ASIN/SKU or explicit "identifier pending" confirmation.
+  - Preserve deterministic no-guessing behavior for ambiguous/unknown product references.
+  - Keep `docs/29_catalog_lookup_contract.md` and `catalog_lookup_contract.py` as optional future integration contract.
 - Acceptance:
-  - Contract explicitly requires `client_id` + `query`, with optional `brand_id` and default `limit=10`.
-  - Output schema includes `candidates[]` (`asin`, `sku`, `title`, `confidence`, `match_reason`) and `resolution_status`.
-  - Resolution semantics are deterministic:
-    - `exact` = single unambiguous exact identifier match,
-    - `ambiguous` = candidates exist but no unambiguous exact match,
-    - `none` = no candidates.
-  - Matching priority is locked:
-    exact ASIN/SKU -> prefix -> token-contains.
-  - No silent identifier guessing is permitted; `ambiguous`/`none` require explicit clarify path or explicit pending-identifier confirmation.
-  - Tests validate output shape examples and ambiguity/no-result decision semantics using standalone contract scaffolding.
+  - Product-scoped requests without ASIN/SKU do not auto-create as fully resolved tasks.
+  - Runtime asks focused clarify prompt for ASIN/SKU or explicit pending flow.
+  - "Identifier pending" creates draft with unresolved block and explicit first-step resolution note.
+  - No silent identifier guessing in any path.
+  - Regression tests cover happy path (identifier supplied), clarify path (missing), and pending path (explicit deferral).
 
 ## 6. C9 Runtime Env Prerequisites
 Source of truth for deployed values:
@@ -333,7 +344,7 @@ Implement Chunk <ID> in repo `agency-os`.
 
 Rules:
 - Work only within this chunk scope.
-- Use PRD `docs/23_agencyclaw_prd.md` (v1.18) as source of truth.
+- Use PRD `docs/23_agencyclaw_prd.md` (v1.19) as source of truth.
 - No extra features.
 - Add/update tests.
 - Keep migration changes separate unless this chunk requires schema.
