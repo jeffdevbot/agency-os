@@ -1,4 +1,4 @@
-"""Tests for clickup_task_list_weekly: intent classification, formatting, and handler."""
+"""Tests for task-list intent/skill: classification, formatting, and runtime handling."""
 
 from __future__ import annotations
 
@@ -26,8 +26,8 @@ from app.api.routes.slack import (
 # ---------------------------------------------------------------------------
 
 
-class TestClassifyWeeklyTasks:
-    """_classify_message should route weekly task queries correctly."""
+class TestClassifyTaskList:
+    """_classify_message should route task-list queries correctly."""
 
     @pytest.mark.parametrize(
         "text",
@@ -130,7 +130,7 @@ class TestFormatTaskLine:
         assert "bob" in line
 
 
-class TestFormatWeeklyTasksResponse:
+class TestFormatTaskListResponse:
     def test_no_tasks(self):
         result = _format_weekly_tasks_response(
             client_name="Distex",
@@ -218,7 +218,7 @@ class FakeSession:
             object.__setattr__(self, "context", {})
 
 
-class TestHandleWeeklyTasks:
+class TestHandleTaskList:
     """Integration tests for _handle_task_list with mocked dependencies."""
 
     def _make_mocks(self, **session_overrides):
