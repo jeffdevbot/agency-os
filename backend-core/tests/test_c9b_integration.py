@@ -216,6 +216,37 @@ class TestOrchestratorToolCallWeekly:
 
 
 # ---------------------------------------------------------------------------
+# Flag ON -> tool_call mode (ngram research)
+# ---------------------------------------------------------------------------
+
+
+class TestOrchestratorToolCallNgram:
+    @pytest.mark.asyncio
+    async def test_tool_call_ngram_routes_to_handler(self):
+        svc, slack = _make_mocks()
+        result = _make_orchestrator_result(
+            mode="tool_call",
+            skill_id="ngram_research",
+            args={"client_name": "Distex"},
+        )
+
+        with (
+            patch("app.api.routes.slack._is_llm_orchestrator_enabled", return_value=True),
+            patch("app.api.routes.slack.get_playbook_session_service", return_value=svc),
+            patch("app.api.routes.slack.get_slack_service", return_value=slack),
+            patch("app.api.routes.slack.orchestrate_dm_message", new_callable=AsyncMock, return_value=result),
+            patch("app.api.routes.slack._handle_ngram_research", new_callable=AsyncMock) as mock_ngram,
+            patch("app.api.routes.slack.log_ai_token_usage", new_callable=AsyncMock),
+            patch("app.api.routes.slack._check_tool_policy", new_callable=AsyncMock, return_value=_ALLOW_POLICY),
+        ):
+            await _handle_dm_event(slack_user_id="U123", channel="C1", text="start ngram research for Distex")
+
+            mock_ngram.assert_called_once()
+            call_kwargs = mock_ngram.call_args.kwargs
+            assert call_kwargs["client_name_hint"] == "Distex"
+
+
+# ---------------------------------------------------------------------------
 # Flag ON → tool_call mode (task create)
 # ---------------------------------------------------------------------------
 

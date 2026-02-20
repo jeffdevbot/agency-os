@@ -27,7 +27,13 @@ _KNOWN_SURFACES = ("dm", "channel", "group")
 
 # Skills classified by mutation vs read
 _MUTATION_SKILLS = frozenset({"clickup_task_create", "ngram_research"})
-_READ_SKILLS = frozenset({"clickup_task_list_weekly"})
+_READ_SKILLS = frozenset({
+    "clickup_task_list_weekly",
+    "cc_client_lookup",
+    "cc_brand_list_all",
+    "cc_brand_clickup_mapping_audit",
+})
+_ADMIN_SKILLS = frozenset({"cc_brand_clickup_mapping_audit"})
 
 
 class ActorContext(TypedDict):
@@ -222,6 +228,15 @@ def evaluate_tool_policy(
             allowed=False,
             reason_code="viewer_mutation_denied",
             user_message="You don't have permission to create tasks. Ask an admin to upgrade your access.",
+            meta=meta,
+        )
+
+    # --- Admin-only skills (C11A) ---
+    if skill_id in _ADMIN_SKILLS and not actor["is_admin"]:
+        return PolicyDecision(
+            allowed=False,
+            reason_code="admin_skill_denied",
+            user_message="That action requires admin access.",
             meta=meta,
         )
 

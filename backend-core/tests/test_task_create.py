@@ -146,10 +146,10 @@ class TestClassifyCreateTask:
         intent, _ = _classify_message(text)
         assert intent == "confirm_draft_task"
 
-    def test_ngram_not_captured_as_create(self):
-        """Ngram intent should still take priority over create_task."""
+    def test_ngram_no_legacy_intent_classifier(self):
+        """Ngram requests should no longer route via deterministic intent classifier."""
         intent, _ = _classify_message("start ngram research")
-        assert intent == "create_ngram_task"
+        assert intent == "help"
 
     def test_weekly_tasks_not_captured_as_create(self):
         intent, _ = _classify_message("show tasks for Distex")
@@ -768,9 +768,9 @@ class TestC1RegressionFromC2:
         intent, params = _classify_message("switch to Acme")
         assert intent == "switch_client"
 
-    def test_ngram_still_works(self):
+    def test_ngram_no_legacy_intent(self):
         intent, _ = _classify_message("start ngram research")
-        assert intent == "create_ngram_task"
+        assert intent == "help"
 
     def test_weekly_tasks_still_works(self):
         intent, params = _classify_message("what's being worked on this week for Distex")

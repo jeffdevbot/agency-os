@@ -61,9 +61,9 @@ class TestClassifyWeeklyTasks:
         assert intent == "weekly_tasks"
         assert params.get("client_name", "") == ""
 
-    def test_ngram_still_works(self):
+    def test_ngram_no_legacy_intent(self):
         intent, _ = _classify_message("start ngram research")
-        assert intent == "create_ngram_task"
+        assert intent == "help"
 
     def test_switch_still_works(self):
         intent, params = _classify_message("switch to Acme")

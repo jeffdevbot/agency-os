@@ -20,6 +20,14 @@ from ...services.agencyclaw.policy_gate import (
     resolve_actor_context,
     resolve_surface_context,
 )
+from ...services.agencyclaw.command_center_lookup import (
+    audit_brand_mappings,
+    format_brand_list,
+    format_client_list,
+    format_mapping_audit,
+    list_brands,
+    lookup_clients,
+)
 from ...services.agencyclaw.grounded_task_draft import build_grounded_task_draft
 from ...services.agencyclaw.kb_retrieval import retrieve_kb_context
 from ...services.agencyclaw.plan_executor import execute_plan
@@ -67,6 +75,22 @@ def _is_llm_orchestrator_enabled() -> bool:
 def _is_planner_enabled() -> bool:
     """Check if the C10D planner feature flag is enabled."""
     return os.environ.get("AGENCYCLAW_ENABLE_PLANNER", "").strip().lower() in {
+        "1", "true", "yes", "on",
+    }
+
+
+def _is_legacy_intent_fallback_enabled() -> bool:
+    """Whether regex-based deterministic intent fallback is enabled.
+
+    Defaults:
+    - LLM orchestrator OFF -> enabled (backward compatibility / local dev).
+    - LLM orchestrator ON  -> disabled (LLM-first conversational runtime).
+
+    Override with ``AGENCYCLAW_ENABLE_LEGACY_INTENTS=1`` to force-enable.
+    """
+    if not _is_llm_orchestrator_enabled():
+        return True
+    return os.environ.get("AGENCYCLAW_ENABLE_LEGACY_INTENTS", "").strip().lower() in {
         "1", "true", "yes", "on",
     }
 
@@ -161,8 +185,6 @@ _CONFIRM_DRAFT_PATTERNS: list[re.Pattern[str]] = [
 def _classify_message(text: str) -> tuple[str, dict[str, Any]]:
     original = " ".join((text or "").strip().split())
     t = original.lower()
-    if any(kw in t for kw in ("ngram", "n-gram", "keyword research")):
-        return ("create_ngram_task", {})
     if t.startswith("switch to "):
         return ("switch_client", {"client_name": t.removeprefix("switch to ").strip()})
     if t.startswith("work on "):
@@ -197,18 +219,26 @@ def _classify_message(text: str) -> tuple[str, dict[str, Any]]:
         if pattern.match(t):
             return ("confirm_draft_task", {})
 
+    # C11A: Command Center read-only skills
+    if any(kw in t for kw in ("show me clients", "list clients", "my clients")):
+        return ("cc_client_lookup", {"query": ""})
+    if any(kw in t for kw in ("list all brands", "list brands", "show brands")):
+        return ("cc_brand_list_all", {})
+    if any(kw in t for kw in ("missing clickup mapping", "mapping audit", "brands missing")):
+        return ("cc_brand_clickup_mapping_audit", {})
+
     return ("help", {})
 
 
 def _help_text() -> str:
     return (
-        "I can help you with ClickUp tasks and SOPs.\n\n"
-        "Try:\n"
-        "- `create task for <client>: <title>`\n"
-        "- `what's being worked on this week for <client>`\n"
-        "- `show tasks for <client>`\n"
-        "- `start ngram research`\n"
-        "- `switch to <client name>`"
+        "I can help with ClickUp tasks, weekly status, and SOP-based work.\n\n"
+        "Ask naturally, for example:\n"
+        "- What's being worked on this week for Distex?\n"
+        "- Create a task for Distex: Set up 20% coupon for Thorinox\n"
+        "- Start n-gram research for Distex\n"
+        "- Switch to Revant\n"
+        "- Show me clients / list brands / brands missing clickup mapping"
     )
 
 
@@ -468,6 +498,72 @@ async def _resolve_client_for_task(
             text="I couldn't find any clients. Ask an admin to assign you.",
         )
     return None, ""
+
+
+# ---------------------------------------------------------------------------
+# C11A: Command Center read-only skill handler
+# ---------------------------------------------------------------------------
+
+
+async def _handle_cc_skill(
+    *,
+    skill_id: str,
+    args: dict[str, Any],
+    session: Any,
+    session_service: Any,
+    channel: str,
+    slack: Any,
+) -> str:
+    """Dispatch a Command Center read-only skill and post results.
+
+    Returns a tool summary string for conversation history.
+    """
+    db = session_service.db
+
+    if skill_id == "cc_client_lookup":
+        query = str(args.get("query") or "")
+        clients = await asyncio.to_thread(
+            lookup_clients, db, session.profile_id, query,
+        )
+        await slack.post_message(channel=channel, text=format_client_list(clients))
+        return "[Listed clients]"
+
+    if skill_id == "cc_brand_list_all":
+        # Optionally resolve client_name hint to client_id
+        client_id: str | None = None
+        client_hint = str(args.get("client_name") or "").strip()
+        if client_hint:
+            matches = await asyncio.to_thread(
+                session_service.find_client_matches, session.profile_id, client_hint,
+            )
+            if not matches:
+                await slack.post_message(
+                    channel=channel,
+                    text=f"I couldn't find a client matching *{client_hint}*.",
+                )
+                return "[Brand list client not found]"
+
+            if len(matches) > 1:
+                blocks = _build_client_picker_blocks(matches)
+                await slack.post_message(
+                    channel=channel,
+                    text=f"Multiple clients match *{client_hint}*. Pick one and try again:",
+                    blocks=blocks,
+                )
+                return "[Brand list client ambiguous]"
+
+            client_id = str(matches[0].get("id") or "")
+
+        brands = await asyncio.to_thread(list_brands, db, client_id)
+        await slack.post_message(channel=channel, text=format_brand_list(brands))
+        return "[Listed brands]"
+
+    if skill_id == "cc_brand_clickup_mapping_audit":
+        missing = await asyncio.to_thread(audit_brand_mappings, db)
+        await slack.post_message(channel=channel, text=format_mapping_audit(missing))
+        return "[Ran ClickUp mapping audit]"
+
+    return ""
 
 
 async def _execute_task_create(
@@ -1385,6 +1481,26 @@ async def _try_llm_orchestrator(
                 )
                 tool_summary = f"[Started task creation for {args.get('client_name', 'client')}]"
 
+            elif skill_id == "ngram_research":
+                await _handle_ngram_research(
+                    slack_user_id=slack_user_id,
+                    channel=channel,
+                    client_name_hint=str(args.get("client_name") or ""),
+                    session_service=session_service,
+                    slack=slack,
+                )
+                tool_summary = f"[Started n-gram research for {args.get('client_name', 'client')}]"
+
+            elif skill_id in ("cc_client_lookup", "cc_brand_list_all", "cc_brand_clickup_mapping_audit"):
+                tool_summary = await _handle_cc_skill(
+                    skill_id=skill_id,
+                    args=args,
+                    session=session,
+                    session_service=session_service,
+                    channel=channel,
+                    slack=slack,
+                )
+
             else:
                 # Unknown skill — fall through
                 _logger.warning("LLM orchestrator returned unknown skill: %s", skill_id)
@@ -1506,7 +1622,7 @@ async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> No
             # No pending state (already checked above) — nothing to confirm.
             await slack.post_message(
                 channel=channel,
-                text="Nothing to confirm. Start with `create task for <client>: <title>`.",
+                text="Nothing to confirm right now. Tell me what task you'd like to create.",
             )
             return
 
@@ -1566,7 +1682,7 @@ async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> No
             await asyncio.to_thread(session_service.update_context, session.id, {"pending_task": None})
             await slack.post_message(
                 channel=channel,
-                text=f"Now working on *{client_display}*.\n\nTry: `start ngram research`",
+                text=f"Now working on *{client_display}*. What would you like to do for this client?",
             )
             return
 
@@ -1632,88 +1748,35 @@ async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> No
             )
             return
 
-        if not session.active_client_id:
-            clients = await asyncio.to_thread(session_service.list_clients_for_picker, session.profile_id)
-            if not clients:
-                await slack.post_message(
-                    channel=channel,
-                    text="I couldn’t find any clients to pick from. Ask an admin to assign you.",
-                )
+        # C11A: Command Center read-only skills
+        if intent in ("cc_client_lookup", "cc_brand_list_all", "cc_brand_clickup_mapping_audit"):
+            policy = await _check_tool_policy(
+                slack_user_id=slack_user_id,
+                session=session,
+                channel=channel,
+                skill_id=intent,
+            )
+            if not policy["allowed"]:
+                await slack.post_message(channel=channel, text=policy["user_message"])
                 return
 
-            blocks = _build_client_picker_blocks(clients)
-            await slack.post_message(channel=channel, text=_help_text())
-            await slack.post_message(channel=channel, text="Select a client", blocks=blocks)
+            await _handle_cc_skill(
+                skill_id=intent,
+                args=params,
+                session=session,
+                session_service=session_service,
+                channel=channel,
+                slack=slack,
+            )
             return
 
-        if intent == "create_ngram_task":
-            client_id = str(session.active_client_id or "")
-            client_name = await asyncio.to_thread(session_service.get_client_name, client_id)
-            client_name = client_name or "Client"
-
-            if not session.profile_id:
-                await slack.post_message(
-                    channel=channel,
-                    text="I couldn't link your Slack user to a profile. Ask an admin to set `profiles.slack_user_id`.",
-                )
-                return
-
-            clickup_user_id = await asyncio.to_thread(
-                session_service.get_profile_clickup_user_id, session.profile_id
-            )
-
-            destination = await asyncio.to_thread(session_service.get_brand_destination_for_client, client_id)
-            if not destination or not destination.get("clickup_space_id"):
-                await slack.post_message(
-                    channel=channel,
-                    text=f"No brand configured for *{client_name}* with `clickup_space_id`. Ask an admin to set it in Command Center.",
-                )
-                return
-
-            sop_service = SOPSyncService(clickup_token="", supabase_client=session_service.db)
-            sop = await sop_service.get_sop_by_category("ngram")
-            sop_md = str((sop or {}).get("content_md") or "")
-            if not sop_md.strip():
-                await slack.post_message(
-                    channel=channel,
-                    text="N-gram SOP not found (category='ngram'). Ask an admin to run the SOP sync.",
-                )
-                return
-
-            pending = {
-                "intent": "create_ngram_task",
-                "client_id": client_id,
-                "client_name": client_name,
-                "brand_id": destination.get("id"),
-                "brand_name": destination.get("name"),
-            }
-            await asyncio.to_thread(session_service.update_context, session.id, {"pending_task": pending})
-
-            clickup = None
-            try:
-                clickup = get_clickup_service()
-                task = await clickup.create_task_in_space(
-                    space_id=str(destination.get("clickup_space_id")),
-                    name=f"N-gram Research: {client_name}",
-                    description_md=sop_md,
-                    assignee_ids=[clickup_user_id] if clickup_user_id else None,
-                    override_list_id=str(destination.get("clickup_list_id"))
-                    if destination.get("clickup_list_id")
-                    else None,
-                )
-            except (ClickUpConfigurationError, ClickUpError) as exc:
-                await slack.post_message(channel=channel, text=f"Failed to create ClickUp task: {exc}")
-                return
-            finally:
-                await asyncio.to_thread(session_service.update_context, session.id, {"pending_task": None})
-                if clickup:
-                    await clickup.aclose()
-
-            url = task.url or ""
-            link = f"<{url}|N-gram Research: {client_name}>" if url else f"N-gram Research: {client_name}"
+        # LLM-first mode: disable broad regex fallback after orchestrator attempt.
+        # Keep only explicit control intents deterministic (switch/defaults).
+        if _is_llm_orchestrator_enabled() and not _is_legacy_intent_fallback_enabled():
             await slack.post_message(
                 channel=channel,
-                text=f"Task created: {link}",
+                text="Tell me what you need in plain language and I'll handle it. "
+                "If you want, mention a client name to focus the request.",
             )
             return
 
@@ -1814,7 +1877,7 @@ async def _handle_interaction(payload: dict[str, Any]) -> None:
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": f"Now working on *{client_name}*.\n\nTry: `start ngram research`",
+                        "text": f"Now working on *{client_name}*. What would you like to do for this client?",
                     },
                 }
             ]

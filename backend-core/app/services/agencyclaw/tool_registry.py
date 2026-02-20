@@ -57,6 +57,31 @@ TOOL_SCHEMAS: dict[str, ToolSchema] = {
             },
         },
     },
+    # C11A: Command Center read-only skills
+    "cc_client_lookup": {
+        "description": "Search or list agency clients by name.",
+        "args": {
+            "query": {
+                "type": "string",
+                "required": False,
+                "description": "Client name search query. Omit to list all accessible clients.",
+            },
+        },
+    },
+    "cc_brand_list_all": {
+        "description": "List brands with their client and ClickUp mapping status.",
+        "args": {
+            "client_name": {
+                "type": "string",
+                "required": False,
+                "description": "Filter to a specific client. Omit to list all brands.",
+            },
+        },
+    },
+    "cc_brand_clickup_mapping_audit": {
+        "description": "Audit brands missing ClickUp space or list mappings. Admin only.",
+        "args": {},
+    },
 }
 
 
