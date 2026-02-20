@@ -72,6 +72,10 @@ class TestToolRegistry:
         errors = validate_skill_call("clickup_task_list_weekly", {})
         assert errors == []
 
+    def test_validate_task_list_canonical_no_required(self):
+        errors = validate_skill_call("clickup_task_list", {})
+        assert errors == []
+
     def test_validate_unknown_arg(self):
         errors = validate_skill_call("clickup_task_list_weekly", {"bogus": "value"})
         assert any("Unknown argument" in e for e in errors)
@@ -90,11 +94,13 @@ class TestToolRegistry:
 
     def test_tool_descriptions_contains_skill_names(self):
         desc = get_skill_descriptions_for_prompt()
+        assert "clickup_task_list" in desc
         assert "clickup_task_list_weekly" in desc
         assert "clickup_task_create" in desc
         assert "task_title" in desc
 
     def test_schemas_have_expected_keys(self):
+        assert "clickup_task_list" in SKILL_SCHEMAS
         assert "clickup_task_list_weekly" in SKILL_SCHEMAS
         assert "clickup_task_create" in SKILL_SCHEMAS
         assert "task_title" in SKILL_SCHEMAS["clickup_task_create"]["args"]

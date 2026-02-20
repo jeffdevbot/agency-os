@@ -273,6 +273,31 @@ class TestOrchestratorToolCallWeekly:
             call_kwargs = mock_weekly.call_args.kwargs
             assert call_kwargs["client_name_hint"] == "Distex"
 
+    @pytest.mark.asyncio
+    async def test_tool_call_canonical_task_list_routes_to_handler(self):
+        svc, slack = _make_mocks()
+        result = _make_orchestrator_result(
+            mode="tool_call",
+            skill_id="clickup_task_list",
+            args={"client_name": "Distex", "window": "this_month"},
+        )
+
+        with (
+            patch("app.api.routes.slack._is_llm_orchestrator_enabled", return_value=True),
+            patch("app.api.routes.slack.get_playbook_session_service", return_value=svc),
+            patch("app.api.routes.slack.get_slack_service", return_value=slack),
+            patch("app.api.routes.slack.orchestrate_dm_message", new_callable=AsyncMock, return_value=result),
+            patch("app.api.routes.slack._handle_weekly_tasks", new_callable=AsyncMock) as mock_task_list,
+            patch("app.api.routes.slack.log_ai_token_usage", new_callable=AsyncMock),
+            patch("app.api.routes.slack._check_skill_policy", new_callable=AsyncMock, return_value=_ALLOW_POLICY),
+        ):
+            await _handle_dm_event(slack_user_id="U123", channel="C1", text="show tasks for Distex this month")
+
+        mock_task_list.assert_called_once()
+        call_kwargs = mock_task_list.call_args.kwargs
+        assert call_kwargs["client_name_hint"] == "Distex"
+        assert call_kwargs["window"] == "this_month"
+
 
 # ---------------------------------------------------------------------------
 # Flag ON → tool_call mode (task create)
@@ -451,6 +476,7 @@ class TestOrchestratorPlannerDelegation:
         exec_kwargs = mock_exec.call_args.kwargs
         assert exec_kwargs["handler_map"]["clickup_task_create"].__name__ == "_handle_create_task"
         assert exec_kwargs["handler_map"]["clickup_task_list_weekly"].__name__ == "_handle_weekly_tasks"
+        assert exec_kwargs["handler_map"]["clickup_task_list"].__name__ == "_handle_weekly_tasks"
         assert exec_kwargs["check_policy"].__name__ == "_check_skill_policy"
 
     @pytest.mark.asyncio

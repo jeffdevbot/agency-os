@@ -78,6 +78,7 @@ async def try_planner_runtime(
             )
 
         handler_map = {
+            "clickup_task_list": deps.handle_weekly_tasks_fn,
             "clickup_task_create": deps.handle_create_task_fn,
             "clickup_task_list_weekly": deps.handle_weekly_tasks_fn,
             "cc_client_lookup": lambda **kwargs: _planner_cc_step_handler(

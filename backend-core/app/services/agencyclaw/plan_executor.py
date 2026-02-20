@@ -146,6 +146,15 @@ async def execute_plan(
                 handler_kwargs["client_name_hint"] = ""
             if "task_title" in args:
                 handler_kwargs["task_title"] = str(args["task_title"] or "")
+            if skill_id in ("clickup_task_list", "clickup_task_list_weekly"):
+                if "window" in args:
+                    handler_kwargs["window"] = str(args.get("window") or "")
+                if "window_days" in args:
+                    handler_kwargs["window_days"] = args.get("window_days")
+                if "date_from" in args:
+                    handler_kwargs["date_from"] = str(args.get("date_from") or "")
+                if "date_to" in args:
+                    handler_kwargs["date_to"] = str(args.get("date_to") or "")
             if skill_id.startswith("cc_"):
                 handler_kwargs["plan_args"] = dict(args)
 

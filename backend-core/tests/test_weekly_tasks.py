@@ -13,6 +13,7 @@ from app.api.routes.slack import (
     _WEEKLY_TASK_CAP,
     _classify_message,
     _current_week_range_ms,
+    _format_task_list_response,
     _format_task_line,
     _format_weekly_tasks_response,
     _handle_weekly_tasks,
@@ -82,7 +83,20 @@ class TestClassifyWeeklyTasks:
     def test_client_name_trailing_punctuation_is_sanitized(self):
         intent, params = _classify_message("what's being worked on this week for Distex?")
         assert intent == "weekly_tasks"
-        assert params.get("client_name", "") == "distex"
+        assert params.get("client_name", "").lower() == "distex"
+
+    def test_this_month_window_parsed(self):
+        intent, params = _classify_message("show tasks for Distex this month")
+        assert intent == "weekly_tasks"
+        assert params.get("client_name", "").lower() == "distex"
+        assert params.get("window") == "this_month"
+
+    def test_last_14_days_window_parsed(self):
+        intent, params = _classify_message("tasks for Distex last 14 days")
+        assert intent == "weekly_tasks"
+        assert params.get("client_name", "").lower() == "distex"
+        assert params.get("window") == "last_n_days"
+        assert params.get("window_days") == 14
 
 
 # ---------------------------------------------------------------------------
@@ -158,6 +172,18 @@ class TestFormatWeeklyTasksResponse:
         )
         assert "no brands" in result
 
+    def test_dynamic_range_header(self):
+        tasks = [{"name": "Task 1", "id": "t1", "status": {"status": "open"}}]
+        result = _format_task_list_response(
+            client_name="Distex",
+            tasks=tasks,
+            total_fetched=1,
+            brand_names=["Brand A"],
+            range_label="this month",
+        )
+        assert "this month" in result
+        assert "*Tasks for Distex*" in result
+
 
 # ---------------------------------------------------------------------------
 # Week range helper
@@ -232,6 +258,52 @@ class TestHandleWeeklyTasks:
         assert "Task 1" in msg
         assert "Task 2" in msg
         assert "Distex" in msg
+        assert "this week" in msg.lower()
+
+    @pytest.mark.asyncio
+    async def test_month_window_path(self):
+        session_svc, slack = self._make_mocks()
+        mock_tasks = [{"id": "t1", "name": "Task 1", "status": {"status": "open"}}]
+
+        with patch("app.api.routes.slack.get_clickup_service") as mock_cu:
+            cu_instance = AsyncMock()
+            cu_instance.get_tasks_in_list_all_pages.return_value = mock_tasks
+            mock_cu.return_value = cu_instance
+
+            await _handle_weekly_tasks(
+                slack_user_id="U123",
+                channel="C1",
+                client_name_hint="Distex",
+                session_service=session_svc,
+                slack=slack,
+                window="this_month",
+            )
+
+        msg = slack.post_message.call_args.kwargs.get("text", "")
+        assert "this month" in msg.lower()
+
+    @pytest.mark.asyncio
+    async def test_last_14_days_window_path(self):
+        session_svc, slack = self._make_mocks()
+        mock_tasks = [{"id": "t1", "name": "Task 1", "status": {"status": "open"}}]
+
+        with patch("app.api.routes.slack.get_clickup_service") as mock_cu:
+            cu_instance = AsyncMock()
+            cu_instance.get_tasks_in_list_all_pages.return_value = mock_tasks
+            mock_cu.return_value = cu_instance
+
+            await _handle_weekly_tasks(
+                slack_user_id="U123",
+                channel="C1",
+                client_name_hint="Distex",
+                session_service=session_svc,
+                slack=slack,
+                window="last_n_days",
+                window_days=14,
+            )
+
+        msg = slack.post_message.call_args.kwargs.get("text", "")
+        assert "last 14 days" in msg.lower()
 
     @pytest.mark.asyncio
     async def test_ambiguous_client(self):

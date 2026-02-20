@@ -193,15 +193,22 @@ async def try_llm_orchestrator_runtime(
 
             skill_summary = ""
 
-            if skill_id == "clickup_task_list_weekly":
+            if skill_id in ("clickup_task_list", "clickup_task_list_weekly"):
                 await deps.handle_weekly_tasks_fn(
                     slack_user_id=slack_user_id,
                     channel=channel,
                     client_name_hint=str(args.get("client_name") or ""),
+                    window=str(args.get("window") or ""),
+                    window_days=args.get("window_days"),
+                    date_from=str(args.get("date_from") or ""),
+                    date_to=str(args.get("date_to") or ""),
                     session_service=session_service,
                     slack=slack,
                 )
-                skill_summary = f"[Ran weekly task list for {args.get('client_name', 'client')}]"
+                if skill_id == "clickup_task_list_weekly":
+                    skill_summary = f"[Ran weekly task list for {args.get('client_name', 'client')}]"
+                else:
+                    skill_summary = f"[Ran task list for {args.get('client_name', 'client')}]"
 
             elif skill_id == "clickup_task_create":
                 await deps.handle_create_task_fn(

@@ -50,16 +50,16 @@ def _should_block_deterministic_intent(intent: str) -> bool:
     return _is_llm_strict_mode() and not _is_deterministic_control_intent(intent)
 
 
-# Patterns that indicate a weekly task list query.
+# Patterns that indicate a task list query.
 # Captures an optional trailing client name after "for <client>".
-_WEEKLY_TASK_PATTERNS: list[re.Pattern[str]] = [
+_TASK_LIST_PATTERNS: list[re.Pattern[str]] = [
     re.compile(
         r"(?:what(?:'s| is) being worked on|what(?:'s| are) the tasks|"
         r"show (?:me )?tasks|list tasks|weekly tasks|this week(?:'s)? tasks)"
-        r"(?:\s+(?:this week\s*)?(?:for\s+(.+))?)?$"
+        r"(?:\s+(?:this week|this month|last\s+\d+\s+days)?\s*(?:for\s+(.+))?)?$"
     ),
     re.compile(
-        r"tasks?\s+(?:this week\s+)?for\s+(.+?)(?:\s+this week)?$"
+        r"tasks?\s+(?:(?:this week|this month|last\s+\d+\s+days)\s+)?for\s+(.+?)(?:\s+(?:this week|this month|last\s+\d+\s+days))?$"
     ),
 ]
 
@@ -114,6 +114,50 @@ _CONFIRM_DRAFT_PATTERNS: list[re.Pattern[str]] = [
 ]
 
 
+def _task_list_params_from_text(original_text: str) -> dict[str, Any] | None:
+    text = " ".join((original_text or "").strip().split())
+    lower_text = text.lower()
+
+    matched = False
+    for pattern in _TASK_LIST_PATTERNS:
+        if pattern.search(lower_text):
+            matched = True
+            break
+    if not matched:
+        return None
+
+    window = ""
+    window_days: int | None = None
+
+    if "this month" in lower_text:
+        window = "this_month"
+    else:
+        last_days_match = re.search(r"\blast\s+(\d{1,3})\s+days\b", lower_text)
+        if last_days_match:
+            parsed_days = int(last_days_match.group(1))
+            if 1 <= parsed_days <= 365:
+                window = "last_n_days"
+                window_days = parsed_days
+
+    client_name = ""
+    for_match = re.search(r"\bfor\s+(.+)$", text, re.IGNORECASE)
+    if for_match:
+        client_name = _sanitize_client_name_hint(for_match.group(1))
+        client_name = re.sub(
+            r"\s+(?:this week|this month|last\s+\d+\s+days)$",
+            "",
+            client_name,
+            flags=re.IGNORECASE,
+        ).strip()
+
+    params: dict[str, Any] = {"client_name": client_name}
+    if window:
+        params["window"] = window
+    if window_days is not None:
+        params["window_days"] = window_days
+    return params
+
+
 def _classify_message(text: str) -> tuple[str, dict[str, Any]]:
     original = " ".join((text or "").strip().split())
     t = original.lower()
@@ -139,12 +183,10 @@ def _classify_message(text: str) -> tuple[str, dict[str, Any]]:
         task_title = original[title_start:].strip() if title_start >= 0 else ""
         return ("create_task", {"client_name": client_hint, "task_title": task_title})
 
-    # Weekly task list queries
-    for pattern in _WEEKLY_TASK_PATTERNS:
-        m = pattern.search(t)
-        if m:
-            client_name = _sanitize_client_name_hint((m.group(1) or "")) if m.lastindex else ""
-            return ("weekly_tasks", {"client_name": client_name})
+    # Task list queries (weekly default, optional custom windows).
+    task_list_params = _task_list_params_from_text(original)
+    if task_list_params is not None:
+        return ("weekly_tasks", task_list_params)
 
     # Confirm draft creation (only meaningful when pending state exists in session)
     for pattern in _CONFIRM_DRAFT_PATTERNS:
@@ -253,6 +295,8 @@ def _help_text() -> str:
         "I can help with ClickUp tasks, weekly status, and SOP-based work.\n\n"
         "Ask naturally, for example:\n"
         "- What's being worked on this week for Distex?\n"
+        "- Show tasks for Distex this month\n"
+        "- Show tasks for Distex last 14 days\n"
         "- Create a task for Distex: Set up 20% coupon for Thorinox\n"
         "- Switch to Revant\n"
         "- Show me clients / list brands / brands missing clickup mapping\n"
@@ -270,6 +314,54 @@ def _current_week_range_ms() -> tuple[int, int]:
     start = monday.replace(hour=0, minute=0, second=0, microsecond=0)
     end = start + timedelta(days=7)
     return int(start.timestamp() * 1000), int(end.timestamp() * 1000)
+
+
+def _current_month_range_ms() -> tuple[int, int]:
+    """Return (start_ms, end_ms) for current calendar month in UTC."""
+    now = datetime.now(timezone.utc)
+    start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    if start.month == 12:
+        end = start.replace(year=start.year + 1, month=1)
+    else:
+        end = start.replace(month=start.month + 1)
+    return int(start.timestamp() * 1000), int(end.timestamp() * 1000)
+
+
+def _last_n_days_range_ms(days: int) -> tuple[int, int]:
+    """Return (start_ms, end_ms) for trailing N-day window ending now."""
+    bounded_days = max(1, min(int(days), 365))
+    end = datetime.now(timezone.utc)
+    start = end - timedelta(days=bounded_days)
+    return int(start.timestamp() * 1000), int(end.timestamp() * 1000)
+
+
+def _resolve_task_range(
+    *,
+    window: str = "",
+    window_days: int | None = None,
+    date_from: str = "",
+    date_to: str = "",
+) -> tuple[int, int, str]:
+    """Resolve query window into (start_ms, end_ms, display_label)."""
+    if window == "this_month":
+        start_ms, end_ms = _current_month_range_ms()
+        return start_ms, end_ms, "this month"
+    if window == "last_n_days":
+        try:
+            days = int(window_days or 14)
+        except (TypeError, ValueError):
+            days = 14
+        start_ms, end_ms = _last_n_days_range_ms(days)
+        return start_ms, end_ms, f"last {days} days"
+    if date_from and date_to:
+        try:
+            start = datetime.strptime(date_from, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            end = datetime.strptime(date_to, "%Y-%m-%d").replace(tzinfo=timezone.utc) + timedelta(days=1)
+            return int(start.timestamp() * 1000), int(end.timestamp() * 1000), f"{date_from} to {date_to}"
+        except ValueError:
+            pass
+    start_ms, end_ms = _current_week_range_ms()
+    return start_ms, end_ms, "this week"
 
 
 def _format_task_line(task: dict[str, Any]) -> str:
@@ -303,11 +395,31 @@ def _format_weekly_tasks_response(
     total_fetched: int,
     brand_names: list[str],
 ) -> str:
+    return _format_task_list_response(
+        client_name=client_name,
+        tasks=tasks,
+        total_fetched=total_fetched,
+        brand_names=brand_names,
+        range_label="this week",
+    )
+
+
+def _format_task_list_response(
+    *,
+    client_name: str,
+    tasks: list[dict[str, Any]],
+    total_fetched: int,
+    brand_names: list[str],
+    range_label: str,
+) -> str:
     if not tasks:
         brands = ", ".join(brand_names) if brand_names else "no brands"
-        return f"No tasks found this week for *{client_name}* (checked: {brands})."
+        return f"No tasks found for *{client_name}* ({range_label}; checked: {brands})."
 
-    header = f"*Tasks this week for {client_name}* ({len(tasks)} task{'s' if len(tasks) != 1 else ''}):\n"
+    header = (
+        f"*Tasks for {client_name}* ({range_label}, "
+        f"{len(tasks)} task{'s' if len(tasks) != 1 else ''}):\n"
+    )
     lines = [_format_task_line(t) for t in tasks[:_WEEKLY_TASK_CAP]]
     body = "\n".join(lines)
 

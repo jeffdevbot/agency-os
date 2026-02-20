@@ -35,6 +35,7 @@ _MUTATION_SKILLS = frozenset({
     "cc_brand_update",
 })
 _READ_SKILLS = frozenset({
+    "clickup_task_list",
     "clickup_task_list_weekly",
     "cc_client_lookup",
     "cc_brand_list_all",
@@ -192,7 +193,7 @@ def evaluate_skill_policy(
     - Unknown surface → deny
     - Unknown skill_id → deny
     - Mutation skills (clickup_task_create): DM only
-    - Read skills (clickup_task_list_weekly): DM only (v1)
+    - Read skills (clickup_task_list/clickup_task_list_weekly): DM only (v1)
     - Viewer role → deny mutations, allow reads
     """
     meta: dict[str, Any] = {

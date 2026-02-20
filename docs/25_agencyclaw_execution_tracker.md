@@ -1,6 +1,6 @@
 # AgencyClaw Execution Tracker
 
-Last updated: 2026-02-20 (C15C control-reroute hardening + planner runtime extraction landed)
+Last updated: 2026-02-20 (C16A flexible task-list generalization + extraction landed)
 
 ## 1. Baseline Status
 - [x] PRD updated to v1.19 (`docs/23_agencyclaw_prd.md`)
@@ -54,7 +54,8 @@ Last updated: 2026-02-20 (C15C control-reroute hardening + planner runtime extra
 | C14X | Slack runtime unit-test hardening + baseline failure fixes | Codex | done | merged (`046b028`) | Added unit suites for extracted runtime helpers (`slack_helpers`, `slack_pending_flow`, `slack_cc_dispatch`) and fixed three pre-existing backend failures (`ngram`, `root`, `str_parser_spend`) to restore full-suite green baseline. |
 | C15A | Orchestrator-first planner delegation | Codex | done | merged (`79f820f`) | Removed planner-first DM pass. Pending continuation now goes directly to orchestrator first; planner executes only on explicit orchestrator `plan_request`, using existing planner policy + handler rails. |
 | C15B | `plan_request` resilience + planner coverage expansion | Codex | done | merged (`8f80ab8`) | Added graceful `plan_request` fallback when planner is unavailable/fails (control-intent reroute or conversational narrowing prompt) and expanded planner allowlist to include safe Command Center skills via policy-gated `execute_plan` rails. |
-| C15C | Control-intent reroute hardening + planner runtime extraction | Codex | done | pending commit | Added integration coverage for control-intent reroute during `plan_request` planner-unavailable fallback, and extracted `_try_planner` into `slack_planner_runtime.py` with typed deps + wrapper delegation while preserving behavior. |
+| C15C | Control-intent reroute hardening + planner runtime extraction | Codex | done | merged (`faa9eb6`) | Added integration coverage for control-intent reroute during `plan_request` planner-unavailable fallback, and extracted `_try_planner` into `slack_planner_runtime.py` with typed deps + wrapper delegation while preserving behavior. |
+| C16A | Flexible task listing + weekly compatibility alias | Codex | done | pending commit | Added canonical read skill `clickup_task_list` with `clickup_task_list_weekly` compatibility alias; generalized task-list windows (week default, month, last N days, optional explicit dates) and extracted task-list runtime into `slack_task_list_runtime.py` with stable wrappers. |
 
 ## 3. Open Blockers
 - [x] Confirm migration `20260217000006_clickup_space_skill_seed.sql` is applied.
@@ -167,6 +168,11 @@ Last updated: 2026-02-20 (C15C control-reroute hardening + planner runtime extra
 - C15C runtime extraction: moved `_try_planner` logic from `backend-core/app/api/routes/slack.py` into `backend-core/app/services/agencyclaw/slack_planner_runtime.py` with `SlackPlannerRuntimeDeps` injection, preserving feature-flag gating, best-effort KB context retrieval, explicit planner handler allowlist (including C15B CC skills), policy gating via `execute_plan`, and recent-exchange persistence.
 - C15C validation: `backend-core/tests/test_c9b_integration.py` (41 passed, 1 warning), `backend-core/tests/test_slack_orchestrator.py` (27 passed), `backend-core/tests/test_weekly_tasks.py` (37 passed, 1 warning), full suite `906 passed, 0 failed, 1 warning`.
 - C15C residual risk: planner runtime now uses a larger injected dependency surface; behavior parity is validated by tests, but future wrapper/runtime dependency drift remains an ongoing maintenance risk.
+- C16A generalization: introduced canonical `clickup_task_list` skill and retained `clickup_task_list_weekly` as compatibility alias. Task-list handling now supports optional windows (`this_week` default, `this_month`, `last_n_days`) and optional explicit dates (`date_from`/`date_to`), with dynamic response range text.
+- C16A extraction: moved task-list execution logic out of `slack.py` into `backend-core/app/services/agencyclaw/slack_task_list_runtime.py`; kept `slack.py` wrappers stable via `_handle_task_list` and compatibility `_handle_weekly_tasks`.
+- C16A compatibility wiring: orchestrator, deterministic DM path, planner handler allowlist, policy gate, and plan executor now support canonical `clickup_task_list` while preserving legacy `clickup_task_list_weekly` behavior.
+- C16A validation: `backend-core/tests/test_weekly_tasks.py` + `backend-core/tests/test_c9b_integration.py` + `backend-core/tests/test_slack_orchestrator.py` (`112 passed, 1 warning`), full suite `913 passed, 0 failed, 1 warning`.
+- C16A residual risk: classifier still returns legacy deterministic intent label `weekly_tasks` for compatibility; runtime behavior is generalized, but intent label naming debt remains until a follow-up intent rename cleanup chunk.
 
 ## 4. Validation Checklist (Per Chunk)
 - [ ] Behavior works in Slack runtime path.

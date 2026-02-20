@@ -87,12 +87,12 @@ async def handle_dm_event_runtime(
             )
             return
 
-        if intent == "weekly_tasks":
+        if intent in ("weekly_tasks", "task_list"):
             policy = await deps.check_skill_policy_fn(
                 slack_user_id=slack_user_id,
                 session=session,
                 channel=channel,
-                skill_id="clickup_task_list_weekly",
+                skill_id="clickup_task_list",
             )
             if not policy["allowed"]:
                 await slack.post_message(channel=channel, text=policy["user_message"])
@@ -102,6 +102,10 @@ async def handle_dm_event_runtime(
                 slack_user_id=slack_user_id,
                 channel=channel,
                 client_name_hint=str(params.get("client_name") or ""),
+                window=str(params.get("window") or ""),
+                window_days=params.get("window_days"),
+                date_from=str(params.get("date_from") or ""),
+                date_to=str(params.get("date_to") or ""),
                 session_service=session_service,
                 slack=slack,
             )

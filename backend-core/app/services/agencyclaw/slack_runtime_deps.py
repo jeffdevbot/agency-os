@@ -86,6 +86,17 @@ class SlackPlannerRuntimeDeps:
 
 
 @dataclass(frozen=True)
+class SlackTaskListRuntimeDeps:
+    get_clickup_service_fn: Callable[[], Any]
+    clickup_configuration_error_cls: type[Exception]
+    clickup_error_cls: type[Exception]
+    build_client_picker_blocks_fn: Callable[[list[dict[str, Any]]], list[dict[str, Any]]]
+    resolve_task_range_fn: Callable[..., tuple[int, int, str]]
+    format_task_list_response_fn: Callable[..., str]
+    task_cap: int
+
+
+@dataclass(frozen=True)
 class SlackTaskRuntimeDeps:
     inflight_lock: asyncio.Lock
     inflight_set: set[str]

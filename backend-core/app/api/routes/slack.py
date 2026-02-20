@@ -72,11 +72,15 @@ from ...services.agencyclaw.slack_task_runtime import (
     execute_task_create_runtime as _runtime_execute_task_create,
     handle_create_task_runtime as _runtime_handle_create_task,
 )
+from ...services.agencyclaw.slack_task_list_runtime import (
+    handle_task_list_runtime as _runtime_handle_task_list,
+)
 from ...services.agencyclaw.slack_runtime_deps import (
     SlackDMRuntimeDeps,
     SlackInteractionRuntimeDeps,
     SlackOrchestratorRuntimeDeps,
     SlackPlannerRuntimeDeps,
+    SlackTaskListRuntimeDeps,
     SlackTaskRuntimeDeps,
 )
 from ...services.agencyclaw.plan_executor import execute_plan
@@ -92,12 +96,14 @@ from ...services.agencyclaw.slack_helpers import (
     _classify_message,
     _current_week_range_ms,
     _extract_product_identifiers,
+    _format_task_list_response,
     _format_task_line,
     _format_weekly_tasks_response,
     _help_text,
     _is_deterministic_control_intent as _helpers_is_deterministic_control_intent,
     _is_legacy_intent_fallback_enabled as _helpers_is_legacy_intent_fallback_enabled,
     _is_llm_orchestrator_enabled as _helpers_is_llm_orchestrator_enabled,
+    _resolve_task_range,
     _sanitize_client_name_hint,
 )
 from ...services.agencyclaw.clickup_reliability import (
@@ -239,6 +245,44 @@ def _build_brand_picker_blocks(
     return blocks
 
 
+def _build_task_list_runtime_deps() -> SlackTaskListRuntimeDeps:
+    return SlackTaskListRuntimeDeps(
+        get_clickup_service_fn=get_clickup_service,
+        clickup_configuration_error_cls=ClickUpConfigurationError,
+        clickup_error_cls=ClickUpError,
+        build_client_picker_blocks_fn=_build_client_picker_blocks,
+        resolve_task_range_fn=_resolve_task_range,
+        format_task_list_response_fn=_format_task_list_response,
+        task_cap=_WEEKLY_TASK_CAP,
+    )
+
+
+async def _handle_task_list(
+    *,
+    slack_user_id: str,
+    channel: str,
+    client_name_hint: str,
+    session_service: Any,
+    slack: Any,
+    window: str = "",
+    window_days: Any = None,
+    date_from: str = "",
+    date_to: str = "",
+) -> None:
+    await _runtime_handle_task_list(
+        slack_user_id=slack_user_id,
+        channel=channel,
+        client_name_hint=client_name_hint,
+        session_service=session_service,
+        slack=slack,
+        window=window,
+        window_days=window_days,
+        date_from=date_from,
+        date_to=date_to,
+        deps=_build_task_list_runtime_deps(),
+    )
+
+
 async def _handle_weekly_tasks(
     *,
     slack_user_id: str,
@@ -246,132 +290,23 @@ async def _handle_weekly_tasks(
     client_name_hint: str,
     session_service: Any,
     slack: Any,
+    window: str = "",
+    window_days: Any = None,
+    date_from: str = "",
+    date_to: str = "",
 ) -> None:
-    """Handle 'weekly tasks for <client>' intent."""
-    session = await asyncio.to_thread(session_service.get_or_create_session, slack_user_id)
-
-    # --- Resolve client ---
-    client_id: str | None = None
-    client_name: str = ""
-
-    if client_name_hint:
-        matches = await asyncio.to_thread(
-            session_service.find_client_matches, session.profile_id, client_name_hint
-        )
-        if not matches:
-            await slack.post_message(
-                channel=channel,
-                text=f"I couldn't find a client matching *{client_name_hint}*.",
-            )
-            return
-        if len(matches) > 1:
-            blocks = _build_client_picker_blocks(matches)
-            await slack.post_message(
-                channel=channel,
-                text=f"Multiple clients match *{client_name_hint}*. Pick one and ask again:",
-                blocks=blocks,
-            )
-            return
-        client_id = str(matches[0].get("id") or "")
-        client_name = str(matches[0].get("name") or client_name_hint)
-    elif session.active_client_id:
-        client_id = session.active_client_id
-        client_name = await asyncio.to_thread(session_service.get_client_name, client_id) or "Client"
-    else:
-        clients = await asyncio.to_thread(session_service.list_clients_for_picker, session.profile_id)
-        if clients:
-            blocks = _build_client_picker_blocks(clients)
-            await slack.post_message(
-                channel=channel,
-                text="Which client? Pick one and ask again:",
-                blocks=blocks,
-            )
-        else:
-            await slack.post_message(
-                channel=channel,
-                text="I couldn't find any clients. Ask an admin to assign you.",
-            )
-        return
-
-    if not client_id:
-        await slack.post_message(channel=channel, text="Could not resolve client.")
-        return
-
-    # --- Resolve brand destinations ---
-    destinations = await asyncio.to_thread(
-        session_service.get_all_brand_destinations_for_client, client_id
+    """Compatibility wrapper for legacy weekly handler call sites."""
+    await _handle_task_list(
+        slack_user_id=slack_user_id,
+        channel=channel,
+        client_name_hint=client_name_hint,
+        session_service=session_service,
+        slack=slack,
+        window=window or "this_week",
+        window_days=window_days,
+        date_from=date_from,
+        date_to=date_to,
     )
-    if not destinations:
-        await slack.post_message(
-            channel=channel,
-            text=f"No brands with ClickUp mapping found for *{client_name}*. Ask an admin to configure brand destinations.",
-        )
-        return
-
-    # --- Fetch tasks from ClickUp ---
-    start_ms, end_ms = _current_week_range_ms()
-    clickup = None
-    all_tasks: list[dict[str, Any]] = []
-    brand_names: list[str] = []
-
-    try:
-        clickup = get_clickup_service()
-
-        for dest in destinations:
-            list_id = dest.get("clickup_list_id")
-            space_id = dest.get("clickup_space_id")
-            brand_names.append(str(dest.get("name") or "Unknown"))
-
-            if list_id:
-                target_list_id = str(list_id)
-            elif space_id:
-                try:
-                    target_list_id = await clickup.resolve_default_list_id(str(space_id))
-                except (ClickUpConfigurationError, ClickUpError):
-                    continue
-            else:
-                continue
-
-            try:
-                tasks = await clickup.get_tasks_in_list_all_pages(
-                    target_list_id,
-                    date_updated_gt=start_ms,
-                    date_updated_lt=end_ms,
-                    include_closed=False,
-                    max_tasks=_WEEKLY_TASK_CAP + 1,
-                )
-                all_tasks.extend(tasks)
-            except ClickUpError:
-                # If one brand list fails, continue with others.
-                continue
-
-    except (ClickUpConfigurationError, ClickUpError) as exc:
-        await slack.post_message(
-            channel=channel,
-            text=f"Failed to fetch tasks from ClickUp: {exc}",
-        )
-        return
-    finally:
-        if clickup:
-            await clickup.aclose()
-
-    # Deduplicate tasks by ClickUp task id
-    seen_ids: set[str] = set()
-    unique_tasks: list[dict[str, Any]] = []
-    for t in all_tasks:
-        tid = str(t.get("id") or "")
-        if tid and tid not in seen_ids:
-            seen_ids.add(tid)
-            unique_tasks.append(t)
-
-    total_fetched = len(unique_tasks)
-    response_text = _format_weekly_tasks_response(
-        client_name=client_name,
-        tasks=unique_tasks,
-        total_fetched=total_fetched,
-        brand_names=brand_names,
-    )
-    await slack.post_message(channel=channel, text=response_text)
 
 
 async def _resolve_client_for_task(

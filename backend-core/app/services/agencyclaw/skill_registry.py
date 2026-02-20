@@ -17,13 +17,63 @@ class SkillSchema(TypedDict):
 
 
 SKILL_SCHEMAS: dict[str, SkillSchema] = {
-    "clickup_task_list_weekly": {
-        "description": "List ClickUp tasks updated this week for a client.",
+    "clickup_task_list": {
+        "description": "List ClickUp tasks for a client with an optional time window.",
         "args": {
             "client_name": {
                 "type": "string",
                 "required": False,
                 "description": "Client name hint (fuzzy match). Omit to use active client.",
+            },
+            "window": {
+                "type": "string",
+                "required": False,
+                "description": "Optional preset window: this_week (default), this_month, last_n_days.",
+            },
+            "window_days": {
+                "type": "string",
+                "required": False,
+                "description": "Day count used when window is last_n_days (for example 14).",
+            },
+            "date_from": {
+                "type": "string",
+                "required": False,
+                "description": "Explicit start date in YYYY-MM-DD.",
+            },
+            "date_to": {
+                "type": "string",
+                "required": False,
+                "description": "Explicit end date in YYYY-MM-DD.",
+            },
+        },
+    },
+    "clickup_task_list_weekly": {
+        "description": "Compatibility alias for clickup_task_list; defaults to this_week when window omitted.",
+        "args": {
+            "client_name": {
+                "type": "string",
+                "required": False,
+                "description": "Client name hint (fuzzy match). Omit to use active client.",
+            },
+            "window": {
+                "type": "string",
+                "required": False,
+                "description": "Optional preset window: this_week (default), this_month, last_n_days.",
+            },
+            "window_days": {
+                "type": "string",
+                "required": False,
+                "description": "Day count used when window is last_n_days (for example 14).",
+            },
+            "date_from": {
+                "type": "string",
+                "required": False,
+                "description": "Explicit start date in YYYY-MM-DD.",
+            },
+            "date_to": {
+                "type": "string",
+                "required": False,
+                "description": "Explicit end date in YYYY-MM-DD.",
             },
         },
     },
@@ -273,4 +323,3 @@ def get_skill_descriptions_for_prompt() -> str:
             lines.append(f"  - {arg_name} ({arg_def['type']}, {req}): {arg_def['description']}")
         lines.append("")
     return "\n".join(lines)
-
