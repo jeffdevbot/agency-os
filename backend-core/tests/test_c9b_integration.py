@@ -385,6 +385,31 @@ class TestOrchestratorPlannerDelegation:
         assert "not sure what to do" not in sent_text.lower()
 
     @pytest.mark.asyncio
+    async def test_plan_request_planner_unavailable_reroutes_control_intent(self):
+        svc, slack = _make_mocks()
+        result = _make_orchestrator_result(
+            mode="plan_request",
+            args={"request_text": "switch to Distex"},
+            skill_id=None,
+        )
+
+        with (
+            patch("app.api.routes.slack._is_llm_orchestrator_enabled", return_value=True),
+            patch("app.api.routes.slack._is_legacy_intent_fallback_enabled", return_value=False),
+            patch("app.api.routes.slack.get_playbook_session_service", return_value=svc),
+            patch("app.api.routes.slack.get_slack_service", return_value=slack),
+            patch("app.api.routes.slack.orchestrate_dm_message", new_callable=AsyncMock, return_value=result),
+            patch("app.api.routes.slack._try_planner", new_callable=AsyncMock, return_value=False),
+            patch("app.api.routes.slack.log_ai_token_usage", new_callable=AsyncMock),
+        ):
+            await _handle_dm_event(slack_user_id="U123", channel="C1", text="switch to Distex")
+
+        svc.set_active_client.assert_called_once()
+        sent_text = slack.post_message.call_args_list[0].kwargs.get("text", "")
+        assert "working on" in sent_text.lower()
+        assert "couldn't run planning" not in sent_text.lower()
+
+    @pytest.mark.asyncio
     async def test_planner_uses_existing_skill_rails(self):
         svc, slack = _make_mocks()
         session = svc.get_or_create_session.return_value

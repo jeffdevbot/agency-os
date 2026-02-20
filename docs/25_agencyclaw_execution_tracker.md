@@ -1,6 +1,6 @@
 # AgencyClaw Execution Tracker
 
-Last updated: 2026-02-20 (C15B plan_request resilience + planner coverage expansion landed)
+Last updated: 2026-02-20 (C15C control-reroute hardening + planner runtime extraction landed)
 
 ## 1. Baseline Status
 - [x] PRD updated to v1.19 (`docs/23_agencyclaw_prd.md`)
@@ -53,7 +53,8 @@ Last updated: 2026-02-20 (C15B plan_request resilience + planner coverage expans
 | C14I | Runtime dependency contract hardening | Codex | done | merged (`ce86540`) | Introduced typed runtime dependency containers (`slack_runtime_deps.py`) and switched runtime modules/wrappers to pass a single deps object per runtime to reduce signature drift risk without behavior changes. |
 | C14X | Slack runtime unit-test hardening + baseline failure fixes | Codex | done | merged (`046b028`) | Added unit suites for extracted runtime helpers (`slack_helpers`, `slack_pending_flow`, `slack_cc_dispatch`) and fixed three pre-existing backend failures (`ngram`, `root`, `str_parser_spend`) to restore full-suite green baseline. |
 | C15A | Orchestrator-first planner delegation | Codex | done | merged (`79f820f`) | Removed planner-first DM pass. Pending continuation now goes directly to orchestrator first; planner executes only on explicit orchestrator `plan_request`, using existing planner policy + handler rails. |
-| C15B | `plan_request` resilience + planner coverage expansion | Codex | done | pending commit | Added graceful `plan_request` fallback when planner is unavailable/fails (control-intent reroute or conversational narrowing prompt) and expanded planner allowlist to include safe Command Center skills via policy-gated `execute_plan` rails. |
+| C15B | `plan_request` resilience + planner coverage expansion | Codex | done | merged (`8f80ab8`) | Added graceful `plan_request` fallback when planner is unavailable/fails (control-intent reroute or conversational narrowing prompt) and expanded planner allowlist to include safe Command Center skills via policy-gated `execute_plan` rails. |
+| C15C | Control-intent reroute hardening + planner runtime extraction | Codex | done | pending commit | Added integration coverage for control-intent reroute during `plan_request` planner-unavailable fallback, and extracted `_try_planner` into `slack_planner_runtime.py` with typed deps + wrapper delegation while preserving behavior. |
 
 ## 3. Open Blockers
 - [x] Confirm migration `20260217000006_clickup_space_skill_seed.sql` is applied.
@@ -162,6 +163,10 @@ Last updated: 2026-02-20 (C15B plan_request resilience + planner coverage expans
 - C15B resilience/coverage expansion: when `plan_request` cannot run planner (disabled/False/error), runtime now attempts deterministic-safe reroute for control intents, else sends conversational narrowing clarification (not command menu). Planner handler allowlist now includes safe Command Center skills and remains policy-gated through `execute_plan`.
 - C15B validation: `backend-core/tests/test_slack_orchestrator.py` (27 passed), `backend-core/tests/test_c9b_integration.py` (40 passed, 1 warning), `backend-core/tests/test_c11a_command_center_integration.py` (36 passed, 1 warning), full suite `905 passed, 0 failed, 1 warning`.
 - C15B residual risk: Command Center planner steps now pass full `plan_args` for `cc_*`, but outcome quality still depends on planner emitting complete/valid args for mutation skills.
+- C15C test hardening: added integration coverage for `plan_request` fallback where planner is unavailable and the original message is a deterministic control intent; runtime reroutes to deterministic control handling (for example `switch_client`) instead of sending conversational narrowing prompt.
+- C15C runtime extraction: moved `_try_planner` logic from `backend-core/app/api/routes/slack.py` into `backend-core/app/services/agencyclaw/slack_planner_runtime.py` with `SlackPlannerRuntimeDeps` injection, preserving feature-flag gating, best-effort KB context retrieval, explicit planner handler allowlist (including C15B CC skills), policy gating via `execute_plan`, and recent-exchange persistence.
+- C15C validation: `backend-core/tests/test_c9b_integration.py` (41 passed, 1 warning), `backend-core/tests/test_slack_orchestrator.py` (27 passed), `backend-core/tests/test_weekly_tasks.py` (37 passed, 1 warning), full suite `906 passed, 0 failed, 1 warning`.
+- C15C residual risk: planner runtime now uses a larger injected dependency surface; behavior parity is validated by tests, but future wrapper/runtime dependency drift remains an ongoing maintenance risk.
 
 ## 4. Validation Checklist (Per Chunk)
 - [ ] Behavior works in Slack runtime path.

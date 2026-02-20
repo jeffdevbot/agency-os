@@ -70,6 +70,22 @@ class SlackInteractionRuntimeDeps:
 
 
 @dataclass(frozen=True)
+class SlackPlannerRuntimeDeps:
+    logger: Logger
+    is_planner_enabled_fn: Callable[[], bool]
+    get_supabase_admin_client_fn: Callable[[], Any]
+    retrieve_kb_context_fn: Callable[..., Awaitable[dict[str, Any]]]
+    generate_plan_fn: Callable[..., Awaitable[dict[str, Any]]]
+    execute_plan_fn: Callable[..., Awaitable[dict[str, Any]]]
+    check_skill_policy_fn: Callable[..., Awaitable[dict[str, Any]]]
+    handle_create_task_fn: Callable[..., Awaitable[None]]
+    handle_weekly_tasks_fn: Callable[..., Awaitable[None]]
+    handle_cc_skill_fn: Callable[..., Awaitable[str]]
+    append_exchange_fn: Callable[[list[dict[str, Any]], str, str], list[dict[str, Any]]]
+    compact_exchanges_fn: Callable[[list[dict[str, Any]]], list[dict[str, Any]]]
+
+
+@dataclass(frozen=True)
 class SlackTaskRuntimeDeps:
     inflight_lock: asyncio.Lock
     inflight_set: set[str]

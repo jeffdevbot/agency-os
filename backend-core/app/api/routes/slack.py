@@ -9,10 +9,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from ...services.agencyclaw import orchestrate_dm_message
-from ...services.agencyclaw.conversation_buffer import (
-    append_exchange,
-    compact_exchanges,
-)
+from ...services.agencyclaw.conversation_buffer import append_exchange, compact_exchanges
 from ...services.agencyclaw.policy_gate import (
     evaluate_skill_policy,
     resolve_actor_context,
@@ -54,11 +51,12 @@ from ...services.agencyclaw.command_center_lookup import (
 )
 from ...services.agencyclaw.grounded_task_draft import build_grounded_task_draft
 from ...services.agencyclaw.kb_retrieval import retrieve_kb_context
-from ...services.agencyclaw.plan_executor import execute_plan
-from ...services.agencyclaw.planner import generate_plan
 from ...services.agencyclaw.slack_pending_flow import (
     compose_asin_pending_description as _pending_flow_compose_asin_pending_description,
     handle_pending_task_continuation as _pending_flow_handle_pending_task_continuation,
+)
+from ...services.agencyclaw.slack_planner_runtime import (
+    try_planner_runtime as _runtime_try_planner,
 )
 from ...services.agencyclaw.slack_orchestrator_runtime import (
     try_llm_orchestrator_runtime as _runtime_try_llm_orchestrator,
@@ -78,8 +76,11 @@ from ...services.agencyclaw.slack_runtime_deps import (
     SlackDMRuntimeDeps,
     SlackInteractionRuntimeDeps,
     SlackOrchestratorRuntimeDeps,
+    SlackPlannerRuntimeDeps,
     SlackTaskRuntimeDeps,
 )
+from ...services.agencyclaw.plan_executor import execute_plan
+from ...services.agencyclaw.planner import generate_plan
 from ...services.agencyclaw.slack_cc_dispatch import (
     format_remediation_apply_result as _cc_format_remediation_apply_result,
     format_remediation_preview as _cc_format_remediation_preview,
@@ -717,116 +718,29 @@ async def _try_planner(
     session_service: Any,
     slack: Any,
 ) -> bool:
-    """C10D: Attempt planner-driven execution.  Returns True if handled."""
-    if not _is_planner_enabled():
-        return False
-
-    try:
-        # Build context
-        client_context_pack = ""
-        if session.active_client_id:
-            client_name = await asyncio.to_thread(
-                session_service.get_client_name, session.active_client_id
-            )
-            client_context_pack = f"Active client: {client_name or 'Unknown'} (id={session.active_client_id})"
-
-        # KB retrieval for planner context (non-fatal)
-        kb_summary = ""
-        try:
-            db = get_supabase_admin_client()
-            retrieval = await retrieve_kb_context(
-                query=text, client_id=str(session.active_client_id or ""), db=db,
-            )
-            if retrieval["sources"]:
-                kb_summary = "\n".join(
-                    f"- [{s['tier']}] {s['title']}: {s['content'][:200]}"
-                    for s in retrieval["sources"][:3]
-                )
-        except Exception:
-            pass
-
-        # Generate plan
-        plan = await generate_plan(
-            text=text,
-            session_context=session.context,
-            client_context_pack=client_context_pack,
-            kb_context_summary=kb_summary,
-        )
-
-        if not plan or not plan["steps"]:
-            return False
-
-        async def _planner_cc_step_handler(
-            *,
-            skill_id: str,
-            client_name_hint: str = "",
-            plan_args: dict[str, Any] | None = None,
-            **_kwargs: Any,
-        ) -> None:
-            args = dict(plan_args or {})
-            if client_name_hint and not args.get("client_name"):
-                args["client_name"] = client_name_hint
-            await _handle_cc_skill(
-                skill_id=skill_id,
-                args=args,
-                session=session,
-                session_service=session_service,
-                channel=channel,
-                slack=slack,
-            )
-
-        # Build handler dispatch map
-        handler_map = {
-            "clickup_task_create": _handle_create_task,
-            "clickup_task_list_weekly": _handle_weekly_tasks,
-            "cc_client_lookup": lambda **kwargs: _planner_cc_step_handler(
-                skill_id="cc_client_lookup", **kwargs,
-            ),
-            "cc_brand_list_all": lambda **kwargs: _planner_cc_step_handler(
-                skill_id="cc_brand_list_all", **kwargs,
-            ),
-            "cc_brand_clickup_mapping_audit": lambda **kwargs: _planner_cc_step_handler(
-                skill_id="cc_brand_clickup_mapping_audit", **kwargs,
-            ),
-            "cc_assignment_upsert": lambda **kwargs: _planner_cc_step_handler(
-                skill_id="cc_assignment_upsert", **kwargs,
-            ),
-            "cc_assignment_remove": lambda **kwargs: _planner_cc_step_handler(
-                skill_id="cc_assignment_remove", **kwargs,
-            ),
-            "cc_brand_create": lambda **kwargs: _planner_cc_step_handler(
-                skill_id="cc_brand_create", **kwargs,
-            ),
-            "cc_brand_update": lambda **kwargs: _planner_cc_step_handler(
-                skill_id="cc_brand_update", **kwargs,
-            ),
-        }
-
-        # Execute plan
-        result = await execute_plan(
-            plan=plan,
-            slack_user_id=slack_user_id,
-            channel=channel,
-            session=session,
-            session_service=session_service,
-            slack=slack,
-            check_policy=_check_skill_policy,
-            handler_map=handler_map,
-        )
-
-        # Persist conversation history
-        summary = f"[Planned: {plan['intent']} — {result['steps_succeeded']}/{result['steps_attempted']} steps]"
-        recent = session.context.get("recent_exchanges") or []
-        updated = append_exchange(recent, text, summary)
-        await asyncio.to_thread(
-            session_service.update_context, session.id,
-            {"recent_exchanges": compact_exchanges(updated)},
-        )
-
-        return True
-    except Exception:
-        _logger.warning("C10D: Planner failed, falling through", exc_info=True)
-        return False
+    planner_deps = SlackPlannerRuntimeDeps(
+        logger=_logger,
+        is_planner_enabled_fn=_is_planner_enabled,
+        get_supabase_admin_client_fn=get_supabase_admin_client,
+        retrieve_kb_context_fn=retrieve_kb_context,
+        generate_plan_fn=generate_plan,
+        execute_plan_fn=execute_plan,
+        check_skill_policy_fn=_check_skill_policy,
+        handle_create_task_fn=_handle_create_task,
+        handle_weekly_tasks_fn=_handle_weekly_tasks,
+        handle_cc_skill_fn=_handle_cc_skill,
+        append_exchange_fn=append_exchange,
+        compact_exchanges_fn=compact_exchanges,
+    )
+    return await _runtime_try_planner(
+        text=text,
+        slack_user_id=slack_user_id,
+        channel=channel,
+        session=session,
+        session_service=session_service,
+        slack=slack,
+        deps=planner_deps,
+    )
 
 
 async def _enrich_task_draft(
