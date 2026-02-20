@@ -1,6 +1,6 @@
 # AgencyClaw Execution Tracker
 
-Last updated: 2026-02-20 (C15A orchestrator-first planner delegation landed)
+Last updated: 2026-02-20 (C15B plan_request resilience + planner coverage expansion landed)
 
 ## 1. Baseline Status
 - [x] PRD updated to v1.19 (`docs/23_agencyclaw_prd.md`)
@@ -52,7 +52,8 @@ Last updated: 2026-02-20 (C15A orchestrator-first planner delegation landed)
 | C14G | Slack task-create runtime extraction | Codex | done | merged (`b85bd63`) | Extracted task-create runtime (`_execute_task_create`, `_handle_create_task`, `_enrich_task_draft`) into `slack_task_runtime.py` with thin wrappers/dependency injection in `slack.py`; task-create semantics preserved. |
 | C14I | Runtime dependency contract hardening | Codex | done | merged (`ce86540`) | Introduced typed runtime dependency containers (`slack_runtime_deps.py`) and switched runtime modules/wrappers to pass a single deps object per runtime to reduce signature drift risk without behavior changes. |
 | C14X | Slack runtime unit-test hardening + baseline failure fixes | Codex | done | merged (`046b028`) | Added unit suites for extracted runtime helpers (`slack_helpers`, `slack_pending_flow`, `slack_cc_dispatch`) and fixed three pre-existing backend failures (`ngram`, `root`, `str_parser_spend`) to restore full-suite green baseline. |
-| C15A | Orchestrator-first planner delegation | Codex | done | pending commit | Removed planner-first DM pass. Pending continuation now goes directly to orchestrator first; planner executes only on explicit orchestrator `plan_request`, using existing planner policy + handler rails. |
+| C15A | Orchestrator-first planner delegation | Codex | done | merged (`79f820f`) | Removed planner-first DM pass. Pending continuation now goes directly to orchestrator first; planner executes only on explicit orchestrator `plan_request`, using existing planner policy + handler rails. |
+| C15B | `plan_request` resilience + planner coverage expansion | Codex | done | pending commit | Added graceful `plan_request` fallback when planner is unavailable/fails (control-intent reroute or conversational narrowing prompt) and expanded planner allowlist to include safe Command Center skills via policy-gated `execute_plan` rails. |
 
 ## 3. Open Blockers
 - [x] Confirm migration `20260217000006_clickup_space_skill_seed.sql` is applied.
@@ -158,7 +159,9 @@ Last updated: 2026-02-20 (C15A orchestrator-first planner delegation landed)
 - C14G decomposition (phase 1): extracted task-create runtime (`_execute_task_create`, `_handle_create_task`, `_enrich_task_draft`) into `backend-core/app/services/agencyclaw/slack_task_runtime.py` with thin wrapper/dependency-injection bridges in `slack.py`; task-create behavior preserved in targeted suites.
 - C14I hardening: added typed dependency containers in `backend-core/app/services/agencyclaw/slack_runtime_deps.py` and migrated extracted runtimes (`slack_orchestrator_runtime.py`, `slack_dm_runtime.py`, `slack_interaction_runtime.py`, `slack_task_runtime.py`) plus `slack.py` wrappers to single-object dependency wiring; no behavior changes expected.
 - C15A orchestrator-first delegation: removed standalone planner-first DM execution. Planner is now invoked only when orchestrator emits explicit `plan_request`, and planner output continues through existing `execute_plan` rails (`handler_map` + `check_policy`) with strict LLM fallback behavior unchanged.
-- Full backend validation is currently green: `898 passed, 0 failed, 1 warning` (`pytest -q backend-core`).
+- C15B resilience/coverage expansion: when `plan_request` cannot run planner (disabled/False/error), runtime now attempts deterministic-safe reroute for control intents, else sends conversational narrowing clarification (not command menu). Planner handler allowlist now includes safe Command Center skills and remains policy-gated through `execute_plan`.
+- C15B validation: `backend-core/tests/test_slack_orchestrator.py` (27 passed), `backend-core/tests/test_c9b_integration.py` (40 passed, 1 warning), `backend-core/tests/test_c11a_command_center_integration.py` (36 passed, 1 warning), full suite `905 passed, 0 failed, 1 warning`.
+- C15B residual risk: Command Center planner steps now pass full `plan_args` for `cc_*`, but outcome quality still depends on planner emitting complete/valid args for mutation skills.
 
 ## 4. Validation Checklist (Per Chunk)
 - [ ] Behavior works in Slack runtime path.

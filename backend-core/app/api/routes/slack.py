@@ -756,10 +756,50 @@ async def _try_planner(
         if not plan or not plan["steps"]:
             return False
 
+        async def _planner_cc_step_handler(
+            *,
+            skill_id: str,
+            client_name_hint: str = "",
+            plan_args: dict[str, Any] | None = None,
+            **_kwargs: Any,
+        ) -> None:
+            args = dict(plan_args or {})
+            if client_name_hint and not args.get("client_name"):
+                args["client_name"] = client_name_hint
+            await _handle_cc_skill(
+                skill_id=skill_id,
+                args=args,
+                session=session,
+                session_service=session_service,
+                channel=channel,
+                slack=slack,
+            )
+
         # Build handler dispatch map
         handler_map = {
             "clickup_task_create": _handle_create_task,
             "clickup_task_list_weekly": _handle_weekly_tasks,
+            "cc_client_lookup": lambda **kwargs: _planner_cc_step_handler(
+                skill_id="cc_client_lookup", **kwargs,
+            ),
+            "cc_brand_list_all": lambda **kwargs: _planner_cc_step_handler(
+                skill_id="cc_brand_list_all", **kwargs,
+            ),
+            "cc_brand_clickup_mapping_audit": lambda **kwargs: _planner_cc_step_handler(
+                skill_id="cc_brand_clickup_mapping_audit", **kwargs,
+            ),
+            "cc_assignment_upsert": lambda **kwargs: _planner_cc_step_handler(
+                skill_id="cc_assignment_upsert", **kwargs,
+            ),
+            "cc_assignment_remove": lambda **kwargs: _planner_cc_step_handler(
+                skill_id="cc_assignment_remove", **kwargs,
+            ),
+            "cc_brand_create": lambda **kwargs: _planner_cc_step_handler(
+                skill_id="cc_brand_create", **kwargs,
+            ),
+            "cc_brand_update": lambda **kwargs: _planner_cc_step_handler(
+                skill_id="cc_brand_update", **kwargs,
+            ),
         }
 
         # Execute plan
@@ -871,6 +911,8 @@ async def _try_llm_orchestrator(
         resolve_brand_for_task_fn=_resolve_brand_for_task,
         preference_memory_service_factory=PreferenceMemoryService,
         try_planner_fn=_try_planner,
+        classify_message_fn=_classify_message,
+        is_deterministic_control_intent_fn=_is_deterministic_control_intent,
     )
     return await _runtime_try_llm_orchestrator(
         text=text,

@@ -253,14 +253,41 @@ async def try_llm_orchestrator_runtime(
                 if delegated_text:
                     planner_text = delegated_text
 
-            return await deps.try_planner_fn(
-                text=planner_text,
-                slack_user_id=slack_user_id,
-                channel=channel,
-                session=session,
-                session_service=session_service,
-                slack=slack,
+            try:
+                planned = await deps.try_planner_fn(
+                    text=planner_text,
+                    slack_user_id=slack_user_id,
+                    channel=channel,
+                    session=session,
+                    session_service=session_service,
+                    slack=slack,
+                )
+            except Exception as exc:  # noqa: BLE001
+                deps.logger.warning("Planner delegation failed: %s", exc)
+                planned = False
+
+            if planned:
+                return True
+
+            intent, _ = deps.classify_message_fn(text)
+            if deps.is_deterministic_control_intent_fn(intent):
+                deps.logger.info(
+                    "Planner unavailable for plan_request; rerouting control intent via deterministic path: %s",
+                    intent,
+                )
+                return False
+
+            clarify_text = (
+                "I couldn't run planning for that request right now. "
+                "Can you narrow it to one concrete step so I can run it directly?"
             )
+            await slack.post_message(channel=channel, text=clarify_text)
+            updated = append_exchange(recent_exchanges, text, clarify_text)
+            await asyncio.to_thread(
+                session_service.update_context, session.id,
+                {"recent_exchanges": compact_exchanges(updated)},
+            )
+            return True
 
         return False
 

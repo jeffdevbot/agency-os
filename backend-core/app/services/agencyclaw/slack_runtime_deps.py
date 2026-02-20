@@ -35,6 +35,8 @@ class SlackOrchestratorRuntimeDeps:
     resolve_brand_for_task_fn: Callable[..., Awaitable[dict[str, Any]]]
     preference_memory_service_factory: Callable[..., Any]
     try_planner_fn: Callable[..., Awaitable[bool]]
+    classify_message_fn: Callable[[str], tuple[str, dict[str, Any]]]
+    is_deterministic_control_intent_fn: Callable[[str], bool]
 
 
 @dataclass(frozen=True)

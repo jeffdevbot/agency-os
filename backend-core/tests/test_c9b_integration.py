@@ -11,6 +11,7 @@ import pytest
 
 from app.api.routes.slack import (
     _handle_dm_event,
+    _help_text,
     _is_deterministic_control_intent,
     _is_llm_orchestrator_enabled,
     _is_llm_strict_mode,
@@ -334,6 +335,56 @@ class TestOrchestratorPlannerDelegation:
         assert planner_kwargs["slack"] is slack
 
     @pytest.mark.asyncio
+    async def test_plan_request_planner_disabled_returns_conversational_clarify(self):
+        svc, slack = _make_mocks()
+        result = _make_orchestrator_result(
+            mode="plan_request",
+            args={"request_text": "for distex list weekly tasks then create follow-ups"},
+            skill_id=None,
+        )
+
+        with (
+            patch("app.api.routes.slack._is_llm_orchestrator_enabled", return_value=True),
+            patch("app.api.routes.slack._is_legacy_intent_fallback_enabled", return_value=False),
+            patch("app.api.routes.slack.get_playbook_session_service", return_value=svc),
+            patch("app.api.routes.slack.get_slack_service", return_value=slack),
+            patch("app.api.routes.slack.orchestrate_dm_message", new_callable=AsyncMock, return_value=result),
+            patch("app.api.routes.slack._try_planner", new_callable=AsyncMock, return_value=False),
+            patch("app.api.routes.slack.log_ai_token_usage", new_callable=AsyncMock),
+        ):
+            await _handle_dm_event(slack_user_id="U123", channel="C1", text="complex request")
+
+        sent_text = slack.post_message.call_args_list[0].kwargs.get("text", "")
+        assert "couldn't run planning" in sent_text.lower()
+        assert sent_text != _help_text()
+        assert "not sure what to do" not in sent_text.lower()
+
+    @pytest.mark.asyncio
+    async def test_plan_request_planner_error_returns_conversational_clarify(self):
+        svc, slack = _make_mocks()
+        result = _make_orchestrator_result(
+            mode="plan_request",
+            args={"request_text": "for distex list weekly tasks then create follow-ups"},
+            skill_id=None,
+        )
+
+        with (
+            patch("app.api.routes.slack._is_llm_orchestrator_enabled", return_value=True),
+            patch("app.api.routes.slack._is_legacy_intent_fallback_enabled", return_value=False),
+            patch("app.api.routes.slack.get_playbook_session_service", return_value=svc),
+            patch("app.api.routes.slack.get_slack_service", return_value=slack),
+            patch("app.api.routes.slack.orchestrate_dm_message", new_callable=AsyncMock, return_value=result),
+            patch("app.api.routes.slack._try_planner", new_callable=AsyncMock, side_effect=RuntimeError("boom")),
+            patch("app.api.routes.slack.log_ai_token_usage", new_callable=AsyncMock),
+        ):
+            await _handle_dm_event(slack_user_id="U123", channel="C1", text="complex request")
+
+        sent_text = slack.post_message.call_args_list[0].kwargs.get("text", "")
+        assert "couldn't run planning" in sent_text.lower()
+        assert sent_text != _help_text()
+        assert "not sure what to do" not in sent_text.lower()
+
+    @pytest.mark.asyncio
     async def test_planner_uses_existing_skill_rails(self):
         svc, slack = _make_mocks()
         session = svc.get_or_create_session.return_value
@@ -376,6 +427,45 @@ class TestOrchestratorPlannerDelegation:
         assert exec_kwargs["handler_map"]["clickup_task_create"].__name__ == "_handle_create_task"
         assert exec_kwargs["handler_map"]["clickup_task_list_weekly"].__name__ == "_handle_weekly_tasks"
         assert exec_kwargs["check_policy"].__name__ == "_check_skill_policy"
+
+    @pytest.mark.asyncio
+    async def test_planner_executes_cc_skill_via_allowlist_handler_map(self):
+        svc, slack = _make_mocks()
+        session = svc.get_or_create_session.return_value
+
+        fake_plan = {
+            "intent": "cc_lookup",
+            "steps": [
+                {
+                    "skill_id": "cc_brand_list_all",
+                    "args": {"client_name": "Distex"},
+                    "reason": "List brands for client context",
+                },
+            ],
+            "confidence": 0.8,
+        }
+
+        with (
+            patch("app.api.routes.slack._is_planner_enabled", return_value=True),
+            patch("app.api.routes.slack.generate_plan", new_callable=AsyncMock, return_value=fake_plan),
+            patch("app.api.routes.slack.retrieve_kb_context", new_callable=AsyncMock, return_value={"sources": []}),
+            patch("app.api.routes.slack._check_skill_policy", new_callable=AsyncMock, return_value=_ALLOW_POLICY),
+            patch("app.api.routes.slack._handle_cc_skill", new_callable=AsyncMock, return_value="[Listed brands]") as mock_cc,
+        ):
+            handled = await _try_planner(
+                text="show brands for distex",
+                slack_user_id="U123",
+                channel="C1",
+                session=session,
+                session_service=svc,
+                slack=slack,
+            )
+
+        assert handled is True
+        mock_cc.assert_called_once()
+        call_kwargs = mock_cc.call_args.kwargs
+        assert call_kwargs["skill_id"] == "cc_brand_list_all"
+        assert call_kwargs["args"]["client_name"] == "Distex"
 
 
 # ---------------------------------------------------------------------------

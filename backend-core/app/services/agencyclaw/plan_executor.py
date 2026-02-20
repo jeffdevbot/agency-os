@@ -146,6 +146,8 @@ async def execute_plan(
                 handler_kwargs["client_name_hint"] = ""
             if "task_title" in args:
                 handler_kwargs["task_title"] = str(args["task_title"] or "")
+            if skill_id.startswith("cc_"):
+                handler_kwargs["plan_args"] = dict(args)
 
             await handler(**handler_kwargs)
             step_results.append(StepResult(
