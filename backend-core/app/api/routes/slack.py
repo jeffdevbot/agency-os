@@ -70,6 +70,11 @@ from ...services.agencyclaw.slack_dm_runtime import (
 from ...services.agencyclaw.slack_interaction_runtime import (
     handle_interaction_runtime as _runtime_handle_interaction,
 )
+from ...services.agencyclaw.slack_task_runtime import (
+    enrich_task_draft_runtime as _runtime_enrich_task_draft,
+    execute_task_create_runtime as _runtime_execute_task_create,
+    handle_create_task_runtime as _runtime_handle_create_task,
+)
 from ...services.agencyclaw.slack_cc_dispatch import (
     format_remediation_apply_result as _cc_format_remediation_apply_result,
     format_remediation_preview as _cc_format_remediation_preview,
@@ -624,192 +629,31 @@ async def _execute_task_create(
     brand_id: str | None = None,
     brand_name: str | None = None,
 ) -> None:
-    """Create a ClickUp task and report the result in Slack.
-
-    Wires C4A reliability primitives: idempotency key, duplicate suppression,
-    retry/backoff, and orphan detection.
-
-    Always clears pending_task_create from session context, even on early failures.
-    """
-    clickup = None
-    idempotency_key = ""
-    acquired_inflight = False
-    try:
-        if not session.profile_id:
-            await slack.post_message(
-                channel=channel,
-                text="I couldn't link your Slack user to a profile. Ask an admin to set `profiles.slack_user_id`.",
-            )
-            return
-
-        # C11D: Use pre-resolved brand if available, else fall back to auto-pick
-        if brand_id:
-            try:
-                brand_resp = await asyncio.to_thread(
-                    lambda: session_service.db.table("brands")
-                    .select("id,name,clickup_space_id,clickup_list_id")
-                    .eq("id", brand_id)
-                    .limit(1)
-                    .execute()
-                )
-                rows = brand_resp.data if isinstance(brand_resp.data, list) else []
-                destination = rows[0] if rows else None
-            except Exception:  # noqa: BLE001
-                destination = None
-        else:
-            destination = await asyncio.to_thread(
-                session_service.get_brand_destination_for_client, client_id
-            )
-        list_id = destination.get("clickup_list_id") if destination else None
-        space_id = destination.get("clickup_space_id") if destination else None
-
-        if not destination or (not space_id and not list_id):
-            await slack.post_message(
-                channel=channel,
-                text=(
-                    f"No brand with ClickUp mapping found for *{client_name}*. "
-                    "Ask an admin to configure a ClickUp destination in Command Center."
-                ),
-            )
-            return
-
-        brand_id = brand_id or str(destination.get("id") or "")
-        brand_name_display = brand_name or destination.get("name") or ""
-
-        # --- C4A: Idempotency + duplicate suppression ---
-        idempotency_key = build_idempotency_key(brand_id, task_title)
-
-        # --- C4C: Concurrency guard ---
-        async with _task_create_inflight_lock:
-            if idempotency_key in _task_create_inflight:
-                await slack.post_message(
-                    channel=channel,
-                    text="Another operation for this target is in progress. Please wait and try again.",
-                )
-                return
-            _task_create_inflight.add(idempotency_key)
-            acquired_inflight = True
-
-        try:
-            db = get_supabase_admin_client()
-            duplicate = await asyncio.to_thread(check_duplicate, db, idempotency_key)
-        except Exception as dedupe_exc:  # noqa: BLE001
-            _logger.warning("Dedupe check failed (fail-closed): %s", dedupe_exc)
-            await slack.post_message(
-                channel=channel,
-                text="I couldn't safely validate duplicate protection right now. Please try again in a minute.",
-            )
-            return
-
-        if duplicate:
-            cu_id = duplicate.get("clickup_task_id") or ""
-            if cu_id:
-                await slack.post_message(
-                    channel=channel,
-                    text=f"A task with that title was already created today (ClickUp `{cu_id}`). Skipping duplicate.",
-                )
-            else:
-                await slack.post_message(
-                    channel=channel,
-                    text="A task with that title was already created today. Skipping duplicate.",
-                )
-            return
-
-        clickup_user_id = await asyncio.to_thread(
-            session_service.get_profile_clickup_user_id, session.profile_id
-        )
-
-        clickup = get_clickup_service()
-
-        # C12C Path-1: preserve explicitly provided identifiers in task body metadata.
-        full_description = task_description or ""
-        explicit_identifiers = _extract_product_identifiers(task_title, task_description)
-        has_identifier_block = "product identifiers:" in full_description.lower()
-        if explicit_identifiers and not has_identifier_block:
-            full_description = (
-                f"**Product identifiers:** {', '.join(explicit_identifiers)}\n\n{full_description}"
-            ).rstrip()
-        # C11D: Prepend brand metadata to task description
-        if brand_name_display:
-            full_description = f"**Brand:** {brand_name_display}\n\n{full_description}".rstrip()
-
-        # --- C4A: Retry/backoff wrapper ---
-        if list_id:
-            async def _create_fn():  # type: ignore[return]
-                return await clickup.create_task_in_list(
-                    list_id=str(list_id),
-                    name=task_title,
-                    description_md=full_description,
-                    assignee_ids=[clickup_user_id] if clickup_user_id else None,
-                )
-        else:
-            async def _create_fn():  # type: ignore[return]
-                return await clickup.create_task_in_space(
-                    space_id=str(space_id),
-                    name=task_title,
-                    description_md=full_description,
-                    assignee_ids=[clickup_user_id] if clickup_user_id else None,
-                )
-
-        try:
-            task = await retry_with_backoff(_create_fn)
-        except RetryExhaustedError as exc:
-            await slack.post_message(
-                channel=channel,
-                text=f"Failed to create ClickUp task: {exc.last_error}",
-            )
-            return
-
-        # --- C4A: Persist to agent_tasks + orphan detection ---
-        try:
-            await asyncio.to_thread(
-                lambda: db.table("agent_tasks").insert({
-                    "clickup_task_id": task.id,
-                    "client_id": client_id,
-                    "assignee_id": session.profile_id,
-                    "source": "slack_dm",
-                    "source_reference": idempotency_key,
-                    "skill_invoked": "clickup_task_create",
-                    "status": "pending",
-                }).execute()
-            )
-        except Exception as persist_exc:  # noqa: BLE001
-            _logger.warning("agent_tasks insert failed (orphan): %s", persist_exc)
-            try:
-                await asyncio.to_thread(
-                    emit_orphan_event,
-                    db,
-                    clickup_task=task,
-                    idempotency_key=idempotency_key,
-                    client_id=client_id,
-                    employee_id=session.profile_id,
-                    error=str(persist_exc),
-                )
-            except Exception:  # noqa: BLE001
-                pass  # Never break user response path
-
-        url = task.url or ""
-        link = f"<{url}|{task_title}>" if url else task_title
-        brand_note = f" (brand: {brand_name_display})" if brand_name_display else ""
-        draft_note = ""
-        if not task_description:
-            draft_note = "\n_Created as draft — add details directly in ClickUp._"
-        await slack.post_message(
-            channel=channel,
-            text=f"Task created: {link}{brand_note}{draft_note}",
-        )
-    except (ClickUpConfigurationError, ClickUpError) as exc:
-        await slack.post_message(channel=channel, text=f"Failed to create ClickUp task: {exc}")
-    finally:
-        if acquired_inflight:
-            async with _task_create_inflight_lock:
-                _task_create_inflight.discard(idempotency_key)
-        # Clear pending state regardless of outcome — prevents stuck loops.
-        await asyncio.to_thread(
-            session_service.update_context, session.id, {"pending_task_create": None}
-        )
-        if clickup:
-            await clickup.aclose()
+    await _runtime_execute_task_create(
+        channel=channel,
+        session=session,
+        session_service=session_service,
+        slack=slack,
+        client_id=client_id,
+        client_name=client_name,
+        task_title=task_title,
+        task_description=task_description,
+        brand_id=brand_id,
+        brand_name=brand_name,
+        inflight_lock=_task_create_inflight_lock,
+        inflight_set=_task_create_inflight,
+        build_idempotency_key_fn=build_idempotency_key,
+        get_supabase_admin_client_fn=get_supabase_admin_client,
+        check_duplicate_fn=check_duplicate,
+        get_clickup_service_fn=get_clickup_service,
+        retry_with_backoff_fn=retry_with_backoff,
+        retry_exhausted_error_cls=RetryExhaustedError,
+        clickup_configuration_error_cls=ClickUpConfigurationError,
+        clickup_error_cls=ClickUpError,
+        emit_orphan_event_fn=emit_orphan_event,
+        extract_product_identifiers_fn=_extract_product_identifiers,
+        logger=_logger,
+    )
 
 
 async def _handle_create_task(
@@ -822,138 +666,16 @@ async def _handle_create_task(
     slack: Any,
     pref_service: Any | None = None,
 ) -> None:
-    """Handle 'create task for <client>: <title>' intent."""
-    session = await asyncio.to_thread(session_service.get_or_create_session, slack_user_id)
-
-    # --- Resolve client ---
-    client_id, client_name = await _resolve_client_for_task(
-        client_name_hint=client_name_hint,
-        session=session,
-        session_service=session_service,
+    await _runtime_handle_create_task(
+        slack_user_id=slack_user_id,
         channel=channel,
+        client_name_hint=client_name_hint,
+        task_title=task_title,
+        session_service=session_service,
         slack=slack,
         pref_service=pref_service,
-    )
-    if not client_id:
-        return
-
-    # --- C11D: Resolve brand context ---
-    resolution = await _resolve_brand_for_task(
-        client_id=client_id,
-        client_name=client_name,
-        task_text=task_title,
-        brand_hint="",
-        session=session,
-        session_service=session_service,
-        channel=channel,
-        slack=slack,
-    )
-
-    if resolution["mode"] == "no_destination":
-        await slack.post_message(
-            channel=channel,
-            text=(
-                f"No brand with ClickUp mapping found for *{client_name}*. "
-                "Ask an admin to configure a ClickUp destination in Command Center."
-            ),
-        )
-        return
-
-    if resolution["mode"] in ("ambiguous_brand", "ambiguous_destination"):
-        # Picker already posted by _resolve_brand_for_task
-        pending = {
-            "awaiting": "brand",
-            "client_id": client_id,
-            "client_name": client_name,
-            "task_title": task_title,
-            "brand_candidates": [
-                {"id": str(b.get("id") or ""), "name": str(b.get("name") or "")}
-                for b in resolution["candidates"]
-            ],
-        }
-        await asyncio.to_thread(
-            session_service.update_context, session.id, {"pending_task_create": pending}
-        )
-        return
-
-    # Brand resolved
-    brand_ctx = resolution["brand_context"]
-    brand_id = str(brand_ctx["id"]) if brand_ctx else None
-    brand_name = str(brand_ctx["name"]) if brand_ctx else None
-    brand_note = f" (brand: {brand_name})" if brand_name else ""
-
-    # --- Missing title: ask for it ---
-    if not task_title:
-        pending = {
-            "awaiting": "title",
-            "client_id": client_id,
-            "client_name": client_name,
-            "brand_id": brand_id,
-            "brand_name": brand_name,
-            "brand_resolution_mode": resolution["mode"],
-        }
-        await asyncio.to_thread(
-            session_service.update_context, session.id, {"pending_task_create": pending}
-        )
-        await slack.post_message(
-            channel=channel,
-            text=f"What should the task be called for *{client_name}*{brand_note}? Send the title.",
-        )
-        return
-
-    # --- Have title, no description: offer draft or details ---
-    pending = {
-        "awaiting": "confirm_or_details",
-        "client_id": client_id,
-        "client_name": client_name,
-        "brand_id": brand_id,
-        "brand_name": brand_name,
-        "brand_resolution_mode": resolution["mode"],
-        "task_title": task_title,
-        "timestamp": datetime.now(timezone.utc).isoformat(), # C3: Add timestamp for expiry
-    }
-    await asyncio.to_thread(
-        session_service.update_context, session.id, {"pending_task_create": pending}
-    )
-
-    # C3: Confirmation Block Protocol
-    # Send interactive buttons for explicit confirmation
-    blocks = [
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": (
-                    f"Ready to create task *{task_title}* for *{client_name}*{brand_note}.\n\n"
-                    "Send a description to include, or click Create to proceed as draft."
-                )
-            }
-        },
-        {
-            "type": "actions",
-            "elements": [
-                {
-                    "type": "button",
-                    "text": {"type": "plain_text", "text": "Create Task (Draft)"},
-                    "style": "primary",
-                    "action_id": "confirm_create_task_draft",
-                    "value": "confirmed"
-                },
-                {
-                    "type": "button",
-                    "text": {"type": "plain_text", "text": "Cancel"},
-                    "style": "danger",
-                    "action_id": "cancel_create_task",
-                    "value": "cancelled"
-                }
-            ]
-        }
-    ]
-
-    await slack.post_message(
-        channel=channel,
-        text=f"Ready to create task '{task_title}'. Confirm?",
-        blocks=blocks,
+        resolve_client_for_task_fn=_resolve_client_for_task,
+        resolve_brand_for_task_fn=_resolve_brand_for_task,
     )
 
 
@@ -1044,28 +766,15 @@ async def _enrich_task_draft(
     client_id: str,
     client_name: str,
 ) -> dict[str, Any] | None:
-    """C10C: Attempt KB retrieval + grounded draft.  Returns None on any failure."""
-    try:
-        db = get_supabase_admin_client()
-        retrieval = await retrieve_kb_context(
-            query=task_title,
-            client_id=client_id,
-            skill_id="clickup_task_create",
-            db=db,
-        )
-        if not retrieval["sources"]:
-            return None
-
-        draft = build_grounded_task_draft(
-            request_text=task_title,
-            client_name=client_name,
-            retrieved_context=retrieval,
-            task_title=task_title,
-        )
-        return draft
-    except Exception:
-        _logger.warning("C10C: KB retrieval/draft failed, continuing without enrichment", exc_info=True)
-        return None
+    return await _runtime_enrich_task_draft(
+        task_title=task_title,
+        client_id=client_id,
+        client_name=client_name,
+        get_supabase_admin_client_fn=get_supabase_admin_client,
+        retrieve_kb_context_fn=retrieve_kb_context,
+        build_grounded_task_draft_fn=build_grounded_task_draft,
+        logger=_logger,
+    )
 
 
 def _compose_asin_pending_description(stashed_draft: dict[str, Any] | None) -> str:
