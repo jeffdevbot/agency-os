@@ -7,7 +7,7 @@ It is separate from `docs/23_agencyclaw_prd.md`:
 - Implementation plan = execution order, prompts, and acceptance gates.
 
 Status note (2026-02-20):
-- Post-C12 runtime hardening/decomposition has completed through C14I.
+- Post-C12 runtime hardening/decomposition has completed through C16C.
 - See `docs/25_agencyclaw_execution_tracker.md` for commit-by-commit evidence.
 
 ## 2. Working Rules
@@ -49,7 +49,7 @@ Status note (2026-02-20):
 - Tracker updated (`docs/25_agencyclaw_execution_tracker.md`).
 
 ## 4. Chunk Roadmap
-1. C1: Weekly task read path (`clickup_task_list_weekly`)
+1. C1: Task list read path (`clickup_task_list_weekly`, later canonicalized to `clickup_task_list`)
 2. C2: Task create flow (`clickup_task_create`) with thin-task clarification
 3. C3: Confirmation protocol + Slack dedupe hardening
 4. C4: Concurrency guard + ClickUp reliability/idempotency
@@ -84,11 +84,18 @@ Status note (2026-02-20):
 33. C14F: Interaction runtime extraction
 34. C14G: Task-create runtime extraction
 35. C14I: Runtime dependency contract hardening
+36. C15A: Orchestrator-first planner delegation
+37. C15B: `plan_request` resilience + planner coverage expansion
+38. C15C: Planner runtime extraction + control-reroute hardening
+39. C16A: Flexible task-list windows + runtime extraction
+40. C16B: Task-list canonicalization + `window_days` normalization hardening
+41. C16C: Internal weekly-shim cleanup (canonical task-list routing)
 
 ## 5. Chunk Details
-## C1: Weekly Task Read Path
+## C1: Task List Read Path
 - Scope:
   - Slack query: "what's being worked on this week for client X"
+  - Slack query: "show tasks for client X" (default `this_week`; optional broader windows added later).
   - Resolve client/brand.
   - Read ClickUp tasks with pagination and Slack-friendly formatting.
   - Cap response at 200 tasks with truncation notice.
@@ -97,7 +104,8 @@ Status note (2026-02-20):
   - Handles missing ClickUp mapping fail-closed.
   - Returns useful "no tasks" response.
 - Skill target:
-  - `clickup_task_list_weekly`
+  - Initial: `clickup_task_list_weekly`
+  - Canonicalized later to: `clickup_task_list` (weekly alias retained for compatibility)
 
 ## C2: Task Create Flow
 - Scope:
@@ -168,7 +176,7 @@ Status note (2026-02-20):
 ## C9: Slack Conversational Orchestrator (LLM-First)
 - Scope:
   - Route Slack DM messages through an LLM orchestrator before deterministic intent handlers.
-  - Use tool-calling to invoke implemented skills (`clickup_task_list_weekly`, `clickup_task_create`) instead of pattern-only dispatch.
+  - Use tool-calling to invoke implemented skills (`clickup_task_list`/weekly alias, `clickup_task_create`) instead of pattern-only dispatch.
   - Inject client context pack from `client_context_builder` with strict budget metadata.
   - Preserve existing safety rails (confirmation, permission checks, idempotency hooks).
 - Acceptance:

@@ -42,7 +42,7 @@ Migration rule:
 
 ## 4. Architecture (v1)
 ### 4.1 Single Orchestrator First
-AgencyClaw v1 uses one orchestrator service with typed tool adapters.
+AgencyClaw v1 uses one orchestrator service with typed skill adapters.
 
 Components:
 - `Orchestrator`: LLM-first intent parsing, policy checks, routing decisions.
@@ -51,7 +51,7 @@ Components:
 - `RoleResolutionService`: map client/brand + role -> assignee.
 - `TaskExecutionService`: ClickUp task create/update + status tracking.
 - `AuditService`: structured event logging.
-- `SkillAdapters`: typed wrappers for existing tools.
+- `SkillAdapters`: typed wrappers for existing capabilities.
 - `DeterministicFallbackRouter`: existing pattern-matching handlers used when model/skill routing fails.
 
 This design keeps a clean seam for future sub-agents without forcing early complexity.
@@ -59,9 +59,10 @@ This design keeps a clean seam for future sub-agents without forcing early compl
 ### 4.4 Runtime Routing Priority (v1)
 Slack DM runtime should follow this order:
 1. Resolve identity + policy context.
-2. Attempt LLM conversational routing (`reply`, `clarify`, or `tool_call`).
-3. Execute tool call via typed adapter when selected.
-4. If LLM/tool planning fails, fall back to deterministic intent handlers.
+2. Attempt LLM conversational routing (`reply`, `clarify`, `tool_call`, or `plan_request`).
+3. If orchestrator returns `tool_call`, execute the selected skill via typed adapter.
+4. If orchestrator returns `plan_request`, run planner through policy-gated deterministic execution rails.
+5. If orchestrator/planner flow fails, fall back to deterministic intent handlers.
 
 Rule:
 - Existing deterministic routes are retained as resilience fallback, not the primary UX.
@@ -527,6 +528,7 @@ Initial skill set:
 - `event_dedupe_audit`
 - `error_digest`
 - `usage_cost_report`
+- `clickup_task_list`
 - `cc_assignment_matrix`
 - `cc_role_capacity_snapshot`
 - `cc_policy_explain`
@@ -616,7 +618,8 @@ v1 decision:
 - Defer `admin_approval` workflow until dedicated approval schema + UX is defined.
 
 ### 13.4 ClickUp Task Interaction Rules
-- `clickup_task_list_weekly` is `member+` and supports prompts like `what's being worked on this week for client X`.
+- `clickup_task_list` is `member+` and supports prompts like `show tasks for client X`, `this month`, and `last 14 days`.
+- `clickup_task_list_weekly` remains as a compatibility alias that defaults to `this_week`.
 - `clickup_task_create` is `member+` with policy gate; default destination is the resolved brand backlog:
   `brands.clickup_list_id` when present, otherwise the brand `clickup_space_id` default backlog path.
 - If no ClickUp mapping exists for the resolved brand, do not create task; ask admin to map space/list first (or run mapping update skill if authorized).
@@ -630,7 +633,7 @@ v1 decision:
 - All outbound ClickUp create/update calls should include `agent_runs.id` trace tag in description or task metadata where supported.
 - ClickUp API rate-limit/timeout handling: exponential backoff, max 3 retries, then fail with explicit retry guidance.
 - Orphan handling: if ClickUp create succeeds but AgencyClaw persistence fails, emit `agent_events.event_type = 'clickup_orphan'`, store payload, and alert admin.
-- `clickup_task_list_weekly` must paginate ClickUp responses and cap Slack payload to 200 tasks with truncation notice.
+- `clickup_task_list` must paginate ClickUp responses and cap Slack payload to 200 tasks with truncation notice.
 
 Scope note:
 - v1 does not require inbound ClickUp webhook sync.
@@ -775,9 +778,10 @@ Suggested skills:
   - `reply`: answer directly without tool invocation.
   - `clarify`: ask blocking follow-up for missing required fields.
   - `tool_call`: invoke typed skill adapter with validated arguments.
+  - `plan_request`: delegate multi-step requests to planner execution rails.
 - `tool_call` is limited to enabled skills in `skill_catalog`.
 - For v1 scope, required tool-call coverage includes:
-  - `clickup_task_list_weekly`
+  - `clickup_task_list` (with `clickup_task_list_weekly` compatibility alias)
   - `clickup_task_create`
 - If model routing fails, times out, or returns invalid schema, runtime must transparently fall back to deterministic handlers.
 - Conversational mode must preserve all existing safeguards:

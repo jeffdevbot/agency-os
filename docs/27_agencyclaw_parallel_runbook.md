@@ -45,7 +45,7 @@ Action:
 
 ---
 
-## 3) Runtime Cleanup Status (As Of C14I)
+## 3) Runtime Cleanup Status (As Of C16C)
 
 Completed:
 1. Strict LLM-first gating is in place (`C13A`), with non-control deterministic fallback blocked in strict mode.
@@ -53,6 +53,8 @@ Completed:
 3. Slack route decomposition landed through C14A/C14B/C14C/C14D/C14E/C14F/C14G.
 4. Typed runtime dependency contracts landed (`C14I`) to reduce signature-drift risk.
 5. Runtime-focused unit suites landed (`C14X`) and full backend suite is currently green.
+6. Orchestrator-first planner delegation + resilience landed (`C15A`-`C15C`).
+7. Canonical task-list routing landed with weekly alias compatibility (`C16A`-`C16C`).
 
 Still optional (not release blockers):
 1. Convert deterministic control intents (`switch_client`, `set_default_client`, `clear_defaults`) into first-class skills.

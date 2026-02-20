@@ -56,7 +56,7 @@ AgencyClaw is the successor to the legacy Vara/Playbook bot and is the active Sl
 
 It provides:
 - Natural-language DM conversation (LLM-first orchestration, with deterministic execution rails).
-- ClickUp task operations (weekly status reads + task creation with confirmation/reliability guards).
+- ClickUp task operations (task-list reads with flexible windows + task creation with confirmation/reliability guards).
 - SOP-grounded drafting via retrieval cascade.
 - Command Center chat skills (client/brand lookup, mapping audit, remediation).
 - Policy enforcement by actor/surface context (fail-closed on denied actions).
@@ -85,7 +85,8 @@ It provides:
 [AgencyClaw Runtime]
   - session/pending state
   - actor+surface policy gate
-  - LLM orchestrator/planner (LLM-first)
+  - LLM orchestrator (primary)
+  - planner (delegated only on explicit plan_request)
   - deterministic skill execution rails
         |
         +------------------> [Knowledge Layer]
@@ -97,7 +98,7 @@ It provides:
         |                     - default user preferences
         |
         +------------------> [ClickUp API]
-        |                     - weekly task reads
+        |                     - task list reads (default weekly, flexible windows)
         |                     - task create (confirm + idempotency/retries)
         |                     - mapping/space sync support paths
         |
