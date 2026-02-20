@@ -36,7 +36,7 @@ Last updated: 2026-02-20 (C11A/C11B merged; C11D active; C11E foundation landed)
 | C11A | Command Center read-only chat skills | Codex | done | merged (`8ac34b1`) | Added `cc_client_lookup`, `cc_brand_list_all`, and admin-only `cc_brand_clickup_mapping_audit` across LLM + deterministic paths with policy enforcement |
 | C11B | LLM-first fallback cleanup | Codex | done | merged (`8ac34b1`) | Removed legacy hardcoded N-gram deterministic branch; defaulted runtime to LLM-first fallback behavior (`AGENCYCLAW_ENABLE_LEGACY_INTENTS` opt-in override) |
 | C11D | Brand context resolver (destination-vs-brand split) | Codex | in_progress | kickoff (this tracker update) | Implement explicit brand disambiguation for shared-destination multi-brand clients; no hidden brand guessing in mutation routing |
-| C11E | Admin remediation skill for unmapped brands | Codex | in_progress | foundation (this branch) | Added standalone remediation planner/apply service + tests (dry-run-first), runtime wiring still pending |
+| C11E | Admin remediation skill for unmapped brands | Codex | in_progress | foundation merged (`04a8589`) | Added standalone remediation planner/apply service + tests (dry-run-first), runtime wiring still pending |
 
 ## 3. Open Blockers
 - [x] Confirm migration `20260217000006_clickup_space_skill_seed.sql` is applied.
@@ -98,7 +98,7 @@ Last updated: 2026-02-20 (C11A/C11B merged; C11D active; C11E foundation landed)
 - C11A/C11B merge (`8ac34b1`): `backend-core/tests/test_command_center_lookup.py`, `backend-core/tests/test_c11a_command_center_integration.py`, `backend-core/tests/test_c9b_integration.py`, `backend-core/tests/test_task_create.py`, and `backend-core/tests/test_weekly_tasks.py` passing (targeted suites green).
 - C11A/C11B full-suite check after merge: `512 passed, 3 failed` (same pre-existing unrelated failures in `test_ngram_analytics.py`, `test_root_services.py`, `test_str_parser_spend.py`).
 - C11A query hardening (`43bd149`): command-center brand/client lookup now falls back safely when FK join metadata is unavailable; tests `26 passed` (`test_command_center_lookup.py`) and C11A integration suite `36 passed`.
-- C11E foundation (pending commit): `backend-core/app/services/agencyclaw/brand_mapping_remediation.py` + `backend-core/tests/test_brand_mapping_remediation.py` added; planner/apply unit suite `8 passed`.
+- C11E foundation (`04a8589`): `backend-core/app/services/agencyclaw/brand_mapping_remediation.py` + `backend-core/tests/test_brand_mapping_remediation.py` added; planner/apply unit suite `8 passed`.
 - Backend full test suite still has pre-existing unrelated failures outside these chunks.
 
 ## 4. Validation Checklist (Per Chunk)
