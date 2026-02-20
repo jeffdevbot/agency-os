@@ -76,6 +76,49 @@ It provides:
 - `brands.clickup_space_id` / `clickup_list_id` — where to create tasks
 - `ai_token_usage` — token logging (use `tool='agencyclaw'` + stage labels)
 
+### AgencyClaw Mental Model
+
+```text
+[User in Slack DM]
+        |
+        v
+[AgencyClaw Runtime]
+  - session/pending state
+  - actor+surface policy gate
+  - LLM orchestrator/planner (LLM-first)
+  - deterministic skill execution rails
+        |
+        +------------------> [Knowledge Layer]
+        |                     - SOP + KB retrieval cascade
+        |                     - grounded draft composer
+        |
+        +------------------> [Command Center Data (Supabase)]
+        |                     - clients, brands, assignments, roles
+        |                     - default user preferences
+        |
+        +------------------> [ClickUp API]
+        |                     - weekly task reads
+        |                     - task create (confirm + idempotency/retries)
+        |                     - mapping/space sync support paths
+        |
+        +------------------> [Slack responses]
+                              - reply / clarify / confirm / result
+
+[Observability]
+  - ai_token_usage telemetry
+  - idempotency receipts / runtime logs
+```
+
+What is true now:
+- AgencyClaw can converse naturally in Slack DM and decide when to invoke skills.
+- AgencyClaw can read SOP/KB context to ground task drafts.
+- AgencyClaw can read/update operational data through Command Center skills.
+- AgencyClaw can retrieve and create ClickUp tasks with reliability guards.
+
+What is not fully formalized yet:
+- A dedicated skill that acts as a "tool catalog router" for all web tools (`/ngram`, `/adscope`, etc.).
+- Today it can still point users to tools conversationally, but this is not yet a strict, first-class routing contract.
+
 ## Local quickstarts
 
 ### Debrief (Google Drive ingestion)
