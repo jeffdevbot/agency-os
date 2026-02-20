@@ -10,6 +10,7 @@ import pytest
 
 from app.api.routes.slack import (
     _classify_message,
+    _extract_product_identifiers,
     _execute_task_create,
     _handle_create_task,
     _handle_pending_task_continuation,
@@ -268,6 +269,15 @@ class TestHandleCreateTask:
 
 
 class TestExecuteTaskCreate:
+    def test_extract_product_identifiers(self):
+        identifiers = _extract_product_identifiers(
+            "Create coupon for B08XYZ1234 and sku sku-42a",
+            "also include AB12-CD34",
+        )
+        assert "B08XYZ1234" in identifiers
+        assert "SKU-42A" in identifiers
+        assert "AB12-CD34" in identifiers
+
     @pytest.mark.asyncio
     async def test_happy_path_returns_url(self):
         svc, slack = _make_mocks()
@@ -578,6 +588,56 @@ class TestExecuteTaskCreate:
 
         cu.create_task_in_space.assert_called_once()
         assert cu.create_task_in_space.call_args.kwargs["space_id"] == "sp99"
+
+    @pytest.mark.asyncio
+    async def test_identifier_in_title_added_to_description_metadata(self):
+        svc, slack = _make_mocks()
+        session = FakeSession()
+        fake_task = ClickUpTask(id="t1", url="https://clickup.com/t/t1")
+
+        with _mock_reliability(), patch("app.api.routes.slack.get_clickup_service") as mock_cu:
+            cu = AsyncMock()
+            cu.create_task_in_list.return_value = fake_task
+            mock_cu.return_value = cu
+
+            await _execute_task_create(
+                channel="C1",
+                session=session,
+                session_service=svc,
+                slack=slack,
+                client_id="client-1",
+                client_name="Distex",
+                task_title="Create coupon for B08XYZ1234",
+                task_description="",
+            )
+
+        call_kwargs = cu.create_task_in_list.call_args.kwargs
+        assert "**Product identifiers:** B08XYZ1234" in call_kwargs["description_md"]
+
+    @pytest.mark.asyncio
+    async def test_existing_identifier_block_not_duplicated(self):
+        svc, slack = _make_mocks()
+        session = FakeSession()
+        fake_task = ClickUpTask(id="t1", url="https://clickup.com/t/t1")
+
+        with _mock_reliability(), patch("app.api.routes.slack.get_clickup_service") as mock_cu:
+            cu = AsyncMock()
+            cu.create_task_in_list.return_value = fake_task
+            mock_cu.return_value = cu
+
+            await _execute_task_create(
+                channel="C1",
+                session=session,
+                session_service=svc,
+                slack=slack,
+                client_id="client-1",
+                client_name="Distex",
+                task_title="Create coupon for B08XYZ1234",
+                task_description="Product identifiers: B08XYZ1234",
+            )
+
+        call_kwargs = cu.create_task_in_list.call_args.kwargs
+        assert call_kwargs["description_md"].count("Product identifiers:") == 1
 
 
 # ---------------------------------------------------------------------------
@@ -985,6 +1045,41 @@ class TestAsinClarificationFlow:
         call_kwargs = cu.create_task_in_list.call_args.kwargs
         assert "Product identifiers:" in call_kwargs["description_md"]
         assert "B08XYZ1234" in call_kwargs["description_md"]
+
+    @pytest.mark.asyncio
+    async def test_user_identifier_followup_normalizes_to_identifier_tokens(self):
+        """Identifier follow-up keeps only extracted identifier tokens in metadata line."""
+        svc, slack = _make_mocks()
+        pending = {
+            "awaiting": "asin_or_pending",
+            "client_id": "client-1",
+            "client_name": "Distex",
+            "task_title": "Create coupon",
+            "draft": {
+                "description": "Per SOP: Coupon Setup",
+                "open_questions": ["ASIN(s) or SKU(s) required."],
+            },
+        }
+        session = FakeSession(context={"pending_task_create": pending})
+        fake_task = ClickUpTask(id="t1", url="https://clickup.com/t/t1")
+
+        with _mock_reliability(), patch("app.api.routes.slack.get_clickup_service") as mock_cu:
+            cu = AsyncMock()
+            cu.create_task_in_list.return_value = fake_task
+            mock_cu.return_value = cu
+
+            consumed = await _handle_pending_task_continuation(
+                channel="C1",
+                text="please use B08XYZ1234 for this one",
+                session=session,
+                session_service=svc,
+                slack=slack,
+                pending=pending,
+            )
+
+        assert consumed is True
+        call_kwargs = cu.create_task_in_list.call_args.kwargs
+        assert "Product identifiers: B08XYZ1234" in call_kwargs["description_md"]
 
     @pytest.mark.asyncio
     async def test_non_product_confirm_unchanged(self):

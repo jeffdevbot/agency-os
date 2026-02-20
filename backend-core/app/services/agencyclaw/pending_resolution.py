@@ -46,7 +46,10 @@ _PROCEED_DRAFT_PATTERNS: tuple[re.Pattern[str], ...] = (
 _DEFER_ASIN_CUES: tuple[str, ...] = (
     "asin pending",
     "sku pending",
+    "identifier pending",
     "create with asin pending",
+    "create with sku pending",
+    "create with identifier pending",
     "without asin",
     "without sku",
     "no asin",

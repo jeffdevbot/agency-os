@@ -232,6 +232,34 @@ _CREATE_TASK_PATTERN = re.compile(
     r"$"
 )
 
+# Product identifier extraction (C12C Path-1; no catalog lookup).
+_ASIN_TOKEN_RE = re.compile(r"\b[A-Z0-9]{10}\b")
+_SKU_TOKEN_RE = re.compile(r"\b[A-Z0-9][A-Z0-9_-]{3,23}\b")
+
+
+def _extract_product_identifiers(*texts: str) -> list[str]:
+    """Extract explicit ASIN/SKU-like identifiers from provided text."""
+    seen: set[str] = set()
+    ordered: list[str] = []
+
+    for raw in texts:
+        text = (raw or "").upper()
+        for token in _ASIN_TOKEN_RE.findall(text):
+            if token not in seen:
+                seen.add(token)
+                ordered.append(token)
+        for token in _SKU_TOKEN_RE.findall(text):
+            if token in seen:
+                continue
+            has_alpha = any(ch.isalpha() for ch in token)
+            has_digit = any(ch.isdigit() for ch in token)
+            if not (has_alpha and has_digit):
+                continue
+            seen.add(token)
+            ordered.append(token)
+
+    return ordered
+
 # Patterns for confirming a draft task creation.
 _CONFIRM_DRAFT_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"^(?:create anyway|create as draft|just create it|yes,?\s*create(?:\s+it)?)$"),
@@ -1311,8 +1339,15 @@ async def _execute_task_create(
 
         clickup = get_clickup_service()
 
-        # C11D: Prepend brand metadata to task description
+        # C12C Path-1: preserve explicitly provided identifiers in task body metadata.
         full_description = task_description or ""
+        explicit_identifiers = _extract_product_identifiers(task_title, task_description)
+        has_identifier_block = "product identifiers:" in full_description.lower()
+        if explicit_identifiers and not has_identifier_block:
+            full_description = (
+                f"**Product identifiers:** {', '.join(explicit_identifiers)}\n\n{full_description}"
+            ).rstrip()
+        # C11D: Prepend brand metadata to task description
         if brand_name_display:
             full_description = f"**Brand:** {brand_name_display}\n\n{full_description}".rstrip()
 
@@ -2164,7 +2199,9 @@ async def _handle_pending_task_continuation(
             parts = []
             if stashed_draft.get("description"):
                 parts.append(stashed_draft["description"])
-            parts.append(f"Product identifiers: {text.strip()}")
+            extracted_identifiers = _extract_product_identifiers(text)
+            identifier_payload = ", ".join(extracted_identifiers) if extracted_identifiers else text.strip()
+            parts.append(f"Product identifiers: {identifier_payload}")
             description = "\n\n".join(parts)
 
             await _execute_task_create(
