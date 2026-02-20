@@ -82,6 +82,27 @@ TOOL_SCHEMAS: dict[str, ToolSchema] = {
         "description": "Audit brands missing ClickUp space or list mappings. Admin only.",
         "args": {},
     },
+    # C11E: Brand mapping remediation skills
+    "cc_brand_mapping_remediation_preview": {
+        "description": "Preview a remediation plan for brands missing ClickUp mappings. Admin only. Shows which brands can be auto-fixed and which are blocked.",
+        "args": {
+            "client_name": {
+                "type": "string",
+                "required": False,
+                "description": "Filter to a specific client. Omit to scan all brands.",
+            },
+        },
+    },
+    "cc_brand_mapping_remediation_apply": {
+        "description": "Apply the remediation plan to fix brands missing ClickUp mappings. Admin only. Only updates safe-to-apply items.",
+        "args": {
+            "client_name": {
+                "type": "string",
+                "required": False,
+                "description": "Filter to a specific client. Omit to apply across all brands.",
+            },
+        },
+    },
 }
 
 

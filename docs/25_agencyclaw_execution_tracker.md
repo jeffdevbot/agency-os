@@ -1,6 +1,6 @@
 # AgencyClaw Execution Tracker
 
-Last updated: 2026-02-20 (C11D merged + Slack smoke passed; C11E wiring next)
+Last updated: 2026-02-20 (C11E runtime wiring landed; preview + apply admin skills live)
 
 ## 1. Baseline Status
 - [x] PRD updated to v1.18 (`docs/23_agencyclaw_prd.md`)
@@ -36,7 +36,7 @@ Last updated: 2026-02-20 (C11D merged + Slack smoke passed; C11E wiring next)
 | C11A | Command Center read-only chat skills | Codex | done | merged (`8ac34b1`) | Added `cc_client_lookup`, `cc_brand_list_all`, and admin-only `cc_brand_clickup_mapping_audit` across LLM + deterministic paths with policy enforcement |
 | C11B | LLM-first fallback cleanup | Codex | done | merged (`8ac34b1`) | Removed legacy hardcoded N-gram deterministic branch; defaulted runtime to LLM-first fallback behavior (`AGENCYCLAW_ENABLE_LEGACY_INTENTS` opt-in override) |
 | C11D | Brand context resolver (destination-vs-brand split) | Codex | done | merged (`694d900`) | Resolver + runtime wiring landed with hardening: punctuation-safe product scope, title-step re-resolution, invalid brand-button guard; Slack smoke passed |
-| C11E | Admin remediation skill for unmapped brands | Codex | in_progress | foundation merged (`04a8589`) | Added standalone remediation planner/apply service + tests (dry-run-first), runtime wiring still pending |
+| C11E | Admin remediation skill for unmapped brands | Claude | done | foundation (`04a8589`), wiring (pending commit) | Remediation preview + apply wired into Slack classifier/handler/policy; admin-only; 39 integration tests + 8 unit tests passing; no regressions in 208-test targeted suite |
 
 ## 3. Open Blockers
 - [x] Confirm migration `20260217000006_clickup_space_skill_seed.sql` is applied.
@@ -104,6 +104,7 @@ Last updated: 2026-02-20 (C11D merged + Slack smoke passed; C11E wiring next)
   - shared-destination + product-scoped prompts trigger brand picker,
   - shared-destination + generic prompts proceed client-level,
   - punctuation variants (`coupon?`, `listing,`, `product-level`) correctly treated as product-scoped.
+- C11E wiring: `test_c11e_remediation_integration.py` (39 passed), `test_brand_mapping_remediation.py` (8 passed), `test_c11a_command_center_integration.py` (36 passed). Targeted regression suite (task_create, weekly_tasks, slack_hardening, c10b, c9b, command_center_lookup, c10a_policy_gate): 208 passed, 0 failed.
 - Backend full test suite still has pre-existing unrelated failures outside these chunks.
 
 ## 4. Validation Checklist (Per Chunk)
@@ -122,7 +123,7 @@ Last updated: 2026-02-20 (C11D merged + Slack smoke passed; C11E wiring next)
 | 1. Product Intent | Global (all chunks) | in_progress | C1, C2, C3, C4, C5, C6, C7, C8, C9, C10B, C10B.5, C10A, C10C, C10D, C10E completed | Close remaining Phase 2.6 chat-parity skills, then advance to Phase 3 |
 | 2. Current Reality (Codebase) | Global baseline | done | Existing routes/services reused; no Bolt migration | Maintain reuse-first approach |
 | 3. Naming + Role Standards | Baseline migrations | mostly_done | `20260217000001` applied; CSL rename landed | Verify all UI copy/runtime labels stay consistent |
-| 4. Architecture (v1) | C1-C11 foundation | mostly_done | LLM-first DM orchestration merged; C11B reduced deterministic fallback pressure; C4/C5/C6 runtime wiring complete; C10B/C10B.5/C10A/C10C/C10D/C10E/C10F/C11D landed | Complete C11E remediation runtime wiring and expand channel-surface policy coverage |
+| 4. Architecture (v1) | C1-C11 foundation | mostly_done | LLM-first DM orchestration merged; C11B reduced deterministic fallback pressure; C4/C5/C6 runtime wiring complete; C10B/C10B.5/C10A/C10C/C10D/C10E/C10F/C11D/C11E landed | Expand channel-surface policy coverage |
 | 5. Slack Runtime Decision | C1-C4 + C9 | mostly_done | `/api/slack/events` + `/api/slack/interactions` active; C3/C4/C9 merged | Add distributed (cross-worker) concurrency lock if required |
 | 6. Debrief As Slack-Native | C7 (+ later runtime wiring) | in_progress | C7 parser/review hardening done with tests/build pass | Add deeper runtime workflow checks as features expand |
 | 7. Permissions Model | C2-C10 (policy-sensitive) | mostly_done | Identity mapping path in use; C5 runtime sync + admin execution endpoint merged; C10A actor/surface tool policy gate merged | Expand policy coverage for future non-DM/channel surfaces and granular role policies |
@@ -133,7 +134,7 @@ Last updated: 2026-02-20 (C11D merged + Slack smoke passed; C11E wiring next)
 | 12. Google Meeting Notes Inputs | C7 | mostly_done | Debrief extraction flow and parser utilities validated | Add optional end-to-end runtime smoke as needed |
 | 13. Skill Registry | C1-C9 | in_progress | Skills seeded via `000001`, `000005`, `000006`; C1 enabled | Enable each skill only when implemented and smoke-tested |
 | 14. Failure + Compensation | C3, C4 | mostly_done | C3 merged; C4A-C4C helpers integrated into live task-create path | Add orphan reconciliation/sweep workflow |
-| 15. Phased Delivery Plan | C1-C11 roadmap | mostly_done | C1, C2, C3, C4, C5, C6, C7, C8, C9, C10B, C10B.5, C10A, C10C, C10D, C10E, C10F, C11A, C11B, C11D done | Complete C11E remediation wiring and remaining Phase 2.6 chat-parity mutations |
+| 15. Phased Delivery Plan | C1-C11 roadmap | mostly_done | C1, C2, C3, C4, C5, C6, C7, C8, C9, C10B, C10B.5, C10A, C10C, C10D, C10E, C10F, C11A, C11B, C11D, C11E done | Remaining Phase 2.6 chat-parity mutations |
 | 16. Immediate Decisions Locked | Baseline + governance | mostly_done | Key architectural and migration decisions applied | Keep matrix/tracker synchronized as work lands |
 
 ## 6. Chunk-To-PRD Traceability

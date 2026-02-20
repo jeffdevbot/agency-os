@@ -24,6 +24,10 @@ from ...services.agencyclaw.brand_context_resolver import (
     BrandResolution,
     resolve_brand_context,
 )
+from ...services.agencyclaw.brand_mapping_remediation import (
+    apply_brand_mapping_remediation_plan,
+    build_brand_mapping_remediation_plan,
+)
 from ...services.agencyclaw.command_center_lookup import (
     audit_brand_mappings,
     format_brand_list,
@@ -261,6 +265,44 @@ def _classify_message(text: str) -> tuple[str, dict[str, Any]]:
     if any(kw in t for kw in ("missing clickup mapping", "mapping audit", "brands missing")):
         return ("cc_brand_clickup_mapping_audit", {})
 
+    # C11E: Brand mapping remediation
+    def _extract_remediation_client_hint(trigger: str) -> str:
+        idx = t.find(trigger)
+        if idx < 0:
+            return ""
+        tail = t[idx + len(trigger):].strip()
+        if not tail.startswith("for "):
+            return ""
+        return _sanitize_client_name_hint(tail.removeprefix("for ").strip())
+
+    for kw in (
+        "apply brand mapping remediation",
+        "apply mapping remediation",
+        "run mapping remediation now",
+        "apply remediation",
+    ):
+        if kw in t:
+            client_hint = _extract_remediation_client_hint(kw)
+            return (
+                "cc_brand_mapping_remediation_apply",
+                {"client_name": client_hint} if client_hint else {},
+            )
+
+    for kw in (
+        "preview brand mapping remediation",
+        "preview mapping remediation",
+        "show mapping remediation plan",
+        "what can we auto-fix for mappings",
+        "remediation preview",
+        "mapping remediation",
+    ):
+        if kw in t:
+            client_hint = _extract_remediation_client_hint(kw)
+            return (
+                "cc_brand_mapping_remediation_preview",
+                {"client_name": client_hint} if client_hint else {},
+            )
+
     return ("help", {})
 
 
@@ -272,7 +314,8 @@ def _help_text() -> str:
         "- Create a task for Distex: Set up 20% coupon for Thorinox\n"
         "- Start n-gram research for Distex\n"
         "- Switch to Revant\n"
-        "- Show me clients / list brands / brands missing clickup mapping"
+        "- Show me clients / list brands / brands missing clickup mapping\n"
+        "- Preview brand mapping remediation / apply brand mapping remediation"
     )
 
 
@@ -580,6 +623,109 @@ async def _resolve_brand_for_task(
 # ---------------------------------------------------------------------------
 
 
+async def _resolve_cc_client_hint(
+    *,
+    args: dict[str, Any],
+    session_service: Any,
+    session: Any,
+    channel: str,
+    slack: Any,
+) -> str | None | bool:
+    """Resolve optional client_name hint for CC skills.
+
+    Returns:
+    - ``None`` if no client_name hint was provided (scan all).
+    - A client_id string on single match.
+    - ``False`` if resolution failed (message already posted to Slack).
+    """
+    client_hint = str(args.get("client_name") or "").strip()
+    if not client_hint:
+        return None
+
+    matches = await asyncio.to_thread(
+        session_service.find_client_matches, session.profile_id, client_hint,
+    )
+    if not matches:
+        await slack.post_message(
+            channel=channel,
+            text=f"I couldn't find a client matching *{client_hint}*.",
+        )
+        return False
+
+    if len(matches) > 1:
+        blocks = _build_client_picker_blocks(matches)
+        await slack.post_message(
+            channel=channel,
+            text=f"Multiple clients match *{client_hint}*. Pick one and try again:",
+            blocks=blocks,
+        )
+        return False
+
+    return str(matches[0].get("id") or "")
+
+
+def _format_remediation_preview(plan: list[dict[str, Any]]) -> str:
+    """Format a remediation plan as a human-readable Slack message."""
+    if not plan:
+        return "All brands have ClickUp mappings. Nothing to remediate."
+
+    safe = [item for item in plan if item.get("safe_to_apply")]
+    blocked = [item for item in plan if not item.get("safe_to_apply")]
+
+    lines: list[str] = [
+        f"*Brand Mapping Remediation Preview*",
+        f"Total items: {len(plan)} | Safe to apply: {len(safe)} | Blocked: {len(blocked)}",
+        "",
+    ]
+
+    if safe:
+        lines.append("*Safe to apply:*")
+        for item in safe[:20]:
+            lines.append(
+                f"  - {item.get('brand_name', '?')} ({item.get('client_name', '?')}): "
+                f"space={item.get('proposed_space_id', '—')}, list={item.get('proposed_list_id', '—')}"
+            )
+        if len(safe) > 20:
+            lines.append(f"  … and {len(safe) - 20} more")
+
+    if blocked:
+        lines.append("")
+        lines.append("*Blocked (needs manual fix):*")
+        for item in blocked[:10]:
+            lines.append(
+                f"  - {item.get('brand_name', '?')} ({item.get('client_name', '?')}): {item.get('reason', '—')}"
+            )
+        if len(blocked) > 10:
+            lines.append(f"  … and {len(blocked) - 10} more")
+
+    lines.append("")
+    lines.append("To apply the safe items, say: *apply brand mapping remediation*")
+    return "\n".join(lines)
+
+
+def _format_remediation_apply_result(result: dict[str, Any]) -> str:
+    """Format the apply result as a human-readable Slack message."""
+    lines: list[str] = [
+        "*Brand Mapping Remediation — Applied*",
+        f"Applied: {result.get('applied', 0)} | Skipped: {result.get('skipped', 0)} | Failures: {len(result.get('failures', []))}",
+    ]
+
+    failures = result.get("failures") or []
+    if failures:
+        lines.append("")
+        lines.append("*Failures:*")
+        for f in failures[:10]:
+            lines.append(f"  - brand {f.get('brand_id', '?')}: {f.get('error', '?')}")
+        if len(failures) > 10:
+            lines.append(f"  … and {len(failures) - 10} more")
+
+    if result.get("applied", 0) > 0:
+        lines.append("")
+        lines.append("Run *preview brand mapping remediation* to verify remaining gaps.")
+
+    return "\n".join(lines)
+
+
 async def _handle_cc_skill(
     *,
     skill_id: str,
@@ -637,6 +783,43 @@ async def _handle_cc_skill(
         missing = await asyncio.to_thread(audit_brand_mappings, db)
         await slack.post_message(channel=channel, text=format_mapping_audit(missing))
         return "[Ran ClickUp mapping audit]"
+
+    # C11E: Brand mapping remediation preview
+    if skill_id == "cc_brand_mapping_remediation_preview":
+        client_id = await _resolve_cc_client_hint(
+            args=args, session_service=session_service, session=session,
+            channel=channel, slack=slack,
+        )
+        if client_id is False:
+            return "[Remediation preview client error]"
+
+        plan = await asyncio.to_thread(
+            build_brand_mapping_remediation_plan, db, client_id=client_id,
+        )
+        await slack.post_message(
+            channel=channel, text=_format_remediation_preview(plan),
+        )
+        return "[Remediation preview]"
+
+    # C11E: Brand mapping remediation apply
+    if skill_id == "cc_brand_mapping_remediation_apply":
+        client_id = await _resolve_cc_client_hint(
+            args=args, session_service=session_service, session=session,
+            channel=channel, slack=slack,
+        )
+        if client_id is False:
+            return "[Remediation apply client error]"
+
+        plan = await asyncio.to_thread(
+            build_brand_mapping_remediation_plan, db, client_id=client_id,
+        )
+        result = await asyncio.to_thread(
+            apply_brand_mapping_remediation_plan, db, plan, dry_run=False,
+        )
+        await slack.post_message(
+            channel=channel, text=_format_remediation_apply_result(result),
+        )
+        return "[Remediation applied]"
 
     return ""
 
@@ -1865,7 +2048,7 @@ async def _try_llm_orchestrator(
                 )
                 tool_summary = f"[Started n-gram research for {args.get('client_name', 'client')}]"
 
-            elif skill_id in ("cc_client_lookup", "cc_brand_list_all", "cc_brand_clickup_mapping_audit"):
+            elif skill_id in ("cc_client_lookup", "cc_brand_list_all", "cc_brand_clickup_mapping_audit", "cc_brand_mapping_remediation_preview", "cc_brand_mapping_remediation_apply"):
                 tool_summary = await _handle_cc_skill(
                     skill_id=skill_id,
                     args=args,
@@ -2123,7 +2306,7 @@ async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> No
             return
 
         # C11A: Command Center read-only skills
-        if intent in ("cc_client_lookup", "cc_brand_list_all", "cc_brand_clickup_mapping_audit"):
+        if intent in ("cc_client_lookup", "cc_brand_list_all", "cc_brand_clickup_mapping_audit", "cc_brand_mapping_remediation_preview", "cc_brand_mapping_remediation_apply"):
             policy = await _check_tool_policy(
                 slack_user_id=slack_user_id,
                 session=session,
