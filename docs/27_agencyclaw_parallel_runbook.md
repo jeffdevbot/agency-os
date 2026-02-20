@@ -1,9 +1,9 @@
 # AgencyClaw Parallel Runbook (Non-Conflicting Work)
 
 ## Purpose
-This doc captures two parallel tracks that can move after C11E/C11F-A landed:
+This doc captures two parallel tracks:
 1) client/brand/ClickUp onboarding model (including shared destination patterns), and
-2) remaining legacy deterministic branch cleanup plan.
+2) runtime cleanup/decomposition status and remaining optional hardening.
 
 ---
 
@@ -45,29 +45,19 @@ Action:
 
 ---
 
-## 3) Remaining Legacy Branches To Retire (Post-C11E)
+## 3) Runtime Cleanup Status (As Of C14I)
 
-These are still in `backend-core/app/api/routes/slack.py` and should be removed in a controlled pass after C11E lands.
+Completed:
+1. Strict LLM-first gating is in place (`C13A`), with non-control deterministic fallback blocked in strict mode.
+2. Command-style fallback cleanup landed (`C11F-A`).
+3. Slack route decomposition landed through C14A/C14B/C14C/C14D/C14E/C14F/C14G.
+4. Typed runtime dependency contracts landed (`C14I`) to reduce signature-drift risk.
+5. Runtime-focused unit suites landed (`C14X`) and full backend suite is currently green.
 
-### A) Regex/classifier deterministic fallback path
-- `_classify_message(...)` and intent switch inside `_handle_dm_event(...)` (around deterministic create/list/switch/default branches).
-- Current behavior is feature-flagged by:
-  - `_is_llm_orchestrator_enabled()`
-  - `_is_legacy_intent_fallback_enabled()`
-
-### B) Command-style help fallback
-- `_help_text()` and "Try: ..." style guidance should be replaced with natural conversational fallback text.
-
-### C) Partial deterministic "control intents"
-- `switch_client`, `set_default_client`, `clear_defaults` currently bypass skill invocation.
-- Long-term: expose as explicit skills so orchestrator decides when to invoke them.
-
-### Cleanup sequence (safe order)
-1. Keep policy gate + deterministic skill execution functions (safety rails).
-2. Remove broad regex routing fallback for non-control requests.
-3. Migrate control intents to skills.
-4. Remove command-style help text.
-5. Keep fail-closed behavior and all policy checks unchanged.
+Still optional (not release blockers):
+1. Convert deterministic control intents (`switch_client`, `set_default_client`, `clear_defaults`) into first-class skills.
+2. Consolidate or trim compatibility wrappers once patch points are no longer needed.
+3. Extend policy coverage beyond DM/default surfaces as channel use expands.
 
 ---
 
@@ -91,7 +81,6 @@ These are still in `backend-core/app/api/routes/slack.py` and should be removed 
 ---
 
 ## 5) Next Non-Conflicting Follow-up
-After C11E merges, take a focused cleanup chunk:
-- "C11F: LLM-first runtime cleanup"
-- Scope: remove broad deterministic classifier fallback, keep deterministic skill execution/policy rails.
-- Deliverables: code cleanup + regression tests + updated tracker evidence.
+- Keep this runbook focused on onboarding model and optional runtime hardening only.
+- Source of truth for chunk-level delivery and commits: `docs/25_agencyclaw_execution_tracker.md`.
+- Recommended next product-focused work should be planned as new chunks (not added to this historical cleanup runbook).

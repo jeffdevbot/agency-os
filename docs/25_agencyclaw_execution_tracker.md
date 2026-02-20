@@ -1,6 +1,6 @@
 # AgencyClaw Execution Tracker
 
-Last updated: 2026-02-20 (C12C Path-1 runtime landed)
+Last updated: 2026-02-20 (C14I runtime dependency hardening landed; backend suite green)
 
 ## 1. Baseline Status
 - [x] PRD updated to v1.19 (`docs/23_agencyclaw_prd.md`)
@@ -50,7 +50,8 @@ Last updated: 2026-02-20 (C12C Path-1 runtime landed)
 | C14E | Slack DM event runtime extraction | Codex | done | merged (`4e5a87f`) | Extracted `_handle_dm_event` runtime flow into `slack_dm_runtime.py` with thin wrapper/dependency injection in `slack.py`; strict LLM-first gating and deterministic fallback behavior preserved. |
 | C14F | Slack interaction runtime extraction | Codex | done | merged (`5c7e8e4`) | Extracted `_handle_interaction` runtime flow into `slack_interaction_runtime.py` with thin wrapper/dependency injection in `slack.py`; interaction dedupe, picker, and confirm/cancel semantics preserved. |
 | C14G | Slack task-create runtime extraction | Codex | done | merged (`b85bd63`) | Extracted task-create runtime (`_execute_task_create`, `_handle_create_task`, `_enrich_task_draft`) into `slack_task_runtime.py` with thin wrappers/dependency injection in `slack.py`; task-create semantics preserved. |
-| C14I | Runtime dependency contract hardening | Codex | done | pending commit | Introduced typed runtime dependency containers (`slack_runtime_deps.py`) and switched runtime modules/wrappers to pass a single deps object per runtime to reduce signature drift risk without behavior changes. |
+| C14I | Runtime dependency contract hardening | Codex | done | merged (`ce86540`) | Introduced typed runtime dependency containers (`slack_runtime_deps.py`) and switched runtime modules/wrappers to pass a single deps object per runtime to reduce signature drift risk without behavior changes. |
+| C14X | Slack runtime unit-test hardening + baseline failure fixes | Codex | done | merged (`046b028`) | Added unit suites for extracted runtime helpers (`slack_helpers`, `slack_pending_flow`, `slack_cc_dispatch`) and fixed three pre-existing backend failures (`ngram`, `root`, `str_parser_spend`) to restore full-suite green baseline. |
 
 ## 3. Open Blockers
 - [x] Confirm migration `20260217000006_clickup_space_skill_seed.sql` is applied.

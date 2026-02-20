@@ -6,6 +6,10 @@ It is separate from `docs/23_agencyclaw_prd.md`:
 - PRD = product decisions and behavior.
 - Implementation plan = execution order, prompts, and acceptance gates.
 
+Status note (2026-02-20):
+- Post-C12 runtime hardening/decomposition has completed through C14I.
+- See `docs/25_agencyclaw_execution_tracker.md` for commit-by-commit evidence.
+
 ## 2. Working Rules
 - Work one chunk at a time.
 - No scope expansion inside a chunk.
@@ -69,6 +73,17 @@ It is separate from `docs/23_agencyclaw_prd.md`:
 22. C12A: Assignment mutations in chat (`cc_assignment_upsert` / `cc_assignment_remove`)
 23. C12B: Brand CRUD mutations in chat (`cc_brand_create` / `cc_brand_update`)
 24. C12C: Product identifier guardrail (Path-1, no catalog dependency)
+25. C13A: Strict LLM-first deterministic gating
+26. C13B: Strict-gating helper extraction (no behavior change)
+27. C13C: Tool->skill compatibility alias cleanup
+28. C14A: Slack helper extraction
+29. C14B: Pending-flow extraction
+30. C14C: Command Center dispatch extraction
+31. C14D: LLM orchestrator runtime extraction
+32. C14E: DM event runtime extraction
+33. C14F: Interaction runtime extraction
+34. C14G: Task-create runtime extraction
+35. C14I: Runtime dependency contract hardening
 
 ## 5. Chunk Details
 ## C1: Weekly Task Read Path
