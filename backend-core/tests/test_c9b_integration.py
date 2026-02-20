@@ -264,7 +264,7 @@ class TestOrchestratorToolCallWeekly:
             patch("app.api.routes.slack.get_playbook_session_service", return_value=svc),
             patch("app.api.routes.slack.get_slack_service", return_value=slack),
             patch("app.api.routes.slack.orchestrate_dm_message", new_callable=AsyncMock, return_value=result),
-            patch("app.api.routes.slack._handle_weekly_tasks", new_callable=AsyncMock) as mock_weekly,
+            patch("app.api.routes.slack._handle_task_list", new_callable=AsyncMock) as mock_weekly,
             patch("app.api.routes.slack.log_ai_token_usage", new_callable=AsyncMock),
             patch("app.api.routes.slack._check_skill_policy", new_callable=AsyncMock, return_value=_ALLOW_POLICY),
         ):
@@ -288,7 +288,7 @@ class TestOrchestratorToolCallWeekly:
             patch("app.api.routes.slack.get_playbook_session_service", return_value=svc),
             patch("app.api.routes.slack.get_slack_service", return_value=slack),
             patch("app.api.routes.slack.orchestrate_dm_message", new_callable=AsyncMock, return_value=result),
-            patch("app.api.routes.slack._handle_weekly_tasks", new_callable=AsyncMock) as mock_task_list,
+            patch("app.api.routes.slack._handle_task_list", new_callable=AsyncMock) as mock_task_list,
             patch("app.api.routes.slack.log_ai_token_usage", new_callable=AsyncMock),
             patch("app.api.routes.slack._check_skill_policy", new_callable=AsyncMock, return_value=_ALLOW_POLICY),
         ):
@@ -313,7 +313,7 @@ class TestOrchestratorToolCallWeekly:
             patch("app.api.routes.slack.get_playbook_session_service", return_value=svc),
             patch("app.api.routes.slack.get_slack_service", return_value=slack),
             patch("app.api.routes.slack.orchestrate_dm_message", new_callable=AsyncMock, return_value=result),
-            patch("app.api.routes.slack._handle_weekly_tasks", new_callable=AsyncMock) as mock_task_list,
+            patch("app.api.routes.slack._handle_task_list", new_callable=AsyncMock) as mock_task_list,
             patch("app.api.routes.slack.log_ai_token_usage", new_callable=AsyncMock),
             patch("app.api.routes.slack._check_skill_policy", new_callable=AsyncMock, return_value=_ALLOW_POLICY),
         ):
@@ -500,8 +500,8 @@ class TestOrchestratorPlannerDelegation:
         assert handled is True
         exec_kwargs = mock_exec.call_args.kwargs
         assert exec_kwargs["handler_map"]["clickup_task_create"].__name__ == "_handle_create_task"
-        assert exec_kwargs["handler_map"]["clickup_task_list_weekly"].__name__ == "_handle_weekly_tasks"
-        assert exec_kwargs["handler_map"]["clickup_task_list"].__name__ == "_handle_weekly_tasks"
+        assert exec_kwargs["handler_map"]["clickup_task_list_weekly"].__name__ == "_handle_task_list"
+        assert exec_kwargs["handler_map"]["clickup_task_list"].__name__ == "_handle_task_list"
         assert exec_kwargs["check_policy"].__name__ == "_check_skill_policy"
 
     @pytest.mark.asyncio
@@ -595,7 +595,7 @@ class TestOrchestratorFallbackMode:
             patch("app.api.routes.slack.orchestrate_dm_message", new_callable=AsyncMock, return_value=result),
             patch("app.api.routes.slack._try_planner", new_callable=AsyncMock) as mock_planner,
             patch("app.api.routes.slack.log_ai_token_usage", new_callable=AsyncMock),
-            patch("app.api.routes.slack._handle_weekly_tasks", new_callable=AsyncMock) as mock_weekly,
+            patch("app.api.routes.slack._handle_task_list", new_callable=AsyncMock) as mock_weekly,
         ):
             await _handle_dm_event(slack_user_id="U123", channel="C1", text="show tasks for Distex")
 

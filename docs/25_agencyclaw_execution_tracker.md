@@ -1,6 +1,6 @@
 # AgencyClaw Execution Tracker
 
-Last updated: 2026-02-20 (C16B task-list canonicalization + window_days hardening landed)
+Last updated: 2026-02-20 (C16C internal weekly-shim cleanup landed)
 
 ## 1. Baseline Status
 - [x] PRD updated to v1.19 (`docs/23_agencyclaw_prd.md`)
@@ -56,7 +56,8 @@ Last updated: 2026-02-20 (C16B task-list canonicalization + window_days hardenin
 | C15B | `plan_request` resilience + planner coverage expansion | Codex | done | merged (`8f80ab8`) | Added graceful `plan_request` fallback when planner is unavailable/fails (control-intent reroute or conversational narrowing prompt) and expanded planner allowlist to include safe Command Center skills via policy-gated `execute_plan` rails. |
 | C15C | Control-intent reroute hardening + planner runtime extraction | Codex | done | merged (`faa9eb6`) | Added integration coverage for control-intent reroute during `plan_request` planner-unavailable fallback, and extracted `_try_planner` into `slack_planner_runtime.py` with typed deps + wrapper delegation while preserving behavior. |
 | C16A | Flexible task listing + weekly compatibility alias | Codex | done | merged (`f947e0c`) | Added canonical read skill `clickup_task_list` with `clickup_task_list_weekly` compatibility alias; generalized task-list windows (week default, month, last N days, optional explicit dates) and extracted task-list runtime into `slack_task_list_runtime.py` with stable wrappers. |
-| C16B | Task-list canonicalization + `window_days` normalization hardening | Codex | done | pending commit | Canonicalized deterministic task-list intent label to `task_list`, hardened `window_days` validation to accept int/numeric-string inputs for canonical skill calls, and preserved weekly alias compatibility in orchestrator/planner/runtime rails. |
+| C16B | Task-list canonicalization + `window_days` normalization hardening | Codex | done | merged (`b252c2a`) | Canonicalized deterministic task-list intent label to `task_list`, hardened `window_days` validation to accept int/numeric-string inputs for canonical skill calls, and preserved weekly alias compatibility in orchestrator/planner/runtime rails. |
+| C16C | Internal weekly-shim cleanup (canonical task-list routing) | Codex | done | pending commit | Consolidated internal task-list routing/deps on canonical `_handle_task_list` / `handle_task_list_fn`, while preserving external compatibility for `clickup_task_list_weekly` and `_handle_weekly_tasks` wrapper seam. |
 
 ## 3. Open Blockers
 - [x] Confirm migration `20260217000006_clickup_space_skill_seed.sql` is applied.
@@ -179,6 +180,10 @@ Last updated: 2026-02-20 (C16B task-list canonicalization + window_days hardenin
 - C16B compatibility: orchestrator and planner keep backward-compatible support for both `clickup_task_list` and `clickup_task_list_weekly` skill IDs, and weekly phrase behavior remains intact end-to-end.
 - C16B validation: `backend-core/tests/test_weekly_tasks.py` + `backend-core/tests/test_slack_orchestrator.py` + `backend-core/tests/test_c9b_integration.py` + `backend-core/tests/test_slack_helpers_unit.py` (`195 passed, 1 warning`), full suite `917 passed, 0 failed, 1 warning`.
 - C16B residual risk: `_handle_weekly_tasks` remains as a compatibility shim/patched test seam; complete internal naming consolidation to `_handle_task_list` can be done in a follow-up cleanup chunk.
+- C16C cleanup: internal task-list runtime wiring now uses canonical `_handle_task_list` / `handle_task_list_fn` across DM/orchestrator/planner deps and dispatch maps; legacy weekly skill-id support remains an alias path to the same canonical handler.
+- C16C seam hardening: weekly-focused tests now assert canonical handler routing and retain explicit alias coverage to prove `_handle_weekly_tasks` wrapper compatibility (`window=\"this_week\"` pass-through) for external patch points.
+- C16C validation: `backend-core/tests/test_weekly_tasks.py` + `backend-core/tests/test_c9b_integration.py` + `backend-core/tests/test_c10a_policy_gate.py` + `backend-core/tests/test_c11f_conversational_cleanup.py` (`131 passed, 1 warning`), full suite `918 passed, 0 failed, 1 warning`.
+- C16C residual risk: `_handle_weekly_tasks` compatibility wrapper remains intentionally to avoid breaking external test/patch seams; removing it later would require a coordinated seam migration.
 
 ## 4. Validation Checklist (Per Chunk)
 - [ ] Behavior works in Slack runtime path.

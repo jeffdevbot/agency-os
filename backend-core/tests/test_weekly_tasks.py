@@ -16,6 +16,7 @@ from app.api.routes.slack import (
     _format_task_list_response,
     _format_task_line,
     _format_weekly_tasks_response,
+    _handle_task_list,
     _handle_weekly_tasks,
 )
 
@@ -218,7 +219,7 @@ class FakeSession:
 
 
 class TestHandleWeeklyTasks:
-    """Integration tests for _handle_weekly_tasks with mocked dependencies."""
+    """Integration tests for _handle_task_list with mocked dependencies."""
 
     def _make_mocks(self, **session_overrides):
         session = FakeSession(**session_overrides)
@@ -233,6 +234,22 @@ class TestHandleWeeklyTasks:
         return session_svc, slack
 
     @pytest.mark.asyncio
+    async def test_weekly_wrapper_alias_routes_to_canonical(self):
+        session_svc, slack = self._make_mocks()
+
+        with patch("app.api.routes.slack._handle_task_list", new_callable=AsyncMock) as mock_task_list:
+            await _handle_weekly_tasks(
+                slack_user_id="U123",
+                channel="C1",
+                client_name_hint="Distex",
+                session_service=session_svc,
+                slack=slack,
+            )
+
+        mock_task_list.assert_called_once()
+        assert mock_task_list.call_args.kwargs.get("window") == "this_week"
+
+    @pytest.mark.asyncio
     async def test_happy_path_with_client_hint(self):
         session_svc, slack = self._make_mocks()
         mock_tasks = [
@@ -245,7 +262,7 @@ class TestHandleWeeklyTasks:
             cu_instance.get_tasks_in_list_all_pages.return_value = mock_tasks
             mock_cu.return_value = cu_instance
 
-            await _handle_weekly_tasks(
+            await _handle_task_list(
                 slack_user_id="U123",
                 channel="C1",
                 client_name_hint="Distex",
@@ -270,7 +287,7 @@ class TestHandleWeeklyTasks:
             cu_instance.get_tasks_in_list_all_pages.return_value = mock_tasks
             mock_cu.return_value = cu_instance
 
-            await _handle_weekly_tasks(
+            await _handle_task_list(
                 slack_user_id="U123",
                 channel="C1",
                 client_name_hint="Distex",
@@ -292,7 +309,7 @@ class TestHandleWeeklyTasks:
             cu_instance.get_tasks_in_list_all_pages.return_value = mock_tasks
             mock_cu.return_value = cu_instance
 
-            await _handle_weekly_tasks(
+            await _handle_task_list(
                 slack_user_id="U123",
                 channel="C1",
                 client_name_hint="Distex",
@@ -313,7 +330,7 @@ class TestHandleWeeklyTasks:
             {"id": "c2", "name": "Distex CA"},
         ]
 
-        await _handle_weekly_tasks(
+        await _handle_task_list(
             slack_user_id="U123",
             channel="C1",
             client_name_hint="Distex",
@@ -331,7 +348,7 @@ class TestHandleWeeklyTasks:
         session_svc, slack = self._make_mocks()
         session_svc.find_client_matches.return_value = []
 
-        await _handle_weekly_tasks(
+        await _handle_task_list(
             slack_user_id="U123",
             channel="C1",
             client_name_hint="NonExistent",
@@ -347,7 +364,7 @@ class TestHandleWeeklyTasks:
         session_svc, slack = self._make_mocks(active_client_id=None)
         session_svc.list_clients_for_picker.return_value = [{"id": "c1", "name": "Acme"}]
 
-        await _handle_weekly_tasks(
+        await _handle_task_list(
             slack_user_id="U123",
             channel="C1",
             client_name_hint="",
@@ -363,7 +380,7 @@ class TestHandleWeeklyTasks:
         session_svc, slack = self._make_mocks()
         session_svc.get_all_brand_destinations_for_client.return_value = []
 
-        await _handle_weekly_tasks(
+        await _handle_task_list(
             slack_user_id="U123",
             channel="C1",
             client_name_hint="Distex",
@@ -381,7 +398,7 @@ class TestHandleWeeklyTasks:
         with patch("app.api.routes.slack.get_clickup_service") as mock_cu:
             mock_cu.side_effect = ClickUpConfigurationError("CLICKUP_API_TOKEN not set")
 
-            await _handle_weekly_tasks(
+            await _handle_task_list(
                 slack_user_id="U123",
                 channel="C1",
                 client_name_hint="Distex",
@@ -401,7 +418,7 @@ class TestHandleWeeklyTasks:
             cu_instance.get_tasks_in_list_all_pages.return_value = []
             mock_cu.return_value = cu_instance
 
-            await _handle_weekly_tasks(
+            await _handle_task_list(
                 slack_user_id="U123",
                 channel="C1",
                 client_name_hint="Distex",
@@ -425,7 +442,7 @@ class TestHandleWeeklyTasks:
             cu_instance.get_tasks_in_list_all_pages.return_value = oversized
             mock_cu.return_value = cu_instance
 
-            await _handle_weekly_tasks(
+            await _handle_task_list(
                 slack_user_id="U123",
                 channel="C1",
                 client_name_hint="Distex",
@@ -452,7 +469,7 @@ class TestHandleWeeklyTasks:
             cu_instance.get_tasks_in_list_all_pages.return_value = [shared_task]
             mock_cu.return_value = cu_instance
 
-            await _handle_weekly_tasks(
+            await _handle_task_list(
                 slack_user_id="U123",
                 channel="C1",
                 client_name_hint="Distex",
@@ -474,7 +491,7 @@ class TestHandleWeeklyTasks:
             ]
             mock_cu.return_value = cu_instance
 
-            await _handle_weekly_tasks(
+            await _handle_task_list(
                 slack_user_id="U123",
                 channel="C1",
                 client_name_hint="",

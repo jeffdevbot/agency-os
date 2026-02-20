@@ -273,7 +273,7 @@ class TestLLMOrchestratorPolicyDenial:
             patch("app.api.routes.slack.orchestrate_dm_message", new_callable=AsyncMock, return_value=result),
             patch("app.api.routes.slack.log_ai_token_usage", new_callable=AsyncMock),
             patch("app.api.routes.slack._check_skill_policy", new_callable=AsyncMock, return_value=deny_decision),
-            patch("app.api.routes.slack._handle_weekly_tasks", new_callable=AsyncMock) as mock_handler,
+            patch("app.api.routes.slack._handle_task_list", new_callable=AsyncMock) as mock_handler,
         ):
             handled = await _try_llm_orchestrator(
                 text="show tasks for Distex",
@@ -312,7 +312,7 @@ class TestLLMOrchestratorPolicyDenial:
             patch("app.api.routes.slack.orchestrate_dm_message", new_callable=AsyncMock, return_value=result),
             patch("app.api.routes.slack.log_ai_token_usage", new_callable=AsyncMock),
             patch("app.api.routes.slack._check_skill_policy", new_callable=AsyncMock, return_value=allow_decision),
-            patch("app.api.routes.slack._handle_weekly_tasks", new_callable=AsyncMock) as mock_handler,
+            patch("app.api.routes.slack._handle_task_list", new_callable=AsyncMock) as mock_handler,
         ):
             handled = await _try_llm_orchestrator(
                 text="show tasks for Distex",
@@ -379,7 +379,7 @@ class TestDeterministicPathPolicyDenial:
             patch("app.api.routes.slack.get_playbook_session_service", return_value=svc),
             patch("app.api.routes.slack.get_slack_service", return_value=slack),
             patch("app.api.routes.slack._check_skill_policy", new_callable=AsyncMock, return_value=deny_decision),
-            patch("app.api.routes.slack._handle_weekly_tasks", new_callable=AsyncMock) as mock_handler,
+            patch("app.api.routes.slack._handle_task_list", new_callable=AsyncMock) as mock_handler,
         ):
             await _handle_dm_event(
                 slack_user_id="U123", channel="D123",
