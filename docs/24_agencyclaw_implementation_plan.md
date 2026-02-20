@@ -49,6 +49,7 @@ It is separate from `docs/23_agencyclaw_prd.md`:
 16. C11A: Command Center read-only lookup skills in chat (clients/brands/mapping audit)
 17. C11B: LLM-first fallback cleanup (disable broad regex fallback by default)
 18. C11D: Brand context resolver for shared-destination + multi-brand clients
+19. C11E: Admin remediation skill for unmapped brands (dry-run -> confirm apply)
 
 ## 5. Chunk Details
 ## C1: Weekly Task Read Path
@@ -256,6 +257,18 @@ Locked regression fixtures for C10B:
     ambiguous brand/product request,
     client-level request,
     multi-destination mapping path.
+
+## C11E: Brand Mapping Remediation (Admin, Safe-Apply)
+- Scope:
+  - Add deterministic remediation planner for brands missing `clickup_space_id` and/or `clickup_list_id`.
+  - Planner must evaluate per-client defaults and only mark items safe when each missing field has exactly one client-level candidate value.
+  - Support dry-run summary and explicit apply execution path.
+  - Keep apply path admin-gated and auditable; no implicit auto-apply.
+- Acceptance:
+  - Dry-run returns deterministic plan with per-brand reason (`safe_to_apply` vs blocked reason).
+  - Ambiguous defaults (multiple candidate mappings per client) are blocked with explicit reason.
+  - Apply updates only missing fields on safe items; unsafe items are skipped.
+  - Tests cover dry-run, ambiguity block, apply success, and apply failure reporting.
 
 ## 6. C9 Runtime Env Prerequisites
 Source of truth for deployed values:

@@ -1,6 +1,6 @@
 # AgencyClaw Execution Tracker
 
-Last updated: 2026-02-20 (C11A/C11B merged; C11D kicked off)
+Last updated: 2026-02-20 (C11A/C11B merged; C11D active; C11E foundation landed)
 
 ## 1. Baseline Status
 - [x] PRD updated to v1.18 (`docs/23_agencyclaw_prd.md`)
@@ -36,6 +36,7 @@ Last updated: 2026-02-20 (C11A/C11B merged; C11D kicked off)
 | C11A | Command Center read-only chat skills | Codex | done | merged (`8ac34b1`) | Added `cc_client_lookup`, `cc_brand_list_all`, and admin-only `cc_brand_clickup_mapping_audit` across LLM + deterministic paths with policy enforcement |
 | C11B | LLM-first fallback cleanup | Codex | done | merged (`8ac34b1`) | Removed legacy hardcoded N-gram deterministic branch; defaulted runtime to LLM-first fallback behavior (`AGENCYCLAW_ENABLE_LEGACY_INTENTS` opt-in override) |
 | C11D | Brand context resolver (destination-vs-brand split) | Codex | in_progress | kickoff (this tracker update) | Implement explicit brand disambiguation for shared-destination multi-brand clients; no hidden brand guessing in mutation routing |
+| C11E | Admin remediation skill for unmapped brands | Codex | in_progress | foundation (this branch) | Added standalone remediation planner/apply service + tests (dry-run-first), runtime wiring still pending |
 
 ## 3. Open Blockers
 - [x] Confirm migration `20260217000006_clickup_space_skill_seed.sql` is applied.
@@ -59,8 +60,6 @@ Last updated: 2026-02-20 (C11A/C11B merged; C11D kicked off)
   Until implemented, runtime must clarify missing identifiers or create explicit "ASIN pending" drafts with unresolved fields.
 - [ ] Multi-user channel memory hardening under C10E:
   actor-scoped preferences only, requester-bound pending state, and explicit `requested_by` vs `confirmed_by` audit fields.
-- [ ] `C11E` admin remediation skill for unmapped brands:
-  dry-run + confirm flow to bulk apply destination mapping defaults where safe.
 
 ## 3.1 Latest Validation Notes
 - C1 (Agent 1): `backend-core/tests/test_weekly_tasks.py` passing (37 tests). Added destination filter fix for list-only ClickUp mappings and trailing punctuation sanitization for client hints.
@@ -98,6 +97,8 @@ Last updated: 2026-02-20 (C11A/C11B merged; C11D kicked off)
 - SOP sync runtime bugfix (`sop_sync.py`): fixed Supabase update chain incompatibility; live sync now succeeds (`15/15` SOPs synced, `0` missing content rows).
 - C11A/C11B merge (`8ac34b1`): `backend-core/tests/test_command_center_lookup.py`, `backend-core/tests/test_c11a_command_center_integration.py`, `backend-core/tests/test_c9b_integration.py`, `backend-core/tests/test_task_create.py`, and `backend-core/tests/test_weekly_tasks.py` passing (targeted suites green).
 - C11A/C11B full-suite check after merge: `512 passed, 3 failed` (same pre-existing unrelated failures in `test_ngram_analytics.py`, `test_root_services.py`, `test_str_parser_spend.py`).
+- C11A query hardening (`43bd149`): command-center brand/client lookup now falls back safely when FK join metadata is unavailable; tests `26 passed` (`test_command_center_lookup.py`) and C11A integration suite `36 passed`.
+- C11E foundation (pending commit): `backend-core/app/services/agencyclaw/brand_mapping_remediation.py` + `backend-core/tests/test_brand_mapping_remediation.py` added; planner/apply unit suite `8 passed`.
 - Backend full test suite still has pre-existing unrelated failures outside these chunks.
 
 ## 4. Validation Checklist (Per Chunk)
@@ -151,3 +152,4 @@ Last updated: 2026-02-20 (C11A/C11B merged; C11D kicked off)
 | C11A | 4, 7, 13, 15 | 5, 10 |
 | C11B | 4, 5, 13, 15 | 10, 14 |
 | C11D | 4, 7, 13, 15 | 9, 10, 14 |
+| C11E | 4, 7, 13, 15 | 10, 14 |
