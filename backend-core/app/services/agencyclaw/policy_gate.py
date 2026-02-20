@@ -26,7 +26,15 @@ _KNOWN_ROLES = ("admin", "operator", "viewer")
 _KNOWN_SURFACES = ("dm", "channel", "group")
 
 # Skills classified by mutation vs read
-_MUTATION_SKILLS = frozenset({"clickup_task_create", "ngram_research", "cc_brand_mapping_remediation_apply"})
+_MUTATION_SKILLS = frozenset({
+    "clickup_task_create",
+    "ngram_research",
+    "cc_brand_mapping_remediation_apply",
+    "cc_assignment_upsert",
+    "cc_assignment_remove",
+    "cc_brand_create",
+    "cc_brand_update",
+})
 _READ_SKILLS = frozenset({
     "clickup_task_list_weekly",
     "cc_client_lookup",
@@ -38,6 +46,10 @@ _ADMIN_SKILLS = frozenset({
     "cc_brand_clickup_mapping_audit",
     "cc_brand_mapping_remediation_preview",
     "cc_brand_mapping_remediation_apply",
+    "cc_assignment_upsert",
+    "cc_assignment_remove",
+    "cc_brand_create",
+    "cc_brand_update",
 })
 
 

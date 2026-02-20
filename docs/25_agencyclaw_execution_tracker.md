@@ -1,6 +1,6 @@
 # AgencyClaw Execution Tracker
 
-Last updated: 2026-02-20 (C12A landed; docs source-of-truth synced)
+Last updated: 2026-02-20 (C12B landed; docs source-of-truth synced)
 
 ## 1. Baseline Status
 - [x] PRD updated to v1.18 (`docs/23_agencyclaw_prd.md`)
@@ -38,7 +38,8 @@ Last updated: 2026-02-20 (C12A landed; docs source-of-truth synced)
 | C11D | Brand context resolver (destination-vs-brand split) | Codex | done | merged (`694d900`) | Resolver + runtime wiring landed with hardening: punctuation-safe product scope, title-step re-resolution, invalid brand-button guard; Slack smoke passed |
 | C11E | Admin remediation skill for unmapped brands | Claude | done | foundation (`04a8589`), wiring (`f8729b6`) | Remediation preview + apply wired into Slack classifier/handler/policy; admin-only; 39 integration tests + 8 unit tests passing; no regressions in 208-test targeted suite |
 | C11F-A | Conversational runtime cleanup (LLM-first) | Claude | done | merged (`d0d7328`) | Removed command-style fallback in LLM-first mode; tightened orchestrator prompt for natural replies; 11 tests + 314-test regression suite green |
-| C12A | Command Center assignment mutation skills | Claude | done | pending commit | Admin-only `cc_assignment_upsert` + `cc_assignment_remove` skills; service layer with fuzzy person resolve, role aliases, brand-scoped slots; classifier + handler + dual dispatcher wiring; 53 integration tests + 674-test full suite green (3 pre-existing unrelated failures) |
+| C12A | Command Center assignment mutation skills | Claude | done | pending commit | Admin-only `cc_assignment_upsert` + `cc_assignment_remove` skills; service layer with fuzzy person resolve, role aliases, brand-scoped slots; classifier + handler + dual dispatcher wiring; 63 integration tests (incl. follow-up fixes: active-client fallback, bm/brand_manager alias, atomic upsert) + 684-test full suite green |
+| C12B | Brand CRUD chat mutations | Claude | done | pending commit | Admin-only `cc_brand_create` + `cc_brand_update` skills; duplicate-safe create, partial-patch update, marketplace support; classifier + handler + dual dispatcher wiring; 52 integration tests + 740-test full suite green (3 pre-existing unrelated failures) |
 
 ## 3. Open Blockers
 - [x] Confirm migration `20260217000006_clickup_space_skill_seed.sql` is applied.
@@ -110,6 +111,8 @@ Last updated: 2026-02-20 (C12A landed; docs source-of-truth synced)
 - C11F-A: `test_c11f_conversational_cleanup.py` (11 passed). Broad regression suite (c9b, slack_orchestrator, c10b, task_create, weekly_tasks, slack_hardening, c11a, c11e, c10a_policy_gate, command_center_lookup): 314 passed, 0 failed.
 - C11A UX clarification (`e19dce7`): client lookup output now explicitly states assignment/access scope to reduce confusion when users see only assigned clients.
 - C12A: `test_c12a_assignment_integration.py` (53 passed). Full regression suite: 674 passed, 3 failed (same pre-existing unrelated failures in `test_ngram_analytics.py`, `test_root_services.py`, `test_str_parser_spend.py`).
+- C12A follow-up fixes: `test_c12a_assignment_integration.py` (63 passed, up from 53). Added active-client fallback, bm/brand_manager -> CSL alias, atomic update-in-place for slot replacement. Full suite: 684 passed, 3 failed (pre-existing).
+- C12B: `test_c12b_brand_mutation_integration.py` (52 passed). Targeted regression suite: 414 passed, 0 failed. Full suite: 740 passed, 3 failed (same pre-existing unrelated failures).
 - C12C prep (docs/scaffolding only): added `docs/29_catalog_lookup_contract.md`, tightened PRD/plan acceptance wording, and added isolated contract tests (`backend-core/tests/test_catalog_lookup_contract.py`) with no Slack runtime wiring changes.
 - Backend full test suite still has pre-existing unrelated failures outside these chunks.
 
@@ -140,7 +143,7 @@ Last updated: 2026-02-20 (C12A landed; docs source-of-truth synced)
 | 12. Google Meeting Notes Inputs | C7 | mostly_done | Debrief extraction flow and parser utilities validated | Add optional end-to-end runtime smoke as needed |
 | 13. Skill Registry | C1-C9 | in_progress | Skills seeded via `000001`, `000005`, `000006`; C1 enabled | Enable each skill only when implemented and smoke-tested |
 | 14. Failure + Compensation | C3, C4 | mostly_done | C3 merged; C4A-C4C helpers integrated into live task-create path | Add orphan reconciliation/sweep workflow |
-| 15. Phased Delivery Plan | C1-C12 roadmap | mostly_done | C1, C2, C3, C4, C5, C6, C7, C8, C9, C10B, C10B.5, C10A, C10C, C10D, C10E, C10F, C11A, C11B, C11D, C11E, C11F-A, C12A done | Remaining Phase 2.6 chat-parity features |
+| 15. Phased Delivery Plan | C1-C12 roadmap | mostly_done | C1, C2, C3, C4, C5, C6, C7, C8, C9, C10B, C10B.5, C10A, C10C, C10D, C10E, C10F, C11A, C11B, C11D, C11E, C11F-A, C12A, C12B done | Remaining Phase 2.6 chat-parity features |
 | 16. Immediate Decisions Locked | Baseline + governance | mostly_done | Key architectural and migration decisions applied | Keep matrix/tracker synchronized as work lands |
 
 ## 6. Chunk-To-PRD Traceability
@@ -167,3 +170,4 @@ Last updated: 2026-02-20 (C12A landed; docs source-of-truth synced)
 | C11E | 4, 7, 13, 15 | 10, 14 |
 | C11F-A | 4, 5, 13, 15 | 10 |
 | C12A | 4, 7, 13, 15 | 5, 8, 10 |
+| C12B | 4, 7, 8, 13, 15 | 5, 10 |

@@ -28,6 +28,24 @@ from ...services.agencyclaw.brand_mapping_remediation import (
     apply_brand_mapping_remediation_plan,
     build_brand_mapping_remediation_plan,
 )
+from ...services.agencyclaw.command_center_assignments import (
+    format_person_ambiguous,
+    format_remove_result,
+    format_upsert_result,
+    remove_assignment,
+    resolve_brand_for_assignment,
+    resolve_person,
+    resolve_role,
+    upsert_assignment,
+)
+from ...services.agencyclaw.command_center_brand_mutations import (
+    create_brand,
+    format_brand_ambiguous,
+    format_brand_create_result,
+    format_brand_update_result,
+    resolve_brand_for_mutation,
+    update_brand,
+)
 from ...services.agencyclaw.command_center_lookup import (
     audit_brand_mappings,
     format_brand_list,
@@ -302,6 +320,54 @@ def _classify_message(text: str) -> tuple[str, dict[str, Any]]:
                 "cc_brand_mapping_remediation_preview",
                 {"client_name": client_hint} if client_hint else {},
             )
+
+    # C12A: Assignment mutation skills
+    _ASSIGN_PATTERN = re.compile(
+        r"(?:assign|make|set)\s+(.+?)\s+(?:as|to)\s+(\S+)"
+        r"(?:\s+(?:on|for)\s+(.+))?$",
+        re.IGNORECASE,
+    )
+    _REMOVE_PATTERN = re.compile(
+        r"(?:remove|unassign)\s+(.+?)\s+(?:from|as)\s+(\S+)"
+        r"(?:\s+(?:on|for)\s+(.+))?$",
+        re.IGNORECASE,
+    )
+    m = _ASSIGN_PATTERN.match(original)
+    if m:
+        return ("cc_assignment_upsert", {
+            "person_name": m.group(1).strip(),
+            "role_slug": m.group(2).strip(),
+            "client_name": _sanitize_client_name_hint(m.group(3) or ""),
+        })
+    m = _REMOVE_PATTERN.match(original)
+    if m:
+        return ("cc_assignment_remove", {
+            "person_name": m.group(1).strip(),
+            "role_slug": m.group(2).strip(),
+            "client_name": _sanitize_client_name_hint(m.group(3) or ""),
+        })
+
+    # C12B: Brand CRUD mutation skills
+    _CREATE_BRAND_PATTERN = re.compile(
+        r"(?:create|add|new)\s+brand\s+(.+?)\s+(?:for|under|on)\s+(.+?)$",
+        re.IGNORECASE,
+    )
+    _UPDATE_BRAND_PATTERN = re.compile(
+        r"(?:update|edit|rename)\s+brand\s+(.+?)(?:\s+(?:for|under|on)\s+(.+?))?$",
+        re.IGNORECASE,
+    )
+    m = _CREATE_BRAND_PATTERN.match(original)
+    if m:
+        return ("cc_brand_create", {
+            "brand_name": m.group(1).strip(),
+            "client_name": _sanitize_client_name_hint(m.group(2) or ""),
+        })
+    m = _UPDATE_BRAND_PATTERN.match(original)
+    if m:
+        return ("cc_brand_update", {
+            "brand_name": m.group(1).strip(),
+            "client_name": _sanitize_client_name_hint(m.group(2) or ""),
+        })
 
     return ("help", {})
 
@@ -664,6 +730,69 @@ async def _resolve_cc_client_hint(
     return str(matches[0].get("id") or "")
 
 
+async def _resolve_assignment_client(
+    *,
+    args: dict[str, Any],
+    session_service: Any,
+    session: Any,
+    channel: str,
+    slack: Any,
+) -> str | bool:
+    """Resolve client for assignment skills (always requires a concrete client).
+
+    Unlike ``_resolve_cc_client_hint`` (which returns None for "scan all"),
+    assignment skills always need a client_id.
+
+    Returns:
+    - A client_id string on success.
+    - ``False`` if resolution failed (message already posted to Slack).
+    """
+    client_hint = str(args.get("client_name") or "").strip()
+
+    # Explicit client_name hint — resolve via fuzzy match
+    if client_hint:
+        matches = await asyncio.to_thread(
+            session_service.find_client_matches, session.profile_id, client_hint,
+        )
+        if not matches:
+            await slack.post_message(
+                channel=channel,
+                text=f"I couldn't find a client matching *{client_hint}*.",
+            )
+            return False
+        if len(matches) > 1:
+            blocks = _build_client_picker_blocks(matches)
+            await slack.post_message(
+                channel=channel,
+                text=f"Multiple clients match *{client_hint}*. Pick one and try again:",
+                blocks=blocks,
+            )
+            return False
+        return str(matches[0].get("id") or "")
+
+    # No hint — fall back to active client on session
+    if session.active_client_id:
+        return str(session.active_client_id)
+
+    # No active client — ask user to pick or switch
+    clients = await asyncio.to_thread(
+        session_service.list_clients_for_picker, session.profile_id,
+    )
+    if clients:
+        blocks = _build_client_picker_blocks(clients)
+        await slack.post_message(
+            channel=channel,
+            text="Which client is this assignment for? Pick one or say *switch to <client>* first:",
+            blocks=blocks,
+        )
+    else:
+        await slack.post_message(
+            channel=channel,
+            text="I need a client for this assignment. Say *switch to <client>* first.",
+        )
+    return False
+
+
 def _format_remediation_preview(plan: list[dict[str, Any]]) -> str:
     """Format a remediation plan as a human-readable Slack message."""
     if not plan:
@@ -820,6 +949,254 @@ async def _handle_cc_skill(
             channel=channel, text=_format_remediation_apply_result(result),
         )
         return "[Remediation applied]"
+
+    # C12A: Assignment upsert
+    if skill_id == "cc_assignment_upsert":
+        person_name = str(args.get("person_name") or "").strip()
+        role_slug = str(args.get("role_slug") or "").strip()
+        brand_name_hint = str(args.get("brand_name") or "").strip()
+
+        # Resolve client (requires concrete client, falls back to active)
+        client_id = await _resolve_assignment_client(
+            args=args, session_service=session_service, session=session,
+            channel=channel, slack=slack,
+        )
+        if client_id is False:
+            return "[Assignment upsert client error]"
+
+        # Resolve person
+        person_result = await asyncio.to_thread(resolve_person, db, person_name)
+        if person_result["status"] == "not_found":
+            await slack.post_message(
+                channel=channel,
+                text=f"I couldn't find a team member matching *{person_name}*.",
+            )
+            return "[Assignment upsert person not found]"
+        if person_result["status"] == "ambiguous":
+            await slack.post_message(
+                channel=channel,
+                text=format_person_ambiguous(person_result["candidates"]),
+            )
+            return "[Assignment upsert person ambiguous]"
+
+        # Resolve role
+        role_result = await asyncio.to_thread(resolve_role, db, role_slug)
+        if role_result["status"] == "not_found":
+            await slack.post_message(
+                channel=channel,
+                text=f"I couldn't find a role matching *{role_slug}*.",
+            )
+            return "[Assignment upsert role not found]"
+
+        # Optionally resolve brand
+        brand_id: str | None = None
+        brand_display: str | None = None
+        if brand_name_hint:
+            brand_result = await asyncio.to_thread(
+                resolve_brand_for_assignment, db, client_id, brand_name_hint,
+            )
+            if brand_result["status"] == "not_found":
+                await slack.post_message(
+                    channel=channel,
+                    text=f"I couldn't find a brand matching *{brand_name_hint}*.",
+                )
+                return "[Assignment upsert brand not found]"
+            if brand_result["status"] == "ambiguous":
+                names = ", ".join(c.get("name", "?") for c in brand_result["candidates"][:5])
+                await slack.post_message(
+                    channel=channel,
+                    text=f"Multiple brands match *{brand_name_hint}*: {names}. Please be more specific.",
+                )
+                return "[Assignment upsert brand ambiguous]"
+            if brand_result["status"] == "ok":
+                brand_id = brand_result["brand_id"]
+                brand_display = brand_result["brand_name"]
+
+        # Execute upsert
+        assign_result = await asyncio.to_thread(
+            upsert_assignment, db,
+            client_id=client_id,
+            team_member_id=person_result["profile_id"],
+            role_id=role_result["role_id"],
+            brand_id=brand_id,
+            assigned_by=session.profile_id,
+        )
+        client_display = await asyncio.to_thread(
+            session_service.get_client_name, client_id,
+        )
+        msg = format_upsert_result(
+            assign_result,
+            person_name=person_result["display_name"] or person_name,
+            role_name=role_result["role_name"] or role_slug,
+            client_name=client_display or "client",
+            brand_name=brand_display,
+        )
+        await slack.post_message(channel=channel, text=msg)
+        return "[Assignment upsert]"
+
+    # C12A: Assignment remove
+    if skill_id == "cc_assignment_remove":
+        person_name = str(args.get("person_name") or "").strip()
+        role_slug = str(args.get("role_slug") or "").strip()
+        brand_name_hint = str(args.get("brand_name") or "").strip()
+
+        # Resolve client (requires concrete client, falls back to active)
+        client_id = await _resolve_assignment_client(
+            args=args, session_service=session_service, session=session,
+            channel=channel, slack=slack,
+        )
+        if client_id is False:
+            return "[Assignment remove client error]"
+
+        # Resolve person
+        person_result = await asyncio.to_thread(resolve_person, db, person_name)
+        if person_result["status"] == "not_found":
+            await slack.post_message(
+                channel=channel,
+                text=f"I couldn't find a team member matching *{person_name}*.",
+            )
+            return "[Assignment remove person not found]"
+        if person_result["status"] == "ambiguous":
+            await slack.post_message(
+                channel=channel,
+                text=format_person_ambiguous(person_result["candidates"]),
+            )
+            return "[Assignment remove person ambiguous]"
+
+        # Resolve role
+        role_result = await asyncio.to_thread(resolve_role, db, role_slug)
+        if role_result["status"] == "not_found":
+            await slack.post_message(
+                channel=channel,
+                text=f"I couldn't find a role matching *{role_slug}*.",
+            )
+            return "[Assignment remove role not found]"
+
+        # Optionally resolve brand
+        brand_id = None
+        brand_display = None
+        if brand_name_hint:
+            brand_result = await asyncio.to_thread(
+                resolve_brand_for_assignment, db, client_id, brand_name_hint,
+            )
+            if brand_result["status"] == "not_found":
+                await slack.post_message(
+                    channel=channel,
+                    text=f"I couldn't find a brand matching *{brand_name_hint}*.",
+                )
+                return "[Assignment remove brand not found]"
+            if brand_result["status"] == "ambiguous":
+                names = ", ".join(c.get("name", "?") for c in brand_result["candidates"][:5])
+                await slack.post_message(
+                    channel=channel,
+                    text=f"Multiple brands match *{brand_name_hint}*: {names}. Please be more specific.",
+                )
+                return "[Assignment remove brand ambiguous]"
+            if brand_result["status"] == "ok":
+                brand_id = brand_result["brand_id"]
+                brand_display = brand_result["brand_name"]
+
+        # Execute remove
+        remove_result = await asyncio.to_thread(
+            remove_assignment, db,
+            client_id=client_id,
+            team_member_id=person_result["profile_id"],
+            role_id=role_result["role_id"],
+            brand_id=brand_id,
+        )
+        client_display = await asyncio.to_thread(
+            session_service.get_client_name, client_id,
+        )
+        msg = format_remove_result(
+            remove_result,
+            person_name=person_result["display_name"] or person_name,
+            role_name=role_result["role_name"] or role_slug,
+            client_name=client_display or "client",
+            brand_name=brand_display,
+        )
+        await slack.post_message(channel=channel, text=msg)
+        return "[Assignment remove]"
+
+    # C12B: Brand create
+    if skill_id == "cc_brand_create":
+        brand_name = str(args.get("brand_name") or "").strip()
+        if not brand_name:
+            await slack.post_message(channel=channel, text="I need a brand name to create.")
+            return "[Brand create missing name]"
+
+        # Resolve client (required for brand create)
+        client_id = await _resolve_assignment_client(
+            args=args, session_service=session_service, session=session,
+            channel=channel, slack=slack,
+        )
+        if client_id is False:
+            return "[Brand create client error]"
+
+        result = await asyncio.to_thread(
+            create_brand, db,
+            client_id=client_id,
+            brand_name=brand_name,
+            clickup_space_id=str(args.get("clickup_space_id") or "") or None,
+            clickup_list_id=str(args.get("clickup_list_id") or "") or None,
+            marketplaces=str(args.get("marketplaces") or "") or None,
+        )
+        client_display = await asyncio.to_thread(
+            session_service.get_client_name, client_id,
+        )
+        msg = format_brand_create_result(result, brand_name, client_display or "client")
+        await slack.post_message(channel=channel, text=msg)
+        return "[Brand create]"
+
+    # C12B: Brand update
+    if skill_id == "cc_brand_update":
+        brand_name = str(args.get("brand_name") or "").strip()
+        if not brand_name:
+            await slack.post_message(channel=channel, text="I need a brand name to update.")
+            return "[Brand update missing name]"
+
+        # Resolve client scope (optional but recommended)
+        client_hint = str(args.get("client_name") or "").strip()
+        client_id: str | None = None
+        if client_hint:
+            resolved = await _resolve_assignment_client(
+                args=args, session_service=session_service, session=session,
+                channel=channel, slack=slack,
+            )
+            if resolved is False:
+                return "[Brand update client error]"
+            client_id = resolved
+        elif session.active_client_id:
+            client_id = str(session.active_client_id)
+
+        # Resolve brand
+        brand_result = await asyncio.to_thread(
+            resolve_brand_for_mutation, db, client_id, brand_name,
+        )
+        if brand_result["status"] == "not_found":
+            await slack.post_message(
+                channel=channel,
+                text=f"I couldn't find a brand matching *{brand_name}*.",
+            )
+            return "[Brand update brand not found]"
+        if brand_result["status"] == "ambiguous":
+            await slack.post_message(
+                channel=channel,
+                text=format_brand_ambiguous(brand_result["candidates"]),
+            )
+            return "[Brand update brand ambiguous]"
+
+        # Apply update
+        update_result = await asyncio.to_thread(
+            update_brand, db,
+            brand_id=brand_result["brand_id"],
+            new_brand_name=str(args.get("new_brand_name") or "") or None,
+            clickup_space_id=args.get("clickup_space_id"),
+            clickup_list_id=args.get("clickup_list_id"),
+            marketplaces=args.get("marketplaces"),
+        )
+        msg = format_brand_update_result(update_result, brand_result["brand_name"] or brand_name)
+        await slack.post_message(channel=channel, text=msg)
+        return "[Brand update]"
 
     return ""
 
@@ -2048,7 +2425,7 @@ async def _try_llm_orchestrator(
                 )
                 tool_summary = f"[Started n-gram research for {args.get('client_name', 'client')}]"
 
-            elif skill_id in ("cc_client_lookup", "cc_brand_list_all", "cc_brand_clickup_mapping_audit", "cc_brand_mapping_remediation_preview", "cc_brand_mapping_remediation_apply"):
+            elif skill_id in ("cc_client_lookup", "cc_brand_list_all", "cc_brand_clickup_mapping_audit", "cc_brand_mapping_remediation_preview", "cc_brand_mapping_remediation_apply", "cc_assignment_upsert", "cc_assignment_remove", "cc_brand_create", "cc_brand_update"):
                 tool_summary = await _handle_cc_skill(
                     skill_id=skill_id,
                     args=args,
@@ -2306,7 +2683,7 @@ async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> No
             return
 
         # C11A: Command Center read-only skills
-        if intent in ("cc_client_lookup", "cc_brand_list_all", "cc_brand_clickup_mapping_audit", "cc_brand_mapping_remediation_preview", "cc_brand_mapping_remediation_apply"):
+        if intent in ("cc_client_lookup", "cc_brand_list_all", "cc_brand_clickup_mapping_audit", "cc_brand_mapping_remediation_preview", "cc_brand_mapping_remediation_apply", "cc_assignment_upsert", "cc_assignment_remove", "cc_brand_create", "cc_brand_update"):
             policy = await _check_tool_policy(
                 slack_user_id=slack_user_id,
                 session=session,

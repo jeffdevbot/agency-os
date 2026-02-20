@@ -103,6 +103,123 @@ TOOL_SCHEMAS: dict[str, ToolSchema] = {
             },
         },
     },
+    # C12A: Assignment mutation skills
+    "cc_assignment_upsert": {
+        "description": "Assign or reassign a team member to a client/brand role slot. Admin only. Replaces any existing assignee in that slot.",
+        "args": {
+            "person_name": {
+                "type": "string",
+                "required": True,
+                "description": "Name of the team member to assign.",
+            },
+            "role_slug": {
+                "type": "string",
+                "required": True,
+                "description": "Role slug (e.g. ppc_strategist, customer_success_lead).",
+            },
+            "client_name": {
+                "type": "string",
+                "required": False,
+                "description": "Client name. Omit to use active client.",
+            },
+            "brand_name": {
+                "type": "string",
+                "required": False,
+                "description": "Brand name for brand-scoped assignment. Omit for client-level.",
+            },
+        },
+    },
+    "cc_assignment_remove": {
+        "description": "Remove a team member from a client/brand role slot. Admin only.",
+        "args": {
+            "person_name": {
+                "type": "string",
+                "required": True,
+                "description": "Name of the team member to remove.",
+            },
+            "role_slug": {
+                "type": "string",
+                "required": True,
+                "description": "Role slug (e.g. ppc_strategist, customer_success_lead).",
+            },
+            "client_name": {
+                "type": "string",
+                "required": False,
+                "description": "Client name. Omit to use active client.",
+            },
+            "brand_name": {
+                "type": "string",
+                "required": False,
+                "description": "Brand name for brand-scoped assignment. Omit for client-level.",
+            },
+        },
+    },
+    # C12B: Brand CRUD mutation skills
+    "cc_brand_create": {
+        "description": "Create a new brand under a client. Admin only.",
+        "args": {
+            "client_name": {
+                "type": "string",
+                "required": True,
+                "description": "Client name (must resolve to a single client).",
+            },
+            "brand_name": {
+                "type": "string",
+                "required": True,
+                "description": "Name for the new brand.",
+            },
+            "clickup_space_id": {
+                "type": "string",
+                "required": False,
+                "description": "ClickUp space ID to link to the brand.",
+            },
+            "clickup_list_id": {
+                "type": "string",
+                "required": False,
+                "description": "ClickUp list ID to link to the brand.",
+            },
+            "marketplaces": {
+                "type": "string",
+                "required": False,
+                "description": "Comma-separated Amazon marketplace codes (e.g. US,CA,UK).",
+            },
+        },
+    },
+    "cc_brand_update": {
+        "description": "Update an existing brand's fields. Admin only.",
+        "args": {
+            "brand_name": {
+                "type": "string",
+                "required": True,
+                "description": "Name of the brand to update (must resolve unambiguously).",
+            },
+            "client_name": {
+                "type": "string",
+                "required": False,
+                "description": "Client name to scope the brand search. Recommended for disambiguation.",
+            },
+            "new_brand_name": {
+                "type": "string",
+                "required": False,
+                "description": "Rename the brand to this name.",
+            },
+            "clickup_space_id": {
+                "type": "string",
+                "required": False,
+                "description": "Set or update the ClickUp space ID.",
+            },
+            "clickup_list_id": {
+                "type": "string",
+                "required": False,
+                "description": "Set or update the ClickUp list ID.",
+            },
+            "marketplaces": {
+                "type": "string",
+                "required": False,
+                "description": "Comma-separated Amazon marketplace codes (e.g. US,CA,UK).",
+            },
+        },
+    },
 }
 
 
