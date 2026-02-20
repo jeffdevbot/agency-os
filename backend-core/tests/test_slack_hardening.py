@@ -157,3 +157,46 @@ async def test_confirmation_expired(mock_receipt_service, mock_session_service, 
             "ignored",
             {"reason": "expired"},
         )
+
+
+@pytest.mark.asyncio
+async def test_brand_selection_invalid_option_ignored(
+    mock_receipt_service, mock_session_service, mock_slack_service,
+):
+    """C11D: selecting a brand not present in pending candidates should be ignored."""
+    mock_session_service.get_or_create_session.return_value = PlaybookSession(
+        id="sess123",
+        slack_user_id="U123",
+        profile_id="prof1",
+        active_client_id="client1",
+        context={"pending_task_create": {
+            "awaiting": "brand",
+            "client_id": "c1",
+            "client_name": "Distex",
+            "task_title": "Create coupon",
+            "brand_candidates": [{"id": "b1", "name": "Brand A"}],
+        }},
+        last_message_at="2023-01-01T00:00:00Z",
+    )
+
+    payload = {
+        "type": "block_actions",
+        "user": {"id": "U123"},
+        "channel": {"id": "C123"},
+        "message": {"ts": "123.456"},
+        "actions": [{"action_id": "select_brand_b999", "value": "b999"}],
+    }
+
+    with patch("app.api.routes.slack._get_receipt_service", return_value=mock_receipt_service), \
+         patch("app.api.routes.slack.get_playbook_session_service", return_value=mock_session_service), \
+         patch("app.api.routes.slack.get_slack_service", return_value=mock_slack_service):
+
+        await _handle_interaction(payload)
+
+    mock_receipt_service.update_status.assert_called_with(
+        "interaction:U123:select_brand_b999:123.456",
+        "ignored",
+        {"reason": "invalid_brand_selection"},
+    )
+    # Pending state should be unchanged (no transition on invalid selection).
+    mock_session_service.update_context.assert_not_called()

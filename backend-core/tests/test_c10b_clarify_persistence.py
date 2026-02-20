@@ -60,6 +60,9 @@ def _make_mocks(**session_overrides) -> tuple[MagicMock, AsyncMock]:
     svc.touch_session.return_value = None
     svc.update_context.return_value = None
     svc.list_clients_for_picker.return_value = [{"id": "c1", "name": "Acme"}]
+    svc.get_brands_with_context_for_client.return_value = [
+        {"id": "brand-1", "name": "Brand A", "clickup_space_id": "sp1", "clickup_list_id": "list1"},
+    ]
     slack = AsyncMock()
     return svc, slack
 

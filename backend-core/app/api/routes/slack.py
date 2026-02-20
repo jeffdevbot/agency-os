@@ -20,6 +20,10 @@ from ...services.agencyclaw.policy_gate import (
     resolve_actor_context,
     resolve_surface_context,
 )
+from ...services.agencyclaw.brand_context_resolver import (
+    BrandResolution,
+    resolve_brand_context,
+)
 from ...services.agencyclaw.command_center_lookup import (
     audit_brand_mappings,
     format_brand_list,
@@ -144,6 +148,36 @@ def _build_client_picker_blocks(clients: list[dict[str, Any]]) -> list[dict[str,
             }
         )
 
+    return blocks
+
+
+def _build_brand_picker_blocks(
+    brands: list[dict[str, Any]], client_name: str,
+) -> list[dict[str, Any]]:
+    """Build Slack action blocks for brand selection (same pattern as client picker)."""
+    top = brands[:10]
+    blocks: list[dict[str, Any]] = [
+        {
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": f"Which brand under *{client_name}*?"},
+        }
+    ]
+    for i in range(0, len(top), 5):
+        chunk = top[i : i + 5]
+        blocks.append(
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": str(b.get("name", "Brand"))},
+                        "action_id": f"select_brand_{b.get('id')}",
+                        "value": str(b.get("id")),
+                    }
+                    for b in chunk
+                ],
+            }
+        )
     return blocks
 
 
@@ -501,6 +535,47 @@ async def _resolve_client_for_task(
 
 
 # ---------------------------------------------------------------------------
+# C11D: Brand context resolution helper
+# ---------------------------------------------------------------------------
+
+
+async def _resolve_brand_for_task(
+    *,
+    client_id: str,
+    client_name: str,
+    task_text: str,
+    brand_hint: str,
+    session: Any,
+    session_service: Any,
+    channel: str,
+    slack: Any,
+) -> BrandResolution:
+    """Resolve brand context for task creation.
+
+    Fetches brands, calls the pure resolver, posts picker if ambiguous.
+    """
+    brands = await asyncio.to_thread(
+        session_service.get_brands_with_context_for_client, client_id,
+    )
+    resolution = resolve_brand_context(brands, brand_hint=brand_hint, task_text=task_text)
+
+    if resolution["mode"] in ("ambiguous_brand", "ambiguous_destination"):
+        qualifier = (
+            "different ClickUp destinations"
+            if resolution["mode"] == "ambiguous_destination"
+            else "multiple brands"
+        )
+        blocks = _build_brand_picker_blocks(resolution["candidates"], client_name)
+        await slack.post_message(
+            channel=channel,
+            text=f"*{client_name}* has {qualifier}. Which brand is this for?",
+            blocks=blocks,
+        )
+
+    return resolution
+
+
+# ---------------------------------------------------------------------------
 # C11A: Command Center read-only skill handler
 # ---------------------------------------------------------------------------
 
@@ -576,6 +651,8 @@ async def _execute_task_create(
     client_name: str,
     task_title: str,
     task_description: str,
+    brand_id: str | None = None,
+    brand_name: str | None = None,
 ) -> None:
     """Create a ClickUp task and report the result in Slack.
 
@@ -595,9 +672,24 @@ async def _execute_task_create(
             )
             return
 
-        destination = await asyncio.to_thread(
-            session_service.get_brand_destination_for_client, client_id
-        )
+        # C11D: Use pre-resolved brand if available, else fall back to auto-pick
+        if brand_id:
+            try:
+                brand_resp = await asyncio.to_thread(
+                    lambda: session_service.db.table("brands")
+                    .select("id,name,clickup_space_id,clickup_list_id")
+                    .eq("id", brand_id)
+                    .limit(1)
+                    .execute()
+                )
+                rows = brand_resp.data if isinstance(brand_resp.data, list) else []
+                destination = rows[0] if rows else None
+            except Exception:  # noqa: BLE001
+                destination = None
+        else:
+            destination = await asyncio.to_thread(
+                session_service.get_brand_destination_for_client, client_id
+            )
         list_id = destination.get("clickup_list_id") if destination else None
         space_id = destination.get("clickup_space_id") if destination else None
 
@@ -611,7 +703,8 @@ async def _execute_task_create(
             )
             return
 
-        brand_id = str(destination.get("id") or "")
+        brand_id = brand_id or str(destination.get("id") or "")
+        brand_name_display = brand_name or destination.get("name") or ""
 
         # --- C4A: Idempotency + duplicate suppression ---
         idempotency_key = build_idempotency_key(brand_id, task_title)
@@ -658,13 +751,18 @@ async def _execute_task_create(
 
         clickup = get_clickup_service()
 
+        # C11D: Prepend brand metadata to task description
+        full_description = task_description or ""
+        if brand_name_display:
+            full_description = f"**Brand:** {brand_name_display}\n\n{full_description}".rstrip()
+
         # --- C4A: Retry/backoff wrapper ---
         if list_id:
             async def _create_fn():  # type: ignore[return]
                 return await clickup.create_task_in_list(
                     list_id=str(list_id),
                     name=task_title,
-                    description_md=task_description or "",
+                    description_md=full_description,
                     assignee_ids=[clickup_user_id] if clickup_user_id else None,
                 )
         else:
@@ -672,7 +770,7 @@ async def _execute_task_create(
                 return await clickup.create_task_in_space(
                     space_id=str(space_id),
                     name=task_title,
-                    description_md=task_description or "",
+                    description_md=full_description,
                     assignee_ids=[clickup_user_id] if clickup_user_id else None,
                 )
 
@@ -715,8 +813,7 @@ async def _execute_task_create(
 
         url = task.url or ""
         link = f"<{url}|{task_title}>" if url else task_title
-        brand_name = destination.get("name") or ""
-        brand_note = f" (brand: {brand_name})" if brand_name else ""
+        brand_note = f" (brand: {brand_name_display})" if brand_name_display else ""
         draft_note = ""
         if not task_description:
             draft_note = "\n_Created as draft — add details directly in ClickUp._"
@@ -763,19 +860,67 @@ async def _handle_create_task(
     if not client_id:
         return
 
+    # --- C11D: Resolve brand context ---
+    resolution = await _resolve_brand_for_task(
+        client_id=client_id,
+        client_name=client_name,
+        task_text=task_title,
+        brand_hint="",
+        session=session,
+        session_service=session_service,
+        channel=channel,
+        slack=slack,
+    )
+
+    if resolution["mode"] == "no_destination":
+        await slack.post_message(
+            channel=channel,
+            text=(
+                f"No brand with ClickUp mapping found for *{client_name}*. "
+                "Ask an admin to configure a ClickUp destination in Command Center."
+            ),
+        )
+        return
+
+    if resolution["mode"] in ("ambiguous_brand", "ambiguous_destination"):
+        # Picker already posted by _resolve_brand_for_task
+        pending = {
+            "awaiting": "brand",
+            "client_id": client_id,
+            "client_name": client_name,
+            "task_title": task_title,
+            "brand_candidates": [
+                {"id": str(b.get("id") or ""), "name": str(b.get("name") or "")}
+                for b in resolution["candidates"]
+            ],
+        }
+        await asyncio.to_thread(
+            session_service.update_context, session.id, {"pending_task_create": pending}
+        )
+        return
+
+    # Brand resolved
+    brand_ctx = resolution["brand_context"]
+    brand_id = str(brand_ctx["id"]) if brand_ctx else None
+    brand_name = str(brand_ctx["name"]) if brand_ctx else None
+    brand_note = f" (brand: {brand_name})" if brand_name else ""
+
     # --- Missing title: ask for it ---
     if not task_title:
         pending = {
             "awaiting": "title",
             "client_id": client_id,
             "client_name": client_name,
+            "brand_id": brand_id,
+            "brand_name": brand_name,
+            "brand_resolution_mode": resolution["mode"],
         }
         await asyncio.to_thread(
             session_service.update_context, session.id, {"pending_task_create": pending}
         )
         await slack.post_message(
             channel=channel,
-            text=f"What should the task be called for *{client_name}*? Send the title.",
+            text=f"What should the task be called for *{client_name}*{brand_note}? Send the title.",
         )
         return
 
@@ -784,13 +929,16 @@ async def _handle_create_task(
         "awaiting": "confirm_or_details",
         "client_id": client_id,
         "client_name": client_name,
+        "brand_id": brand_id,
+        "brand_name": brand_name,
+        "brand_resolution_mode": resolution["mode"],
         "task_title": task_title,
         "timestamp": datetime.now(timezone.utc).isoformat(), # C3: Add timestamp for expiry
     }
     await asyncio.to_thread(
         session_service.update_context, session.id, {"pending_task_create": pending}
     )
-    
+
     # C3: Confirmation Block Protocol
     # Send interactive buttons for explicit confirmation
     blocks = [
@@ -799,7 +947,7 @@ async def _handle_create_task(
             "text": {
                 "type": "mrkdwn",
                 "text": (
-                    f"Ready to create task *{task_title}* for *{client_name}*.\n\n"
+                    f"Ready to create task *{task_title}* for *{client_name}*{brand_note}.\n\n"
                     "Send a description to include, or click Create to proceed as draft."
                 )
             }
@@ -824,7 +972,7 @@ async def _handle_create_task(
             ]
         }
     ]
-    
+
     await slack.post_message(
         channel=channel,
         text=f"Ready to create task '{task_title}'. Confirm?",
@@ -1038,6 +1186,119 @@ async def _handle_pending_task_continuation(
     """
     awaiting = pending.get("awaiting")
 
+    # --- C11D: Brand disambiguation ---
+    if awaiting == "brand":
+        brand_hint = text.strip()
+        if not brand_hint:
+            return False
+
+        # Guard: if text matches a known intent, clear pending and fall through.
+        probe_intent, _ = _classify_message(text)
+        if probe_intent != "help":
+            await asyncio.to_thread(
+                session_service.update_context, session.id, {"pending_task_create": None}
+            )
+            return False
+
+        client_id = pending.get("client_id", "")
+        client_name = pending.get("client_name", "")
+        task_title = pending.get("task_title", "")
+
+        resolution = await _resolve_brand_for_task(
+            client_id=client_id,
+            client_name=client_name,
+            task_text=task_title,
+            brand_hint=brand_hint,
+            session=session,
+            session_service=session_service,
+            channel=channel,
+            slack=slack,
+        )
+
+        if resolution["mode"] in ("ambiguous_brand", "ambiguous_destination"):
+            # Picker re-posted, keep awaiting brand
+            return True
+
+        if resolution["mode"] == "no_destination":
+            await slack.post_message(channel=channel, text="No matching brand with ClickUp mapping found.")
+            return True
+
+        # Brand resolved — advance to title or confirm
+        brand_ctx = resolution["brand_context"]
+        brand_id = str(brand_ctx["id"]) if brand_ctx else None
+        brand_name = str(brand_ctx["name"]) if brand_ctx else None
+        brand_note = f" (brand: {brand_name})" if brand_name else ""
+
+        if not task_title:
+            new_pending = {
+                "awaiting": "title",
+                "client_id": client_id,
+                "client_name": client_name,
+                "brand_id": brand_id,
+                "brand_name": brand_name,
+                "brand_resolution_mode": resolution["mode"],
+            }
+            await asyncio.to_thread(
+                session_service.update_context, session.id, {"pending_task_create": new_pending}
+            )
+            await slack.post_message(
+                channel=channel,
+                text=f"Got it, brand: *{brand_name or 'selected'}*. What should the task be called?",
+            )
+            return True
+
+        # Has title — go to confirm
+        new_pending = {
+            "awaiting": "confirm_or_details",
+            "client_id": client_id,
+            "client_name": client_name,
+            "brand_id": brand_id,
+            "brand_name": brand_name,
+            "brand_resolution_mode": resolution["mode"],
+            "task_title": task_title,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        await asyncio.to_thread(
+            session_service.update_context, session.id, {"pending_task_create": new_pending}
+        )
+        blocks = [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": (
+                        f"Ready to create task *{task_title}* for *{client_name}*{brand_note}.\n\n"
+                        "Send a description to include, or click Create to proceed as draft."
+                    )
+                }
+            },
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "Create Task (Draft)"},
+                        "style": "primary",
+                        "action_id": "confirm_create_task_draft",
+                        "value": "confirmed"
+                    },
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "Cancel"},
+                        "style": "danger",
+                        "action_id": "cancel_create_task",
+                        "value": "cancelled"
+                    }
+                ]
+            }
+        ]
+        await slack.post_message(
+            channel=channel,
+            text=f"Ready to create task '{task_title}'. Confirm?",
+            blocks=blocks,
+        )
+        return True
+
     if awaiting == "title":
         title = text.strip()
         if not title:
@@ -1053,12 +1314,67 @@ async def _handle_pending_task_continuation(
 
         client_id = pending.get("client_id", "")
         client_name = pending.get("client_name", "")
+        brand_id = pending.get("brand_id")
+        brand_name = pending.get("brand_name")
+        brand_resolution_mode = pending.get("brand_resolution_mode")
+
+        # C11D: Re-resolve brand context now that we have title text.
+        # This closes the gap where an initially generic request becomes
+        # product-scoped only after the user provides the title.
+        if not brand_id:
+            resolution = await _resolve_brand_for_task(
+                client_id=client_id,
+                client_name=client_name,
+                task_text=title,
+                brand_hint="",
+                session=session,
+                session_service=session_service,
+                channel=channel,
+                slack=slack,
+            )
+
+            if resolution["mode"] == "no_destination":
+                await asyncio.to_thread(
+                    session_service.update_context, session.id, {"pending_task_create": None}
+                )
+                await slack.post_message(
+                    channel=channel,
+                    text=(
+                        f"No brand with ClickUp mapping found for *{client_name}*. "
+                        "Ask an admin to configure a ClickUp destination in Command Center."
+                    ),
+                )
+                return True
+
+            if resolution["mode"] in ("ambiguous_brand", "ambiguous_destination"):
+                new_pending = {
+                    "awaiting": "brand",
+                    "client_id": client_id,
+                    "client_name": client_name,
+                    "task_title": title,
+                    "brand_candidates": [
+                        {"id": str(b.get("id") or ""), "name": str(b.get("name") or "")}
+                        for b in resolution["candidates"]
+                    ],
+                }
+                await asyncio.to_thread(
+                    session_service.update_context, session.id, {"pending_task_create": new_pending}
+                )
+                return True
+
+            brand_ctx = resolution["brand_context"]
+            brand_id = str(brand_ctx["id"]) if brand_ctx else None
+            brand_name = str(brand_ctx["name"]) if brand_ctx else None
+            brand_resolution_mode = resolution["mode"]
 
         # Got title — now offer confirm-or-details
         new_pending = {
             "awaiting": "confirm_or_details",
             "client_id": client_id,
             "client_name": client_name,
+            "brand_id": brand_id,
+            "brand_name": brand_name,
+            "brand_resolution_mode": brand_resolution_mode,
             "task_title": title,
             "timestamp": datetime.now(timezone.utc).isoformat(), # C3: Add timestamp for expiry
         }
@@ -1067,13 +1383,15 @@ async def _handle_pending_task_continuation(
         )
         
         # C3: Confirmation Block Protocol
+        _brand_name = brand_name
+        _brand_note = f" (brand: {_brand_name})" if _brand_name else ""
         blocks = [
             {
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
                     "text": (
-                        f"Ready to create task *{title}* for *{client_name}*.\n\n"
+                        f"Ready to create task *{title}* for *{client_name}*{_brand_note}.\n\n"
                         "Send a description to include, or click Create to proceed as draft."
                     )
                 }
@@ -1160,6 +1478,8 @@ async def _handle_pending_task_continuation(
                 client_name=client_name,
                 task_title=task_title,
                 task_description=description,
+                brand_id=pending.get("brand_id"),
+                brand_name=pending.get("brand_name"),
             )
             return True
 
@@ -1203,6 +1523,8 @@ async def _handle_pending_task_continuation(
                 client_name=client_name,
                 task_title=task_title,
                 task_description=enriched_description,
+                brand_id=pending.get("brand_id"),
+                brand_name=pending.get("brand_name"),
             )
             return True
 
@@ -1228,6 +1550,8 @@ async def _handle_pending_task_continuation(
             client_name=client_name,
             task_title=task_title,
             task_description=description,
+            brand_id=pending.get("brand_id"),
+            brand_name=pending.get("brand_name"),
         )
         return True
 
@@ -1271,6 +1595,8 @@ async def _handle_pending_task_continuation(
                 client_name=client_name,
                 task_title=task_title,
                 task_description=description,
+                brand_id=pending.get("brand_id"),
+                brand_name=pending.get("brand_name"),
             )
             return True
 
@@ -1290,6 +1616,8 @@ async def _handle_pending_task_continuation(
                 client_name=client_name,
                 task_title=task_title,
                 task_description=description,
+                brand_id=pending.get("brand_id"),
+                brand_name=pending.get("brand_name"),
             )
             return True
 
@@ -1409,17 +1737,63 @@ async def _try_llm_orchestrator(
                 if not client_id:
                     return True  # picker/error already posted
 
+                # C11D: Resolve brand context
+                resolution = await _resolve_brand_for_task(
+                    client_id=client_id,
+                    client_name=client_name,
+                    task_text=task_title,
+                    brand_hint="",
+                    session=session,
+                    session_service=session_service,
+                    channel=channel,
+                    slack=slack,
+                )
+
+                if resolution["mode"] == "no_destination":
+                    await slack.post_message(
+                        channel=channel,
+                        text=f"No ClickUp destination configured for *{client_name}*.",
+                    )
+                    return True
+
+                if resolution["mode"] in ("ambiguous_brand", "ambiguous_destination"):
+                    pending = {
+                        "awaiting": "brand",
+                        "client_id": client_id,
+                        "client_name": client_name,
+                        "task_title": task_title,
+                        "brand_candidates": [
+                            {"id": str(b.get("id") or ""), "name": str(b.get("name") or "")}
+                            for b in resolution["candidates"]
+                        ],
+                    }
+                    await asyncio.to_thread(
+                        session_service.update_context, session.id,
+                        {"pending_task_create": pending},
+                    )
+                    return True  # picker already posted
+
+                brand_ctx = resolution["brand_context"]
+                brand_id = str(brand_ctx["id"]) if brand_ctx else None
+                brand_name = str(brand_ctx["name"]) if brand_ctx else None
+
                 if not task_title:
                     pending = {
                         "awaiting": "title",
                         "client_id": client_id,
                         "client_name": client_name,
+                        "brand_id": brand_id,
+                        "brand_name": brand_name,
+                        "brand_resolution_mode": resolution["mode"],
                     }
                 else:
                     pending = {
                         "awaiting": "confirm_or_details",
                         "client_id": client_id,
                         "client_name": client_name,
+                        "brand_id": brand_id,
+                        "brand_name": brand_name,
+                        "brand_resolution_mode": resolution["mode"],
                         "task_title": task_title,
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                     }
@@ -1894,6 +2268,123 @@ async def _handle_interaction(payload: dict[str, Any]) -> None:
             receipt_service.update_status(dedupe_key, "processed")
             return
 
+        # --- C11D: Handle Brand Selection ---
+        if action_id.startswith("select_brand_"):
+            brand_id = str(action.get("value") or "").strip()
+            if not brand_id:
+                return
+
+            pending = session.context.get("pending_task_create")
+            if not isinstance(pending, dict) or pending.get("awaiting") != "brand":
+                await slack.post_message(channel=channel_id, text="No pending brand selection.")
+                receipt_service.update_status(dedupe_key, "ignored")
+                return
+
+            # Look up brand name from stashed candidates
+            candidates = pending.get("brand_candidates") or []
+            valid_brand_ids = {
+                str(c.get("id") or "")
+                for c in candidates
+                if isinstance(c, dict)
+            }
+            if brand_id not in valid_brand_ids:
+                await slack.post_message(
+                    channel=channel_id,
+                    text="That brand option is no longer valid. Please choose from the current picker.",
+                )
+                receipt_service.update_status(dedupe_key, "ignored", {"reason": "invalid_brand_selection"})
+                return
+
+            brand_name = next(
+                (str(c.get("name", "Brand")) for c in candidates if str(c.get("id")) == brand_id),
+                "Brand",
+            )
+
+            client_id = pending.get("client_id", "")
+            client_name = pending.get("client_name", "")
+            task_title = pending.get("task_title", "")
+
+            # Update picker message
+            if message_ts:
+                await slack.update_message(
+                    channel=channel_id,
+                    ts=message_ts,
+                    text=f"Selected brand: {brand_name}",
+                    blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": f"Selected: *{brand_name}*"}}],
+                )
+
+            brand_note = f" (brand: {brand_name})"
+
+            if not task_title:
+                new_pending = {
+                    "awaiting": "title",
+                    "client_id": client_id,
+                    "client_name": client_name,
+                    "brand_id": brand_id,
+                    "brand_name": brand_name,
+                    "brand_resolution_mode": "explicit_brand",
+                }
+                await asyncio.to_thread(
+                    session_service.update_context, session.id, {"pending_task_create": new_pending}
+                )
+                await slack.post_message(
+                    channel=channel_id,
+                    text=f"Got it, brand: *{brand_name}*. What should the task be called for *{client_name}*?",
+                )
+            else:
+                new_pending = {
+                    "awaiting": "confirm_or_details",
+                    "client_id": client_id,
+                    "client_name": client_name,
+                    "brand_id": brand_id,
+                    "brand_name": brand_name,
+                    "brand_resolution_mode": "explicit_brand",
+                    "task_title": task_title,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+                await asyncio.to_thread(
+                    session_service.update_context, session.id, {"pending_task_create": new_pending}
+                )
+                blocks = [
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": (
+                                f"Ready to create task *{task_title}* for *{client_name}*{brand_note}.\n\n"
+                                "Send a description to include, or click Create to proceed as draft."
+                            )
+                        }
+                    },
+                    {
+                        "type": "actions",
+                        "elements": [
+                            {
+                                "type": "button",
+                                "text": {"type": "plain_text", "text": "Create Task (Draft)"},
+                                "style": "primary",
+                                "action_id": "confirm_create_task_draft",
+                                "value": "confirmed"
+                            },
+                            {
+                                "type": "button",
+                                "text": {"type": "plain_text", "text": "Cancel"},
+                                "style": "danger",
+                                "action_id": "cancel_create_task",
+                                "value": "cancelled"
+                            }
+                        ]
+                    }
+                ]
+                await slack.post_message(
+                    channel=channel_id,
+                    text=f"Ready to create task '{task_title}'. Confirm?",
+                    blocks=blocks,
+                )
+
+            receipt_service.update_status(dedupe_key, "processed")
+            return
+
         # --- Handle Task Confirmation ---
         if action_id == "confirm_create_task_draft":
             pending = session.context.get("pending_task_create")
@@ -1946,6 +2437,8 @@ async def _handle_interaction(payload: dict[str, Any]) -> None:
                 client_name=pending.get("client_name", ""),
                 task_title=pending.get("task_title", ""),
                 task_description="", # Draft
+                brand_id=pending.get("brand_id"),
+                brand_name=pending.get("brand_name"),
             )
             receipt_service.update_status(dedupe_key, "processed")
             return

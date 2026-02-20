@@ -52,6 +52,9 @@ def _make_mocks(**session_overrides) -> tuple[MagicMock, AsyncMock]:
         "clickup_space_id": "sp1",
         "clickup_list_id": "list1",
     }
+    svc.get_brands_with_context_for_client.return_value = [
+        {"id": "brand-1", "name": "Brand A", "clickup_space_id": "sp1", "clickup_list_id": "list1"},
+    ]
     svc.get_profile_clickup_user_id.return_value = "12345"
     svc.list_clients_for_picker.return_value = [{"id": "c1", "name": "Acme"}]
     slack = AsyncMock()
@@ -1238,3 +1241,236 @@ class TestAsinClarificationFlow:
 
         assert consumed is True
         cu.create_task_in_list.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# C11D: Brand context resolution in task-create flow
+# ---------------------------------------------------------------------------
+
+
+class TestHandleCreateTaskBrandResolution:
+    """Tests that brand resolver is wired into the task-create flow."""
+
+    def _find_brand_picker(self, slack_mock) -> bool:
+        """Check if any posted message contains select_brand_ action buttons."""
+        for call in slack_mock.post_message.call_args_list:
+            blocks = call.kwargs.get("blocks") or []
+            for block in blocks:
+                if isinstance(block, dict):
+                    for el in block.get("elements", []):
+                        if isinstance(el, dict) and str(el.get("action_id", "")).startswith("select_brand_"):
+                            return True
+        return False
+
+    @pytest.mark.asyncio
+    async def test_single_brand_no_picker(self):
+        """Single mapped brand → client_level, no brand picker shown."""
+        svc, slack = _make_mocks()
+        # Single brand (default from _make_mocks)
+
+        with _mock_reliability():
+            await _handle_create_task(
+                slack_user_id="U123",
+                channel="C1",
+                client_name_hint="Distex",
+                task_title="Fix homepage banner",
+                session_service=svc,
+                slack=slack,
+            )
+
+        assert not self._find_brand_picker(slack)
+
+    @pytest.mark.asyncio
+    async def test_multi_brand_diff_dest_shows_picker(self):
+        """Multiple brands with different destinations → brand picker posted."""
+        svc, slack = _make_mocks()
+        svc.get_brands_with_context_for_client.return_value = [
+            {"id": "b1", "name": "Brand Alpha", "clickup_space_id": "sp1", "clickup_list_id": "l1"},
+            {"id": "b2", "name": "Brand Beta", "clickup_space_id": "sp2", "clickup_list_id": "l2"},
+        ]
+
+        with _mock_reliability():
+            await _handle_create_task(
+                slack_user_id="U123",
+                channel="C1",
+                client_name_hint="Distex",
+                task_title="Fix homepage",
+                session_service=svc,
+                slack=slack,
+            )
+
+        assert self._find_brand_picker(slack), "Expected brand picker with select_brand_ buttons"
+        # Pending state should be awaiting brand
+        ctx = svc.update_context.call_args[0][1]
+        assert ctx["pending_task_create"]["awaiting"] == "brand"
+
+    @pytest.mark.asyncio
+    async def test_shared_dest_non_product_proceeds(self):
+        """Multiple brands, shared destination, non-product request → client_level, no picker."""
+        svc, slack = _make_mocks()
+        svc.get_brands_with_context_for_client.return_value = [
+            {"id": "b1", "name": "Brand Alpha", "clickup_space_id": "sp1", "clickup_list_id": "l1"},
+            {"id": "b2", "name": "Brand Beta", "clickup_space_id": "sp1", "clickup_list_id": "l1"},
+        ]
+
+        with _mock_reliability():
+            await _handle_create_task(
+                slack_user_id="U123",
+                channel="C1",
+                client_name_hint="Distex",
+                task_title="Update ad copy",
+                session_service=svc,
+                slack=slack,
+            )
+
+        assert not self._find_brand_picker(slack)
+        # Should proceed to confirm (client_level)
+        ctx = svc.update_context.call_args[0][1]
+        assert ctx["pending_task_create"]["awaiting"] == "confirm_or_details"
+
+    @pytest.mark.asyncio
+    async def test_shared_dest_product_scoped_asks_brand(self):
+        """Multiple brands, shared destination, product-scoped request → brand picker."""
+        svc, slack = _make_mocks()
+        svc.get_brands_with_context_for_client.return_value = [
+            {"id": "b1", "name": "Brand Alpha", "clickup_space_id": "sp1", "clickup_list_id": "l1"},
+            {"id": "b2", "name": "Brand Beta", "clickup_space_id": "sp1", "clickup_list_id": "l1"},
+        ]
+
+        with _mock_reliability():
+            await _handle_create_task(
+                slack_user_id="U123",
+                channel="C1",
+                client_name_hint="Distex",
+                task_title="Create coupon for listing",
+                session_service=svc,
+                slack=slack,
+            )
+
+        assert self._find_brand_picker(slack), "Expected brand picker for product-scoped request"
+        ctx = svc.update_context.call_args[0][1]
+        assert ctx["pending_task_create"]["awaiting"] == "brand"
+
+    @pytest.mark.asyncio
+    async def test_no_destination_error(self):
+        """No brands with ClickUp mappings → error message."""
+        svc, slack = _make_mocks()
+        svc.get_brands_with_context_for_client.return_value = [
+            {"id": "b1", "name": "Orphan", "clickup_space_id": None, "clickup_list_id": None},
+        ]
+
+        with _mock_reliability():
+            await _handle_create_task(
+                slack_user_id="U123",
+                channel="C1",
+                client_name_hint="Distex",
+                task_title="Fix homepage",
+                session_service=svc,
+                slack=slack,
+            )
+
+        messages = [call.kwargs.get("text", "") for call in slack.post_message.call_args_list]
+        error_posted = any("no brand with clickup mapping" in (m or "").lower() for m in messages)
+        assert error_posted, f"Expected no-destination error message, got: {messages}"
+
+    @pytest.mark.asyncio
+    async def test_brand_persisted_in_pending(self):
+        """Resolved brand_id/brand_name appear in pending state."""
+        svc, slack = _make_mocks()
+        # Single brand → client_level with brand_context
+
+        with _mock_reliability():
+            await _handle_create_task(
+                slack_user_id="U123",
+                channel="C1",
+                client_name_hint="Distex",
+                task_title="Fix homepage banner",
+                session_service=svc,
+                slack=slack,
+            )
+
+        ctx = svc.update_context.call_args[0][1]
+        pending = ctx.get("pending_task_create", {})
+        assert pending.get("brand_id") == "brand-1"
+        assert pending.get("brand_name") == "Brand A"
+        assert pending.get("brand_resolution_mode") == "client_level"
+
+    @pytest.mark.asyncio
+    async def test_brand_passed_to_execute(self):
+        """When brand resolved, _execute_task_create receives brand_id from pending."""
+        svc, slack = _make_mocks()
+        pending = {
+            "awaiting": "confirm_or_details",
+            "client_id": "client-1",
+            "client_name": "Distex",
+            "task_title": "Fix homepage",
+            "brand_id": "brand-1",
+            "brand_name": "Brand A",
+            "brand_resolution_mode": "client_level",
+        }
+        session = FakeSession(context={"pending_task_create": pending})
+        fake_task = ClickUpTask(id="t1", url="https://clickup.com/t/t1")
+
+        # Mock the brand-by-ID query path in _execute_task_create
+        brand_row = {"id": "brand-1", "name": "Brand A", "clickup_space_id": "sp1", "clickup_list_id": "list1"}
+        mock_brand_response = MagicMock()
+        mock_brand_response.data = [brand_row]
+        svc.db.table.return_value.select.return_value.eq.return_value.limit.return_value.execute.return_value = mock_brand_response
+
+        with _mock_reliability(), patch("app.api.routes.slack.get_clickup_service") as mock_cu:
+            cu = AsyncMock()
+            cu.create_task_in_list.return_value = fake_task
+            mock_cu.return_value = cu
+
+            consumed = await _handle_pending_task_continuation(
+                channel="C1",
+                text="yes",
+                session=session,
+                session_service=svc,
+                slack=slack,
+                pending=pending,
+            )
+
+        assert consumed is True
+        cu.create_task_in_list.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_no_title_then_product_title_prompts_brand_picker(self):
+        """If title is provided later and is product-scoped, resolver must re-ask brand."""
+        svc, slack = _make_mocks()
+        svc.get_brands_with_context_for_client.return_value = [
+            {"id": "b1", "name": "Brand Alpha", "clickup_space_id": "sp1", "clickup_list_id": "l1"},
+            {"id": "b2", "name": "Brand Beta", "clickup_space_id": "sp1", "clickup_list_id": "l1"},
+        ]
+
+        # Initial create with no title -> pending title
+        with _mock_reliability():
+            await _handle_create_task(
+                slack_user_id="U123",
+                channel="C1",
+                client_name_hint="Distex",
+                task_title="",
+                session_service=svc,
+                slack=slack,
+            )
+
+        initial_pending = svc.update_context.call_args[0][1]["pending_task_create"]
+        assert initial_pending["awaiting"] == "title"
+        assert initial_pending.get("brand_id") is None
+
+        # User later provides product-scoped title -> should switch to brand picker.
+        session = FakeSession(context={"pending_task_create": initial_pending})
+        with _mock_reliability():
+            consumed = await _handle_pending_task_continuation(
+                channel="C1",
+                text="Create coupon for Thorinox listing?",
+                session=session,
+                session_service=svc,
+                slack=slack,
+                pending=initial_pending,
+            )
+
+        assert consumed is True
+        latest_pending = svc.update_context.call_args[0][1]["pending_task_create"]
+        assert latest_pending["awaiting"] == "brand"
+        assert latest_pending["task_title"] == "Create coupon for Thorinox listing?"
