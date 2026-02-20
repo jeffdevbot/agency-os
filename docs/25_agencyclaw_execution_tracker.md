@@ -42,6 +42,7 @@ Last updated: 2026-02-20 (C12C Path-1 runtime landed)
 | C12B | Brand CRUD chat mutations | Claude | done | merged (`cdd6749`) | Admin-only `cc_brand_create` + `cc_brand_update` skills; duplicate-safe create, partial-patch update, marketplace support; classifier + handler + dual dispatcher wiring; casing-preserving classifier capture fix included |
 | C12C-prep | Catalog lookup contract/docs scaffolding | Codex | done | merged (`2036d19`) | Contract + fixtures only (`docs/29_catalog_lookup_contract.md`, `catalog_lookup_contract.py`, isolated tests); no Slack runtime wiring |
 | C12C | Product identifier guardrail (Path-1, no catalog dependency) | Claude + Codex | done | pending commit | Runtime fail-closed clarify/pending flow wired with deterministic identifier extraction and no lookup/guessing; explicit pending cues expanded; targeted guardrail tests passing |
+| C13A | Strict LLM-first deterministic gating | Claude | done | pending commit | In strict LLM mode (orchestrator on, legacy fallback off), deterministic classifier now allows only control intents (`switch_client`, `set_default_client`, `clear_defaults`). Non-control intents (`create_task`, `weekly_tasks`, `cc_*`) no longer execute via deterministic fallback. |
 
 ## 3. Open Blockers
 - [x] Confirm migration `20260217000006_clickup_space_skill_seed.sql` is applied.
@@ -135,6 +136,7 @@ Last updated: 2026-02-20 (C12C Path-1 runtime landed)
 - C12C prep (docs/scaffolding only): added `docs/29_catalog_lookup_contract.md`, tightened PRD/plan acceptance wording, and added isolated contract tests (`backend-core/tests/test_catalog_lookup_contract.py`) with no Slack runtime wiring changes.
 - C12A/C12B merge + classifier casing fix (`cdd6749`): targeted suites (`test_c11a_command_center_integration.py`, `test_c12a_assignment_integration.py`, `test_c12b_brand_mutation_integration.py`, `test_catalog_lookup_contract.py`) passing (`155 passed`).
 - C12C Path-1 runtime: `backend-core/tests/test_task_create.py`, `backend-core/tests/test_c12c_identifier_guardrail.py`, and `backend-core/tests/test_c10b_clarify_persistence.py` passing (`93 passed`).
+- C13A LLM-first hardening: in strict LLM mode (orchestrator on, legacy fallback off), deterministic classifier now allows only control intents (`switch_client`, `set_default_client`, `clear_defaults`). Non-control intents (`create_task`, `weekly_tasks`, `cc_*`) no longer execute via deterministic fallback. Targeted suites: `test_c11f_conversational_cleanup.py`, `test_c9b_integration.py`, `test_task_create.py`, `test_weekly_tasks.py` passing (`148 passed`).
 - Backend full test suite still has pre-existing unrelated failures outside these chunks.
 
 ## 4. Validation Checklist (Per Chunk)

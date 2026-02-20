@@ -2519,6 +2519,19 @@ async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> No
             # fallback mode → continue to deterministic classifier below
 
         intent, params = _classify_message(text)
+        llm_strict_mode = _is_llm_orchestrator_enabled() and not _is_legacy_intent_fallback_enabled()
+        deterministic_control_intents = {"switch_client", "set_default_client", "clear_defaults"}
+
+        # C13A: In strict LLM-first mode, deterministic classifier is limited to
+        # explicit control intents only. All operational intents must come from
+        # orchestrator/planner tool-call paths.
+        if llm_strict_mode and intent not in deterministic_control_intents:
+            await slack.post_message(
+                channel=channel,
+                text="I'm not sure what to do with that. "
+                "Try asking about a client's tasks, or tell me what you need help with.",
+            )
+            return
 
         if intent == "create_task":
             # C10A: Policy gate for deterministic path
@@ -2692,19 +2705,6 @@ async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> No
                 session_service=session_service,
                 channel=channel,
                 slack=slack,
-            )
-            return
-
-        # LLM-first mode: disable broad regex fallback after orchestrator attempt.
-        # Keep only explicit control intents deterministic (switch/defaults).
-        if _is_llm_orchestrator_enabled() and not _is_legacy_intent_fallback_enabled():
-            # LLM already had a chance to reply conversationally. If it fell
-            # back AND the classifier didn't match an actionable intent, send
-            # a short natural nudge instead of a command-menu.
-            await slack.post_message(
-                channel=channel,
-                text="I'm not sure what to do with that. "
-                "Try asking about a client's tasks, or tell me what you need help with.",
             )
             return
 

@@ -166,8 +166,8 @@ class TestLLMFallbackNoCommandMenu:
         assert "start n-gram research" not in sent_text.lower()
 
     @pytest.mark.asyncio
-    async def test_fallback_still_dispatches_structural_intents(self):
-        """LLM fallback + classifier recognizes 'list brands' -> still dispatches the skill."""
+    async def test_fallback_non_control_intent_does_not_dispatch_cc_skill(self):
+        """LLM fallback + legacy-off: non-control CC intents must not dispatch deterministically."""
         svc, slack = _make_mocks()
         result = _make_orchestrator_result(
             mode="fallback",
@@ -188,12 +188,14 @@ class TestLLMFallbackNoCommandMenu:
         ):
             await _handle_dm_event(slack_user_id="U123", channel="D1", text="list brands")
 
-        # CC skill handler was called (structural intent still works after fallback)
-        mock_cc.assert_called_once()
+        mock_cc.assert_not_called()
+        sent_text = slack.post_message.call_args_list[0].kwargs.get("text", "")
+        assert sent_text != _help_text()
+        assert "not sure what to do" in sent_text.lower()
 
 
 class TestLLMFallbackStructuralIntentStillWorks:
-    """LLM fallback + structural intent (switch, CC skill, create) still dispatches."""
+    """LLM fallback + control intent still dispatches deterministically."""
 
     @pytest.mark.asyncio
     async def test_switch_client_works_after_fallback(self):
@@ -213,6 +215,46 @@ class TestLLMFallbackStructuralIntentStillWorks:
         # Should have processed the switch (post_message called for switch confirmation)
         sent_text = slack.post_message.call_args_list[0].kwargs.get("text", "")
         assert "distex" in sent_text.lower() or "switched" in sent_text.lower() or "working on" in sent_text.lower()
+
+    @pytest.mark.asyncio
+    async def test_create_task_not_dispatched_in_llm_strict_mode(self):
+        svc, slack = _make_mocks()
+        result = _make_orchestrator_result(mode="fallback", reason="timeout")
+
+        with (
+            patch("app.api.routes.slack._is_llm_orchestrator_enabled", return_value=True),
+            patch("app.api.routes.slack._is_legacy_intent_fallback_enabled", return_value=False),
+            patch("app.api.routes.slack.get_playbook_session_service", return_value=svc),
+            patch("app.api.routes.slack.get_slack_service", return_value=slack),
+            patch("app.api.routes.slack.orchestrate_dm_message", new_callable=AsyncMock, return_value=result),
+            patch("app.api.routes.slack.log_ai_token_usage", new_callable=AsyncMock),
+            patch("app.api.routes.slack._handle_create_task", new_callable=AsyncMock) as mock_create,
+        ):
+            await _handle_dm_event(slack_user_id="U123", channel="D1", text="create task for Distex: Fix title")
+
+        mock_create.assert_not_called()
+        sent_text = slack.post_message.call_args_list[0].kwargs.get("text", "")
+        assert "not sure what to do" in sent_text.lower()
+
+    @pytest.mark.asyncio
+    async def test_weekly_tasks_not_dispatched_in_llm_strict_mode(self):
+        svc, slack = _make_mocks()
+        result = _make_orchestrator_result(mode="fallback", reason="timeout")
+
+        with (
+            patch("app.api.routes.slack._is_llm_orchestrator_enabled", return_value=True),
+            patch("app.api.routes.slack._is_legacy_intent_fallback_enabled", return_value=False),
+            patch("app.api.routes.slack.get_playbook_session_service", return_value=svc),
+            patch("app.api.routes.slack.get_slack_service", return_value=slack),
+            patch("app.api.routes.slack.orchestrate_dm_message", new_callable=AsyncMock, return_value=result),
+            patch("app.api.routes.slack.log_ai_token_usage", new_callable=AsyncMock),
+            patch("app.api.routes.slack._handle_weekly_tasks", new_callable=AsyncMock) as mock_weekly,
+        ):
+            await _handle_dm_event(slack_user_id="U123", channel="D1", text="show tasks for Distex")
+
+        mock_weekly.assert_not_called()
+        sent_text = slack.post_message.call_args_list[0].kwargs.get("text", "")
+        assert "not sure what to do" in sent_text.lower()
 
 
 # ---------------------------------------------------------------------------
@@ -254,6 +296,25 @@ class TestLegacyModeStillWorks:
 
         sent_text = slack.post_message.call_args_list[0].kwargs.get("text", "")
         assert sent_text == _help_text()
+
+    @pytest.mark.asyncio
+    async def test_legacy_mode_with_explicit_flag_allows_deterministic_create(self):
+        svc, slack = _make_mocks()
+        result = _make_orchestrator_result(mode="fallback", reason="timeout")
+
+        with (
+            patch("app.api.routes.slack._is_llm_orchestrator_enabled", return_value=True),
+            patch("app.api.routes.slack._is_legacy_intent_fallback_enabled", return_value=True),
+            patch("app.api.routes.slack.get_playbook_session_service", return_value=svc),
+            patch("app.api.routes.slack.get_slack_service", return_value=slack),
+            patch("app.api.routes.slack.orchestrate_dm_message", new_callable=AsyncMock, return_value=result),
+            patch("app.api.routes.slack.log_ai_token_usage", new_callable=AsyncMock),
+            patch("app.api.routes.slack._check_skill_policy", new_callable=AsyncMock, return_value=_ALLOW_POLICY),
+            patch("app.api.routes.slack._handle_create_task", new_callable=AsyncMock) as mock_create,
+        ):
+            await _handle_dm_event(slack_user_id="U123", channel="D1", text="create task for Distex: Fix landing page")
+
+        mock_create.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

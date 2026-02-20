@@ -280,6 +280,33 @@ class TestOrchestratorFallbackMode:
             # Should have sent help text via deterministic path
             slack.post_message.assert_called()
 
+    @pytest.mark.asyncio
+    async def test_fallback_llm_strict_does_not_execute_weekly_deterministically(self):
+        svc, slack = _make_mocks()
+        result = _make_orchestrator_result(
+            mode="fallback",
+            reason="OpenAI timeout",
+            tokens_in=None,
+            tokens_out=None,
+            tokens_total=None,
+            model_used=None,
+        )
+
+        with (
+            patch("app.api.routes.slack._is_llm_orchestrator_enabled", return_value=True),
+            patch("app.api.routes.slack._is_legacy_intent_fallback_enabled", return_value=False),
+            patch("app.api.routes.slack.get_playbook_session_service", return_value=svc),
+            patch("app.api.routes.slack.get_slack_service", return_value=slack),
+            patch("app.api.routes.slack.orchestrate_dm_message", new_callable=AsyncMock, return_value=result),
+            patch("app.api.routes.slack.log_ai_token_usage", new_callable=AsyncMock),
+            patch("app.api.routes.slack._handle_weekly_tasks", new_callable=AsyncMock) as mock_weekly,
+        ):
+            await _handle_dm_event(slack_user_id="U123", channel="C1", text="show tasks for Distex")
+
+        mock_weekly.assert_not_called()
+        sent_text = slack.post_message.call_args_list[0].kwargs.get("text", "")
+        assert "not sure what to do" in sent_text.lower()
+
 
 # ---------------------------------------------------------------------------
 # Token logger called on successful LLM call
