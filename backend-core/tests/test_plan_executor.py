@@ -61,7 +61,7 @@ def _deny_policy(**kwargs) -> dict:
 
 
 def _make_step(
-    skill_id: str = "ngram_research",
+    skill_id: str = "clickup_task_list_weekly",
     args: dict | None = None,
     requires_confirmation: bool = True,
     reason: str = "test step",
@@ -83,7 +83,7 @@ class TestExecutePlan:
     @pytest.mark.asyncio
     async def test_single_step_executes_handler(self):
         handler = AsyncMock()
-        plan = _make_plan(steps=[_make_step(skill_id="ngram_research")])
+        plan = _make_plan(steps=[_make_step(skill_id="clickup_task_list_weekly")])
 
         result = await execute_plan(
             plan=plan,
@@ -93,7 +93,7 @@ class TestExecutePlan:
             session_service=MagicMock(),
             slack=AsyncMock(),
             check_policy=AsyncMock(side_effect=_allow_policy),
-            handler_map={"ngram_research": handler},
+            handler_map={"clickup_task_list_weekly": handler},
         )
 
         handler.assert_called_once()
@@ -106,7 +106,7 @@ class TestExecutePlan:
     async def test_ngram_step_passes_correct_kwargs(self):
         handler = AsyncMock()
         plan = _make_plan(
-            steps=[_make_step(skill_id="ngram_research", args={"client_name": "Distex"})]
+            steps=[_make_step(skill_id="clickup_task_list_weekly", args={"client_name": "Distex"})]
         )
 
         slack_mock = AsyncMock()
@@ -120,7 +120,7 @@ class TestExecutePlan:
             session_service=session_service_mock,
             slack=slack_mock,
             check_policy=AsyncMock(side_effect=_allow_policy),
-            handler_map={"ngram_research": handler},
+            handler_map={"clickup_task_list_weekly": handler},
         )
 
         call_kwargs = handler.call_args.kwargs
@@ -163,7 +163,7 @@ class TestExecutePlan:
         slack_mock = AsyncMock()
         plan = _make_plan(
             steps=[
-                _make_step(skill_id="ngram_research"),
+                _make_step(skill_id="clickup_task_list_weekly"),
                 _make_step(skill_id="clickup_task_create", args={"task_title": "X"}),
             ]
         )
@@ -176,7 +176,7 @@ class TestExecutePlan:
             session_service=MagicMock(),
             slack=slack_mock,
             check_policy=AsyncMock(side_effect=_deny_policy),
-            handler_map={"ngram_research": handler, "clickup_task_create": handler},
+            handler_map={"clickup_task_list_weekly": handler, "clickup_task_create": handler},
         )
 
         handler.assert_not_called()
@@ -193,7 +193,7 @@ class TestExecutePlan:
         success_handler = AsyncMock()
         plan = _make_plan(
             steps=[
-                _make_step(skill_id="ngram_research"),
+                _make_step(skill_id="clickup_task_list_weekly"),
                 _make_step(skill_id="clickup_task_create", args={"task_title": "X"}),
             ]
         )
@@ -207,7 +207,7 @@ class TestExecutePlan:
             slack=AsyncMock(),
             check_policy=AsyncMock(side_effect=_allow_policy),
             handler_map={
-                "ngram_research": failing_handler,
+                "clickup_task_list_weekly": failing_handler,
                 "clickup_task_create": success_handler,
             },
         )
@@ -220,7 +220,7 @@ class TestExecutePlan:
 
     @pytest.mark.asyncio
     async def test_unknown_skill_records_error(self):
-        plan = _make_plan(steps=[_make_step(skill_id="ngram_research")])
+        plan = _make_plan(steps=[_make_step(skill_id="clickup_task_list_weekly")])
 
         result = await execute_plan(
             plan=plan,
@@ -244,9 +244,9 @@ class TestExecutePlan:
         plan = _make_plan(
             intent="multi_step",
             steps=[
-                _make_step(skill_id="ngram_research"),
-                _make_step(skill_id="ngram_research"),
-                _make_step(skill_id="ngram_research"),
+                _make_step(skill_id="clickup_task_list_weekly"),
+                _make_step(skill_id="clickup_task_list_weekly"),
+                _make_step(skill_id="clickup_task_list_weekly"),
             ],
         )
 
@@ -258,7 +258,7 @@ class TestExecutePlan:
             session_service=MagicMock(),
             slack=AsyncMock(),
             check_policy=AsyncMock(side_effect=_allow_policy),
-            handler_map={"ngram_research": handler},
+            handler_map={"clickup_task_list_weekly": handler},
         )
 
         assert result["plan_intent"] == "multi_step"
@@ -295,7 +295,7 @@ class TestExecutePlan:
 
         plan = _make_plan(
             steps=[
-                _make_step(skill_id="ngram_research"),
+                _make_step(skill_id="clickup_task_list_weekly"),
                 _make_step(skill_id="clickup_task_create", args={"task_title": "X"}),
             ]
         )
@@ -309,7 +309,7 @@ class TestExecutePlan:
             slack=AsyncMock(),
             check_policy=_exploding_policy,
             handler_map={
-                "ngram_research": handler,
+                "clickup_task_list_weekly": handler,
                 "clickup_task_create": handler,
             },
         )
@@ -325,7 +325,7 @@ class TestExecutePlan:
     async def test_client_name_defaults_empty(self):
         """When step args don't include client_name, hint defaults to empty string."""
         handler = AsyncMock()
-        plan = _make_plan(steps=[_make_step(skill_id="ngram_research", args={})])
+        plan = _make_plan(steps=[_make_step(skill_id="clickup_task_list_weekly", args={})])
 
         await execute_plan(
             plan=plan,
@@ -335,7 +335,7 @@ class TestExecutePlan:
             session_service=MagicMock(),
             slack=AsyncMock(),
             check_policy=AsyncMock(side_effect=_allow_policy),
-            handler_map={"ngram_research": handler},
+            handler_map={"clickup_task_list_weekly": handler},
         )
 
         assert handler.call_args.kwargs["client_name_hint"] == ""
@@ -356,9 +356,9 @@ class TestExecutePlan:
         slack_mock = AsyncMock()
         plan = _make_plan(
             steps=[
-                _make_step(skill_id="ngram_research"),
-                _make_step(skill_id="ngram_research"),
-                _make_step(skill_id="ngram_research"),
+                _make_step(skill_id="clickup_task_list_weekly"),
+                _make_step(skill_id="clickup_task_list_weekly"),
+                _make_step(skill_id="clickup_task_list_weekly"),
             ]
         )
 
@@ -370,7 +370,7 @@ class TestExecutePlan:
             session_service=MagicMock(),
             slack=slack_mock,
             check_policy=_allow_then_deny,
-            handler_map={"ngram_research": handler},
+            handler_map={"clickup_task_list_weekly": handler},
         )
 
         assert handler.call_count == 1  # Only first step executed

@@ -47,16 +47,6 @@ TOOL_SCHEMAS: dict[str, ToolSchema] = {
             },
         },
     },
-    "ngram_research": {
-        "description": "Create an N-gram keyword research task for a client using the SOP.",
-        "args": {
-            "client_name": {
-                "type": "string",
-                "required": False,
-                "description": "Client name. Omit to use active client.",
-            },
-        },
-    },
     # C11A: Command Center read-only skills
     "cc_client_lookup": {
         "description": "Search or list agency clients by name.",

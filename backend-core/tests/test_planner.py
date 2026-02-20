@@ -2,7 +2,7 @@
 
 Covers:
 - Valid plan generation (schema-conformant)
-- N-gram request produces plan
+- Weekly-read request produces plan
 - Unknown request produces empty plan
 - Invalid skill_id rejected
 - Too many steps rejected
@@ -45,15 +45,15 @@ def _fake_completion(content_dict: dict) -> ChatCompletionResult:
     )
 
 
-def _valid_ngram_plan() -> dict:
+def _valid_weekly_plan() -> dict:
     return {
-        "intent": "ngram_research",
+        "intent": "weekly_tasks",
         "steps": [
             {
-                "skill_id": "ngram_research",
+                "skill_id": "clickup_task_list_weekly",
                 "args": {"client_name": "Distex"},
-                "requires_confirmation": True,
-                "reason": "Create N-gram research task using SOP",
+                "requires_confirmation": False,
+                "reason": "Read weekly tasks for the requested client",
             }
         ],
         "confidence": 0.9,
@@ -90,11 +90,11 @@ def _unknown_plan() -> dict:
 
 class TestPlanValidation:
     def test_valid_plan_passes(self):
-        result = _validate_plan(_valid_ngram_plan())
+        result = _validate_plan(_valid_weekly_plan())
         assert result is not None
-        assert result["intent"] == "ngram_research"
+        assert result["intent"] == "weekly_tasks"
         assert len(result["steps"]) == 1
-        assert result["steps"][0]["skill_id"] == "ngram_research"
+        assert result["steps"][0]["skill_id"] == "clickup_task_list_weekly"
 
     def test_unknown_intent_empty_steps_valid(self):
         result = _validate_plan(_unknown_plan())
@@ -115,7 +115,7 @@ class TestPlanValidation:
         plan = {
             "intent": "test",
             "steps": [
-                {"skill_id": "ngram_research", "args": {}, "requires_confirmation": True, "reason": ""}
+                {"skill_id": "clickup_task_list_weekly", "args": {}, "requires_confirmation": False, "reason": ""}
                 for _ in range(5)
             ],
             "confidence": 0.5,
@@ -129,7 +129,7 @@ class TestPlanValidation:
         assert result is None
 
     def test_non_unknown_intent_empty_steps_rejected(self):
-        plan = {"intent": "ngram_research", "steps": [], "confidence": 0.9}
+        plan = {"intent": "weekly_tasks", "steps": [], "confidence": 0.9}
         result = _validate_plan(plan)
         assert result is None
 
@@ -160,7 +160,7 @@ class TestPlanValidation:
 class TestGeneratePlan:
     @pytest.mark.asyncio
     async def test_valid_plan_schema_conformant(self):
-        llm_response = _fake_completion(_valid_ngram_plan())
+        llm_response = _fake_completion(_valid_weekly_plan())
 
         with patch(
             "app.services.agencyclaw.planner.call_chat_completion",
@@ -168,20 +168,20 @@ class TestGeneratePlan:
             return_value=llm_response,
         ):
             plan = await generate_plan(
-                text="start ngram research for Distex",
+                text="show tasks for Distex this week",
                 session_context={},
                 client_context_pack="Active client: Distex",
                 kb_context_summary="",
             )
 
         assert plan is not None
-        assert plan["intent"] == "ngram_research"
+        assert plan["intent"] == "weekly_tasks"
         assert len(plan["steps"]) == 1
-        assert plan["steps"][0]["skill_id"] == "ngram_research"
+        assert plan["steps"][0]["skill_id"] == "clickup_task_list_weekly"
 
     @pytest.mark.asyncio
-    async def test_ngram_request_produces_plan(self):
-        llm_response = _fake_completion(_valid_ngram_plan())
+    async def test_weekly_request_produces_plan(self):
+        llm_response = _fake_completion(_valid_weekly_plan())
 
         with patch(
             "app.services.agencyclaw.planner.call_chat_completion",
@@ -189,14 +189,14 @@ class TestGeneratePlan:
             return_value=llm_response,
         ):
             plan = await generate_plan(
-                text="start ngram research",
+                text="what are the distex tasks this week",
                 session_context={},
                 client_context_pack="",
-                kb_context_summary="- [sop] N-gram Analysis: ...",
+                kb_context_summary="",
             )
 
         assert plan is not None
-        assert plan["steps"][0]["skill_id"] == "ngram_research"
+        assert plan["steps"][0]["skill_id"] == "clickup_task_list_weekly"
 
     @pytest.mark.asyncio
     async def test_create_task_request_produces_plan(self):
@@ -304,7 +304,7 @@ class TestGeneratePlan:
 
     @pytest.mark.asyncio
     async def test_token_telemetry_captured(self):
-        llm_response = _fake_completion(_valid_ngram_plan())
+        llm_response = _fake_completion(_valid_weekly_plan())
 
         with patch(
             "app.services.agencyclaw.planner.call_chat_completion",
@@ -312,7 +312,7 @@ class TestGeneratePlan:
             return_value=llm_response,
         ):
             plan = await generate_plan(
-                text="start ngram",
+                text="show tasks for distex",
                 session_context={},
                 client_context_pack="",
                 kb_context_summary="",

@@ -212,7 +212,7 @@ class TestToolRegistryCCSkills:
         """Regression: existing skills not removed."""
         assert "clickup_task_create" in TOOL_SCHEMAS
         assert "clickup_task_list_weekly" in TOOL_SCHEMAS
-        assert "ngram_research" in TOOL_SCHEMAS
+        assert "cc_client_lookup" in TOOL_SCHEMAS
 
 
 # ---------------------------------------------------------------------------

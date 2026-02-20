@@ -71,7 +71,6 @@ from ...services.ai_token_usage_logger import log_ai_token_usage
 from ...services.clickup import ClickUpError, ClickUpConfigurationError, get_clickup_service
 from ...services.agencyclaw.preference_memory import PreferenceMemoryService
 from ...services.playbook_session import get_playbook_session_service, get_supabase_admin_client
-from ...services.sop_sync import SOPSyncService
 from ...services.slack import (
     SlackAPIError,
     SlackReceiptService,
@@ -406,7 +405,6 @@ def _help_text() -> str:
         "Ask naturally, for example:\n"
         "- What's being worked on this week for Distex?\n"
         "- Create a task for Distex: Set up 20% coupon for Thorinox\n"
-        "- Start n-gram research for Distex\n"
         "- Switch to Revant\n"
         "- Show me clients / list brands / brands missing clickup mapping\n"
         "- Preview brand mapping remediation / apply brand mapping remediation"
@@ -1575,57 +1573,6 @@ async def _handle_create_task(
     )
 
 
-async def _handle_ngram_research(
-    *,
-    slack_user_id: str,
-    channel: str,
-    client_name_hint: str,
-    session_service: Any,
-    slack: Any,
-    pref_service: Any | None = None,
-) -> None:
-    """C10D: Handle ngram_research skill via SOP-grounded task creation.
-
-    Fetches the N-gram SOP and routes through the standard create-task flow,
-    gaining C4A reliability and C10C KB enrichment.
-    """
-    session = await asyncio.to_thread(session_service.get_or_create_session, slack_user_id)
-
-    # Resolve client (reuse existing helper)
-    client_id, client_name = await _resolve_client_for_task(
-        client_name_hint=client_name_hint,
-        session=session,
-        session_service=session_service,
-        channel=channel,
-        slack=slack,
-        pref_service=pref_service,
-    )
-    if not client_id:
-        return
-
-    # Verify SOP exists
-    sop_service = SOPSyncService(clickup_token="", supabase_client=session_service.db)
-    sop = await sop_service.get_sop_by_category("ngram")
-    sop_md = str((sop or {}).get("content_md") or "")
-    if not sop_md.strip():
-        await slack.post_message(
-            channel=channel,
-            text="N-gram SOP not found (category='ngram'). Ask an admin to run the SOP sync.",
-        )
-        return
-
-    # Route through standard create-task flow with pre-filled title
-    task_title = f"N-gram Research: {client_name}"
-    await _handle_create_task(
-        slack_user_id=slack_user_id,
-        channel=channel,
-        client_name_hint=client_name,
-        task_title=task_title,
-        session_service=session_service,
-        slack=slack,
-    )
-
-
 async def _try_planner(
     *,
     text: str,
@@ -1678,7 +1625,6 @@ async def _try_planner(
         handler_map = {
             "clickup_task_create": _handle_create_task,
             "clickup_task_list_weekly": _handle_weekly_tasks,
-            "ngram_research": _handle_ngram_research,
         }
 
         # Execute plan
@@ -2451,16 +2397,6 @@ async def _try_llm_orchestrator(
                     slack=slack,
                 )
                 tool_summary = f"[Started task creation for {args.get('client_name', 'client')}]"
-
-            elif skill_id == "ngram_research":
-                await _handle_ngram_research(
-                    slack_user_id=slack_user_id,
-                    channel=channel,
-                    client_name_hint=str(args.get("client_name") or ""),
-                    session_service=session_service,
-                    slack=slack,
-                )
-                tool_summary = f"[Started n-gram research for {args.get('client_name', 'client')}]"
 
             elif skill_id in ("cc_client_lookup", "cc_brand_list_all", "cc_brand_clickup_mapping_audit", "cc_brand_mapping_remediation_preview", "cc_brand_mapping_remediation_apply", "cc_assignment_upsert", "cc_assignment_remove", "cc_brand_create", "cc_brand_update"):
                 tool_summary = await _handle_cc_skill(

@@ -28,7 +28,6 @@ _KNOWN_SURFACES = ("dm", "channel", "group")
 # Skills classified by mutation vs read
 _MUTATION_SKILLS = frozenset({
     "clickup_task_create",
-    "ngram_research",
     "cc_brand_mapping_remediation_apply",
     "cc_assignment_upsert",
     "cc_assignment_remove",
