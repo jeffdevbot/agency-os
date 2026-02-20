@@ -64,6 +64,9 @@ from ...services.agencyclaw.slack_pending_flow import (
 from ...services.agencyclaw.slack_orchestrator_runtime import (
     try_llm_orchestrator_runtime as _runtime_try_llm_orchestrator,
 )
+from ...services.agencyclaw.slack_dm_runtime import (
+    handle_dm_event_runtime as _runtime_handle_dm_event,
+)
 from ...services.agencyclaw.slack_cc_dispatch import (
     format_remediation_apply_result as _cc_format_remediation_apply_result,
     format_remediation_preview as _cc_format_remediation_preview,
@@ -1142,255 +1145,28 @@ async def _check_skill_policy(
     return evaluate_skill_policy(actor, surface, skill_id, args, session.context)
 
 async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> None:
-    session_service = get_playbook_session_service()
-    pref_service = PreferenceMemoryService(session_service.db)
-    slack = get_slack_service()
-
-    try:
-        session = await asyncio.to_thread(session_service.get_or_create_session, slack_user_id)
-        await asyncio.to_thread(session_service.touch_session, session.id)
-
-        # --- Multi-turn continuation for pending task create ---
-        pending = session.context.get("pending_task_create")
-        if isinstance(pending, dict) and pending.get("awaiting"):
-            consumed = await _handle_pending_task_continuation(
-                channel=channel,
-                text=text,
-                session=session,
-                session_service=session_service,
-                slack=slack,
-                pending=pending,
-            )
-            if consumed:
-                return
-
-        # --- C10D: Planner (feature-flagged) ---
-        if await _try_planner(
-            text=text,
-            slack_user_id=slack_user_id,
-            channel=channel,
-            session=session,
-            session_service=session_service,
-            slack=slack,
-        ):
-            return
-
-        # --- LLM orchestrator (feature-flagged) ---
-        if _is_llm_orchestrator_enabled():
-            handled = await _try_llm_orchestrator(
-                text=text,
-                slack_user_id=slack_user_id,
-                channel=channel,
-                session=session,
-                session_service=session_service,
-                slack=slack,
-            )
-            if handled:
-                return
-            # fallback mode → continue to deterministic classifier below
-
-        intent, params = _classify_message(text)
-        # C13A: In strict LLM-first mode, deterministic classifier is limited to
-        # explicit control intents only. All operational intents must come from
-        # orchestrator/planner tool-call paths.
-        if _should_block_deterministic_intent(intent):
-            await slack.post_message(
-                channel=channel,
-                text="I'm not sure what to do with that. "
-                "Try asking about a client's tasks, or tell me what you need help with.",
-            )
-            return
-
-        if intent == "create_task":
-            # C10A: Policy gate for deterministic path
-            policy = await _check_skill_policy(
-                slack_user_id=slack_user_id,
-                session=session,
-                channel=channel,
-                skill_id="clickup_task_create",
-            )
-            if not policy["allowed"]:
-                await slack.post_message(channel=channel, text=policy["user_message"])
-                return
-
-            await _handle_create_task(
-                slack_user_id=slack_user_id,
-                channel=channel,
-                client_name_hint=str(params.get("client_name") or ""),
-                task_title=str(params.get("task_title") or ""),
-                session_service=session_service,
-                slack=slack,
-                pref_service=pref_service,
-            )
-            return
-
-        if intent == "confirm_draft_task":
-            # No pending state (already checked above) — nothing to confirm.
-            await slack.post_message(
-                channel=channel,
-                text="Nothing to confirm right now. Tell me what task you'd like to create.",
-            )
-            return
-
-        if intent == "weekly_tasks":
-            # C10A: Policy gate for deterministic path
-            policy = await _check_skill_policy(
-                slack_user_id=slack_user_id,
-                session=session,
-                channel=channel,
-                skill_id="clickup_task_list_weekly",
-            )
-            if not policy["allowed"]:
-                await slack.post_message(channel=channel, text=policy["user_message"])
-                return
-
-            await _handle_weekly_tasks(
-                slack_user_id=slack_user_id,
-                channel=channel,
-                client_name_hint=str(params.get("client_name") or ""),
-                session_service=session_service,
-                slack=slack,
-            )
-            return
-
-        if intent == "switch_client":
-            client_name = str(params.get("client_name") or "").strip()
-            if not client_name:
-                await slack.post_message(channel=channel, text=_help_text())
-                return
-
-            matches = await asyncio.to_thread(
-                session_service.find_client_matches, session.profile_id, client_name
-            )
-
-            if not matches:
-                clients = await asyncio.to_thread(session_service.list_clients_for_picker, session.profile_id)
-                blocks = _build_client_picker_blocks(clients) if clients else None
-                await slack.post_message(
-                    channel=channel,
-                    text=f"I couldn't find a client matching: {client_name!r}",
-                    blocks=blocks,
-                )
-                return
-
-            if len(matches) > 1:
-                blocks = _build_client_picker_blocks(matches)
-                await slack.post_message(
-                    channel=channel,
-                    text=f"Multiple clients match {client_name!r}. Pick one:",
-                    blocks=blocks,
-                )
-                return
-
-            client_id = str(matches[0].get("id") or "")
-            client_display = str(matches[0].get("name") or "that client")
-            await asyncio.to_thread(session_service.set_active_client, session.id, client_id)
-            await asyncio.to_thread(session_service.update_context, session.id, {"pending_task": None})
-            await slack.post_message(
-                channel=channel,
-                text=f"Now working on *{client_display}*. What would you like to do for this client?",
-            )
-            return
-
-        # C10E: Set default client preference
-        if intent == "set_default_client":
-            client_name = str(params.get("client_name") or "").strip()
-            if not client_name:
-                await slack.post_message(
-                    channel=channel,
-                    text="Usage: `set my default client to <client name>`",
-                )
-                return
-
-            if not session.profile_id:
-                await slack.post_message(
-                    channel=channel,
-                    text="I can't save preferences — your Slack account isn't linked to a profile yet.",
-                )
-                return
-
-            matches = await asyncio.to_thread(
-                session_service.find_client_matches, session.profile_id, client_name
-            )
-            if not matches:
-                await slack.post_message(
-                    channel=channel,
-                    text=f"I couldn't find a client matching *{client_name}*.",
-                )
-                return
-            if len(matches) > 1:
-                blocks = _build_client_picker_blocks(matches)
-                await slack.post_message(
-                    channel=channel,
-                    text=f"Multiple clients match *{client_name}*. Be more specific:",
-                    blocks=blocks,
-                )
-                return
-
-            client_id = str(matches[0].get("id") or "")
-            client_display = str(matches[0].get("name") or client_name)
-            await asyncio.to_thread(pref_service.set_default_client, session.profile_id, client_id)
-            # Also set as active for this session
-            await asyncio.to_thread(session_service.set_active_client, session.id, client_id)
-            await slack.post_message(
-                channel=channel,
-                text=f"Default client set to *{client_display}*. This will persist across sessions.",
-            )
-            return
-
-        # C10E: Clear default client preference
-        if intent == "clear_defaults":
-            if not session.profile_id:
-                await slack.post_message(
-                    channel=channel,
-                    text="I can't manage preferences — your Slack account isn't linked to a profile yet.",
-                )
-                return
-
-            await asyncio.to_thread(pref_service.clear_default_client, session.profile_id)
-            await slack.post_message(
-                channel=channel,
-                text="Default client cleared. I'll ask you to pick a client each time.",
-            )
-            return
-
-        # C11A: Command Center read-only skills
-        if intent in ("cc_client_lookup", "cc_brand_list_all", "cc_brand_clickup_mapping_audit", "cc_brand_mapping_remediation_preview", "cc_brand_mapping_remediation_apply", "cc_assignment_upsert", "cc_assignment_remove", "cc_brand_create", "cc_brand_update"):
-            policy = await _check_skill_policy(
-                slack_user_id=slack_user_id,
-                session=session,
-                channel=channel,
-                skill_id=intent,
-            )
-            if not policy["allowed"]:
-                await slack.post_message(channel=channel, text=policy["user_message"])
-                return
-
-            await _handle_cc_skill(
-                skill_id=intent,
-                args=params,
-                session=session,
-                session_service=session_service,
-                channel=channel,
-                slack=slack,
-            )
-            return
-
-        await slack.post_message(channel=channel, text=_help_text())
-    except SlackAPIError:
-        # Keep the endpoint non-fatal; Slack will retry delivery if needed.
-        pass
-    except Exception as exc:  # noqa: BLE001
-        _logger.warning("Unhandled error in _handle_dm_event: %s", exc, exc_info=True)
-        try:
-            await slack.post_message(
-                channel=channel,
-                text="Something went wrong while processing that. Please try again.",
-            )
-        except Exception:  # noqa: BLE001
-            pass  # Best-effort fallback — never re-raise
-    finally:
-        await slack.aclose()
+    await _runtime_handle_dm_event(
+        slack_user_id=slack_user_id,
+        channel=channel,
+        text=text,
+        get_session_service_fn=get_playbook_session_service,
+        get_slack_service_fn=get_slack_service,
+        preference_memory_service_factory=PreferenceMemoryService,
+        handle_pending_task_continuation_fn=_handle_pending_task_continuation,
+        try_planner_fn=_try_planner,
+        is_llm_orchestrator_enabled_fn=_is_llm_orchestrator_enabled,
+        try_llm_orchestrator_fn=_try_llm_orchestrator,
+        classify_message_fn=_classify_message,
+        should_block_deterministic_intent_fn=_should_block_deterministic_intent,
+        check_skill_policy_fn=_check_skill_policy,
+        handle_create_task_fn=_handle_create_task,
+        handle_weekly_tasks_fn=_handle_weekly_tasks,
+        help_text_fn=_help_text,
+        build_client_picker_blocks_fn=_build_client_picker_blocks,
+        handle_cc_skill_fn=_handle_cc_skill,
+        logger=_logger,
+        slack_api_error_cls=SlackAPIError,
+    )
 
 
 def _parse_interaction_payload(raw_body: bytes) -> dict[str, Any]:

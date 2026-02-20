@@ -47,6 +47,7 @@ Last updated: 2026-02-20 (C12C Path-1 runtime landed)
 | C14B | Pending task-create continuation extraction | Codex | done | merged (`efff226`) | Extracted pending continuation flow (`slack_pending_flow.py`) with compatibility wrappers in `slack.py`; pending FSM/messages preserved. |
 | C14C | Command Center dispatch extraction | Codex | done | merged (`59088ff`) | Extracted CC dispatch/remediation formatting/client-hint helpers (`slack_cc_dispatch.py`) with injected dependencies for patch compatibility. |
 | C14D | LLM orchestrator runtime extraction | Codex | done | pending commit | Extracted `_try_llm_orchestrator` runtime into `slack_orchestrator_runtime.py` with thin wrapper/dependency injection in `slack.py`; no behavior change. |
+| C14E | Slack DM event runtime extraction | Codex | done | pending commit | Extracted `_handle_dm_event` runtime flow into `slack_dm_runtime.py` with thin wrapper/dependency injection in `slack.py`; strict LLM-first gating and deterministic fallback behavior preserved. |
 
 ## 3. Open Blockers
 - [x] Confirm migration `20260217000006_clickup_space_skill_seed.sql` is applied.
@@ -147,6 +148,7 @@ Last updated: 2026-02-20 (C12C Path-1 runtime landed)
 - C14B decomposition (phase 1): extracted pending task-create continuation flow (`_compose_asin_pending_description`, `_handle_pending_task_continuation`) into `backend-core/app/services/agencyclaw/slack_pending_flow.py` with `slack.py` compatibility wrappers; pending FSM behavior/messages preserved in targeted regression suites.
 - C14C decomposition (phase 1): extracted Command Center dispatch and remediation format/client-hint helpers into `backend-core/app/services/agencyclaw/slack_cc_dispatch.py` with `slack.py` compatibility wrappers; CC routing behavior preserved in targeted integration suites.
 - C14D decomposition (phase 1): extracted LLM orchestrator runtime (`_try_llm_orchestrator`) into `backend-core/app/services/agencyclaw/slack_orchestrator_runtime.py` with a thin wrapper/dependency-injection bridge in `slack.py`; orchestrator routing behavior preserved in targeted suites.
+- C14E decomposition (phase 1): extracted DM event runtime (`_handle_dm_event`) into `backend-core/app/services/agencyclaw/slack_dm_runtime.py` with a thin wrapper/dependency-injection bridge in `slack.py`; planner/orchestrator/deterministic routing behavior preserved in targeted suites.
 - Backend full test suite still has pre-existing unrelated failures outside these chunks.
 
 ## 4. Validation Checklist (Per Chunk)
