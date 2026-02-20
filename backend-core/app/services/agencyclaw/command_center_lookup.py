@@ -50,29 +50,34 @@ def list_brands(
     If *client_id* is provided, filter to that client.
     Uses Supabase foreign-key join to fetch client name.
     """
-    query = (
-        db.table("brands")
-        .select("id,name,client_id,clickup_space_id,clickup_list_id,agency_clients(name)")
-        .order("name", desc=False)
-        .limit(_MAX_RESULTS)
+    rows = _fetch_brand_rows(
+        db,
+        client_id=client_id,
+        limit=_MAX_RESULTS,
+        include_client_join=True,
     )
-    if client_id:
-        query = query.eq("client_id", client_id)
 
-    response = query.execute()
-    rows = response.data if isinstance(response.data, list) else []
+    # Join shape can vary by DB metadata; backfill client names by ID when needed.
+    missing_client_name_ids = {
+        str(row.get("client_id") or "")
+        for row in rows
+        if isinstance(row, dict)
+        and row.get("client_id")
+        and not _extract_client_name(row)
+    }
+    client_name_map = _fetch_client_name_map(db, missing_client_name_ids)
 
     results: list[dict[str, Any]] = []
     for row in rows:
         if not isinstance(row, dict):
             continue
-        client_info = row.get("agency_clients") or {}
-        client_name = client_info.get("name", "") if isinstance(client_info, dict) else ""
+        client_id_value = str(row.get("client_id") or "")
+        client_name = _extract_client_name(row) or client_name_map.get(client_id_value, "")
         results.append({
             "id": str(row.get("id") or ""),
             "name": str(row.get("name") or ""),
             "client_name": str(client_name),
-            "client_id": str(row.get("client_id") or ""),
+            "client_id": client_id_value,
             "clickup_space_id": row.get("clickup_space_id"),
             "clickup_list_id": row.get("clickup_list_id"),
         })
@@ -84,14 +89,21 @@ def audit_brand_mappings(db: Any) -> list[dict[str, Any]]:
 
     Returns brands where at least one mapping field is NULL.
     """
-    response = (
-        db.table("brands")
-        .select("id,name,client_id,clickup_space_id,clickup_list_id,agency_clients(name)")
-        .order("name", desc=False)
-        .limit(200)
-        .execute()
+    rows = _fetch_brand_rows(
+        db,
+        client_id=None,
+        limit=200,
+        include_client_join=True,
     )
-    rows = response.data if isinstance(response.data, list) else []
+
+    missing_client_name_ids = {
+        str(row.get("client_id") or "")
+        for row in rows
+        if isinstance(row, dict)
+        and row.get("client_id")
+        and not _extract_client_name(row)
+    }
+    client_name_map = _fetch_client_name_map(db, missing_client_name_ids)
 
     missing: list[dict[str, Any]] = []
     for row in rows:
@@ -102,8 +114,8 @@ def audit_brand_mappings(db: Any) -> list[dict[str, Any]]:
         if space and list_id:
             continue  # fully mapped
 
-        client_info = row.get("agency_clients") or {}
-        client_name = client_info.get("name", "") if isinstance(client_info, dict) else ""
+        client_id_value = str(row.get("client_id") or "")
+        client_name = _extract_client_name(row) or client_name_map.get(client_id_value, "")
 
         missing_fields: list[str] = []
         if not space:
@@ -115,7 +127,7 @@ def audit_brand_mappings(db: Any) -> list[dict[str, Any]]:
             "id": str(row.get("id") or ""),
             "name": str(row.get("name") or ""),
             "client_name": str(client_name),
-            "client_id": str(row.get("client_id") or ""),
+            "client_id": client_id_value,
             "missing_fields": missing_fields,
         })
     return missing
@@ -156,6 +168,90 @@ def _search_clients(
         for r in rows
         if isinstance(r, dict) and r.get("id") and r.get("name")
     ]
+
+
+def _fetch_brand_rows(
+    db: Any,
+    *,
+    client_id: str | None,
+    limit: int,
+    include_client_join: bool,
+) -> list[dict[str, Any]]:
+    """Fetch brand rows, with safe fallback if FK join metadata is unavailable."""
+    select_clause = "id,name,client_id,clickup_space_id,clickup_list_id"
+    if include_client_join:
+        select_clause = f"{select_clause},agency_clients(name)"
+
+    try:
+        query = (
+            db.table("brands")
+            .select(select_clause)
+            .order("name", desc=False)
+            .limit(limit)
+        )
+        if client_id:
+            query = query.eq("client_id", client_id)
+        response = query.execute()
+        return response.data if isinstance(response.data, list) else []
+    except Exception:  # noqa: BLE001
+        if include_client_join:
+            logger.warning(
+                "Brands query join lookup failed; retrying without FK join metadata",
+                exc_info=True,
+            )
+            return _fetch_brand_rows(
+                db,
+                client_id=client_id,
+                limit=limit,
+                include_client_join=False,
+            )
+        raise
+
+
+def _fetch_client_name_map(
+    db: Any,
+    client_ids: set[str],
+) -> dict[str, str]:
+    """Hydrate client names by ID for rows missing join metadata."""
+    if not client_ids:
+        return {}
+
+    ids = sorted(cid for cid in client_ids if cid)
+    if not ids:
+        return {}
+
+    query = db.table("agency_clients").select("id,name")
+    if hasattr(query, "in_"):
+        query = query.in_("id", ids)
+
+    try:
+        response = query.execute()
+    except Exception:  # noqa: BLE001
+        logger.warning("Failed to hydrate client names for brand rows", exc_info=True)
+        return {}
+
+    rows = response.data if isinstance(response.data, list) else []
+    mapping: dict[str, str] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        cid = str(row.get("id") or "")
+        name = str(row.get("name") or "")
+        if cid and name:
+            mapping[cid] = name
+    return mapping
+
+
+def _extract_client_name(row: dict[str, Any]) -> str:
+    """Extract client name from joined brand row, handling Supabase shape variance."""
+    client_info = row.get("agency_clients")
+    if isinstance(client_info, dict):
+        return str(client_info.get("name") or "")
+    if isinstance(client_info, list) and client_info:
+        first = client_info[0]
+        if isinstance(first, dict):
+            return str(first.get("name") or "")
+    return ""
 
 
 def _list_accessible_clients(

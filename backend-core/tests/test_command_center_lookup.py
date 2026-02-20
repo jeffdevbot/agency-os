@@ -10,7 +10,7 @@ Covers:
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -71,6 +71,32 @@ def _brand_row(
 
 def _client_row(name: str = "Distex", status: str = "active") -> dict[str, Any]:
     return {"id": f"c-{name.lower()}", "name": name, "status": status}
+
+
+def _mock_db_brand_join_failure(rows: list[dict[str, Any]]) -> MagicMock:
+    """Mock DB where brand FK join select fails, non-join select succeeds."""
+    db = MagicMock()
+    table = MagicMock()
+    db.table.return_value = table
+    table.eq.return_value = table
+    table.order.return_value = table
+    table.limit.return_value = table
+
+    def _select(arg: str):
+        table._last_select = arg
+        return table
+
+    def _execute():
+        select_value = getattr(table, "_last_select", "")
+        if "agency_clients(name)" in select_value:
+            raise RuntimeError("join metadata failure")
+        response = MagicMock()
+        response.data = rows
+        return response
+
+    table.select.side_effect = _select
+    table.execute.side_effect = _execute
+    return db
 
 
 # ---------------------------------------------------------------------------
@@ -229,6 +255,32 @@ class TestListBrands:
         assert len(result) == 1
         assert result[0]["client_name"] == ""
 
+    def test_falls_back_when_brand_join_query_fails(self):
+        rows = [
+            {
+                "id": "b1",
+                "name": "Brand A",
+                "client_id": "c1",
+                "clickup_space_id": "space-1",
+                "clickup_list_id": "list-1",
+            }
+        ]
+        db = _mock_db_brand_join_failure(rows)
+
+        with patch(
+            "app.services.agencyclaw.command_center_lookup._fetch_client_name_map",
+            return_value={"c1": "Client X"},
+        ) as mock_name_map:
+            result = list_brands(db)
+
+        assert len(result) == 1
+        assert result[0]["client_name"] == "Client X"
+        assert result[0]["name"] == "Brand A"
+        assert mock_name_map.called
+        select_calls = [c.args[0] for c in db.table.return_value.select.call_args_list]
+        assert any("agency_clients(name)" in call for call in select_calls)
+        assert "id,name,client_id,clickup_space_id,clickup_list_id" in select_calls
+
 
 # ---------------------------------------------------------------------------
 # Mapping audit tests
@@ -283,6 +335,28 @@ class TestAuditBrandMappings:
 
         assert len(result) == 1
         assert result[0]["name"] == "Missing"
+
+    def test_audit_falls_back_when_brand_join_query_fails(self):
+        rows = [
+            {
+                "id": "b1",
+                "name": "Missing",
+                "client_id": "c1",
+                "clickup_space_id": None,
+                "clickup_list_id": "list-1",
+            }
+        ]
+        db = _mock_db_brand_join_failure(rows)
+
+        with patch(
+            "app.services.agencyclaw.command_center_lookup._fetch_client_name_map",
+            return_value={"c1": "Client X"},
+        ):
+            result = audit_brand_mappings(db)
+
+        assert len(result) == 1
+        assert result[0]["client_name"] == "Client X"
+        assert result[0]["missing_fields"] == ["clickup_space_id"]
 
 
 # ---------------------------------------------------------------------------
