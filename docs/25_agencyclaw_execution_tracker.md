@@ -1,6 +1,6 @@
 # AgencyClaw Execution Tracker
 
-Last updated: 2026-02-20 (C11E runtime wiring landed; preview + apply admin skills live)
+Last updated: 2026-02-20 (C11F-A conversational cleanup landed; LLM-first no command menus)
 
 ## 1. Baseline Status
 - [x] PRD updated to v1.18 (`docs/23_agencyclaw_prd.md`)
@@ -36,7 +36,8 @@ Last updated: 2026-02-20 (C11E runtime wiring landed; preview + apply admin skil
 | C11A | Command Center read-only chat skills | Codex | done | merged (`8ac34b1`) | Added `cc_client_lookup`, `cc_brand_list_all`, and admin-only `cc_brand_clickup_mapping_audit` across LLM + deterministic paths with policy enforcement |
 | C11B | LLM-first fallback cleanup | Codex | done | merged (`8ac34b1`) | Removed legacy hardcoded N-gram deterministic branch; defaulted runtime to LLM-first fallback behavior (`AGENCYCLAW_ENABLE_LEGACY_INTENTS` opt-in override) |
 | C11D | Brand context resolver (destination-vs-brand split) | Codex | done | merged (`694d900`) | Resolver + runtime wiring landed with hardening: punctuation-safe product scope, title-step re-resolution, invalid brand-button guard; Slack smoke passed |
-| C11E | Admin remediation skill for unmapped brands | Claude | done | foundation (`04a8589`), wiring (pending commit) | Remediation preview + apply wired into Slack classifier/handler/policy; admin-only; 39 integration tests + 8 unit tests passing; no regressions in 208-test targeted suite |
+| C11E | Admin remediation skill for unmapped brands | Claude | done | foundation (`04a8589`), wiring (`f8729b6`) | Remediation preview + apply wired into Slack classifier/handler/policy; admin-only; 39 integration tests + 8 unit tests passing; no regressions in 208-test targeted suite |
+| C11F-A | Conversational runtime cleanup (LLM-first) | Claude | done | pending commit | Removed command-style fallback in LLM-first mode; tightened orchestrator prompt for natural replies; 11 tests + 314-test regression suite green |
 
 ## 3. Open Blockers
 - [x] Confirm migration `20260217000006_clickup_space_skill_seed.sql` is applied.
@@ -105,6 +106,7 @@ Last updated: 2026-02-20 (C11E runtime wiring landed; preview + apply admin skil
   - shared-destination + generic prompts proceed client-level,
   - punctuation variants (`coupon?`, `listing,`, `product-level`) correctly treated as product-scoped.
 - C11E wiring: `test_c11e_remediation_integration.py` (39 passed), `test_brand_mapping_remediation.py` (8 passed), `test_c11a_command_center_integration.py` (36 passed). Targeted regression suite (task_create, weekly_tasks, slack_hardening, c10b, c9b, command_center_lookup, c10a_policy_gate): 208 passed, 0 failed.
+- C11F-A: `test_c11f_conversational_cleanup.py` (11 passed). Broad regression suite (c9b, slack_orchestrator, c10b, task_create, weekly_tasks, slack_hardening, c11a, c11e, c10a_policy_gate, command_center_lookup): 314 passed, 0 failed.
 - Backend full test suite still has pre-existing unrelated failures outside these chunks.
 
 ## 4. Validation Checklist (Per Chunk)
