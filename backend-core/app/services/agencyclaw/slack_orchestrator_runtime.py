@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
-from logging import Logger
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 from .conversation_buffer import append_exchange, compact_exchanges
+from .slack_runtime_deps import SlackOrchestratorRuntimeDeps
 
 
 async def try_llm_orchestrator_runtime(
@@ -18,16 +18,7 @@ async def try_llm_orchestrator_runtime(
     session: Any,
     session_service: Any,
     slack: Any,
-    logger: Logger,
-    orchestrate_dm_message_fn: Callable[..., Awaitable[dict[str, Any]]],
-    log_ai_token_usage_fn: Callable[..., Awaitable[None]],
-    check_skill_policy_fn: Callable[..., Awaitable[dict[str, Any]]],
-    handle_weekly_tasks_fn: Callable[..., Awaitable[None]],
-    handle_create_task_fn: Callable[..., Awaitable[None]],
-    handle_cc_skill_fn: Callable[..., Awaitable[str]],
-    resolve_client_for_task_fn: Callable[..., Awaitable[tuple[str | None, str]]],
-    resolve_brand_for_task_fn: Callable[..., Awaitable[dict[str, Any]]],
-    preference_memory_service_factory: Callable[..., Any],
+    deps: SlackOrchestratorRuntimeDeps,
 ) -> bool:
     """Attempt LLM-first orchestration. Returns True if fully handled."""
     try:
@@ -41,7 +32,7 @@ async def try_llm_orchestrator_runtime(
         raw_exchanges = session.context.get("recent_exchanges") or []
         recent_exchanges = compact_exchanges(raw_exchanges)
 
-        result = await orchestrate_dm_message_fn(
+        result = await deps.orchestrate_dm_message_fn(
             text=text,
             profile_id=session.profile_id,
             slack_user_id=slack_user_id,
@@ -54,7 +45,7 @@ async def try_llm_orchestrator_runtime(
 
         if result.get("tokens_in") is not None:
             try:
-                await log_ai_token_usage_fn(
+                await deps.log_ai_token_usage_fn(
                     tool="agencyclaw",
                     stage="intent_parse",
                     user_id=session.profile_id,
@@ -74,7 +65,7 @@ async def try_llm_orchestrator_runtime(
                 pass
 
         if mode == "fallback":
-            logger.info("LLM orchestrator fallback: %s", result.get("reason", ""))
+            deps.logger.info("LLM orchestrator fallback: %s", result.get("reason", ""))
             return False
 
         if mode == "reply":
@@ -96,8 +87,8 @@ async def try_llm_orchestrator_runtime(
                 client_name_hint = str(clarify_args.get("client_name") or "")
                 task_title = str(clarify_args.get("task_title") or "")
 
-                pref_service = preference_memory_service_factory(session_service.db)
-                client_id, client_name = await resolve_client_for_task_fn(
+                pref_service = deps.preference_memory_service_factory(session_service.db)
+                client_id, client_name = await deps.resolve_client_for_task_fn(
                     client_name_hint=client_name_hint,
                     session=session,
                     session_service=session_service,
@@ -108,7 +99,7 @@ async def try_llm_orchestrator_runtime(
                 if not client_id:
                     return True
 
-                resolution = await resolve_brand_for_task_fn(
+                resolution = await deps.resolve_brand_for_task_fn(
                     client_id=client_id,
                     client_name=client_name,
                     task_text=task_title,
@@ -185,7 +176,7 @@ async def try_llm_orchestrator_runtime(
             skill_id = result.get("skill_id") or ""
             args = result.get("args") or {}
 
-            policy = await check_skill_policy_fn(
+            policy = await deps.check_skill_policy_fn(
                 slack_user_id=slack_user_id,
                 session=session,
                 channel=channel,
@@ -193,7 +184,7 @@ async def try_llm_orchestrator_runtime(
                 args=args,
             )
             if not policy["allowed"]:
-                logger.info(
+                deps.logger.info(
                     "C10A policy denied: reason=%s skill=%s",
                     policy["reason_code"], skill_id,
                 )
@@ -203,7 +194,7 @@ async def try_llm_orchestrator_runtime(
             skill_summary = ""
 
             if skill_id == "clickup_task_list_weekly":
-                await handle_weekly_tasks_fn(
+                await deps.handle_weekly_tasks_fn(
                     slack_user_id=slack_user_id,
                     channel=channel,
                     client_name_hint=str(args.get("client_name") or ""),
@@ -213,7 +204,7 @@ async def try_llm_orchestrator_runtime(
                 skill_summary = f"[Ran weekly task list for {args.get('client_name', 'client')}]"
 
             elif skill_id == "clickup_task_create":
-                await handle_create_task_fn(
+                await deps.handle_create_task_fn(
                     slack_user_id=slack_user_id,
                     channel=channel,
                     client_name_hint=str(args.get("client_name") or ""),
@@ -234,7 +225,7 @@ async def try_llm_orchestrator_runtime(
                 "cc_brand_create",
                 "cc_brand_update",
             ):
-                skill_summary = await handle_cc_skill_fn(
+                skill_summary = await deps.handle_cc_skill_fn(
                     skill_id=skill_id,
                     args=args,
                     session=session,
@@ -243,7 +234,7 @@ async def try_llm_orchestrator_runtime(
                     slack=slack,
                 )
             else:
-                logger.warning("LLM orchestrator returned unknown skill: %s", skill_id)
+                deps.logger.warning("LLM orchestrator returned unknown skill: %s", skill_id)
                 return False
 
             if skill_summary:
@@ -257,5 +248,5 @@ async def try_llm_orchestrator_runtime(
         return False
 
     except Exception as exc:  # noqa: BLE001
-        logger.warning("LLM orchestrator error: %s", exc)
+        deps.logger.warning("LLM orchestrator error: %s", exc)
         return False

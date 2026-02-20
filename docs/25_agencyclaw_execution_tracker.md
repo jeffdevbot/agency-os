@@ -50,6 +50,7 @@ Last updated: 2026-02-20 (C12C Path-1 runtime landed)
 | C14E | Slack DM event runtime extraction | Codex | done | merged (`4e5a87f`) | Extracted `_handle_dm_event` runtime flow into `slack_dm_runtime.py` with thin wrapper/dependency injection in `slack.py`; strict LLM-first gating and deterministic fallback behavior preserved. |
 | C14F | Slack interaction runtime extraction | Codex | done | merged (`5c7e8e4`) | Extracted `_handle_interaction` runtime flow into `slack_interaction_runtime.py` with thin wrapper/dependency injection in `slack.py`; interaction dedupe, picker, and confirm/cancel semantics preserved. |
 | C14G | Slack task-create runtime extraction | Codex | done | merged (`b85bd63`) | Extracted task-create runtime (`_execute_task_create`, `_handle_create_task`, `_enrich_task_draft`) into `slack_task_runtime.py` with thin wrappers/dependency injection in `slack.py`; task-create semantics preserved. |
+| C14I | Runtime dependency contract hardening | Codex | done | pending commit | Introduced typed runtime dependency containers (`slack_runtime_deps.py`) and switched runtime modules/wrappers to pass a single deps object per runtime to reduce signature drift risk without behavior changes. |
 
 ## 3. Open Blockers
 - [x] Confirm migration `20260217000006_clickup_space_skill_seed.sql` is applied.
@@ -153,6 +154,7 @@ Last updated: 2026-02-20 (C12C Path-1 runtime landed)
 - C14E decomposition (phase 1): extracted DM event runtime (`_handle_dm_event`) into `backend-core/app/services/agencyclaw/slack_dm_runtime.py` with a thin wrapper/dependency-injection bridge in `slack.py`; planner/orchestrator/deterministic routing behavior preserved in targeted suites.
 - C14F decomposition (phase 1): extracted interaction runtime (`_handle_interaction`) into `backend-core/app/services/agencyclaw/slack_interaction_runtime.py` with a thin wrapper/dependency-injection bridge in `slack.py`; dedupe/picker/confirm-cancel behavior preserved in targeted suites.
 - C14G decomposition (phase 1): extracted task-create runtime (`_execute_task_create`, `_handle_create_task`, `_enrich_task_draft`) into `backend-core/app/services/agencyclaw/slack_task_runtime.py` with thin wrapper/dependency-injection bridges in `slack.py`; task-create behavior preserved in targeted suites.
+- C14I hardening: added typed dependency containers in `backend-core/app/services/agencyclaw/slack_runtime_deps.py` and migrated extracted runtimes (`slack_orchestrator_runtime.py`, `slack_dm_runtime.py`, `slack_interaction_runtime.py`, `slack_task_runtime.py`) plus `slack.py` wrappers to single-object dependency wiring; no behavior changes expected.
 - Full backend validation is currently green: `898 passed, 0 failed, 1 warning` (`pytest -q backend-core`).
 
 ## 4. Validation Checklist (Per Chunk)

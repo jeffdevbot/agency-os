@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-from logging import Logger
-from typing import Any, Awaitable, Callable
+from typing import Any
+
+from .slack_runtime_deps import SlackDMRuntimeDeps
 
 
 async def handle_dm_event_runtime(
@@ -12,28 +13,12 @@ async def handle_dm_event_runtime(
     slack_user_id: str,
     channel: str,
     text: str,
-    get_session_service_fn: Callable[[], Any],
-    get_slack_service_fn: Callable[[], Any],
-    preference_memory_service_factory: Callable[[Any], Any],
-    handle_pending_task_continuation_fn: Callable[..., Awaitable[bool]],
-    try_planner_fn: Callable[..., Awaitable[bool]],
-    is_llm_orchestrator_enabled_fn: Callable[[], bool],
-    try_llm_orchestrator_fn: Callable[..., Awaitable[bool]],
-    classify_message_fn: Callable[[str], tuple[str, dict[str, Any]]],
-    should_block_deterministic_intent_fn: Callable[[str], bool],
-    check_skill_policy_fn: Callable[..., Awaitable[dict[str, Any]]],
-    handle_create_task_fn: Callable[..., Awaitable[None]],
-    handle_weekly_tasks_fn: Callable[..., Awaitable[None]],
-    help_text_fn: Callable[[], str],
-    build_client_picker_blocks_fn: Callable[[list[dict[str, Any]]], list[dict[str, Any]]],
-    handle_cc_skill_fn: Callable[..., Awaitable[str]],
-    logger: Logger,
-    slack_api_error_cls: type[Exception],
+    deps: SlackDMRuntimeDeps,
 ) -> None:
     """Handle Slack DM event with planner/orchestrator/deterministic routing."""
-    session_service = get_session_service_fn()
-    pref_service = preference_memory_service_factory(session_service.db)
-    slack = get_slack_service_fn()
+    session_service = deps.get_session_service_fn()
+    pref_service = deps.preference_memory_service_factory(session_service.db)
+    slack = deps.get_slack_service_fn()
 
     try:
         session = await asyncio.to_thread(session_service.get_or_create_session, slack_user_id)
@@ -41,7 +26,7 @@ async def handle_dm_event_runtime(
 
         pending = session.context.get("pending_task_create")
         if isinstance(pending, dict) and pending.get("awaiting"):
-            consumed = await handle_pending_task_continuation_fn(
+            consumed = await deps.handle_pending_task_continuation_fn(
                 channel=channel,
                 text=text,
                 session=session,
@@ -52,7 +37,7 @@ async def handle_dm_event_runtime(
             if consumed:
                 return
 
-        if await try_planner_fn(
+        if await deps.try_planner_fn(
             text=text,
             slack_user_id=slack_user_id,
             channel=channel,
@@ -62,8 +47,8 @@ async def handle_dm_event_runtime(
         ):
             return
 
-        if is_llm_orchestrator_enabled_fn():
-            handled = await try_llm_orchestrator_fn(
+        if deps.is_llm_orchestrator_enabled_fn():
+            handled = await deps.try_llm_orchestrator_fn(
                 text=text,
                 slack_user_id=slack_user_id,
                 channel=channel,
@@ -74,8 +59,8 @@ async def handle_dm_event_runtime(
             if handled:
                 return
 
-        intent, params = classify_message_fn(text)
-        if should_block_deterministic_intent_fn(intent):
+        intent, params = deps.classify_message_fn(text)
+        if deps.should_block_deterministic_intent_fn(intent):
             await slack.post_message(
                 channel=channel,
                 text="I'm not sure what to do with that. "
@@ -84,7 +69,7 @@ async def handle_dm_event_runtime(
             return
 
         if intent == "create_task":
-            policy = await check_skill_policy_fn(
+            policy = await deps.check_skill_policy_fn(
                 slack_user_id=slack_user_id,
                 session=session,
                 channel=channel,
@@ -94,7 +79,7 @@ async def handle_dm_event_runtime(
                 await slack.post_message(channel=channel, text=policy["user_message"])
                 return
 
-            await handle_create_task_fn(
+            await deps.handle_create_task_fn(
                 slack_user_id=slack_user_id,
                 channel=channel,
                 client_name_hint=str(params.get("client_name") or ""),
@@ -113,7 +98,7 @@ async def handle_dm_event_runtime(
             return
 
         if intent == "weekly_tasks":
-            policy = await check_skill_policy_fn(
+            policy = await deps.check_skill_policy_fn(
                 slack_user_id=slack_user_id,
                 session=session,
                 channel=channel,
@@ -123,7 +108,7 @@ async def handle_dm_event_runtime(
                 await slack.post_message(channel=channel, text=policy["user_message"])
                 return
 
-            await handle_weekly_tasks_fn(
+            await deps.handle_weekly_tasks_fn(
                 slack_user_id=slack_user_id,
                 channel=channel,
                 client_name_hint=str(params.get("client_name") or ""),
@@ -135,7 +120,7 @@ async def handle_dm_event_runtime(
         if intent == "switch_client":
             client_name = str(params.get("client_name") or "").strip()
             if not client_name:
-                await slack.post_message(channel=channel, text=help_text_fn())
+                await slack.post_message(channel=channel, text=deps.help_text_fn())
                 return
 
             matches = await asyncio.to_thread(
@@ -143,7 +128,7 @@ async def handle_dm_event_runtime(
             )
             if not matches:
                 clients = await asyncio.to_thread(session_service.list_clients_for_picker, session.profile_id)
-                blocks = build_client_picker_blocks_fn(clients) if clients else None
+                blocks = deps.build_client_picker_blocks_fn(clients) if clients else None
                 await slack.post_message(
                     channel=channel,
                     text=f"I couldn't find a client matching: {client_name!r}",
@@ -151,7 +136,7 @@ async def handle_dm_event_runtime(
                 )
                 return
             if len(matches) > 1:
-                blocks = build_client_picker_blocks_fn(matches)
+                blocks = deps.build_client_picker_blocks_fn(matches)
                 await slack.post_message(
                     channel=channel,
                     text=f"Multiple clients match {client_name!r}. Pick one:",
@@ -195,7 +180,7 @@ async def handle_dm_event_runtime(
                 )
                 return
             if len(matches) > 1:
-                blocks = build_client_picker_blocks_fn(matches)
+                blocks = deps.build_client_picker_blocks_fn(matches)
                 await slack.post_message(
                     channel=channel,
                     text=f"Multiple clients match *{client_name}*. Be more specific:",
@@ -239,7 +224,7 @@ async def handle_dm_event_runtime(
             "cc_brand_create",
             "cc_brand_update",
         ):
-            policy = await check_skill_policy_fn(
+            policy = await deps.check_skill_policy_fn(
                 slack_user_id=slack_user_id,
                 session=session,
                 channel=channel,
@@ -249,7 +234,7 @@ async def handle_dm_event_runtime(
                 await slack.post_message(channel=channel, text=policy["user_message"])
                 return
 
-            await handle_cc_skill_fn(
+            await deps.handle_cc_skill_fn(
                 skill_id=intent,
                 args=params,
                 session=session,
@@ -259,11 +244,11 @@ async def handle_dm_event_runtime(
             )
             return
 
-        await slack.post_message(channel=channel, text=help_text_fn())
-    except slack_api_error_cls:
+        await slack.post_message(channel=channel, text=deps.help_text_fn())
+    except deps.slack_api_error_cls:
         pass
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Unhandled error in _handle_dm_event: %s", exc, exc_info=True)
+        deps.logger.warning("Unhandled error in _handle_dm_event: %s", exc, exc_info=True)
         try:
             await slack.post_message(
                 channel=channel,

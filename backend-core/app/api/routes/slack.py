@@ -74,6 +74,12 @@ from ...services.agencyclaw.slack_task_runtime import (
     execute_task_create_runtime as _runtime_execute_task_create,
     handle_create_task_runtime as _runtime_handle_create_task,
 )
+from ...services.agencyclaw.slack_runtime_deps import (
+    SlackDMRuntimeDeps,
+    SlackInteractionRuntimeDeps,
+    SlackOrchestratorRuntimeDeps,
+    SlackTaskRuntimeDeps,
+)
 from ...services.agencyclaw.slack_cc_dispatch import (
     format_remediation_apply_result as _cc_format_remediation_apply_result,
     format_remediation_preview as _cc_format_remediation_preview,
@@ -627,17 +633,7 @@ async def _execute_task_create(
     brand_id: str | None = None,
     brand_name: str | None = None,
 ) -> None:
-    await _runtime_execute_task_create(
-        channel=channel,
-        session=session,
-        session_service=session_service,
-        slack=slack,
-        client_id=client_id,
-        client_name=client_name,
-        task_title=task_title,
-        task_description=task_description,
-        brand_id=brand_id,
-        brand_name=brand_name,
+    task_deps = SlackTaskRuntimeDeps(
         inflight_lock=_task_create_inflight_lock,
         inflight_set=_task_create_inflight,
         build_idempotency_key_fn=build_idempotency_key,
@@ -651,6 +647,23 @@ async def _execute_task_create(
         emit_orphan_event_fn=emit_orphan_event,
         extract_product_identifiers_fn=_extract_product_identifiers,
         logger=_logger,
+        resolve_client_for_task_fn=_resolve_client_for_task,
+        resolve_brand_for_task_fn=_resolve_brand_for_task,
+        retrieve_kb_context_fn=retrieve_kb_context,
+        build_grounded_task_draft_fn=build_grounded_task_draft,
+    )
+    await _runtime_execute_task_create(
+        channel=channel,
+        session=session,
+        session_service=session_service,
+        slack=slack,
+        client_id=client_id,
+        client_name=client_name,
+        task_title=task_title,
+        task_description=task_description,
+        brand_id=brand_id,
+        brand_name=brand_name,
+        deps=task_deps,
     )
 
 
@@ -664,6 +677,25 @@ async def _handle_create_task(
     slack: Any,
     pref_service: Any | None = None,
 ) -> None:
+    task_deps = SlackTaskRuntimeDeps(
+        inflight_lock=_task_create_inflight_lock,
+        inflight_set=_task_create_inflight,
+        build_idempotency_key_fn=build_idempotency_key,
+        get_supabase_admin_client_fn=get_supabase_admin_client,
+        check_duplicate_fn=check_duplicate,
+        get_clickup_service_fn=get_clickup_service,
+        retry_with_backoff_fn=retry_with_backoff,
+        retry_exhausted_error_cls=RetryExhaustedError,
+        clickup_configuration_error_cls=ClickUpConfigurationError,
+        clickup_error_cls=ClickUpError,
+        emit_orphan_event_fn=emit_orphan_event,
+        extract_product_identifiers_fn=_extract_product_identifiers,
+        logger=_logger,
+        resolve_client_for_task_fn=_resolve_client_for_task,
+        resolve_brand_for_task_fn=_resolve_brand_for_task,
+        retrieve_kb_context_fn=retrieve_kb_context,
+        build_grounded_task_draft_fn=build_grounded_task_draft,
+    )
     await _runtime_handle_create_task(
         slack_user_id=slack_user_id,
         channel=channel,
@@ -672,8 +704,7 @@ async def _handle_create_task(
         session_service=session_service,
         slack=slack,
         pref_service=pref_service,
-        resolve_client_for_task_fn=_resolve_client_for_task,
-        resolve_brand_for_task_fn=_resolve_brand_for_task,
+        deps=task_deps,
     )
 
 
@@ -764,14 +795,30 @@ async def _enrich_task_draft(
     client_id: str,
     client_name: str,
 ) -> dict[str, Any] | None:
+    task_deps = SlackTaskRuntimeDeps(
+        inflight_lock=_task_create_inflight_lock,
+        inflight_set=_task_create_inflight,
+        build_idempotency_key_fn=build_idempotency_key,
+        get_supabase_admin_client_fn=get_supabase_admin_client,
+        check_duplicate_fn=check_duplicate,
+        get_clickup_service_fn=get_clickup_service,
+        retry_with_backoff_fn=retry_with_backoff,
+        retry_exhausted_error_cls=RetryExhaustedError,
+        clickup_configuration_error_cls=ClickUpConfigurationError,
+        clickup_error_cls=ClickUpError,
+        emit_orphan_event_fn=emit_orphan_event,
+        extract_product_identifiers_fn=_extract_product_identifiers,
+        logger=_logger,
+        resolve_client_for_task_fn=_resolve_client_for_task,
+        resolve_brand_for_task_fn=_resolve_brand_for_task,
+        retrieve_kb_context_fn=retrieve_kb_context,
+        build_grounded_task_draft_fn=build_grounded_task_draft,
+    )
     return await _runtime_enrich_task_draft(
         task_title=task_title,
         client_id=client_id,
         client_name=client_name,
-        get_supabase_admin_client_fn=get_supabase_admin_client,
-        retrieve_kb_context_fn=retrieve_kb_context,
-        build_grounded_task_draft_fn=build_grounded_task_draft,
-        logger=_logger,
+        deps=task_deps,
     )
 
 
@@ -812,13 +859,7 @@ async def _try_llm_orchestrator(
     session_service: Any,
     slack: Any,
 ) -> bool:
-    return await _runtime_try_llm_orchestrator(
-        text=text,
-        slack_user_id=slack_user_id,
-        channel=channel,
-        session=session,
-        session_service=session_service,
-        slack=slack,
+    orchestrator_deps = SlackOrchestratorRuntimeDeps(
         logger=_logger,
         orchestrate_dm_message_fn=orchestrate_dm_message,
         log_ai_token_usage_fn=log_ai_token_usage,
@@ -829,6 +870,15 @@ async def _try_llm_orchestrator(
         resolve_client_for_task_fn=_resolve_client_for_task,
         resolve_brand_for_task_fn=_resolve_brand_for_task,
         preference_memory_service_factory=PreferenceMemoryService,
+    )
+    return await _runtime_try_llm_orchestrator(
+        text=text,
+        slack_user_id=slack_user_id,
+        channel=channel,
+        session=session,
+        session_service=session_service,
+        slack=slack,
+        deps=orchestrator_deps,
     )
 
 
@@ -855,10 +905,7 @@ async def _check_skill_policy(
     return evaluate_skill_policy(actor, surface, skill_id, args, session.context)
 
 async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> None:
-    await _runtime_handle_dm_event(
-        slack_user_id=slack_user_id,
-        channel=channel,
-        text=text,
+    dm_deps = SlackDMRuntimeDeps(
         get_session_service_fn=get_playbook_session_service,
         get_slack_service_fn=get_slack_service,
         preference_memory_service_factory=PreferenceMemoryService,
@@ -876,6 +923,12 @@ async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> No
         handle_cc_skill_fn=_handle_cc_skill,
         logger=_logger,
         slack_api_error_cls=SlackAPIError,
+    )
+    await _runtime_handle_dm_event(
+        slack_user_id=slack_user_id,
+        channel=channel,
+        text=text,
+        deps=dm_deps,
     )
 
 
@@ -896,14 +949,17 @@ def _parse_interaction_payload(raw_body: bytes) -> dict[str, Any]:
 
 
 async def _handle_interaction(payload: dict[str, Any]) -> None:
-    await _runtime_handle_interaction(
-        payload,
+    interaction_deps = SlackInteractionRuntimeDeps(
         get_receipt_service_fn=_get_receipt_service,
         get_session_service_fn=get_playbook_session_service,
         get_slack_service_fn=get_slack_service,
         execute_task_create_fn=_execute_task_create,
         logger=_logger,
         slack_api_error_cls=SlackAPIError,
+    )
+    await _runtime_handle_interaction(
+        payload,
+        deps=interaction_deps,
     )
 
 

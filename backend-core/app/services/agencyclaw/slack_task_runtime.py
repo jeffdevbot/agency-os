@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
-from logging import Logger
-from typing import Any, Awaitable, Callable
+from typing import Any
 
+from .slack_runtime_deps import SlackTaskRuntimeDeps
 
 async def execute_task_create_runtime(
     *,
@@ -20,19 +20,7 @@ async def execute_task_create_runtime(
     task_description: str,
     brand_id: str | None = None,
     brand_name: str | None = None,
-    inflight_lock: asyncio.Lock,
-    inflight_set: set[str],
-    build_idempotency_key_fn: Callable[[str, str], str],
-    get_supabase_admin_client_fn: Callable[[], Any],
-    check_duplicate_fn: Callable[..., Any],
-    get_clickup_service_fn: Callable[[], Any],
-    retry_with_backoff_fn: Callable[..., Awaitable[Any]],
-    retry_exhausted_error_cls: type[Exception],
-    clickup_configuration_error_cls: type[Exception],
-    clickup_error_cls: type[Exception],
-    emit_orphan_event_fn: Callable[..., Any],
-    extract_product_identifiers_fn: Callable[..., list[str]],
-    logger: Logger,
+    deps: SlackTaskRuntimeDeps,
 ) -> None:
     """Create a ClickUp task and report the result in Slack."""
     clickup = None
@@ -78,23 +66,23 @@ async def execute_task_create_runtime(
 
         brand_id = brand_id or str(destination.get("id") or "")
         brand_name_display = brand_name or destination.get("name") or ""
-        idempotency_key = build_idempotency_key_fn(brand_id, task_title)
+        idempotency_key = deps.build_idempotency_key_fn(brand_id, task_title)
 
-        async with inflight_lock:
-            if idempotency_key in inflight_set:
+        async with deps.inflight_lock:
+            if idempotency_key in deps.inflight_set:
                 await slack.post_message(
                     channel=channel,
                     text="Another operation for this target is in progress. Please wait and try again.",
                 )
                 return
-            inflight_set.add(idempotency_key)
+            deps.inflight_set.add(idempotency_key)
             acquired_inflight = True
 
         try:
-            db = get_supabase_admin_client_fn()
-            duplicate = await asyncio.to_thread(check_duplicate_fn, db, idempotency_key)
+            db = deps.get_supabase_admin_client_fn()
+            duplicate = await asyncio.to_thread(deps.check_duplicate_fn, db, idempotency_key)
         except Exception as dedupe_exc:  # noqa: BLE001
-            logger.warning("Dedupe check failed (fail-closed): %s", dedupe_exc)
+            deps.logger.warning("Dedupe check failed (fail-closed): %s", dedupe_exc)
             await slack.post_message(
                 channel=channel,
                 text="I couldn't safely validate duplicate protection right now. Please try again in a minute.",
@@ -118,10 +106,10 @@ async def execute_task_create_runtime(
         clickup_user_id = await asyncio.to_thread(
             session_service.get_profile_clickup_user_id, session.profile_id
         )
-        clickup = get_clickup_service_fn()
+        clickup = deps.get_clickup_service_fn()
 
         full_description = task_description or ""
-        explicit_identifiers = extract_product_identifiers_fn(task_title, task_description)
+        explicit_identifiers = deps.extract_product_identifiers_fn(task_title, task_description)
         has_identifier_block = "product identifiers:" in full_description.lower()
         if explicit_identifiers and not has_identifier_block:
             full_description = (
@@ -148,8 +136,8 @@ async def execute_task_create_runtime(
                 )
 
         try:
-            task = await retry_with_backoff_fn(_create_fn)
-        except retry_exhausted_error_cls as exc:  # type: ignore[misc]
+            task = await deps.retry_with_backoff_fn(_create_fn)
+        except deps.retry_exhausted_error_cls as exc:  # type: ignore[misc]
             await slack.post_message(
                 channel=channel,
                 text=f"Failed to create ClickUp task: {exc.last_error}",
@@ -169,10 +157,10 @@ async def execute_task_create_runtime(
                 }).execute()
             )
         except Exception as persist_exc:  # noqa: BLE001
-            logger.warning("agent_tasks insert failed (orphan): %s", persist_exc)
+            deps.logger.warning("agent_tasks insert failed (orphan): %s", persist_exc)
             try:
                 await asyncio.to_thread(
-                    emit_orphan_event_fn,
+                    deps.emit_orphan_event_fn,
                     db,
                     clickup_task=task,
                     idempotency_key=idempotency_key,
@@ -193,12 +181,12 @@ async def execute_task_create_runtime(
             channel=channel,
             text=f"Task created: {link}{brand_note}{draft_note}",
         )
-    except (clickup_configuration_error_cls, clickup_error_cls) as exc:
+    except (deps.clickup_configuration_error_cls, deps.clickup_error_cls) as exc:
         await slack.post_message(channel=channel, text=f"Failed to create ClickUp task: {exc}")
     finally:
         if acquired_inflight:
-            async with inflight_lock:
-                inflight_set.discard(idempotency_key)
+            async with deps.inflight_lock:
+                deps.inflight_set.discard(idempotency_key)
         await asyncio.to_thread(
             session_service.update_context, session.id, {"pending_task_create": None}
         )
@@ -215,12 +203,11 @@ async def handle_create_task_runtime(
     session_service: Any,
     slack: Any,
     pref_service: Any | None,
-    resolve_client_for_task_fn: Callable[..., Awaitable[tuple[str | None, str]]],
-    resolve_brand_for_task_fn: Callable[..., Awaitable[dict[str, Any]]],
+    deps: SlackTaskRuntimeDeps,
 ) -> None:
     """Handle deterministic create-task path."""
     session = await asyncio.to_thread(session_service.get_or_create_session, slack_user_id)
-    client_id, client_name = await resolve_client_for_task_fn(
+    client_id, client_name = await deps.resolve_client_for_task_fn(
         client_name_hint=client_name_hint,
         session=session,
         session_service=session_service,
@@ -231,7 +218,7 @@ async def handle_create_task_runtime(
     if not client_id:
         return
 
-    resolution = await resolve_brand_for_task_fn(
+    resolution = await deps.resolve_brand_for_task_fn(
         client_id=client_id,
         client_name=client_name,
         task_text=task_title,
@@ -348,15 +335,12 @@ async def enrich_task_draft_runtime(
     task_title: str,
     client_id: str,
     client_name: str,
-    get_supabase_admin_client_fn: Callable[[], Any],
-    retrieve_kb_context_fn: Callable[..., Awaitable[dict[str, Any]]],
-    build_grounded_task_draft_fn: Callable[..., dict[str, Any]],
-    logger: Logger,
+    deps: SlackTaskRuntimeDeps,
 ) -> dict[str, Any] | None:
     """Attempt KB retrieval + grounded draft. Returns None on failures."""
     try:
-        db = get_supabase_admin_client_fn()
-        retrieval = await retrieve_kb_context_fn(
+        db = deps.get_supabase_admin_client_fn()
+        retrieval = await deps.retrieve_kb_context_fn(
             query=task_title,
             client_id=client_id,
             skill_id="clickup_task_create",
@@ -365,7 +349,7 @@ async def enrich_task_draft_runtime(
         if not retrieval["sources"]:
             return None
 
-        draft = build_grounded_task_draft_fn(
+        draft = deps.build_grounded_task_draft_fn(
             request_text=task_title,
             client_name=client_name,
             retrieved_context=retrieval,
@@ -373,5 +357,5 @@ async def enrich_task_draft_runtime(
         )
         return draft
     except Exception:
-        logger.warning("C10C: KB retrieval/draft failed, continuing without enrichment", exc_info=True)
+        deps.logger.warning("C10C: KB retrieval/draft failed, continuing without enrichment", exc_info=True)
         return None

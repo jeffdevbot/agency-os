@@ -4,19 +4,15 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timedelta, timezone
-from logging import Logger
-from typing import Any, Awaitable, Callable
+from typing import Any
+
+from .slack_runtime_deps import SlackInteractionRuntimeDeps
 
 
 async def handle_interaction_runtime(
     payload: dict[str, Any],
     *,
-    get_receipt_service_fn: Callable[[], Any],
-    get_session_service_fn: Callable[[], Any],
-    get_slack_service_fn: Callable[[], Any],
-    execute_task_create_fn: Callable[..., Awaitable[None]],
-    logger: Logger,
-    slack_api_error_cls: type[Exception],
+    deps: SlackInteractionRuntimeDeps,
 ) -> None:
     if payload.get("type") != "block_actions":
         return
@@ -39,7 +35,7 @@ async def handle_interaction_runtime(
     if not slack_user_id or not channel_id:
         return
 
-    receipt_service = get_receipt_service_fn()
+    receipt_service = deps.get_receipt_service_fn()
     dedupe_key = f"interaction:{slack_user_id}:{action_id}:{message_ts}"[-255:]
 
     is_new = await asyncio.to_thread(
@@ -50,11 +46,11 @@ async def handle_interaction_runtime(
     )
 
     if not is_new:
-        logger.debug("Duplicate interaction ignored: %s", dedupe_key)
+        deps.logger.debug("Duplicate interaction ignored: %s", dedupe_key)
         return
 
-    session_service = get_session_service_fn()
-    slack = get_slack_service_fn()
+    session_service = deps.get_session_service_fn()
+    slack = deps.get_slack_service_fn()
 
     try:
         session = await asyncio.to_thread(session_service.get_or_create_session, slack_user_id)
@@ -239,7 +235,7 @@ async def handle_interaction_runtime(
                 blocks=[],
             )
 
-            await execute_task_create_fn(
+            await deps.execute_task_create_fn(
                 channel=channel_id,
                 session=session,
                 session_service=session_service,
@@ -265,10 +261,10 @@ async def handle_interaction_runtime(
             receipt_service.update_status(dedupe_key, "processed")
             return
 
-    except slack_api_error_cls:
+    except deps.slack_api_error_cls:
         receipt_service.update_status(dedupe_key, "failed")
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Error handling interaction: %s", exc)
+        deps.logger.warning("Error handling interaction: %s", exc)
         receipt_service.update_status(dedupe_key, "failed", {"error": str(exc)})
     finally:
         await slack.aclose()
