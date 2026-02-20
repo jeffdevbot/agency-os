@@ -3,7 +3,7 @@
 Covers:
 - resolve_actor_context: known profile, missing profile, DB error
 - resolve_surface_context: event payload, channel ID heuristic, unknown
-- evaluate_tool_policy: allow/deny matrix for actor/surface/skill combos
+- evaluate_skill_policy: allow/deny matrix for actor/surface/skill combos
 - Integration: denied tool_call posts denial and skips handler
 - Integration: deterministic path also blocked by policy when denied
 """
@@ -17,7 +17,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.api.routes.slack import (
-    _check_tool_policy,
+    _check_skill_policy,
     _handle_dm_event,
     _try_llm_orchestrator,
 )
@@ -25,7 +25,7 @@ from app.services.agencyclaw.policy_gate import (
     ActorContext,
     PolicyDecision,
     SurfaceContext,
-    evaluate_tool_policy,
+    evaluate_skill_policy,
     resolve_actor_context,
     resolve_surface_context,
 )
@@ -185,61 +185,61 @@ class TestResolveSurfaceContext:
 
 
 # ---------------------------------------------------------------------------
-# 3. evaluate_tool_policy
+# 3. evaluate_skill_policy
 # ---------------------------------------------------------------------------
 
 
 class TestEvaluateToolPolicy:
     def test_allow_dm_operator_weekly_read(self):
-        decision = evaluate_tool_policy(_actor("operator"), _surface("dm"), "clickup_task_list_weekly")
+        decision = evaluate_skill_policy(_actor("operator"), _surface("dm"), "clickup_task_list_weekly")
         assert decision["allowed"] is True
         assert decision["reason_code"] == "allowed"
 
     def test_allow_dm_operator_create_task(self):
-        decision = evaluate_tool_policy(_actor("operator"), _surface("dm"), "clickup_task_create")
+        decision = evaluate_skill_policy(_actor("operator"), _surface("dm"), "clickup_task_create")
         assert decision["allowed"] is True
 
     def test_allow_dm_admin_create_task(self):
-        decision = evaluate_tool_policy(_actor("admin"), _surface("dm"), "clickup_task_create")
+        decision = evaluate_skill_policy(_actor("admin"), _surface("dm"), "clickup_task_create")
         assert decision["allowed"] is True
 
     def test_deny_unknown_actor(self):
-        decision = evaluate_tool_policy(_actor("unknown"), _surface("dm"), "clickup_task_list_weekly")
+        decision = evaluate_skill_policy(_actor("unknown"), _surface("dm"), "clickup_task_list_weekly")
         assert decision["allowed"] is False
         assert decision["reason_code"] == "unknown_actor"
         assert decision["user_message"]  # has user-facing text
 
     def test_deny_unknown_surface(self):
-        decision = evaluate_tool_policy(_actor("operator"), _surface("unknown"), "clickup_task_list_weekly")
+        decision = evaluate_skill_policy(_actor("operator"), _surface("unknown"), "clickup_task_list_weekly")
         assert decision["allowed"] is False
         assert decision["reason_code"] == "unknown_surface"
 
     def test_deny_non_dm_mutation(self):
-        decision = evaluate_tool_policy(_actor("operator"), _surface("channel"), "clickup_task_create")
+        decision = evaluate_skill_policy(_actor("operator"), _surface("channel"), "clickup_task_create")
         assert decision["allowed"] is False
         assert decision["reason_code"] == "non_dm_mutation"
 
     def test_deny_non_dm_read(self):
-        decision = evaluate_tool_policy(_actor("operator"), _surface("channel"), "clickup_task_list_weekly")
+        decision = evaluate_skill_policy(_actor("operator"), _surface("channel"), "clickup_task_list_weekly")
         assert decision["allowed"] is False
         assert decision["reason_code"] == "non_dm_read"
 
     def test_deny_unknown_skill(self):
-        decision = evaluate_tool_policy(_actor("operator"), _surface("dm"), "clickup_delete_everything")
+        decision = evaluate_skill_policy(_actor("operator"), _surface("dm"), "clickup_delete_everything")
         assert decision["allowed"] is False
         assert decision["reason_code"] == "unknown_skill"
 
     def test_deny_viewer_mutation(self):
-        decision = evaluate_tool_policy(_actor("viewer"), _surface("dm"), "clickup_task_create")
+        decision = evaluate_skill_policy(_actor("viewer"), _surface("dm"), "clickup_task_create")
         assert decision["allowed"] is False
         assert decision["reason_code"] == "viewer_mutation_denied"
 
     def test_allow_viewer_read(self):
-        decision = evaluate_tool_policy(_actor("viewer"), _surface("dm"), "clickup_task_list_weekly")
+        decision = evaluate_skill_policy(_actor("viewer"), _surface("dm"), "clickup_task_list_weekly")
         assert decision["allowed"] is True
 
     def test_meta_always_present(self):
-        decision = evaluate_tool_policy(_actor("operator"), _surface("dm"), "clickup_task_create")
+        decision = evaluate_skill_policy(_actor("operator"), _surface("dm"), "clickup_task_create")
         assert "actor_role" in decision["meta"]
         assert "surface_type" in decision["meta"]
         assert "skill_id" in decision["meta"]
@@ -272,7 +272,7 @@ class TestLLMOrchestratorPolicyDenial:
         with (
             patch("app.api.routes.slack.orchestrate_dm_message", new_callable=AsyncMock, return_value=result),
             patch("app.api.routes.slack.log_ai_token_usage", new_callable=AsyncMock),
-            patch("app.api.routes.slack._check_tool_policy", new_callable=AsyncMock, return_value=deny_decision),
+            patch("app.api.routes.slack._check_skill_policy", new_callable=AsyncMock, return_value=deny_decision),
             patch("app.api.routes.slack._handle_weekly_tasks", new_callable=AsyncMock) as mock_handler,
         ):
             handled = await _try_llm_orchestrator(
@@ -311,7 +311,7 @@ class TestLLMOrchestratorPolicyDenial:
         with (
             patch("app.api.routes.slack.orchestrate_dm_message", new_callable=AsyncMock, return_value=result),
             patch("app.api.routes.slack.log_ai_token_usage", new_callable=AsyncMock),
-            patch("app.api.routes.slack._check_tool_policy", new_callable=AsyncMock, return_value=allow_decision),
+            patch("app.api.routes.slack._check_skill_policy", new_callable=AsyncMock, return_value=allow_decision),
             patch("app.api.routes.slack._handle_weekly_tasks", new_callable=AsyncMock) as mock_handler,
         ):
             handled = await _try_llm_orchestrator(
@@ -349,7 +349,7 @@ class TestDeterministicPathPolicyDenial:
             patch("app.api.routes.slack._is_llm_orchestrator_enabled", return_value=False),
             patch("app.api.routes.slack.get_playbook_session_service", return_value=svc),
             patch("app.api.routes.slack.get_slack_service", return_value=slack),
-            patch("app.api.routes.slack._check_tool_policy", new_callable=AsyncMock, return_value=deny_decision),
+            patch("app.api.routes.slack._check_skill_policy", new_callable=AsyncMock, return_value=deny_decision),
             patch("app.api.routes.slack._handle_create_task", new_callable=AsyncMock) as mock_handler,
         ):
             await _handle_dm_event(
@@ -378,7 +378,7 @@ class TestDeterministicPathPolicyDenial:
             patch("app.api.routes.slack._is_llm_orchestrator_enabled", return_value=False),
             patch("app.api.routes.slack.get_playbook_session_service", return_value=svc),
             patch("app.api.routes.slack.get_slack_service", return_value=slack),
-            patch("app.api.routes.slack._check_tool_policy", new_callable=AsyncMock, return_value=deny_decision),
+            patch("app.api.routes.slack._check_skill_policy", new_callable=AsyncMock, return_value=deny_decision),
             patch("app.api.routes.slack._handle_weekly_tasks", new_callable=AsyncMock) as mock_handler,
         ):
             await _handle_dm_event(
@@ -405,7 +405,7 @@ class TestDeterministicPathPolicyDenial:
             patch("app.api.routes.slack._is_llm_orchestrator_enabled", return_value=False),
             patch("app.api.routes.slack.get_playbook_session_service", return_value=svc),
             patch("app.api.routes.slack.get_slack_service", return_value=slack),
-            patch("app.api.routes.slack._check_tool_policy", new_callable=AsyncMock, return_value=allow_decision),
+            patch("app.api.routes.slack._check_skill_policy", new_callable=AsyncMock, return_value=allow_decision),
             patch("app.api.routes.slack._handle_create_task", new_callable=AsyncMock) as mock_handler,
         ):
             await _handle_dm_event(

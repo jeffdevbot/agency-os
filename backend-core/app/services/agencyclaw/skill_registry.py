@@ -1,4 +1,4 @@
-"""Tool skill schemas and validation for AgencyClaw orchestrator."""
+"""Skill schemas and validation for AgencyClaw orchestrator."""
 
 from __future__ import annotations
 
@@ -11,12 +11,12 @@ class ArgSchema(TypedDict):
     description: str
 
 
-class ToolSchema(TypedDict):
+class SkillSchema(TypedDict):
     description: str
     args: dict[str, ArgSchema]
 
 
-TOOL_SCHEMAS: dict[str, ToolSchema] = {
+SKILL_SCHEMAS: dict[str, SkillSchema] = {
     "clickup_task_list_weekly": {
         "description": "List ClickUp tasks updated this week for a client.",
         "args": {
@@ -213,14 +213,14 @@ TOOL_SCHEMAS: dict[str, ToolSchema] = {
 }
 
 
-def validate_tool_call(skill_id: str, args: dict[str, Any]) -> list[str]:
-    """Validate a tool call against its schema.
+def validate_skill_call(skill_id: str, args: dict[str, Any]) -> list[str]:
+    """Validate a skill call against its schema.
 
     Returns a list of validation errors (empty list means valid).
     """
     errors: list[str] = []
 
-    schema = TOOL_SCHEMAS.get(skill_id)
+    schema = SKILL_SCHEMAS.get(skill_id)
     if schema is None:
         errors.append(f"Unknown skill: {skill_id}")
         return errors
@@ -247,7 +247,7 @@ def validate_tool_call(skill_id: str, args: dict[str, Any]) -> list[str]:
 
 def get_missing_required_fields(skill_id: str, args: dict[str, Any]) -> list[str]:
     """Return names of required fields that are missing or empty."""
-    schema = TOOL_SCHEMAS.get(skill_id)
+    schema = SKILL_SCHEMAS.get(skill_id)
     if schema is None:
         return []
 
@@ -261,10 +261,10 @@ def get_missing_required_fields(skill_id: str, args: dict[str, Any]) -> list[str
     return missing
 
 
-def get_tool_descriptions_for_prompt() -> str:
-    """Format tool schemas into a text block for the LLM system prompt."""
+def get_skill_descriptions_for_prompt() -> str:
+    """Format skill schemas into a text block for the LLM system prompt."""
     lines: list[str] = []
-    for skill_id, schema in TOOL_SCHEMAS.items():
+    for skill_id, schema in SKILL_SCHEMAS.items():
         lines.append(f"### {skill_id}")
         lines.append(schema["description"])
         lines.append("Arguments:")
@@ -273,3 +273,20 @@ def get_tool_descriptions_for_prompt() -> str:
             lines.append(f"  - {arg_name} ({arg_def['type']}, {req}): {arg_def['description']}")
         lines.append("")
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Backward-compatibility aliases (temporary)
+# ---------------------------------------------------------------------------
+
+# Keep these aliases during transition to avoid breaking in-flight branches.
+ToolSchema = SkillSchema
+TOOL_SCHEMAS = SKILL_SCHEMAS
+
+
+def validate_tool_call(skill_id: str, args: dict[str, Any]) -> list[str]:
+    return validate_skill_call(skill_id, args)
+
+
+def get_tool_descriptions_for_prompt() -> str:
+    return get_skill_descriptions_for_prompt()

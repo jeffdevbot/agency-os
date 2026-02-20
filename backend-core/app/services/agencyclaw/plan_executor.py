@@ -1,11 +1,11 @@
 """C10D: Deterministic plan executor for AgencyClaw.
 
 Executes validated plans step-by-step:
-- Only whitelisted skill IDs (from tool_registry) are dispatched
+- Only whitelisted skill IDs (from skill_registry) are dispatched
 - Each step runs through the C10A policy gate
 - Policy denial aborts the remaining plan (fail-closed)
 - Non-policy errors are recorded but execution continues to the next step
-- No dynamic code/tool injection — dispatch is a static skill_id→handler map
+- No dynamic code/skill injection — dispatch is a static skill_id→handler map
 """
 
 from __future__ import annotations
@@ -66,7 +66,7 @@ async def execute_plan(
     plan : ExecutionPlan
         Validated plan from ``generate_plan``.
     check_policy : callable
-        Async function matching ``_check_tool_policy`` signature.
+        Async function matching ``_check_skill_policy`` signature.
     handler_map : dict
         Maps skill_id → async handler. Each handler is called with
         ``(slack_user_id=, channel=, client_name_hint=, session_service=, slack=, **extra_args)``.

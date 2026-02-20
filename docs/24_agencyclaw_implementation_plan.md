@@ -53,7 +53,7 @@ It is separate from `docs/23_agencyclaw_prd.md`:
 6. C6: ClickUp space sync/classification + brand mapping controls
 7. C7: Standalone `meeting_parser` + debrief review path hardening
 8. C8: `client_context_builder` + token budget enforcement + metadata
-9. C9: Slack conversational orchestrator (LLM-first tool calling)
+9. C9: Slack conversational orchestrator (LLM-first skill calling)
 10. C10B: Mutation clarify-state persistence + slot-fill loop hardening
 11. C10B.5: Session conversation history buffer (last 5 exchanges)
 12. C10A: Actor/surface context resolver + runtime policy gate
@@ -210,7 +210,7 @@ Locked regression fixtures for C10B:
 ## C10A: Actor/Surface Context + Policy Gate
 - Scope:
   - Build context resolver for `who` (profile/tier) and `where` (dm/channel/thread + scope).
-  - Enforce pre-tool and post-tool policy checks using actor/surface context.
+  - Enforce pre-skill and post-skill policy checks using actor/surface context.
   - Fail closed for unknown channel scope on mutations.
 - Acceptance:
   - Mutation denied when actor/surface policy disallows it.
@@ -240,7 +240,7 @@ Locked regression fixtures for C10B:
 - Acceptance:
   - Hardcoded intent-specific mutation path count is reduced.
   - Planner definition for this chunk is locked:
-    constrained plan schema + deterministic tool execution (not open-ended ReAct loop).
+    constrained plan schema + deterministic skill execution (not open-ended ReAct loop).
   - Planner path covers N-gram flow end-to-end without hardcoded intent branch.
   - Regression tests confirm no behavior loss for shipped chunks.
 

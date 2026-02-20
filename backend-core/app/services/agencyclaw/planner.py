@@ -18,7 +18,7 @@ from .openai_client import (
     call_chat_completion,
     parse_json_response,
 )
-from .tool_registry import TOOL_SCHEMAS, get_tool_descriptions_for_prompt, validate_tool_call
+from .skill_registry import SKILL_SCHEMAS, get_skill_descriptions_for_prompt, validate_skill_call
 
 logger = logging.getLogger(__name__)
 
@@ -137,7 +137,7 @@ def _validate_plan(parsed: dict[str, Any]) -> ExecutionPlan | None:
             return None
 
         skill_id = str(raw_step.get("skill_id") or "")
-        if skill_id not in TOOL_SCHEMAS:
+        if skill_id not in SKILL_SCHEMAS:
             logger.warning("C10D: Step %d has unknown skill_id: %s", i, skill_id)
             return None
 
@@ -147,7 +147,7 @@ def _validate_plan(parsed: dict[str, Any]) -> ExecutionPlan | None:
             return None
 
         # Validate args against schema (allow missing optional args)
-        errors = validate_tool_call(skill_id, args)
+        errors = validate_skill_call(skill_id, args)
         if errors:
             logger.warning("C10D: Step %d validation errors: %s", i, errors)
             return None
@@ -189,7 +189,7 @@ async def generate_plan(
     Caller should fall back to existing routing.
     """
     if available_skills is None:
-        available_skills = get_tool_descriptions_for_prompt()
+        available_skills = get_skill_descriptions_for_prompt()
 
     # Build session state summary
     session_parts: list[str] = []

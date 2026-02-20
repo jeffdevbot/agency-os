@@ -27,11 +27,11 @@ from app.services.agencyclaw.command_center_brand_mutations import (
 from app.services.agencyclaw.policy_gate import (
     ActorContext,
     SurfaceContext,
-    evaluate_tool_policy,
+    evaluate_skill_policy,
 )
-from app.services.agencyclaw.tool_registry import (
-    TOOL_SCHEMAS,
-    validate_tool_call,
+from app.services.agencyclaw.skill_registry import (
+    SKILL_SCHEMAS,
+    validate_skill_call,
 )
 
 
@@ -113,7 +113,7 @@ class TestClassifierBrandMutations:
 
 class TestPolicyBrandMutations:
     def test_admin_can_create(self):
-        policy = evaluate_tool_policy(
+        policy = evaluate_skill_policy(
             _actor(role="admin", is_admin=True),
             _dm_surface(),
             "cc_brand_create",
@@ -121,7 +121,7 @@ class TestPolicyBrandMutations:
         assert policy["allowed"] is True
 
     def test_admin_can_update(self):
-        policy = evaluate_tool_policy(
+        policy = evaluate_skill_policy(
             _actor(role="admin", is_admin=True),
             _dm_surface(),
             "cc_brand_update",
@@ -129,7 +129,7 @@ class TestPolicyBrandMutations:
         assert policy["allowed"] is True
 
     def test_non_admin_denied_create(self):
-        policy = evaluate_tool_policy(
+        policy = evaluate_skill_policy(
             _actor(),
             _dm_surface(),
             "cc_brand_create",
@@ -138,7 +138,7 @@ class TestPolicyBrandMutations:
         assert policy["reason_code"] == "admin_skill_denied"
 
     def test_non_admin_denied_update(self):
-        policy = evaluate_tool_policy(
+        policy = evaluate_skill_policy(
             _actor(),
             _dm_surface(),
             "cc_brand_update",
@@ -147,7 +147,7 @@ class TestPolicyBrandMutations:
         assert policy["reason_code"] == "admin_skill_denied"
 
     def test_viewer_denied_create(self):
-        policy = evaluate_tool_policy(
+        policy = evaluate_skill_policy(
             _actor(role="viewer"),
             _dm_surface(),
             "cc_brand_create",
@@ -156,7 +156,7 @@ class TestPolicyBrandMutations:
 
     def test_non_dm_denied(self):
         surface = SurfaceContext(channel_id="C1", surface_type="channel")
-        policy = evaluate_tool_policy(
+        policy = evaluate_skill_policy(
             _actor(role="admin", is_admin=True),
             surface,
             "cc_brand_create",
@@ -171,40 +171,40 @@ class TestPolicyBrandMutations:
 
 class TestToolRegistryBrandMutations:
     def test_create_registered(self):
-        assert "cc_brand_create" in TOOL_SCHEMAS
+        assert "cc_brand_create" in SKILL_SCHEMAS
 
     def test_update_registered(self):
-        assert "cc_brand_update" in TOOL_SCHEMAS
+        assert "cc_brand_update" in SKILL_SCHEMAS
 
     def test_create_client_name_required(self):
-        schema = TOOL_SCHEMAS["cc_brand_create"]
+        schema = SKILL_SCHEMAS["cc_brand_create"]
         assert schema["args"]["client_name"]["required"] is True
 
     def test_create_brand_name_required(self):
-        schema = TOOL_SCHEMAS["cc_brand_create"]
+        schema = SKILL_SCHEMAS["cc_brand_create"]
         assert schema["args"]["brand_name"]["required"] is True
 
     def test_update_brand_name_required(self):
-        schema = TOOL_SCHEMAS["cc_brand_update"]
+        schema = SKILL_SCHEMAS["cc_brand_update"]
         assert schema["args"]["brand_name"]["required"] is True
 
     def test_update_client_name_optional(self):
-        schema = TOOL_SCHEMAS["cc_brand_update"]
+        schema = SKILL_SCHEMAS["cc_brand_update"]
         assert schema["args"]["client_name"]["required"] is False
 
     def test_validate_create_valid(self):
-        errors = validate_tool_call(
+        errors = validate_skill_call(
             "cc_brand_create",
             {"client_name": "Distex", "brand_name": "Alpha"},
         )
         assert errors == []
 
     def test_validate_create_missing_brand(self):
-        errors = validate_tool_call("cc_brand_create", {"client_name": "Distex"})
+        errors = validate_skill_call("cc_brand_create", {"client_name": "Distex"})
         assert any("brand_name" in e for e in errors)
 
     def test_validate_update_valid(self):
-        errors = validate_tool_call(
+        errors = validate_skill_call(
             "cc_brand_update",
             {"brand_name": "Alpha", "new_brand_name": "Beta"},
         )

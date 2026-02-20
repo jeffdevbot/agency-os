@@ -183,7 +183,7 @@ class TestLLMFallbackNoCommandMenu:
             patch("app.api.routes.slack.get_slack_service", return_value=slack),
             patch("app.api.routes.slack.orchestrate_dm_message", new_callable=AsyncMock, return_value=result),
             patch("app.api.routes.slack.log_ai_token_usage", new_callable=AsyncMock),
-            patch("app.api.routes.slack._check_tool_policy", new_callable=AsyncMock, return_value=_ALLOW_POLICY),
+            patch("app.api.routes.slack._check_skill_policy", new_callable=AsyncMock, return_value=_ALLOW_POLICY),
             patch("app.api.routes.slack._handle_cc_skill", mock_cc),
         ):
             await _handle_dm_event(slack_user_id="U123", channel="D1", text="list brands")
@@ -278,7 +278,7 @@ class TestSkillExecutionStillDeterministic:
             patch("app.api.routes.slack.get_slack_service", return_value=slack),
             patch("app.api.routes.slack.orchestrate_dm_message", new_callable=AsyncMock, return_value=result),
             patch("app.api.routes.slack.log_ai_token_usage", new_callable=AsyncMock),
-            patch("app.api.routes.slack._check_tool_policy", new_callable=AsyncMock, return_value=_ALLOW_POLICY),
+            patch("app.api.routes.slack._check_skill_policy", new_callable=AsyncMock, return_value=_ALLOW_POLICY),
             patch("app.api.routes.slack._handle_weekly_tasks", new_callable=AsyncMock) as mock_weekly,
         ):
             await _handle_dm_event(slack_user_id="U123", channel="D1", text="show tasks for Distex")

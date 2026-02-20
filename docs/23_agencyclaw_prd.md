@@ -52,7 +52,7 @@ Components:
 - `TaskExecutionService`: ClickUp task create/update + status tracking.
 - `AuditService`: structured event logging.
 - `SkillAdapters`: typed wrappers for existing tools.
-- `DeterministicFallbackRouter`: existing pattern-matching handlers used when model/tool routing fails.
+- `DeterministicFallbackRouter`: existing pattern-matching handlers used when model/skill routing fails.
 
 This design keeps a clean seam for future sub-agents without forcing early complexity.
 
@@ -217,7 +217,7 @@ Policy rule:
 - Mutation authorization is computed from `(actor_tier, surface_scope, requested_skill)`.
 - Unknown channel scope must fail closed for mutations.
 - DM scope can allow broader operations than client-scoped channels, but still tier-gated.
-- Runtime must pass actor/surface context into orchestrator prompt + post-tool policy gate.
+- Runtime must pass actor/surface context into orchestrator prompt + post-skill policy gate.
 
 ## 8. Data Model
 ### 8.1 Use Existing Tables
@@ -573,7 +573,7 @@ AgencyClaw adopts the useful parts of OpenClaw's skills model while keeping type
 Adopt now:
 - Skill identity + metadata (name, description, auth policy, idempotency strategy, owner service).
 - Per-skill enable/disable controls in config.
-- LLM-first tool routing for user-invocable operations, with deterministic command routing fallback.
+- LLM-first skill routing for user-invocable operations, with deterministic command routing fallback.
 - Security posture: treat third-party/community skill packages as untrusted by default.
 
 Adopt later (optional):
@@ -812,10 +812,10 @@ Suggested skills:
   - One user's preferences must never be applied to another user implicitly.
 
 ### 13.15 Actor + Surface Policy Gate Rules
-- Pre-tool policy gate:
-  - Resolve actor + surface context before orchestrator tool execution.
+- Pre-skill policy gate:
+  - Resolve actor + surface context before orchestrator skill execution.
   - Reject skills not allowed for current tier/surface with explicit reason.
-- Post-tool policy gate:
+- Post-skill policy gate:
   - Validate final mutation intent again before execution (defense in depth).
 - Scope defaulting:
   - In `client_scoped` channels, prefer channel client scope over free-text client guesses.

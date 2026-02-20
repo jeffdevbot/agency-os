@@ -2,11 +2,11 @@
 
 Provides a fail-closed authorization layer that resolves WHO is asking
 (actor context) and WHERE they are asking (surface context), then evaluates
-whether a specific tool execution is permitted.
+whether a specific skill execution is permitted.
 
 All functions are **synchronous** for the DB-backed resolve_actor_context;
 callers should wrap in ``asyncio.to_thread`` when calling from async code.
-resolve_surface_context and evaluate_tool_policy are pure functions.
+resolve_surface_context and evaluate_skill_policy are pure functions.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 from typing import Any, TypedDict
 
-from .tool_registry import TOOL_SCHEMAS
+from .skill_registry import SKILL_SCHEMAS
 
 logger = logging.getLogger(__name__)
 
@@ -176,14 +176,14 @@ def resolve_surface_context(
 # ---------------------------------------------------------------------------
 
 
-def evaluate_tool_policy(
+def evaluate_skill_policy(
     actor: ActorContext,
     surface: SurfaceContext,
     skill_id: str,
     args: dict[str, Any] | None = None,
     session_context: dict[str, Any] | None = None,
 ) -> PolicyDecision:
-    """Evaluate whether a tool execution is permitted.
+    """Evaluate whether a skill execution is permitted.
 
     Fail-closed: any unrecognized actor, surface, or skill is denied.
 
@@ -191,8 +191,8 @@ def evaluate_tool_policy(
     - Unknown actor role → deny
     - Unknown surface → deny
     - Unknown skill_id → deny
-    - Mutation tools (clickup_task_create): DM only
-    - Read tools (clickup_task_list_weekly): DM only (v1)
+    - Mutation skills (clickup_task_create): DM only
+    - Read skills (clickup_task_list_weekly): DM only (v1)
     - Viewer role → deny mutations, allow reads
     """
     meta: dict[str, Any] = {
@@ -220,7 +220,7 @@ def evaluate_tool_policy(
         )
 
     # --- Unknown skill ---
-    if skill_id not in TOOL_SCHEMAS:
+    if skill_id not in SKILL_SCHEMAS:
         return PolicyDecision(
             allowed=False,
             reason_code="unknown_skill",
@@ -228,7 +228,7 @@ def evaluate_tool_policy(
             meta=meta,
         )
 
-    # --- Surface restrictions (v1: DM only for all tools) ---
+    # --- Surface restrictions (v1: DM only for all skills) ---
     if surface["surface_type"] != "dm":
         reason = "non_dm_mutation" if skill_id in _MUTATION_SKILLS else "non_dm_read"
         return PolicyDecision(
@@ -263,3 +263,14 @@ def evaluate_tool_policy(
         user_message="",
         meta=meta,
     )
+
+
+# Backward-compatibility alias (temporary).
+def evaluate_tool_policy(
+    actor: ActorContext,
+    surface: SurfaceContext,
+    skill_id: str,
+    args: dict[str, Any] | None = None,
+    session_context: dict[str, Any] | None = None,
+) -> PolicyDecision:
+    return evaluate_skill_policy(actor, surface, skill_id, args, session_context)

@@ -9,11 +9,11 @@ import pytest
 
 from app.services.agencyclaw.openai_client import ChatCompletionResult, OpenAIError
 from app.services.agencyclaw.slack_orchestrator import orchestrate_dm_message
-from app.services.agencyclaw.tool_registry import (
-    TOOL_SCHEMAS,
+from app.services.agencyclaw.skill_registry import (
+    SKILL_SCHEMAS,
     get_missing_required_fields,
-    get_tool_descriptions_for_prompt,
-    validate_tool_call,
+    get_skill_descriptions_for_prompt,
+    validate_skill_call,
 )
 
 
@@ -49,31 +49,31 @@ _DEFAULT_KWARGS = dict(
 
 class TestToolRegistry:
     def test_validate_known_skill_valid_args(self):
-        errors = validate_tool_call(
+        errors = validate_skill_call(
             "clickup_task_create",
             {"task_title": "Fix bug", "client_name": "Distex"},
         )
         assert errors == []
 
     def test_validate_unknown_skill(self):
-        errors = validate_tool_call("nonexistent_skill", {})
+        errors = validate_skill_call("nonexistent_skill", {})
         assert len(errors) == 1
         assert "Unknown skill" in errors[0]
 
     def test_validate_missing_required_field(self):
-        errors = validate_tool_call("clickup_task_create", {"client_name": "Distex"})
+        errors = validate_skill_call("clickup_task_create", {"client_name": "Distex"})
         assert any("task_title" in e for e in errors)
 
     def test_validate_empty_required_field(self):
-        errors = validate_tool_call("clickup_task_create", {"task_title": "  ", "client_name": "Distex"})
+        errors = validate_skill_call("clickup_task_create", {"task_title": "  ", "client_name": "Distex"})
         assert any("task_title" in e for e in errors)
 
     def test_validate_weekly_tasks_no_required(self):
-        errors = validate_tool_call("clickup_task_list_weekly", {})
+        errors = validate_skill_call("clickup_task_list_weekly", {})
         assert errors == []
 
     def test_validate_unknown_arg(self):
-        errors = validate_tool_call("clickup_task_list_weekly", {"bogus": "value"})
+        errors = validate_skill_call("clickup_task_list_weekly", {"bogus": "value"})
         assert any("Unknown argument" in e for e in errors)
 
     def test_get_missing_required_fields_returns_names(self):
@@ -89,15 +89,15 @@ class TestToolRegistry:
         assert missing == []
 
     def test_tool_descriptions_contains_skill_names(self):
-        desc = get_tool_descriptions_for_prompt()
+        desc = get_skill_descriptions_for_prompt()
         assert "clickup_task_list_weekly" in desc
         assert "clickup_task_create" in desc
         assert "task_title" in desc
 
     def test_schemas_have_expected_keys(self):
-        assert "clickup_task_list_weekly" in TOOL_SCHEMAS
-        assert "clickup_task_create" in TOOL_SCHEMAS
-        assert "task_title" in TOOL_SCHEMAS["clickup_task_create"]["args"]
+        assert "clickup_task_list_weekly" in SKILL_SCHEMAS
+        assert "clickup_task_create" in SKILL_SCHEMAS
+        assert "task_title" in SKILL_SCHEMAS["clickup_task_create"]["args"]
 
 
 # ---------------------------------------------------------------------------

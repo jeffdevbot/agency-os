@@ -17,12 +17,12 @@ from app.api.routes.slack import _classify_message, _handle_cc_skill
 from app.services.agencyclaw.policy_gate import (
     ActorContext,
     SurfaceContext,
-    evaluate_tool_policy,
+    evaluate_skill_policy,
 )
-from app.services.agencyclaw.tool_registry import (
-    TOOL_SCHEMAS,
-    get_tool_descriptions_for_prompt,
-    validate_tool_call,
+from app.services.agencyclaw.skill_registry import (
+    SKILL_SCHEMAS,
+    get_skill_descriptions_for_prompt,
+    validate_skill_call,
 )
 
 
@@ -99,46 +99,46 @@ def _dm_surface() -> SurfaceContext:
 
 class TestPolicyCCSkills:
     def test_member_can_lookup_clients(self):
-        policy = evaluate_tool_policy(_actor(), _dm_surface(), "cc_client_lookup")
+        policy = evaluate_skill_policy(_actor(), _dm_surface(), "cc_client_lookup")
         assert policy["allowed"] is True
 
     def test_member_can_list_brands(self):
-        policy = evaluate_tool_policy(_actor(), _dm_surface(), "cc_brand_list_all")
+        policy = evaluate_skill_policy(_actor(), _dm_surface(), "cc_brand_list_all")
         assert policy["allowed"] is True
 
     def test_admin_can_audit(self):
-        policy = evaluate_tool_policy(
+        policy = evaluate_skill_policy(
             _actor(role="admin", is_admin=True), _dm_surface(), "cc_brand_clickup_mapping_audit"
         )
         assert policy["allowed"] is True
 
     def test_non_admin_denied_audit(self):
-        policy = evaluate_tool_policy(_actor(), _dm_surface(), "cc_brand_clickup_mapping_audit")
+        policy = evaluate_skill_policy(_actor(), _dm_surface(), "cc_brand_clickup_mapping_audit")
         assert policy["allowed"] is False
         assert policy["reason_code"] == "admin_skill_denied"
         assert "admin" in policy["user_message"].lower()
 
     def test_viewer_can_read_clients(self):
-        policy = evaluate_tool_policy(
+        policy = evaluate_skill_policy(
             _actor(role="viewer"), _dm_surface(), "cc_client_lookup"
         )
         assert policy["allowed"] is True
 
     def test_viewer_can_read_brands(self):
-        policy = evaluate_tool_policy(
+        policy = evaluate_skill_policy(
             _actor(role="viewer"), _dm_surface(), "cc_brand_list_all"
         )
         assert policy["allowed"] is True
 
     def test_viewer_denied_audit(self):
-        policy = evaluate_tool_policy(
+        policy = evaluate_skill_policy(
             _actor(role="viewer"), _dm_surface(), "cc_brand_clickup_mapping_audit"
         )
         assert policy["allowed"] is False
         assert policy["reason_code"] == "admin_skill_denied"
 
     def test_unknown_actor_denied(self):
-        policy = evaluate_tool_policy(
+        policy = evaluate_skill_policy(
             _actor(role="unknown"), _dm_surface(), "cc_client_lookup"
         )
         assert policy["allowed"] is False
@@ -146,12 +146,12 @@ class TestPolicyCCSkills:
 
     def test_non_dm_surface_denied(self):
         surface = SurfaceContext(channel_id="C1", surface_type="channel")
-        policy = evaluate_tool_policy(_actor(), surface, "cc_client_lookup")
+        policy = evaluate_skill_policy(_actor(), surface, "cc_client_lookup")
         assert policy["allowed"] is False
 
     def test_existing_mutation_still_blocked_for_viewer(self):
         """Regression: viewer still can't create tasks."""
-        policy = evaluate_tool_policy(
+        policy = evaluate_skill_policy(
             _actor(role="viewer"), _dm_surface(), "clickup_task_create"
         )
         assert policy["allowed"] is False
@@ -159,7 +159,7 @@ class TestPolicyCCSkills:
 
     def test_existing_read_still_works(self):
         """Regression: existing weekly tasks skill still works."""
-        policy = evaluate_tool_policy(_actor(), _dm_surface(), "clickup_task_list_weekly")
+        policy = evaluate_skill_policy(_actor(), _dm_surface(), "clickup_task_list_weekly")
         assert policy["allowed"] is True
 
 
@@ -170,49 +170,49 @@ class TestPolicyCCSkills:
 
 class TestToolRegistryCCSkills:
     def test_cc_client_lookup_registered(self):
-        assert "cc_client_lookup" in TOOL_SCHEMAS
+        assert "cc_client_lookup" in SKILL_SCHEMAS
 
     def test_cc_brand_list_all_registered(self):
-        assert "cc_brand_list_all" in TOOL_SCHEMAS
+        assert "cc_brand_list_all" in SKILL_SCHEMAS
 
     def test_cc_brand_clickup_mapping_audit_registered(self):
-        assert "cc_brand_clickup_mapping_audit" in TOOL_SCHEMAS
+        assert "cc_brand_clickup_mapping_audit" in SKILL_SCHEMAS
 
     def test_audit_has_no_required_args(self):
-        schema = TOOL_SCHEMAS["cc_brand_clickup_mapping_audit"]
+        schema = SKILL_SCHEMAS["cc_brand_clickup_mapping_audit"]
         assert schema["args"] == {}
 
     def test_client_lookup_query_optional(self):
-        schema = TOOL_SCHEMAS["cc_client_lookup"]
+        schema = SKILL_SCHEMAS["cc_client_lookup"]
         assert schema["args"]["query"]["required"] is False
 
     def test_brand_list_client_name_optional(self):
-        schema = TOOL_SCHEMAS["cc_brand_list_all"]
+        schema = SKILL_SCHEMAS["cc_brand_list_all"]
         assert schema["args"]["client_name"]["required"] is False
 
     def test_validate_client_lookup_valid(self):
-        errors = validate_tool_call("cc_client_lookup", {"query": "dist"})
+        errors = validate_skill_call("cc_client_lookup", {"query": "dist"})
         assert errors == []
 
     def test_validate_client_lookup_no_args(self):
-        errors = validate_tool_call("cc_client_lookup", {})
+        errors = validate_skill_call("cc_client_lookup", {})
         assert errors == []
 
     def test_validate_audit_no_args(self):
-        errors = validate_tool_call("cc_brand_clickup_mapping_audit", {})
+        errors = validate_skill_call("cc_brand_clickup_mapping_audit", {})
         assert errors == []
 
     def test_tool_descriptions_include_cc(self):
-        desc = get_tool_descriptions_for_prompt()
+        desc = get_skill_descriptions_for_prompt()
         assert "cc_client_lookup" in desc
         assert "cc_brand_list_all" in desc
         assert "cc_brand_clickup_mapping_audit" in desc
 
     def test_existing_skills_still_present(self):
         """Regression: existing skills not removed."""
-        assert "clickup_task_create" in TOOL_SCHEMAS
-        assert "clickup_task_list_weekly" in TOOL_SCHEMAS
-        assert "cc_client_lookup" in TOOL_SCHEMAS
+        assert "clickup_task_create" in SKILL_SCHEMAS
+        assert "clickup_task_list_weekly" in SKILL_SCHEMAS
+        assert "cc_client_lookup" in SKILL_SCHEMAS
 
 
 # ---------------------------------------------------------------------------

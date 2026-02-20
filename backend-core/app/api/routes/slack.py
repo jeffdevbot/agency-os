@@ -16,7 +16,7 @@ from ...services.agencyclaw.conversation_buffer import (
     compact_exchanges,
 )
 from ...services.agencyclaw.policy_gate import (
-    evaluate_tool_policy,
+    evaluate_skill_policy,
     resolve_actor_context,
     resolve_surface_context,
 )
@@ -59,7 +59,7 @@ from ...services.agencyclaw.kb_retrieval import retrieve_kb_context
 from ...services.agencyclaw.plan_executor import execute_plan
 from ...services.agencyclaw.planner import generate_plan
 from ...services.agencyclaw.pending_resolution import resolve_pending_action
-from ...services.agencyclaw.tool_registry import get_tool_descriptions_for_prompt
+from ...services.agencyclaw.skill_registry import get_skill_descriptions_for_prompt
 from ...services.agencyclaw.clickup_reliability import (
     RetryExhaustedError,
     build_idempotency_key,
@@ -892,7 +892,7 @@ async def _handle_cc_skill(
 ) -> str:
     """Dispatch a Command Center read-only skill and post results.
 
-    Returns a tool summary string for conversation history.
+    Returns a skill summary string for conversation history.
     """
     db = session_service.db
 
@@ -1635,7 +1635,7 @@ async def _try_planner(
             session=session,
             session_service=session_service,
             slack=slack,
-            check_policy=_check_tool_policy,
+            check_policy=_check_skill_policy,
             handler_map=handler_map,
         )
 
@@ -2360,7 +2360,7 @@ async def _try_llm_orchestrator(
             args = result.get("args") or {}
 
             # C10A: Policy gate before execution
-            policy = await _check_tool_policy(
+            policy = await _check_skill_policy(
                 slack_user_id=slack_user_id,
                 session=session,
                 channel=channel,
@@ -2375,7 +2375,7 @@ async def _try_llm_orchestrator(
                 await slack.post_message(channel=channel, text=policy["user_message"])
                 return True
 
-            tool_summary = ""
+            skill_summary = ""
 
             if skill_id == "clickup_task_list_weekly":
                 await _handle_weekly_tasks(
@@ -2385,7 +2385,7 @@ async def _try_llm_orchestrator(
                     session_service=session_service,
                     slack=slack,
                 )
-                tool_summary = f"[Ran weekly task list for {args.get('client_name', 'client')}]"
+                skill_summary = f"[Ran weekly task list for {args.get('client_name', 'client')}]"
 
             elif skill_id == "clickup_task_create":
                 await _handle_create_task(
@@ -2396,10 +2396,10 @@ async def _try_llm_orchestrator(
                     session_service=session_service,
                     slack=slack,
                 )
-                tool_summary = f"[Started task creation for {args.get('client_name', 'client')}]"
+                skill_summary = f"[Started task creation for {args.get('client_name', 'client')}]"
 
             elif skill_id in ("cc_client_lookup", "cc_brand_list_all", "cc_brand_clickup_mapping_audit", "cc_brand_mapping_remediation_preview", "cc_brand_mapping_remediation_apply", "cc_assignment_upsert", "cc_assignment_remove", "cc_brand_create", "cc_brand_update"):
-                tool_summary = await _handle_cc_skill(
+                skill_summary = await _handle_cc_skill(
                     skill_id=skill_id,
                     args=args,
                     session=session,
@@ -2413,9 +2413,9 @@ async def _try_llm_orchestrator(
                 _logger.warning("LLM orchestrator returned unknown skill: %s", skill_id)
                 return False
 
-            # C10B.5: Persist conversation history after tool execution
-            if tool_summary:
-                updated = append_exchange(recent_exchanges, text, tool_summary)
+            # C10B.5: Persist conversation history after skill execution
+            if skill_summary:
+                updated = append_exchange(recent_exchanges, text, skill_summary)
                 await asyncio.to_thread(
                     session_service.update_context, session.id,
                     {"recent_exchanges": compact_exchanges(updated)},
@@ -2429,7 +2429,7 @@ async def _try_llm_orchestrator(
         return False  # fall through to deterministic classifier
 
 
-async def _check_tool_policy(
+async def _check_skill_policy(
     *,
     slack_user_id: str,
     session: Any,
@@ -2437,7 +2437,7 @@ async def _check_tool_policy(
     skill_id: str,
     args: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """C10A: Resolve actor/surface and evaluate tool policy.
+    """C10A: Resolve actor/surface and evaluate skill policy.
 
     Returns the PolicyDecision dict.  Caller should check ``allowed`` and
     post ``user_message`` on deny.
@@ -2449,7 +2449,25 @@ async def _check_tool_policy(
         session.profile_id,
     )
     surface = resolve_surface_context(channel)
-    return evaluate_tool_policy(actor, surface, skill_id, args, session.context)
+    return evaluate_skill_policy(actor, surface, skill_id, args, session.context)
+
+
+# Backward-compatibility alias (temporary).
+async def _check_tool_policy(
+    *,
+    slack_user_id: str,
+    session: Any,
+    channel: str,
+    skill_id: str,
+    args: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return await _check_skill_policy(
+        slack_user_id=slack_user_id,
+        session=session,
+        channel=channel,
+        skill_id=skill_id,
+        args=args,
+    )
 
 
 async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> None:
@@ -2504,7 +2522,7 @@ async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> No
 
         if intent == "create_task":
             # C10A: Policy gate for deterministic path
-            policy = await _check_tool_policy(
+            policy = await _check_skill_policy(
                 slack_user_id=slack_user_id,
                 session=session,
                 channel=channel,
@@ -2535,7 +2553,7 @@ async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> No
 
         if intent == "weekly_tasks":
             # C10A: Policy gate for deterministic path
-            policy = await _check_tool_policy(
+            policy = await _check_skill_policy(
                 slack_user_id=slack_user_id,
                 session=session,
                 channel=channel,
@@ -2657,7 +2675,7 @@ async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> No
 
         # C11A: Command Center read-only skills
         if intent in ("cc_client_lookup", "cc_brand_list_all", "cc_brand_clickup_mapping_audit", "cc_brand_mapping_remediation_preview", "cc_brand_mapping_remediation_apply", "cc_assignment_upsert", "cc_assignment_remove", "cc_brand_create", "cc_brand_update"):
-            policy = await _check_tool_policy(
+            policy = await _check_skill_policy(
                 slack_user_id=slack_user_id,
                 session=session,
                 channel=channel,

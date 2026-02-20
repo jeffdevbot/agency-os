@@ -29,11 +29,11 @@ from app.services.agencyclaw.command_center_assignments import (
 from app.services.agencyclaw.policy_gate import (
     ActorContext,
     SurfaceContext,
-    evaluate_tool_policy,
+    evaluate_skill_policy,
 )
-from app.services.agencyclaw.tool_registry import (
-    TOOL_SCHEMAS,
-    validate_tool_call,
+from app.services.agencyclaw.skill_registry import (
+    SKILL_SCHEMAS,
+    validate_skill_call,
 )
 
 
@@ -138,7 +138,7 @@ class TestClassifierAssignmentSkills:
 
 class TestPolicyAssignmentSkills:
     def test_admin_can_upsert(self):
-        policy = evaluate_tool_policy(
+        policy = evaluate_skill_policy(
             _actor(role="admin", is_admin=True),
             _dm_surface(),
             "cc_assignment_upsert",
@@ -146,7 +146,7 @@ class TestPolicyAssignmentSkills:
         assert policy["allowed"] is True
 
     def test_admin_can_remove(self):
-        policy = evaluate_tool_policy(
+        policy = evaluate_skill_policy(
             _actor(role="admin", is_admin=True),
             _dm_surface(),
             "cc_assignment_remove",
@@ -154,7 +154,7 @@ class TestPolicyAssignmentSkills:
         assert policy["allowed"] is True
 
     def test_non_admin_denied_upsert(self):
-        policy = evaluate_tool_policy(
+        policy = evaluate_skill_policy(
             _actor(),
             _dm_surface(),
             "cc_assignment_upsert",
@@ -163,7 +163,7 @@ class TestPolicyAssignmentSkills:
         assert policy["reason_code"] == "admin_skill_denied"
 
     def test_non_admin_denied_remove(self):
-        policy = evaluate_tool_policy(
+        policy = evaluate_skill_policy(
             _actor(),
             _dm_surface(),
             "cc_assignment_remove",
@@ -172,7 +172,7 @@ class TestPolicyAssignmentSkills:
         assert policy["reason_code"] == "admin_skill_denied"
 
     def test_viewer_denied_upsert(self):
-        policy = evaluate_tool_policy(
+        policy = evaluate_skill_policy(
             _actor(role="viewer"),
             _dm_surface(),
             "cc_assignment_upsert",
@@ -181,7 +181,7 @@ class TestPolicyAssignmentSkills:
 
     def test_non_dm_denied(self):
         surface = SurfaceContext(channel_id="C1", surface_type="channel")
-        policy = evaluate_tool_policy(
+        policy = evaluate_skill_policy(
             _actor(role="admin", is_admin=True),
             surface,
             "cc_assignment_upsert",
@@ -196,44 +196,44 @@ class TestPolicyAssignmentSkills:
 
 class TestToolRegistryAssignmentSkills:
     def test_upsert_registered(self):
-        assert "cc_assignment_upsert" in TOOL_SCHEMAS
+        assert "cc_assignment_upsert" in SKILL_SCHEMAS
 
     def test_remove_registered(self):
-        assert "cc_assignment_remove" in TOOL_SCHEMAS
+        assert "cc_assignment_remove" in SKILL_SCHEMAS
 
     def test_upsert_person_name_required(self):
-        schema = TOOL_SCHEMAS["cc_assignment_upsert"]
+        schema = SKILL_SCHEMAS["cc_assignment_upsert"]
         assert schema["args"]["person_name"]["required"] is True
 
     def test_upsert_role_slug_required(self):
-        schema = TOOL_SCHEMAS["cc_assignment_upsert"]
+        schema = SKILL_SCHEMAS["cc_assignment_upsert"]
         assert schema["args"]["role_slug"]["required"] is True
 
     def test_upsert_client_name_optional(self):
-        schema = TOOL_SCHEMAS["cc_assignment_upsert"]
+        schema = SKILL_SCHEMAS["cc_assignment_upsert"]
         assert schema["args"]["client_name"]["required"] is False
 
     def test_upsert_brand_name_optional(self):
-        schema = TOOL_SCHEMAS["cc_assignment_upsert"]
+        schema = SKILL_SCHEMAS["cc_assignment_upsert"]
         assert schema["args"]["brand_name"]["required"] is False
 
     def test_validate_upsert_valid(self):
-        errors = validate_tool_call(
+        errors = validate_skill_call(
             "cc_assignment_upsert",
             {"person_name": "Sarah", "role_slug": "ppc_strategist"},
         )
         assert errors == []
 
     def test_validate_upsert_missing_person(self):
-        errors = validate_tool_call("cc_assignment_upsert", {"role_slug": "csl"})
+        errors = validate_skill_call("cc_assignment_upsert", {"role_slug": "csl"})
         assert any("person_name" in e for e in errors)
 
     def test_validate_upsert_missing_role(self):
-        errors = validate_tool_call("cc_assignment_upsert", {"person_name": "Sarah"})
+        errors = validate_skill_call("cc_assignment_upsert", {"person_name": "Sarah"})
         assert any("role_slug" in e for e in errors)
 
     def test_validate_remove_valid(self):
-        errors = validate_tool_call(
+        errors = validate_skill_call(
             "cc_assignment_remove",
             {"person_name": "Sarah", "role_slug": "ppc_strategist"},
         )

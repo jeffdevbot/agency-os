@@ -23,12 +23,12 @@ from app.api.routes.slack import (
 from app.services.agencyclaw.policy_gate import (
     ActorContext,
     SurfaceContext,
-    evaluate_tool_policy,
+    evaluate_skill_policy,
 )
-from app.services.agencyclaw.tool_registry import (
-    TOOL_SCHEMAS,
-    get_tool_descriptions_for_prompt,
-    validate_tool_call,
+from app.services.agencyclaw.skill_registry import (
+    SKILL_SCHEMAS,
+    get_skill_descriptions_for_prompt,
+    validate_skill_call,
 )
 
 
@@ -133,7 +133,7 @@ class TestClassifierRemediationSkills:
 
 class TestPolicyRemediationSkills:
     def test_admin_can_preview(self):
-        policy = evaluate_tool_policy(
+        policy = evaluate_skill_policy(
             _actor(role="admin", is_admin=True),
             _dm_surface(),
             "cc_brand_mapping_remediation_preview",
@@ -141,7 +141,7 @@ class TestPolicyRemediationSkills:
         assert policy["allowed"] is True
 
     def test_admin_can_apply(self):
-        policy = evaluate_tool_policy(
+        policy = evaluate_skill_policy(
             _actor(role="admin", is_admin=True),
             _dm_surface(),
             "cc_brand_mapping_remediation_apply",
@@ -149,7 +149,7 @@ class TestPolicyRemediationSkills:
         assert policy["allowed"] is True
 
     def test_non_admin_denied_preview(self):
-        policy = evaluate_tool_policy(
+        policy = evaluate_skill_policy(
             _actor(),
             _dm_surface(),
             "cc_brand_mapping_remediation_preview",
@@ -158,7 +158,7 @@ class TestPolicyRemediationSkills:
         assert policy["reason_code"] == "admin_skill_denied"
 
     def test_non_admin_denied_apply(self):
-        policy = evaluate_tool_policy(
+        policy = evaluate_skill_policy(
             _actor(),
             _dm_surface(),
             "cc_brand_mapping_remediation_apply",
@@ -167,7 +167,7 @@ class TestPolicyRemediationSkills:
         assert policy["reason_code"] == "admin_skill_denied"
 
     def test_viewer_denied_preview(self):
-        policy = evaluate_tool_policy(
+        policy = evaluate_skill_policy(
             _actor(role="viewer"),
             _dm_surface(),
             "cc_brand_mapping_remediation_preview",
@@ -175,7 +175,7 @@ class TestPolicyRemediationSkills:
         assert policy["allowed"] is False
 
     def test_viewer_denied_apply(self):
-        policy = evaluate_tool_policy(
+        policy = evaluate_skill_policy(
             _actor(role="viewer"),
             _dm_surface(),
             "cc_brand_mapping_remediation_apply",
@@ -184,7 +184,7 @@ class TestPolicyRemediationSkills:
 
     def test_non_dm_denied(self):
         surface = SurfaceContext(channel_id="C1", surface_type="channel")
-        policy = evaluate_tool_policy(
+        policy = evaluate_skill_policy(
             _actor(role="admin", is_admin=True),
             surface,
             "cc_brand_mapping_remediation_preview",
@@ -193,7 +193,7 @@ class TestPolicyRemediationSkills:
 
     def test_existing_audit_still_works(self):
         """Regression: existing mapping audit policy unchanged."""
-        policy = evaluate_tool_policy(
+        policy = evaluate_skill_policy(
             _actor(role="admin", is_admin=True),
             _dm_surface(),
             "cc_brand_clickup_mapping_audit",
@@ -208,38 +208,38 @@ class TestPolicyRemediationSkills:
 
 class TestToolRegistryRemediationSkills:
     def test_preview_registered(self):
-        assert "cc_brand_mapping_remediation_preview" in TOOL_SCHEMAS
+        assert "cc_brand_mapping_remediation_preview" in SKILL_SCHEMAS
 
     def test_apply_registered(self):
-        assert "cc_brand_mapping_remediation_apply" in TOOL_SCHEMAS
+        assert "cc_brand_mapping_remediation_apply" in SKILL_SCHEMAS
 
     def test_preview_client_name_optional(self):
-        schema = TOOL_SCHEMAS["cc_brand_mapping_remediation_preview"]
+        schema = SKILL_SCHEMAS["cc_brand_mapping_remediation_preview"]
         assert schema["args"]["client_name"]["required"] is False
 
     def test_apply_client_name_optional(self):
-        schema = TOOL_SCHEMAS["cc_brand_mapping_remediation_apply"]
+        schema = SKILL_SCHEMAS["cc_brand_mapping_remediation_apply"]
         assert schema["args"]["client_name"]["required"] is False
 
     def test_validate_preview_no_args(self):
-        errors = validate_tool_call("cc_brand_mapping_remediation_preview", {})
+        errors = validate_skill_call("cc_brand_mapping_remediation_preview", {})
         assert errors == []
 
     def test_validate_apply_with_client(self):
-        errors = validate_tool_call(
+        errors = validate_skill_call(
             "cc_brand_mapping_remediation_apply", {"client_name": "Distex"}
         )
         assert errors == []
 
     def test_tool_descriptions_include_remediation(self):
-        desc = get_tool_descriptions_for_prompt()
+        desc = get_skill_descriptions_for_prompt()
         assert "cc_brand_mapping_remediation_preview" in desc
         assert "cc_brand_mapping_remediation_apply" in desc
 
     def test_existing_skills_still_present(self):
         """Regression."""
-        assert "clickup_task_create" in TOOL_SCHEMAS
-        assert "cc_brand_clickup_mapping_audit" in TOOL_SCHEMAS
+        assert "clickup_task_create" in SKILL_SCHEMAS
+        assert "cc_brand_clickup_mapping_audit" in SKILL_SCHEMAS
 
 
 # ---------------------------------------------------------------------------

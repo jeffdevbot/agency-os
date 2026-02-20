@@ -1,6 +1,6 @@
 """LLM-first Slack DM orchestrator for AgencyClaw.
 
-Decides whether to reply directly, ask a clarifying question, or call a tool skill.
+Decides whether to reply directly, ask a clarifying question, or call a skill.
 """
 
 from __future__ import annotations
@@ -14,10 +14,10 @@ from .openai_client import (
     call_chat_completion,
     parse_json_response,
 )
-from .tool_registry import (
+from .skill_registry import (
     get_missing_required_fields,
-    get_tool_descriptions_for_prompt,
-    validate_tool_call,
+    get_skill_descriptions_for_prompt,
+    validate_skill_call,
 )
 
 _VALID_MODES = {"reply", "clarify", "tool_call"}
@@ -60,7 +60,7 @@ def _build_system_prompt(
     client_context_pack: str,
     session_context: dict[str, Any],
 ) -> str:
-    tool_block = get_tool_descriptions_for_prompt()
+    skill_block = get_skill_descriptions_for_prompt()
 
     session_summary_parts: list[str] = []
     if session_context.get("active_client_id"):
@@ -81,8 +81,8 @@ You are AgencyClaw, a friendly agency operations assistant inside a Slack DM.
 You are conversational and Jarvis-like — never reply with command menus or syntax hints.
 Keep responses short and helpful.
 
-## Available tools
-{tool_block}
+## Available skills
+{skill_block}
 
 ## Current session
 {session_summary}
@@ -95,21 +95,21 @@ Analyze the user's message and respond with a single JSON object (no markdown fe
 
 Choose one mode:
 
-1. **tool_call** — The user's request clearly maps to one of the available tools.
+1. **tool_call** — The user's request clearly maps to one of the available skills.
    Return: {{"mode": "tool_call", "skill_id": "<tool_name>", "args": {{...}}, "confidence": 0.0-1.0}}
    Include all arguments you can extract. If a required argument is missing, use "clarify" instead.
 
-2. **clarify** — The request likely maps to a tool but required information is missing.
+2. **clarify** — The request likely maps to a skill but required information is missing.
    Return: {{"mode": "clarify", "skill_id": "<tool_name>", "args": {{<partial args collected so far>}}, "question": "<what to ask>", "missing_fields": ["field1", ...], "confidence": 0.0-1.0}}
 
-3. **reply** — The message is conversational, a greeting, off-topic, or a question you can answer directly without tools.
+3. **reply** — The message is conversational, a greeting, off-topic, or a question you can answer directly without skills.
    Return: {{"mode": "reply", "text": "<your response>", "confidence": 0.0-1.0}}
    Use this for greetings, small talk, questions about yourself, and anything that doesn't need a tool.
    Be friendly and natural — do NOT list available commands or suggest command syntax.
 
 Rules:
 - Always return valid JSON with the "mode" field.
-- For tool_call, only use skill_ids from the available tools list.
+- For tool_call, only use skill_ids from the available skills list.
 - Preserve the user's original casing for task titles.
 - If the user says something like "create a task" with no title, use "clarify" with missing_fields ["task_title"].
 - Default to "reply" for ambiguous or conversational messages — do NOT force a tool_call.
@@ -170,7 +170,7 @@ async def orchestrate_dm_message(
         if not isinstance(args, dict):
             args = {}
 
-        errors = validate_tool_call(skill_id, args)
+        errors = validate_skill_call(skill_id, args)
         if errors:
             missing = get_missing_required_fields(skill_id, args)
             if missing:
