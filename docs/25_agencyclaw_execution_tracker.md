@@ -1,9 +1,9 @@
 # AgencyClaw Execution Tracker
 
-Last updated: 2026-02-19 (C10F semantic pending resolver merged)
+Last updated: 2026-02-20 (C11A/C11B merged; C11D kicked off)
 
 ## 1. Baseline Status
-- [x] PRD updated to v1.17 (`docs/23_agencyclaw_prd.md`)
+- [x] PRD updated to v1.18 (`docs/23_agencyclaw_prd.md`)
 - [x] `20260217000001_agencyclaw_skill_catalog_and_csl_role.sql` applied
 - [x] `20260217000002_agencyclaw_runtime_isolation.sql` applied
 - [x] `20260217000003_client_brand_context_and_kpi_targets.sql` applied
@@ -33,6 +33,9 @@ Last updated: 2026-02-19 (C10F semantic pending resolver merged)
 | C10D | Planner + capability-skill de-hardcoding | Claude | done | merged (`c43c6bd`) | Planner + deterministic executor landed behind feature flag; N-gram carve-out moved to planner path |
 | C10E | Lightweight durable preference memory | Claude | done | merged (`fecab25`) | Durable user preference store + default-client set/clear commands + resolver integration merged; migration `20260219000002` applied |
 | C10F | Semantic pending-state resolver hardening | Codex | done | merged (`3dbfd95`) | Added typed pending resolver service to decouple pending intent interpretation from route code; supports natural-language deferral/cancel/off-topic interruption without control-text leakage |
+| C11A | Command Center read-only chat skills | Codex | done | merged (`8ac34b1`) | Added `cc_client_lookup`, `cc_brand_list_all`, and admin-only `cc_brand_clickup_mapping_audit` across LLM + deterministic paths with policy enforcement |
+| C11B | LLM-first fallback cleanup | Codex | done | merged (`8ac34b1`) | Removed legacy hardcoded N-gram deterministic branch; defaulted runtime to LLM-first fallback behavior (`AGENCYCLAW_ENABLE_LEGACY_INTENTS` opt-in override) |
+| C11D | Brand context resolver (destination-vs-brand split) | Codex | in_progress | kickoff (this tracker update) | Implement explicit brand disambiguation for shared-destination multi-brand clients; no hidden brand guessing in mutation routing |
 
 ## 3. Open Blockers
 - [x] Confirm migration `20260217000006_clickup_space_skill_seed.sql` is applied.
@@ -41,6 +44,7 @@ Last updated: 2026-02-19 (C10F semantic pending resolver merged)
 - [x] Start C10B implementation branch and land regression tests for clarify-loop transcripts.
 - [x] Start C10B.5 branch and land recent-history buffer tests for follow-up coherence.
 - [x] Start C10A implementation branch and land actor/surface policy gate tests.
+- [ ] Start C11D implementation branch and land shared-destination brand disambiguation tests.
 
 ## 3.3 Locked Regression Fixtures (C10B)
 - `R1_distex_coupon_drift`
@@ -55,6 +59,8 @@ Last updated: 2026-02-19 (C10F semantic pending resolver merged)
   Until implemented, runtime must clarify missing identifiers or create explicit "ASIN pending" drafts with unresolved fields.
 - [ ] Multi-user channel memory hardening under C10E:
   actor-scoped preferences only, requester-bound pending state, and explicit `requested_by` vs `confirmed_by` audit fields.
+- [ ] `C11E` admin remediation skill for unmapped brands:
+  dry-run + confirm flow to bulk apply destination mapping defaults where safe.
 
 ## 3.1 Latest Validation Notes
 - C1 (Agent 1): `backend-core/tests/test_weekly_tasks.py` passing (37 tests). Added destination filter fix for list-only ClickUp mappings and trailing punctuation sanitization for client hints.
@@ -90,6 +96,8 @@ Last updated: 2026-02-19 (C10F semantic pending resolver merged)
 - C10F semantic resolver check: `backend-core/tests/test_pending_resolution.py`, `backend-core/tests/test_task_create.py`, `backend-core/tests/test_c10b_clarify_persistence.py`, and `backend-core/tests/test_weekly_tasks.py` passing (`131 passed`).
 - C10F full-suite check: `451 passed, 3 failed` (same pre-existing unrelated failures in `test_ngram_analytics.py`, `test_root_services.py`, `test_str_parser_spend.py`).
 - SOP sync runtime bugfix (`sop_sync.py`): fixed Supabase update chain incompatibility; live sync now succeeds (`15/15` SOPs synced, `0` missing content rows).
+- C11A/C11B merge (`8ac34b1`): `backend-core/tests/test_command_center_lookup.py`, `backend-core/tests/test_c11a_command_center_integration.py`, `backend-core/tests/test_c9b_integration.py`, `backend-core/tests/test_task_create.py`, and `backend-core/tests/test_weekly_tasks.py` passing (targeted suites green).
+- C11A/C11B full-suite check after merge: `512 passed, 3 failed` (same pre-existing unrelated failures in `test_ngram_analytics.py`, `test_root_services.py`, `test_str_parser_spend.py`).
 - Backend full test suite still has pre-existing unrelated failures outside these chunks.
 
 ## 4. Validation Checklist (Per Chunk)
@@ -108,7 +116,7 @@ Last updated: 2026-02-19 (C10F semantic pending resolver merged)
 | 1. Product Intent | Global (all chunks) | in_progress | C1, C2, C3, C4, C5, C6, C7, C8, C9, C10B, C10B.5, C10A, C10C, C10D, C10E completed | Close remaining Phase 2.6 chat-parity skills, then advance to Phase 3 |
 | 2. Current Reality (Codebase) | Global baseline | done | Existing routes/services reused; no Bolt migration | Maintain reuse-first approach |
 | 3. Naming + Role Standards | Baseline migrations | mostly_done | `20260217000001` applied; CSL rename landed | Verify all UI copy/runtime labels stay consistent |
-| 4. Architecture (v1) | C1-C10 foundation | mostly_done | LLM-first DM orchestration merged with deterministic fallback; C4/C5/C6 runtime wiring complete; C10B/C10B.5 continuity+history landed; C10A policy gate landed; C10C KB grounding landed; C10D/C10E landed | Continue reducing remaining hardcoded edges and expand channel-surface policy coverage |
+| 4. Architecture (v1) | C1-C11 foundation | mostly_done | LLM-first DM orchestration merged; C11B reduced deterministic fallback pressure; C4/C5/C6 runtime wiring complete; C10B/C10B.5/C10A/C10C/C10D/C10E/C10F landed | Complete C11D destination-vs-brand resolver hardening and expand channel-surface policy coverage |
 | 5. Slack Runtime Decision | C1-C4 + C9 | mostly_done | `/api/slack/events` + `/api/slack/interactions` active; C3/C4/C9 merged | Add distributed (cross-worker) concurrency lock if required |
 | 6. Debrief As Slack-Native | C7 (+ later runtime wiring) | in_progress | C7 parser/review hardening done with tests/build pass | Add deeper runtime workflow checks as features expand |
 | 7. Permissions Model | C2-C10 (policy-sensitive) | mostly_done | Identity mapping path in use; C5 runtime sync + admin execution endpoint merged; C10A actor/surface tool policy gate merged | Expand policy coverage for future non-DM/channel surfaces and granular role policies |
@@ -119,7 +127,7 @@ Last updated: 2026-02-19 (C10F semantic pending resolver merged)
 | 12. Google Meeting Notes Inputs | C7 | mostly_done | Debrief extraction flow and parser utilities validated | Add optional end-to-end runtime smoke as needed |
 | 13. Skill Registry | C1-C9 | in_progress | Skills seeded via `000001`, `000005`, `000006`; C1 enabled | Enable each skill only when implemented and smoke-tested |
 | 14. Failure + Compensation | C3, C4 | mostly_done | C3 merged; C4A-C4C helpers integrated into live task-create path | Add orphan reconciliation/sweep workflow |
-| 15. Phased Delivery Plan | C1-C10 roadmap | mostly_done | C1, C2, C3, C4, C5, C6, C7, C8, C9, C10B, C10B.5, C10A, C10C, C10D, C10E done | Finish remaining Phase 2.6 chat parity items and Phase 2.5 proactive items |
+| 15. Phased Delivery Plan | C1-C11 roadmap | mostly_done | C1, C2, C3, C4, C5, C6, C7, C8, C9, C10B, C10B.5, C10A, C10C, C10D, C10E, C10F, C11A, C11B done | Complete C11D brand-context resolver and remaining Phase 2.6 chat-parity mutations |
 | 16. Immediate Decisions Locked | Baseline + governance | mostly_done | Key architectural and migration decisions applied | Keep matrix/tracker synchronized as work lands |
 
 ## 6. Chunk-To-PRD Traceability
@@ -140,3 +148,6 @@ Last updated: 2026-02-19 (C10F semantic pending resolver merged)
 | C10C | 4, 9, 13, 15 | 7, 14 |
 | C10D | 4, 13, 15 | 5, 9, 10 |
 | C10E | 4, 9, 13, 15 | 7, 14 |
+| C11A | 4, 7, 13, 15 | 5, 10 |
+| C11B | 4, 5, 13, 15 | 10, 14 |
+| C11D | 4, 7, 13, 15 | 9, 10, 14 |

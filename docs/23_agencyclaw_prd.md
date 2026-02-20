@@ -83,6 +83,23 @@ AgencyClaw should keep a hard boundary between conversation runtime and modular 
 - Skills must not own global conversation behavior.
 - “Add team member to client/brand role” is a skill-domain mutation (for example assignment upsert/remove), executed under runtime policy + confirmation gates.
 
+### 4.6 Brand Context Resolution Policy
+AgencyClaw must resolve **destination** and **brand context** separately.
+
+- Destination resolution:
+  - where the task is created (`clickup_space_id` / `clickup_list_id`).
+- Brand context resolution:
+  - which brand the request refers to (`brand_id`/brand name for task brief + metadata).
+
+Rules:
+- Never infer brand by “latest updated brand” or other hidden heuristics.
+- For clients with one shared destination and multiple brands:
+  - product-scoped requests require explicit brand disambiguation when ambiguous.
+  - client-level requests may proceed with no brand context.
+- For clients with multiple brand-specific destinations:
+  - destination is selected from explicit brand context or an explicit clarify step.
+- If brand cannot be resolved confidently, runtime must clarify (or explicitly mark brand pending), never silently guess.
+
 ### 4.2 Future Multi-Agent Upgrade Path
 If needed later, split orchestrator responsibilities into:
 - Librarian (knowledge)
@@ -910,6 +927,7 @@ For all multi-step actions:
 - Route `needs_review` cases to admin Slack confirmations with explicit in-chat decisions.
 - Add audit coverage and channel confirmation rules for all admin mutations.
 - Ship targeted prompts/playbooks for common ops commands (e.g., set Slack ID, set ClickUp ID, reassign role slot).
+- Add brand-context resolution policy enforcement for shared-destination clients (destination routing vs brand disambiguation).
 
 ### Phase 2.7: Slack Conversational Orchestrator
 - Add LLM-first DM routing that chooses `reply`, `clarify`, or `tool_call`.
@@ -934,6 +952,8 @@ Execution order (locked):
    reduce hardcoded intent branches by shifting to reusable capability skills + planner execution.
 6. Preference memory:
    add lightweight durable user preference memory for defaults.
+7. Brand-context hardening:
+   enforce destination-vs-brand split with explicit disambiguation for ambiguous product-scoped requests.
 
 Specific carve-out:
 - Replace the hardcoded N-gram deterministic task creation branch with planner + capability-skill execution.
@@ -978,6 +998,8 @@ Specific carve-out:
 - ClickUp space registry/classification is required for safe brand backlog routing.
 - Distributed cross-worker mutation lock (`C4D`) is deferred; current runtime uses per-worker in-memory guard + idempotency checks.
 - Actor + surface context is mandatory for orchestrator policy decisions.
+- Brand context is mandatory metadata for brand-scoped requests, but destination routing is resolved independently.
+- Runtime must not silently guess a brand when multiple brand candidates exist for the same client.
 - Mutation drafts should be source-grounded via KB retrieval cascade; silent invention is prohibited.
 - Hardcoded single-intent branches are transitional; planner + capability-skill routing is the target runtime shape.
 - C10 sequencing is impact-first: clarify continuity -> conversation buffer -> policy gate -> KB grounding -> de-hardcode -> preferences.

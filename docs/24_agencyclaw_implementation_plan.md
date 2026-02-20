@@ -19,6 +19,8 @@ It is separate from `docs/23_agencyclaw_prd.md`:
 - Keep runtime-vs-skill separation strict:
   runtime owns conversation/policy/confirmation/fallback; skills own typed business execution.
 - New capabilities should default to new modular skills, not new hardcoded intent branches.
+- Brand-aware routing must follow explicit policy:
+  resolve destination (`space/list`) separately from brand context (`brand_id`), and never guess ambiguous brands.
 
 ## 3. Definition Of Done (Per Chunk)
 - Behavior implemented end-to-end for chunk scope.
@@ -44,6 +46,9 @@ It is separate from `docs/23_agencyclaw_prd.md`:
 13. C10C: KB retrieval cascade + source-grounded draft composer
 14. C10D: Reduce hardcoded intent paths into planner + capability skills (includes N-gram carve-out)
 15. C10E: Lightweight durable preference memory (operator defaults)
+16. C11A: Command Center read-only lookup skills in chat (clients/brands/mapping audit)
+17. C11B: LLM-first fallback cleanup (disable broad regex fallback by default)
+18. C11D: Brand context resolver for shared-destination + multi-brand clients
 
 ## 5. Chunk Details
 ## C1: Weekly Task Read Path
@@ -231,6 +236,26 @@ Locked regression fixtures for C10B:
   - Preference application is visible in draft output metadata.
   - Incorrect/stale preferences fail safe and trigger clarification.
   - Tests prove one user's preferences are not applied to another user in the same channel/thread.
+
+## C11D: Brand Context Resolver (Shared-Destination Aware)
+- Scope:
+  - Add deterministic resolver service that outputs:
+    destination (`clickup_space_id`/`clickup_list_id`) and brand context (`brand_id`/name) independently.
+  - Use client/brand metadata from Supabase (`brands`, `agency_clients`) as source of truth.
+  - For shared-destination clients with multiple brands:
+    ask clarify question when product-scoped request is ambiguous.
+  - For client-level requests:
+    allow `brand_id=None` while still routing to valid destination.
+  - Persist brand context in pending state and include in task brief metadata.
+- Acceptance:
+  - No hidden brand selection heuristics (for example “latest updated brand”) remain in mutation path.
+  - Distex-style case (shared destination + many brands) prompts for brand only when needed.
+  - Multi-destination clients continue to route correctly with explicit disambiguation.
+  - Regression tests cover:
+    explicit brand,
+    ambiguous brand/product request,
+    client-level request,
+    multi-destination mapping path.
 
 ## 6. C9 Runtime Env Prerequisites
 Source of truth for deployed values:
