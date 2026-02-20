@@ -11,7 +11,10 @@ import pytest
 
 from app.api.routes.slack import (
     _handle_dm_event,
+    _is_deterministic_control_intent,
     _is_llm_orchestrator_enabled,
+    _is_llm_strict_mode,
+    _should_block_deterministic_intent,
     _try_llm_orchestrator,
 )
 from app.services.agencyclaw.slack_orchestrator import OrchestratorResult
@@ -101,6 +104,43 @@ class TestFeatureFlag:
     def test_flag_off_values(self, value: str):
         with patch.dict("os.environ", {"AGENCYCLAW_LLM_DM_ORCHESTRATOR": value}):
             assert _is_llm_orchestrator_enabled() is False
+
+
+class TestStrictModeHelpers:
+    def test_llm_strict_mode_true_when_orchestrator_on_and_legacy_off(self):
+        with (
+            patch("app.api.routes.slack._is_llm_orchestrator_enabled", return_value=True),
+            patch("app.api.routes.slack._is_legacy_intent_fallback_enabled", return_value=False),
+        ):
+            assert _is_llm_strict_mode() is True
+
+    def test_llm_strict_mode_false_when_legacy_on(self):
+        with (
+            patch("app.api.routes.slack._is_llm_orchestrator_enabled", return_value=True),
+            patch("app.api.routes.slack._is_legacy_intent_fallback_enabled", return_value=True),
+        ):
+            assert _is_llm_strict_mode() is False
+
+    @pytest.mark.parametrize(
+        "intent,expected",
+        [
+            ("switch_client", True),
+            ("set_default_client", True),
+            ("clear_defaults", True),
+            ("create_task", False),
+            ("weekly_tasks", False),
+            ("cc_brand_list_all", False),
+            ("help", False),
+        ],
+    )
+    def test_deterministic_control_intent_allowlist(self, intent: str, expected: bool):
+        assert _is_deterministic_control_intent(intent) is expected
+
+    def test_should_block_deterministic_intent_in_strict_mode(self):
+        with patch("app.api.routes.slack._is_llm_strict_mode", return_value=True):
+            assert _should_block_deterministic_intent("create_task") is True
+            assert _should_block_deterministic_intent("weekly_tasks") is True
+            assert _should_block_deterministic_intent("switch_client") is False
 
 
 # ---------------------------------------------------------------------------

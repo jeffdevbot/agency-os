@@ -120,6 +120,28 @@ def _is_legacy_intent_fallback_enabled() -> bool:
     }
 
 
+_DETERMINISTIC_CONTROL_INTENTS = frozenset({
+    "switch_client",
+    "set_default_client",
+    "clear_defaults",
+})
+
+
+def _is_llm_strict_mode() -> bool:
+    """Strict mode means LLM orchestrator on and legacy fallback disabled."""
+    return _is_llm_orchestrator_enabled() and not _is_legacy_intent_fallback_enabled()
+
+
+def _is_deterministic_control_intent(intent: str) -> bool:
+    """Return True only for explicitly allowed deterministic control intents."""
+    return intent in _DETERMINISTIC_CONTROL_INTENTS
+
+
+def _should_block_deterministic_intent(intent: str) -> bool:
+    """C13A/C13B gate: block deterministic non-control intents in strict LLM mode."""
+    return _is_llm_strict_mode() and not _is_deterministic_control_intent(intent)
+
+
 def _get_receipt_service() -> SlackReceiptService:
     return SlackReceiptService(get_supabase_admin_client())
 
@@ -2519,13 +2541,10 @@ async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> No
             # fallback mode → continue to deterministic classifier below
 
         intent, params = _classify_message(text)
-        llm_strict_mode = _is_llm_orchestrator_enabled() and not _is_legacy_intent_fallback_enabled()
-        deterministic_control_intents = {"switch_client", "set_default_client", "clear_defaults"}
-
         # C13A: In strict LLM-first mode, deterministic classifier is limited to
         # explicit control intents only. All operational intents must come from
         # orchestrator/planner tool-call paths.
-        if llm_strict_mode and intent not in deterministic_control_intents:
+        if _should_block_deterministic_intent(intent):
             await slack.post_message(
                 channel=channel,
                 text="I'm not sure what to do with that. "
