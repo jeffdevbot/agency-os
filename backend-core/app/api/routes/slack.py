@@ -2473,25 +2473,6 @@ async def _check_skill_policy(
     surface = resolve_surface_context(channel)
     return evaluate_skill_policy(actor, surface, skill_id, args, session.context)
 
-
-# Backward-compatibility alias (temporary).
-async def _check_tool_policy(
-    *,
-    slack_user_id: str,
-    session: Any,
-    channel: str,
-    skill_id: str,
-    args: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    return await _check_skill_policy(
-        slack_user_id=slack_user_id,
-        session=session,
-        channel=channel,
-        skill_id=skill_id,
-        args=args,
-    )
-
-
 async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> None:
     session_service = get_playbook_session_service()
     pref_service = PreferenceMemoryService(session_service.db)

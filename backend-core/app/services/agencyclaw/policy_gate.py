@@ -263,14 +263,3 @@ def evaluate_skill_policy(
         user_message="",
         meta=meta,
     )
-
-
-# Backward-compatibility alias (temporary).
-def evaluate_tool_policy(
-    actor: ActorContext,
-    surface: SurfaceContext,
-    skill_id: str,
-    args: dict[str, Any] | None = None,
-    session_context: dict[str, Any] | None = None,
-) -> PolicyDecision:
-    return evaluate_skill_policy(actor, surface, skill_id, args, session_context)

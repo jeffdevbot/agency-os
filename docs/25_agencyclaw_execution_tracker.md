@@ -138,6 +138,7 @@ Last updated: 2026-02-20 (C12C Path-1 runtime landed)
 - C12C Path-1 runtime: `backend-core/tests/test_task_create.py`, `backend-core/tests/test_c12c_identifier_guardrail.py`, and `backend-core/tests/test_c10b_clarify_persistence.py` passing (`93 passed`).
 - C13A LLM-first hardening: in strict LLM mode (orchestrator on, legacy fallback off), deterministic classifier now allows only control intents (`switch_client`, `set_default_client`, `clear_defaults`). Non-control intents (`create_task`, `weekly_tasks`, `cc_*`) no longer execute via deterministic fallback. Targeted suites: `test_c11f_conversational_cleanup.py`, `test_c9b_integration.py`, `test_task_create.py`, `test_weekly_tasks.py` passing (`148 passed`).
 - C13B routing cleanup: extracted strict-mode deterministic gating into helpers (`_is_llm_strict_mode`, `_is_deterministic_control_intent`, `_should_block_deterministic_intent`) with no behavior change; targeted suites remain green.
+- C13C alias cleanup: removed temporary tool->skill compatibility aliases from `skill_registry`, `policy_gate`, `slack.py`, and `agencyclaw.__init__`; canonical naming only (`SKILL_SCHEMAS`, `validate_skill_call`, `get_skill_descriptions_for_prompt`, `evaluate_skill_policy`, `_check_skill_policy`). No behavior change observed in targeted regression suites.
 - Backend full test suite still has pre-existing unrelated failures outside these chunks.
 
 ## 4. Validation Checklist (Per Chunk)

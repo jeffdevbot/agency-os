@@ -274,19 +274,3 @@ def get_skill_descriptions_for_prompt() -> str:
         lines.append("")
     return "\n".join(lines)
 
-
-# ---------------------------------------------------------------------------
-# Backward-compatibility aliases (temporary)
-# ---------------------------------------------------------------------------
-
-# Keep these aliases during transition to avoid breaking in-flight branches.
-ToolSchema = SkillSchema
-TOOL_SCHEMAS = SKILL_SCHEMAS
-
-
-def validate_tool_call(skill_id: str, args: dict[str, Any]) -> list[str]:
-    return validate_skill_call(skill_id, args)
-
-
-def get_tool_descriptions_for_prompt() -> str:
-    return get_skill_descriptions_for_prompt()
