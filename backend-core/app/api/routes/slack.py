@@ -844,7 +844,7 @@ async def _handle_interaction(payload: dict[str, Any]) -> None:
         get_receipt_service_fn=_get_receipt_service,
         get_session_service_fn=get_playbook_session_service,
         get_slack_service_fn=get_slack_service,
-        execute_task_create_fn=_execute_task_create,
+        handle_pending_task_continuation_fn=_handle_pending_task_continuation,
         logger=_logger,
         slack_api_error_cls=SlackAPIError,
     )

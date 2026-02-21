@@ -64,7 +64,7 @@ class SlackInteractionRuntimeDeps:
     get_receipt_service_fn: Callable[[], Any]
     get_session_service_fn: Callable[[], SessionServiceProtocol]
     get_slack_service_fn: Callable[[], SlackClientProtocol]
-    execute_task_create_fn: Callable[..., Awaitable[None]]
+    handle_pending_task_continuation_fn: Callable[..., Awaitable[bool]]
     logger: Logger
     slack_api_error_cls: type[Exception]
 

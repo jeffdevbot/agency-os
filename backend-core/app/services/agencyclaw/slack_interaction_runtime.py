@@ -235,18 +235,21 @@ async def handle_interaction_runtime(
                 blocks=[],
             )
 
-            await deps.execute_task_create_fn(
+            consumed = await deps.handle_pending_task_continuation_fn(
                 channel=channel_id,
+                text="create as draft",
                 session=session,
                 session_service=session_service,
                 slack=slack,
-                client_id=pending.get("client_id", ""),
-                client_name=pending.get("client_name", ""),
-                task_title=pending.get("task_title", ""),
-                task_description="",
-                brand_id=pending.get("brand_id"),
-                brand_name=pending.get("brand_name"),
+                pending=pending,
             )
+            if not consumed:
+                await slack.post_message(
+                    channel=channel_id,
+                    text="I couldn't continue that draft. Please reply with details or 'create as draft'.",
+                )
+                receipt_service.update_status(dedupe_key, "ignored", {"reason": "confirm_not_consumed"})
+                return
             receipt_service.update_status(dedupe_key, "processed")
             return
 

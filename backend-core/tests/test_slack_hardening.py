@@ -111,11 +111,14 @@ async def test_confirmation_success(mock_receipt_service, mock_session_service, 
     with patch("app.api.routes.slack._get_receipt_service", return_value=mock_receipt_service), \
          patch("app.api.routes.slack.get_playbook_session_service", return_value=mock_session_service), \
          patch("app.api.routes.slack.get_slack_service", return_value=mock_slack_service), \
-         patch("app.api.routes.slack._execute_task_create", new_callable=AsyncMock) as mock_exec:
+         patch("app.api.routes.slack._handle_pending_task_continuation", new_callable=AsyncMock, return_value=True) as mock_continue:
         
         await _handle_interaction(payload)
         
-        mock_exec.assert_called_once()
+        mock_continue.assert_called_once()
+        kwargs = mock_continue.call_args.kwargs
+        assert kwargs["text"] == "create as draft"
+        assert kwargs["pending"]["awaiting"] == "confirm_or_details"
         mock_receipt_service.update_status.assert_called_with("interaction:U123:confirm_create_task_draft:123.456", "processed")
         # Ensure message updated to "Creating..."
         mock_slack_service.update_message.assert_called()
@@ -147,16 +150,56 @@ async def test_confirmation_expired(mock_receipt_service, mock_session_service, 
     with patch("app.api.routes.slack._get_receipt_service", return_value=mock_receipt_service), \
          patch("app.api.routes.slack.get_playbook_session_service", return_value=mock_session_service), \
          patch("app.api.routes.slack.get_slack_service", return_value=mock_slack_service), \
-         patch("app.api.routes.slack._execute_task_create", new_callable=AsyncMock) as mock_exec:
+         patch("app.api.routes.slack._handle_pending_task_continuation", new_callable=AsyncMock) as mock_continue:
         
         await _handle_interaction(payload)
         
-        mock_exec.assert_not_called()
+        mock_continue.assert_not_called()
         mock_receipt_service.update_status.assert_called_with(
             "interaction:U123:confirm_create_task_draft:123.456",
             "ignored",
             {"reason": "expired"},
         )
+
+
+@pytest.mark.asyncio
+async def test_confirmation_not_consumed_reasks(mock_receipt_service, mock_session_service, mock_slack_service):
+    """If pending continuation does not consume, interaction should not silently create."""
+    mock_session_service.get_or_create_session.return_value = PlaybookSession(
+        id="sess123",
+        slack_user_id="U123",
+        profile_id="prof1",
+        active_client_id="client1",
+        context={"pending_task_create": {
+            "awaiting": "confirm_or_details",
+            "client_id": "c1",
+            "task_title": "My Task",
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }},
+        last_message_at="2023-01-01T00:00:00Z"
+    )
+
+    payload = {
+        "type": "block_actions",
+        "user": {"id": "U123"},
+        "channel": {"id": "C123"},
+        "message": {"ts": "123.456"},
+        "actions": [{"action_id": "confirm_create_task_draft"}]
+    }
+
+    with patch("app.api.routes.slack._get_receipt_service", return_value=mock_receipt_service), \
+         patch("app.api.routes.slack.get_playbook_session_service", return_value=mock_session_service), \
+         patch("app.api.routes.slack.get_slack_service", return_value=mock_slack_service), \
+         patch("app.api.routes.slack._handle_pending_task_continuation", new_callable=AsyncMock, return_value=False):
+
+        await _handle_interaction(payload)
+
+    mock_receipt_service.update_status.assert_called_with(
+        "interaction:U123:confirm_create_task_draft:123.456",
+        "ignored",
+        {"reason": "confirm_not_consumed"},
+    )
+    assert mock_slack_service.post_message.await_count >= 1
 
 
 @pytest.mark.asyncio
