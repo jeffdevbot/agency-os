@@ -313,6 +313,12 @@ Model is swappable later — the agent loop design is model-agnostic as long as 
 
 7. **Planner position**: Planner is retained as an internal sub-agent (not user-facing). Main agent remains the sole direct user interface.
 
+8. **Sequential execution (lane queue)**: Process events serially per session/lane to prevent race conditions (e.g., double-pings causing duplicate creates). Different sessions can still run concurrently.
+
+9. **History retention policy**: Do not blindly evict all skill results from model context. Keep compact summaries in-window, store full payloads in DB, and allow explicit rehydration when users ask follow-ups.
+
+10. **Client memory**: Add client-scoped durable notes so important client facts can be recalled across conversations and loaded with client context.
+
 ## Appendix A: Runtime Contract (Main Agent + Planner Sub-Agent)
 
 ### Main Agent Contract
@@ -324,17 +330,19 @@ Model is swappable later — the agent loop design is model-agnostic as long as 
 - `active_client_id` (optional)
 
 **Behavior**
-1. Load recent conversation context
-2. Call LLM with skill definitions
-3. If LLM emits skill calls:
+1. Acquire per-session lane lock (serial execution in that lane)
+2. Load recent conversation context
+3. Call LLM with skill definitions
+4. If LLM emits skill calls:
    - execute skills
    - append skill results
    - continue loop
-4. If LLM emits `delegate_planner`:
+5. If LLM emits `delegate_planner`:
    - invoke planner sub-agent run
    - append planner report
    - continue loop
-5. Return final natural-language assistant response
+6. Return final natural-language assistant response
+7. Release lane lock
 
 **Output**
 - `assistant_text`
@@ -358,6 +366,7 @@ Model is swappable later — the agent loop design is model-agnostic as long as 
    - `open_questions[]`
    - `confidence`
 4. Report is returned to main agent (not directly to end user)
+5. Main agent may provide feedback and launch a subsequent planner run (new child run) before responding to user
 
 **Output**
 - `planner_report` JSON
@@ -371,6 +380,7 @@ create table if not exists public.agent_runs (
   id uuid primary key default gen_random_uuid(),
   session_id uuid not null references public.playbook_sessions(id) on delete cascade,
   parent_run_id uuid references public.agent_runs(id) on delete cascade,
+  trace_id uuid not null default gen_random_uuid(),
   run_type text not null check (run_type in ('main', 'planner')),
   status text not null check (status in ('running', 'completed', 'blocked', 'failed')),
   started_at timestamptz not null default now(),
@@ -379,12 +389,15 @@ create table if not exists public.agent_runs (
 
 create index if not exists idx_agent_runs_session_started
   on public.agent_runs(session_id, started_at desc);
+create index if not exists idx_agent_runs_trace
+  on public.agent_runs(trace_id);
 
 create table if not exists public.agent_messages (
   id uuid primary key default gen_random_uuid(),
   run_id uuid not null references public.agent_runs(id) on delete cascade,
   role text not null check (role in ('user', 'assistant', 'system', 'planner_report')),
   content jsonb not null,
+  summary text,
   created_at timestamptz not null default now()
 );
 
@@ -397,6 +410,7 @@ create table if not exists public.agent_skill_events (
   event_type text not null check (event_type in ('skill_call', 'skill_result')),
   skill_id text not null,
   payload jsonb not null,
+  payload_summary text,
   created_at timestamptz not null default now()
 );
 
@@ -408,12 +422,70 @@ create index if not exists idx_agent_skill_events_run_created
 - `content` and `payload` use JSONB so structured tool IO can be preserved exactly.
 - Keep `playbook_sessions.context` for lightweight runtime state only (active client, pending confirmation token, etc.).
 - Read/retention/RLS hardening can be applied in follow-up once multi-user rollout begins.
+- For large skill results, store full `payload` in DB but keep concise `payload_summary` in prompt context.
+- Add a small rehydration skill (e.g., `load_prior_skill_result`) so the agent can reload full prior evidence on demand.
 
-## Appendix C: Safety Rails That Stay Deterministic
+## Appendix C: Confirmation Payload Contract
+
+Store a lightweight `pending_confirmation` object in `playbook_sessions.context`:
+
+```json
+{
+  "run_id": "uuid",
+  "trace_id": "uuid",
+  "skill_id": "create_task",
+  "args": {"client_id": "...", "task_title": "..."},
+  "proposal_fingerprint": "sha256(skill_id + normalized_args + actor_id + created_at)",
+  "expires_at": "2026-02-21T23:59:59Z",
+  "actor_profile_id": "uuid"
+}
+```
+
+Rules:
+- Natural-language confirmation and button confirmation both must match `proposal_fingerprint`.
+- Reject stale/mismatched confirmations with a natural re-prompt.
+- Keep deterministic idempotency checks for mutation execution.
+
+## Appendix D: Safety Rails That Stay Deterministic
 
 - Policy checks for all mutation skills
 - Idempotency/replay protection for task mutations
 - Slack signature verification + interaction dedupe
 - Pending confirmation token validation (expiry + actor match)
+- Per-session lane queue serialization
 
 Everything else (intent recognition, clarification language, response phrasing, multi-turn steering) is owned by the LLM loops.
+
+## Appendix E: Client Memory (Durable Notes)
+
+Client memory is a scoped, durable note system loaded with client context.
+
+Use cases:
+- Key client preferences ("Distex prefers concise task titles")
+- Stable operational facts ("Reporting Specials space is shared-service")
+- Meeting-derived facts worth remembering beyond one chat
+
+Proposed schema:
+
+```sql
+create table if not exists public.client_memory_notes (
+  id uuid primary key default gen_random_uuid(),
+  client_id uuid not null references public.agency_clients(id) on delete cascade,
+  author_profile_id uuid references public.profiles(id) on delete set null,
+  source text not null check (source in ('chat', 'meeting', 'manual')),
+  note text not null,
+  confidence numeric(3,2) not null default 0.70,
+  tags text[] not null default '{}',
+  created_at timestamptz not null default now(),
+  archived_at timestamptz
+);
+
+create index if not exists idx_client_memory_client_created
+  on public.client_memory_notes(client_id, created_at desc);
+```
+
+Memory policy:
+- Load top recent/high-confidence notes as part of `get_client_context`.
+- Only persist notes when confidence threshold is met and note is client-relevant.
+- Avoid auto-persisting volatile or speculative statements.
+- Allow explicit user correction ("forget that", "update memory for client X...").
