@@ -159,3 +159,163 @@ def test_invalid_list_limit_raises():
 def test_invalid_summarize_json_payload_raises():
     with pytest.raises(ValueError, match="payload must be a dict"):
         summarize_json("nope")  # type: ignore[arg-type]
+
+
+# ===================================================================
+# C17D hardening: additional edge cases
+# ===================================================================
+
+
+def test_summarize_json_extremely_long_payload():
+    """Extremely long payload truncates to exactly max_chars with '...' suffix."""
+    payload = {"data": "x" * 1000}
+    result = summarize_json(payload, max_chars=50)
+    assert len(result) == 50
+    assert result.endswith("...")
+
+
+def test_summarize_json_max_chars_at_boundary():
+    """Payload that fits exactly at max_chars boundary is not truncated."""
+    payload = {"a": 1}
+    rendered = '{"a":1}'
+    result = summarize_json(payload, max_chars=len(rendered))
+    assert result == rendered
+    assert not result.endswith("...")
+
+
+def test_summarize_json_max_chars_3_or_less():
+    """When max_chars <= 3, truncation omits the '...' suffix."""
+    payload = {"a": 1}
+    result = summarize_json(payload, max_chars=3)
+    assert len(result) == 3
+    assert result == '{"a'
+
+
+def test_summarize_json_negative_max_chars_raises():
+    with pytest.raises(ValueError, match="max_chars must be > 0"):
+        summarize_json({"a": 1}, max_chars=0)
+
+
+def test_create_run_planner_type():
+    db = _mock_db(execute_data=[{"id": "r1", "run_type": "planner"}])
+    svc = AgentLoopStore(db)
+
+    row = svc.create_run("s1", run_type="planner", parent_run_id="parent-1")
+
+    insert_payload = db.table.return_value.insert.call_args.args[0]
+    assert insert_payload["run_type"] == "planner"
+    assert insert_payload["parent_run_id"] == "parent-1"
+
+
+def test_create_run_invalid_run_type_raises():
+    db = _mock_db(execute_data=[])
+    svc = AgentLoopStore(db)
+
+    with pytest.raises(ValueError, match="run_type must be one of"):
+        svc.create_run("s1", run_type="background")
+
+
+def test_create_run_whitespace_only_parent_run_id_raises():
+    db = _mock_db(execute_data=[])
+    svc = AgentLoopStore(db)
+
+    with pytest.raises(ValueError, match="parent_run_id must be non-empty"):
+        svc.create_run("s1", parent_run_id="   ")
+
+
+def test_update_run_status_without_completed_flag():
+    """When completed=False, completed_at is not set regardless of status."""
+    db = _mock_db(execute_data=[])
+    svc = AgentLoopStore(db)
+
+    svc.update_run_status("r1", "running", completed=False)
+
+    update_payload = db.table.return_value.update.call_args.args[0]
+    assert update_payload["status"] == "running"
+    assert "completed_at" not in update_payload
+
+
+def test_update_run_status_blocked():
+    db = _mock_db(execute_data=[])
+    svc = AgentLoopStore(db)
+
+    svc.update_run_status("r1", "blocked", completed=True)
+
+    update_payload = db.table.return_value.update.call_args.args[0]
+    assert update_payload["status"] == "blocked"
+    assert "completed_at" in update_payload
+
+
+def test_update_run_status_failed():
+    db = _mock_db(execute_data=[])
+    svc = AgentLoopStore(db)
+
+    svc.update_run_status("r1", "failed", completed=True)
+
+    update_payload = db.table.return_value.update.call_args.args[0]
+    assert update_payload["status"] == "failed"
+    assert isinstance(update_payload["completed_at"], str)
+
+
+def test_update_run_status_invalid_raises():
+    db = _mock_db(execute_data=[])
+    svc = AgentLoopStore(db)
+
+    with pytest.raises(ValueError, match="status must be one of"):
+        svc.update_run_status("r1", "cancelled")
+
+
+def test_append_message_all_valid_roles():
+    """All four valid roles are accepted without error."""
+    for role in ("user", "assistant", "system", "planner_report"):
+        db = _mock_db(execute_data=[{"id": "m1", "role": role}])
+        svc = AgentLoopStore(db)
+        row = svc.append_message("r1", role, {"text": "x"})
+        assert row["role"] == role
+
+
+def test_append_message_non_dict_content_raises():
+    db = _mock_db(execute_data=[])
+    svc = AgentLoopStore(db)
+
+    with pytest.raises(ValueError, match="content must be a dict"):
+        svc.append_message("r1", "user", "plain string")  # type: ignore[arg-type]
+
+
+def test_append_message_omits_summary_when_none():
+    db = _mock_db(execute_data=[{"id": "m1"}])
+    svc = AgentLoopStore(db)
+
+    svc.append_message("r1", "user", {"text": "hi"})
+
+    insert_payload = db.table.return_value.insert.call_args.args[0]
+    assert "summary" not in insert_payload
+
+
+def test_append_skill_event_omits_payload_summary_when_none():
+    db = _mock_db(execute_data=[{"id": "e1"}])
+    svc = AgentLoopStore(db)
+
+    svc.append_skill_event("r1", "skill_call", "test", {"x": 1})
+
+    insert_payload = db.table.return_value.insert.call_args.args[0]
+    assert "payload_summary" not in insert_payload
+
+
+def test_append_skill_event_non_dict_payload_raises():
+    db = _mock_db(execute_data=[])
+    svc = AgentLoopStore(db)
+
+    with pytest.raises(ValueError, match="payload must be a dict"):
+        svc.append_skill_event("r1", "skill_call", "test", "bad")  # type: ignore[arg-type]
+
+
+def test_first_row_returns_empty_on_none_data():
+    """_first_row handles response.data being None gracefully."""
+    db = _mock_db(execute_data=[{"id": "r1"}])
+    svc = AgentLoopStore(db)
+
+    # Override response.data to None
+    db.table.return_value.execute.return_value.data = None
+    row = svc.create_run("s1")
+    assert row == {}

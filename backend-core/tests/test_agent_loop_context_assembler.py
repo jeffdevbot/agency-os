@@ -442,3 +442,168 @@ class TestOutputShape:
 
         for note in result["evidence_notes"]:
             assert isinstance(note, str)
+
+
+# ===================================================================
+# C17D hardening: extremely long summaries
+# ===================================================================
+
+
+class TestExtremeLongSummaries:
+    def test_long_message_summary_passes_through(self) -> None:
+        """A very long summary is used as-is (budget trimming handles size)."""
+        long_summary = "S" * 5000
+        messages = [
+            {
+                "role": "user",
+                "content": {"text": "short"},
+                "summary": long_summary,
+                "created_at": "2026-01-01T00:00:00Z",
+            }
+        ]
+        result = assemble_prompt_context(messages, [], budget_chars=10000)
+
+        assert result["messages_for_llm"][0]["content"] == long_summary
+        assert result["stats"]["truncated"] is False
+
+    def test_long_event_payload_summary_passes_through(self) -> None:
+        long_ps = "R" * 5000
+        events = [
+            _event("skill_result", "test", {}, payload_summary=long_ps),
+        ]
+        result = assemble_prompt_context([], events, budget_chars=10000)
+
+        assert long_ps in result["evidence_notes"][0]
+
+
+# ===================================================================
+# C17D hardening: malformed created_at ordering
+# ===================================================================
+
+
+class TestMalformedCreatedAt:
+    def test_missing_created_at_sorts_to_front(self) -> None:
+        """Rows without created_at get empty string, sort before ISO timestamps."""
+        messages = [
+            _msg("user", "with-ts", created_at="2026-01-01T00:01:00Z"),
+            {"role": "user", "content": {"text": "no-ts"}},  # no created_at
+        ]
+        result = assemble_prompt_context(messages, [])
+
+        contents = [m["content"] for m in result["messages_for_llm"]]
+        assert contents == ["no-ts", "with-ts"]
+
+    def test_none_created_at_coerced_to_string(self) -> None:
+        messages = [
+            {"role": "user", "content": {"text": "null-ts"}, "created_at": None},
+            _msg("user", "valid-ts", created_at="2026-01-01T00:00:00Z"),
+        ]
+        result = assemble_prompt_context(messages, [])
+
+        # None → "None" sorts after "2026-..." lexicographically ("N" > "2")
+        contents = [m["content"] for m in result["messages_for_llm"]]
+        assert contents == ["valid-ts", "null-ts"]
+
+    def test_non_iso_created_at_still_sorts_lexicographically(self) -> None:
+        """Non-standard timestamps still get sorted as strings."""
+        messages = [
+            _msg("user", "b-msg", created_at="banana"),
+            _msg("user", "a-msg", created_at="apple"),
+        ]
+        result = assemble_prompt_context(messages, [])
+
+        contents = [m["content"] for m in result["messages_for_llm"]]
+        assert contents == ["a-msg", "b-msg"]
+
+    def test_events_missing_created_at(self) -> None:
+        events = [
+            {"event_type": "skill_call", "skill_id": "s1", "payload": {},
+             "payload_summary": "with-ts", "created_at": "2026-01-01T00:01:00Z"},
+            {"event_type": "skill_result", "skill_id": "s1", "payload": {},
+             "payload_summary": "no-ts"},
+        ]
+        result = assemble_prompt_context([], events)
+
+        # no-ts sorts first (empty string < "2026-...")
+        assert "no-ts" in result["evidence_notes"][0]
+        assert "with-ts" in result["evidence_notes"][1]
+
+
+# ===================================================================
+# C17D hardening: events-only budget trimming
+# ===================================================================
+
+
+class TestEventsOnlyBudgetTrimming:
+    def test_trims_oldest_events_when_only_events_exceed_budget(self) -> None:
+        """With no messages, events alone should be trimmed oldest-first."""
+        events = [
+            _event("skill_call", "s1", {}, payload_summary="A" * 100,
+                   created_at="2026-01-01T00:01:00Z"),
+            _event("skill_result", "s1", {}, payload_summary="B" * 100,
+                   created_at="2026-01-01T00:02:00Z"),
+            _event("skill_call", "s2", {}, payload_summary="C" * 100,
+                   created_at="2026-01-01T00:03:00Z"),
+        ]
+        # Each note: "[skill_call] s1: " + 100 chars ≈ 118 chars.
+        # 3 notes ≈ 354 chars.  Budget = 250 → oldest trimmed.
+        result = assemble_prompt_context([], events, budget_chars=250)
+
+        assert result["stats"]["truncated"] is True
+        assert result["stats"]["events_out"] == 2
+        # Oldest event (A) trimmed, B and C retained.
+        assert "B" * 100 in result["evidence_notes"][0]
+        assert "C" * 100 in result["evidence_notes"][1]
+
+    def test_all_events_trimmed_produces_empty(self) -> None:
+        events = [
+            _event("skill_call", "s1", {}, payload_summary="X" * 500),
+        ]
+        result = assemble_prompt_context([], events, budget_chars=10)
+
+        assert result["stats"]["truncated"] is True
+        assert result["stats"]["events_out"] == 0
+        assert result["evidence_notes"] == []
+
+
+# ===================================================================
+# C17D hardening: planner_report interactions
+# ===================================================================
+
+
+class TestPlannerReportInteractions:
+    def test_planner_report_interleaved_with_user_assistant(self) -> None:
+        messages = [
+            _msg("user", "run the plan", created_at="2026-01-01T00:01:00Z"),
+            _msg("planner_report", "Plan: step 1, step 2", created_at="2026-01-01T00:02:00Z"),
+            _msg("assistant", "Plan executed.", created_at="2026-01-01T00:03:00Z"),
+        ]
+        result = assemble_prompt_context(messages, [])
+
+        assert len(result["messages_for_llm"]) == 3
+        roles = [m["role"] for m in result["messages_for_llm"]]
+        assert roles == ["user", "system", "assistant"]
+
+    def test_multiple_planner_reports(self) -> None:
+        messages = [
+            _msg("planner_report", "Plan A", created_at="2026-01-01T00:01:00Z"),
+            _msg("planner_report", "Plan B", created_at="2026-01-01T00:02:00Z"),
+        ]
+        result = assemble_prompt_context(messages, [])
+
+        assert len(result["messages_for_llm"]) == 2
+        assert all(m["role"] == "system" for m in result["messages_for_llm"])
+        contents = [m["content"] for m in result["messages_for_llm"]]
+        assert contents == ["Plan A", "Plan B"]
+
+    def test_planner_report_trimmed_under_budget(self) -> None:
+        """planner_report (mapped to system) can be trimmed like any other."""
+        messages = [
+            _msg("planner_report", "X" * 5000, created_at="2026-01-01T00:01:00Z"),
+            _msg("user", "keep me", created_at="2026-01-01T00:02:00Z"),
+        ]
+        result = assemble_prompt_context(messages, [], budget_chars=100)
+
+        assert result["stats"]["truncated"] is True
+        assert result["stats"]["messages_out"] == 1
+        assert result["messages_for_llm"][0]["content"] == "keep me"

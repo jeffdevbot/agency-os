@@ -317,3 +317,105 @@ class TestFullTurnLifecycle:
             "agent_messages",
             "agent_runs",
         ]
+
+
+# ===================================================================
+# C17D hardening: terminal status semantics
+# ===================================================================
+
+
+class TestCompleteRunTerminalSemantics:
+    """Verify each status correctly sets or omits completed_at."""
+
+    def test_running_is_not_terminal(self) -> None:
+        """'running' is a valid status but NOT terminal — no completed_at."""
+        logger, db = _make_logger()
+
+        logger.complete_run("r1", "running")
+
+        update_payload = db.table.return_value.update.call_args.args[0]
+        assert update_payload["status"] == "running"
+        assert "completed_at" not in update_payload
+
+    def test_all_terminal_statuses_set_completed_at(self) -> None:
+        """completed, failed, and blocked all set completed_at."""
+        for status in ("completed", "failed", "blocked"):
+            logger, db = _make_logger()
+            logger.complete_run("r1", status)
+            update_payload = db.table.return_value.update.call_args.args[0]
+            assert "completed_at" in update_payload, f"{status} should be terminal"
+
+    def test_empty_run_id_raises(self) -> None:
+        logger, _ = _make_logger()
+
+        with pytest.raises(ValueError, match="run_id is required"):
+            logger.complete_run("", "completed")
+
+
+# ===================================================================
+# C17D hardening: message logging edge cases
+# ===================================================================
+
+
+class TestMessageLoggingEdgeCases:
+    def test_user_message_empty_run_id_raises(self) -> None:
+        logger, _ = _make_logger()
+
+        with pytest.raises(ValueError, match="run_id is required"):
+            logger.log_user_message("", "hello")
+
+    def test_assistant_message_empty_run_id_raises(self) -> None:
+        logger, _ = _make_logger()
+
+        with pytest.raises(ValueError, match="run_id is required"):
+            logger.log_assistant_message("", "hello")
+
+    def test_whitespace_only_run_id_raises(self) -> None:
+        logger, _ = _make_logger()
+
+        with pytest.raises(ValueError, match="run_id is required"):
+            logger.log_user_message("   ", "hello")
+
+
+# ===================================================================
+# C17D hardening: skill logging edge cases
+# ===================================================================
+
+
+class TestSkillLoggingEdgeCases:
+    def test_large_payload_auto_summary_truncated(self) -> None:
+        """Very large payloads get auto-summary truncated to ≤280 chars."""
+        logger, db = _make_logger([{"id": "e1"}])
+        big_payload = {"key": "v" * 1000}
+
+        logger.log_skill_call("r1", "test_skill", big_payload)
+
+        insert_payload = db.table.return_value.insert.call_args.args[0]
+        summary = insert_payload["payload_summary"]
+        assert len(summary) <= 280
+        assert summary.endswith("...")
+
+    def test_result_large_payload_auto_summary_truncated(self) -> None:
+        logger, db = _make_logger([{"id": "e1"}])
+        big_payload = {"results": list(range(200))}
+
+        logger.log_skill_result("r1", "test_skill", big_payload)
+
+        insert_payload = db.table.return_value.insert.call_args.args[0]
+        summary = insert_payload["payload_summary"]
+        assert len(summary) <= 280
+        assert summary.endswith("...")
+
+    def test_empty_payload_produces_summary(self) -> None:
+        logger, db = _make_logger([{"id": "e1"}])
+
+        logger.log_skill_call("r1", "test_skill", {})
+
+        insert_payload = db.table.return_value.insert.call_args.args[0]
+        assert insert_payload["payload_summary"] == "{}"
+
+    def test_whitespace_only_skill_id_raises(self) -> None:
+        logger, _ = _make_logger()
+
+        with pytest.raises(ValueError, match="skill_id is required"):
+            logger.log_skill_call("r1", "   ", {"x": 1})
