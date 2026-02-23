@@ -1,13 +1,8 @@
-"""C17C: Lane queue serialization — pre-implementation test scaffold.
+"""C17C lane queue reference contract checks.
 
-This file is a *pre-implementation scaffold*, not the final production
-acceptance suite.  It validates the concurrency *contract* using test-only
-helpers and a reference ``SessionLaneQueue`` implementation.
-
-Next step: Once the production lane queue lands in
-``app.services.agencyclaw.slack_dm_runtime`` (the DM event dispatch
-per-session lock wrapper), add integration tests that exercise the real
-dispatcher and convert the xfail markers to regular assertions.
+This module validates concurrency semantics using test-only helpers and a
+reference ``SessionLaneQueue`` implementation. It does not invoke the
+production DM runtime directly.
 
 Architecture context (from agencyclaw-agent-loop.md, Decision #8):
     "Sequential execution (lane queue): Process events serially per
@@ -15,9 +10,9 @@ Architecture context (from agencyclaw-agent-loop.md, Decision #8):
      duplicate creates). Different sessions can still run concurrently."
 
 Test categories:
-    [BASELINE]  — Documents current behavior.  These PASS today.
-    [C17C-GOAL] — Acceptance tests for lane queue.  Marked xfail until
-                  C17C runtime is implemented.
+    [BASELINE]  — documents unlocked behavior.
+    [CONTRACT]  — validates expected serialized/concurrent semantics via
+                  reference implementation.
 
 Concurrency model:
     Tests use asyncio primitives (Event, Lock) and controlled "gate"

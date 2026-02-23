@@ -22,8 +22,8 @@ async def handle_dm_event_runtime(
     slack = deps.get_slack_service_fn()
 
     try:
-        initial_session = await asyncio.to_thread(session_service.get_or_create_session, slack_user_id)
-        async with acquire_session_lane(initial_session.id):
+        async with acquire_session_lane(slack_user_id):
+            await asyncio.to_thread(session_service.get_or_create_session, slack_user_id)
             # Rehydrate session inside the lane lock so same-session follow-ups
             # observe the latest context from prior serialized events.
             session = await asyncio.to_thread(session_service.get_or_create_session, slack_user_id)

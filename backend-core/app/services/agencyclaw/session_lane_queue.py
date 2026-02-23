@@ -1,4 +1,8 @@
-"""Per-session lane queue primitives for Slack DM runtime serialization."""
+"""Lane queue primitives for Slack DM runtime serialization.
+
+The lane key is any stable per-actor identifier for a dispatch path
+(for example ``slack_user_id`` in DM runtime).
+"""
 
 from __future__ import annotations
 
@@ -7,26 +11,28 @@ import threading
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
-_SESSION_LOCKS: dict[str, asyncio.Lock] = {}
+_SESSION_LOCKS: dict[tuple[int, str], asyncio.Lock] = {}
 _REGISTRY_LOCK = threading.Lock()
 
 
-def _get_or_create_session_lock(session_id: str) -> asyncio.Lock:
-    key = (session_id or "").strip()
+def _get_or_create_session_lock(key: str) -> asyncio.Lock:
+    key = (key or "").strip()
     if not key:
-        raise ValueError("session_id is required")
+        raise ValueError("lane key is required")
+    loop_id = id(asyncio.get_running_loop())
+    registry_key = (loop_id, key)
 
     with _REGISTRY_LOCK:
-        lock = _SESSION_LOCKS.get(key)
+        lock = _SESSION_LOCKS.get(registry_key)
         if lock is None:
             lock = asyncio.Lock()
-            _SESSION_LOCKS[key] = lock
+            _SESSION_LOCKS[registry_key] = lock
         return lock
 
 
 @asynccontextmanager
-async def acquire_session_lane(session_id: str) -> AsyncIterator[None]:
-    """Acquire the per-session lane lock for serialized same-session handling."""
-    lock = _get_or_create_session_lock(session_id)
+async def acquire_session_lane(key: str) -> AsyncIterator[None]:
+    """Acquire the per-key lane lock for serialized same-actor handling."""
+    lock = _get_or_create_session_lock(key)
     async with lock:
         yield

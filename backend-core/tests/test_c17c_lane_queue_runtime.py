@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import threading
+import time
 from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any
@@ -21,12 +23,45 @@ class _SessionState:
 
 
 class _FakeSessionService:
-    def __init__(self, state_by_user: dict[str, _SessionState]) -> None:
+    def __init__(self, state_by_user: dict[str, _SessionState], *, get_or_create_delay: float = 0.0) -> None:
         self._state_by_user = state_by_user
         self.db = MagicMock()
+        self.get_or_create_delay = get_or_create_delay
+        self.created_count_by_user: dict[str, int] = {}
+        self.max_in_flight_by_user: dict[str, int] = {}
+        self.max_in_flight_global = 0
+        self._in_flight_global = 0
+        self._in_flight_by_user: dict[str, int] = {}
+        self._counter_lock = threading.Lock()
 
     def get_or_create_session(self, slack_user_id: str) -> Any:
-        state = self._state_by_user[slack_user_id]
+        with self._counter_lock:
+            self._in_flight_global += 1
+            self.max_in_flight_global = max(self.max_in_flight_global, self._in_flight_global)
+            per_user = self._in_flight_by_user.get(slack_user_id, 0) + 1
+            self._in_flight_by_user[slack_user_id] = per_user
+            self.max_in_flight_by_user[slack_user_id] = max(
+                self.max_in_flight_by_user.get(slack_user_id, 0), per_user
+            )
+
+        if self.get_or_create_delay > 0:
+            time.sleep(self.get_or_create_delay)
+
+        state = self._state_by_user.get(slack_user_id)
+        if state is None:
+            state = _SessionState(
+                session_id=f"sess-{slack_user_id}",
+                profile_id=f"profile-{slack_user_id}",
+                active_client_id=None,
+                context={},
+            )
+            self._state_by_user[slack_user_id] = state
+            self.created_count_by_user[slack_user_id] = self.created_count_by_user.get(slack_user_id, 0) + 1
+
+        with self._counter_lock:
+            self._in_flight_global -= 1
+            self._in_flight_by_user[slack_user_id] -= 1
+
         # Return a copy so stale snapshot races are observable in tests.
         return SimpleNamespace(
             id=state.session_id,
@@ -43,6 +78,12 @@ class _FakeSessionService:
             if state.session_id == session_id:
                 state.context.update(context)
                 return
+        raise AssertionError(f"unknown session_id: {session_id}")
+
+    def get_context_value(self, session_id: str, key: str, default: Any = None) -> Any:
+        for state in self._state_by_user.values():
+            if state.session_id == session_id:
+                return state.context.get(key, default)
         raise AssertionError(f"unknown session_id: {session_id}")
 
 
@@ -100,6 +141,29 @@ def _build_deps(
 
 class TestC17CLaneQueueRuntime:
     @pytest.mark.asyncio
+    async def test_same_user_first_message_race_serializes_session_creation(self) -> None:
+        state: dict[str, _SessionState] = {}
+        session_service = _FakeSessionService(state, get_or_create_delay=0.01)
+        slack = _FakeSlack()
+
+        async def _pending_handler(**kwargs) -> bool:
+            return False
+
+        deps = _build_deps(
+            session_service=session_service,
+            slack=slack,
+            handle_pending_task_continuation_fn=_pending_handler,
+        )
+
+        await asyncio.gather(
+            handle_dm_event_runtime(slack_user_id="U1", channel="D1", text="first", deps=deps),
+            handle_dm_event_runtime(slack_user_id="U1", channel="D1", text="second", deps=deps),
+        )
+
+        assert session_service.created_count_by_user.get("U1", 0) == 1
+        assert session_service.max_in_flight_by_user.get("U1", 0) == 1
+
+    @pytest.mark.asyncio
     async def test_same_session_serialization_prevents_lost_update(self) -> None:
         state = {
             "U1": _SessionState(
@@ -114,7 +178,7 @@ class TestC17CLaneQueueRuntime:
 
         async def _pending_handler(**kwargs) -> bool:
             session = kwargs["session"]
-            read_counter = int(session.context.get("counter") or 0)
+            read_counter = int(session_service.get_context_value(session.id, "counter", 0) or 0)
             await asyncio.sleep(0.01)
             session_service.update_context(session.id, {"counter": read_counter + 1})
             return True
@@ -219,3 +283,27 @@ class TestC17CLaneQueueRuntime:
 
         gate.set()
         await asyncio.gather(t1, t2)
+
+    @pytest.mark.asyncio
+    async def test_different_users_can_overlap_session_creation(self) -> None:
+        state: dict[str, _SessionState] = {}
+        session_service = _FakeSessionService(state, get_or_create_delay=0.02)
+        slack = _FakeSlack()
+
+        async def _pending_handler(**kwargs) -> bool:
+            return False
+
+        deps = _build_deps(
+            session_service=session_service,
+            slack=slack,
+            handle_pending_task_continuation_fn=_pending_handler,
+        )
+
+        await asyncio.gather(
+            handle_dm_event_runtime(slack_user_id="U1", channel="D1", text="first", deps=deps),
+            handle_dm_event_runtime(slack_user_id="U2", channel="D2", text="second", deps=deps),
+        )
+
+        assert session_service.created_count_by_user.get("U1", 0) == 1
+        assert session_service.created_count_by_user.get("U2", 0) == 1
+        assert session_service.max_in_flight_global >= 2
