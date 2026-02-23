@@ -7,7 +7,7 @@ and produces the expected payload shapes.
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import MagicMock, call
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -107,14 +107,14 @@ class TestCompleteRun:
         assert update_payload["status"] == "failed"
         assert "completed_at" in update_payload
 
-    def test_blocked_does_not_set_completed_at(self) -> None:
+    def test_blocked_sets_completed_at(self) -> None:
         logger, db = _make_logger()
 
         logger.complete_run("r1", "blocked")
 
         update_payload = db.table.return_value.update.call_args.args[0]
         assert update_payload["status"] == "blocked"
-        assert "completed_at" not in update_payload
+        assert "completed_at" in update_payload
 
     def test_rejects_invalid_status(self) -> None:
         logger, _ = _make_logger()

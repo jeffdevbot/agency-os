@@ -210,7 +210,7 @@ The LLM handles everything else: asking for missing info, resolving ambiguity, a
 
 ### Conversation History & Storage
 
-**Today:** `conversation_buffer.py` stores a list of `{user, assistant}` pairs in the session context JSONB column (`playbook_sessions.context → recent_exchanges`). 5 exchanges max, 1500 token budget. The "assistant" side is usually a summary string like `"[Ran task list for Distex]"` — not the actual response or skill results. No dedicated table, no queryability, no debugging visibility.
+**Today:** `conversation_buffer.py` stores a list of `{user, assistant}` pairs in the session context JSONB column (`playbook_slack_sessions.context → recent_exchanges`). 5 exchanges max, 1500 token budget. The "assistant" side is usually a summary string like `"[Ran task list for Distex]"` — not the actual response or skill results. No dedicated table, no queryability, no debugging visibility.
 
 **Proposed — dedicated conversation + run/event tables (details in appendix):**
 
@@ -378,7 +378,7 @@ Model is swappable later — the agent loop design is model-agnostic as long as 
 ```sql
 create table if not exists public.agent_runs (
   id uuid primary key default gen_random_uuid(),
-  session_id uuid not null references public.playbook_sessions(id) on delete cascade,
+  session_id uuid not null references public.playbook_slack_sessions(id) on delete cascade,
   parent_run_id uuid references public.agent_runs(id) on delete cascade,
   trace_id uuid not null default gen_random_uuid(),
   run_type text not null check (run_type in ('main', 'planner')),
@@ -420,14 +420,14 @@ create index if not exists idx_agent_skill_events_run_created
 
 ### Storage Notes
 - `content` and `payload` use JSONB so structured tool IO can be preserved exactly.
-- Keep `playbook_sessions.context` for lightweight runtime state only (active client, pending confirmation token, etc.).
+- Keep `playbook_slack_sessions.context` for lightweight runtime state only (active client, pending confirmation token, etc.).
 - Read/retention/RLS hardening can be applied in follow-up once multi-user rollout begins.
 - For large skill results, store full `payload` in DB but keep concise `payload_summary` in prompt context.
 - Add a small rehydration skill (e.g., `load_prior_skill_result`) so the agent can reload full prior evidence on demand.
 
 ## Appendix C: Confirmation Payload Contract
 
-Store a lightweight `pending_confirmation` object in `playbook_sessions.context`:
+Store a lightweight `pending_confirmation` object in `playbook_slack_sessions.context`:
 
 ```json
 {

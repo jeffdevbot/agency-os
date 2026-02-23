@@ -57,9 +57,9 @@ class AgentLoopTurnLogger:
     def complete_run(self, run_id: str, status: str) -> None:
         """Mark a run as finished (``completed`` | ``failed`` | ``blocked``).
 
-        Sets ``completed_at`` for terminal statuses (``completed`` / ``failed``).
+        Sets ``completed_at`` for terminal statuses (``completed`` / ``failed`` / ``blocked``).
         """
-        terminal = status in {"completed", "failed"}
+        terminal = status in {"completed", "failed", "blocked"}
         self._store.update_run_status(run_id, status, completed=terminal)
 
     # ------------------------------------------------------------------
