@@ -1,6 +1,6 @@
 # AgencyClaw Execution Tracker
 
-Last updated: 2026-02-20 (C16C internal weekly-shim cleanup landed)
+Last updated: 2026-02-23 (C17A docs sync + C17B schema foundation landed)
 
 ## 1. Baseline Status
 - [x] PRD updated to v1.19 (`docs/23_agencyclaw_prd.md`)
@@ -13,6 +13,7 @@ Last updated: 2026-02-20 (C16C internal weekly-shim cleanup landed)
 - [x] `20260217000007_agent_tasks_source_reference_index.sql` applied
 - [x] `20260219000001_clickup_space_registry.sql` applied
 - [x] `20260219000002_agencyclaw_user_preferences.sql` applied
+- [ ] `20260223000001_agencyclaw_agent_loop_storage_foundation.sql` applied
 
 ## 2. Chunk Progress
 | Chunk | Name | Owner | Status | PR/Commit | Notes |
@@ -58,6 +59,14 @@ Last updated: 2026-02-20 (C16C internal weekly-shim cleanup landed)
 | C16A | Flexible task listing + weekly compatibility alias | Codex | done | merged (`f947e0c`) | Added canonical read skill `clickup_task_list` with `clickup_task_list_weekly` compatibility alias; generalized task-list windows (week default, month, last N days, optional explicit dates) and extracted task-list runtime into `slack_task_list_runtime.py` with stable wrappers. |
 | C16B | Task-list canonicalization + `window_days` normalization hardening | Codex | done | merged (`b252c2a`) | Canonicalized deterministic task-list intent label to `task_list`, hardened `window_days` validation to accept int/numeric-string inputs for canonical skill calls, and preserved weekly alias compatibility in orchestrator/planner/runtime rails. |
 | C16C | Internal weekly-shim cleanup (canonical task-list routing) | Codex | done | merged (`6338922`), follow-up (`3e4804f`) | Consolidated internal task-list routing/deps on canonical `_handle_task_list` / `handle_task_list_fn`, while preserving external compatibility for `clickup_task_list_weekly` and `_handle_weekly_tasks` wrapper seam. |
+| C17A | Agent loop planning docs sync + acceptance lock | Codex | done | local (`this change`) | Plan/tracker/design language aligned; C17 roadmap locked; `delegate_planner` remains explicitly deferred to C17H. |
+| C17B | Agent storage foundation (schema only) | Codex | done | local (`this change`) | Added migration for `agent_runs`, `agent_messages`, `agent_skill_events` + indexes; `parent_run_id` nullable; no runtime read/write wiring. |
+| C17C | Per-session lane queue serialization | unassigned | planned | - | Pending; runtime lane serialization only, no behavior expansion. |
+| C17D | Agent loop v0 (reply-only + logging) | unassigned | planned | - | Pending; feature-flagged loop path with run/message writes only. |
+| C17E | Skill-result loop v1 (read-only skill) | unassigned | planned | - | Pending; first end-to-end read skill with persisted skill events. |
+| C17F | Mutation confirmation contract | unassigned | planned | - | Pending; add `pending_confirmation` contract and deterministic validation. |
+| C17G | Context skills + retention summaries + rehydration | unassigned | planned | - | Pending; context skill set plus payload summary + rehydration path. |
+| C17H | Planner sub-agent integration | unassigned | planned | - | Pending; `delegate_planner` and child-run hierarchy land here (not before C17H). |
 
 ## 3. Open Blockers
 - [x] Confirm migration `20260217000006_clickup_space_skill_seed.sql` is applied.
@@ -83,6 +92,7 @@ Last updated: 2026-02-20 (C16C internal weekly-shim cleanup landed)
 - [ ] Optional later path: `catalog_lookup` skill with real product data source integration.
 - [ ] Multi-user channel memory hardening under C10E:
   actor-scoped preferences only, requester-bound pending state, and explicit `requested_by` vs `confirmed_by` audit fields.
+- [ ] `delegate_planner` runtime path is explicitly deferred to C17H (no pre-C17H planner sub-agent wiring in the agent loop path).
 
 ## 3.4 Scope Freeze (Near-Term)
 - Committed now:
