@@ -1,7 +1,13 @@
-"""C17C: Lane queue serialization test scaffold.
+"""C17C: Lane queue serialization — pre-implementation test scaffold.
 
-Characterizes CURRENT concurrency behavior (no per-session lane queue)
-and defines acceptance criteria for the upcoming C17C implementation.
+This file is a *pre-implementation scaffold*, not the final production
+acceptance suite.  It validates the concurrency *contract* using test-only
+helpers and a reference ``SessionLaneQueue`` implementation.
+
+Next step: Once the production lane queue lands in
+``app.services.agencyclaw.slack_dm_runtime`` (the DM event dispatch
+per-session lock wrapper), add integration tests that exercise the real
+dispatcher and convert the xfail markers to regular assertions.
 
 Architecture context (from agencyclaw-agent-loop.md, Decision #8):
     "Sequential execution (lane queue): Process events serially per
@@ -14,18 +20,18 @@ Test categories:
                   C17C runtime is implemented.
 
 Concurrency model:
-    The tests use asyncio primitives (Event, Lock) and controlled
-    "gate" barriers to make concurrent behavior deterministic — no
-    wall-clock sleeps or polling.
+    Tests use asyncio primitives (Event, Lock) and controlled "gate"
+    barriers for deterministic ordering.  Bounded short sleeps
+    (≤20 ms) are used only where needed to establish task stagger
+    order for lock acquisition; no unbounded polling or wall-clock
+    timing assertions.
 """
 
 from __future__ import annotations
 
 import asyncio
 import time
-from dataclasses import dataclass, field
-from typing import Any, Optional
-from unittest.mock import AsyncMock, MagicMock
+from typing import Any
 
 import pytest
 
@@ -33,22 +39,6 @@ import pytest
 # ---------------------------------------------------------------------------
 # Test-only helpers
 # ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class FakeSession:
-    """Mirrors PlaybookSession shape for unit tests."""
-
-    id: str = "sess-1"
-    slack_user_id: str = "U_ALICE"
-    profile_id: Optional[str] = "profile-1"
-    active_client_id: Optional[str] = "client-1"
-    context: dict = None  # type: ignore[assignment]
-    last_message_at: Optional[str] = None
-
-    def __post_init__(self) -> None:
-        if self.context is None:
-            object.__setattr__(self, "context", {})
 
 
 class ExecutionLog:
@@ -119,7 +109,12 @@ async def dispatch_dm_no_lock(
     gate: asyncio.Event | None = None,
     work_duration: float = 0.0,
 ) -> None:
-    """Simulates current DM event dispatch — fire-and-forget, no per-session lock."""
+    """Simulates current DM event dispatch — fire-and-forget, no per-session lock.
+
+    Production seam: In C17C, ``slack_dm_runtime.handle_dm_event`` will
+    acquire a per-session ``asyncio.Lock`` before calling the handler,
+    replacing this unlocked dispatch path.
+    """
     await _fake_handler(
         label=f"{session_id}:{message_id}",
         log=log,
@@ -134,10 +129,10 @@ async def dispatch_dm_no_lock(
 
 
 class SessionLaneQueue:
-    """Per-session async lock registry.
+    """Per-session async lock registry (test-only reference implementation).
 
-    This is a *test-only* reference implementation of the lane queue
-    concept.  The production version will live in the agencyclaw runtime.
+    The production version will wrap ``slack_dm_runtime.handle_dm_event``
+    with a per-session ``asyncio.Lock`` acquired before handler dispatch.
 
     Contract:
         - Same session_id  → events execute serially (FIFO)
