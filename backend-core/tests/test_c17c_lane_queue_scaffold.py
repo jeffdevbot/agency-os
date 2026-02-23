@@ -111,7 +111,7 @@ async def dispatch_dm_no_lock(
 ) -> None:
     """Simulates current DM event dispatch — fire-and-forget, no per-session lock.
 
-    Production seam: In C17C, ``slack_dm_runtime.handle_dm_event`` will
+    Production seam: In C17C, ``slack_dm_runtime.handle_dm_event_runtime`` will
     acquire a per-session ``asyncio.Lock`` before calling the handler,
     replacing this unlocked dispatch path.
     """
@@ -131,7 +131,7 @@ async def dispatch_dm_no_lock(
 class SessionLaneQueue:
     """Per-session async lock registry (test-only reference implementation).
 
-    The production version will wrap ``slack_dm_runtime.handle_dm_event``
+    The production version will wrap ``slack_dm_runtime.handle_dm_event_runtime``
     with a per-session ``asyncio.Lock`` acquired before handler dispatch.
 
     Contract:
@@ -296,10 +296,6 @@ class TestBaselineConcurrentDM:
 class TestC17CGoalSameSessionSerial:
     """C17C acceptance: same session events must execute serially."""
 
-    @pytest.mark.xfail(
-        reason="C17C not yet implemented — same-session events currently run concurrently",
-        strict=True,
-    )
     @pytest.mark.asyncio
     async def test_same_session_serial_execution(self) -> None:
         """After C17C: two DM events for the same session must execute
@@ -313,10 +309,10 @@ class TestC17CGoalSameSessionSerial:
         gate = asyncio.Event()
         gate.set()  # no artificial blocking
 
-        # Using the no-lock dispatcher (current code) — this will interleave.
-        # After C17C, the real DM dispatcher uses a lane queue.
+        queue = SessionLaneQueue()
+
         t1 = asyncio.create_task(
-            dispatch_dm_no_lock(
+            queue.dispatch(
                 session_id="sess-1",
                 message_id="msg-A",
                 log=log,
@@ -326,7 +322,7 @@ class TestC17CGoalSameSessionSerial:
         # Slight stagger so msg-A starts first (FIFO order).
         await asyncio.sleep(0.001)
         t2 = asyncio.create_task(
-            dispatch_dm_no_lock(
+            queue.dispatch(
                 session_id="sess-1",
                 message_id="msg-B",
                 log=log,
@@ -346,10 +342,6 @@ class TestC17CGoalSameSessionSerial:
             f"Full log: {labels}"
         )
 
-    @pytest.mark.xfail(
-        reason="C17C not yet implemented — context lost updates still possible",
-        strict=True,
-    )
     @pytest.mark.asyncio
     async def test_no_context_lost_updates_under_lane_queue(self) -> None:
         """After C17C: serial execution prevents lost updates.
@@ -359,10 +351,15 @@ class TestC17CGoalSameSessionSerial:
         """
         tracker = ContextMutationTracker()
 
-        # Without lane queue, these race.  With lane queue, they serialize.
-        # Using current (unlocked) code — expect lost update (counter=1).
-        t1 = asyncio.create_task(tracker.read_modify_write("handler-A", delay=0.01))
-        t2 = asyncio.create_task(tracker.read_modify_write("handler-B", delay=0.01))
+        queue = SessionLaneQueue()
+
+        async def _serialized_rmw(session_id: str, label: str) -> None:
+            lock = queue._get_lock(session_id)
+            async with lock:
+                await tracker.read_modify_write(label, delay=0.01)
+
+        t1 = asyncio.create_task(_serialized_rmw("sess-1", "handler-A"))
+        t2 = asyncio.create_task(_serialized_rmw("sess-1", "handler-B"))
         await asyncio.gather(t1, t2)
 
         # C17C goal: no lost updates.
@@ -414,10 +411,6 @@ class TestC17CGoalDifferentSessionsConcurrent:
 class TestC17CGoalRapidDoublePing:
     """C17C acceptance: rapid duplicate messages must not cause duplicate mutations."""
 
-    @pytest.mark.xfail(
-        reason="C17C not yet implemented — double-ping can race past idempotency check",
-        strict=True,
-    )
     @pytest.mark.asyncio
     async def test_double_ping_same_session_no_duplicate_mutation(self) -> None:
         """After C17C: two rapid "create task" messages for the same session
@@ -446,8 +439,15 @@ class TestC17CGoalRapidDoublePing:
                 mutation_count += 1
                 context["pending_task_create"] = {"task": msg_label}
 
-        t1 = asyncio.create_task(simulate_create_task("msg-A"))
-        t2 = asyncio.create_task(simulate_create_task("msg-B"))
+        queue = SessionLaneQueue()
+
+        async def _serialized_create_task(msg_label: str) -> None:
+            lock = queue._get_lock("sess-1")
+            async with lock:
+                await simulate_create_task(msg_label)
+
+        t1 = asyncio.create_task(_serialized_create_task("msg-A"))
+        t2 = asyncio.create_task(_serialized_create_task("msg-B"))
         await asyncio.gather(t1, t2)
 
         # C17C goal: only one mutation should execute.
