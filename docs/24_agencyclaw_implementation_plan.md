@@ -9,6 +9,8 @@ It is separate from `docs/23_agencyclaw_prd.md`:
 Status note (2026-02-20):
 - Post-C12 runtime hardening/decomposition has completed through C16C.
 - See `docs/25_agencyclaw_execution_tracker.md` for commit-by-commit evidence.
+- C17 is reserved for the Agent Loop migration described in
+  `backend-core/docs/design/agencyclaw-agent-loop.md`.
 
 ## 2. Working Rules
 - Work one chunk at a time.
@@ -90,6 +92,14 @@ Status note (2026-02-20):
 39. C16A: Flexible task-list windows + runtime extraction
 40. C16B: Task-list canonicalization + `window_days` normalization hardening
 41. C16C: Internal weekly-shim cleanup (canonical task-list routing)
+42. C17A: Agent loop planning docs sync + acceptance lock
+43. C17B: Agent run/message/event storage foundation (schema only)
+44. C17C: Per-session lane queue serialization
+45. C17D: Agent loop v0 (reply-only + run/message logging)
+46. C17E: Skill-result loop v1 (read-only skill end-to-end)
+47. C17F: Mutation confirmation contract (natural language + buttons)
+48. C17G: Context skills + retention summaries + result rehydration
+49. C17H: Planner sub-agent integration (child runs + report-back)
 
 ## 5. Chunk Details
 ## C1: Task List Read Path
@@ -325,6 +335,96 @@ Locked regression fixtures for C10B:
   - "Identifier pending" creates draft with unresolved block and explicit first-step resolution note.
   - No silent identifier guessing in any path.
   - Regression tests cover happy path (identifier supplied), clarify path (missing), and pending path (explicit deferral).
+
+## C17A: Agent Loop Planning Sync (Docs Only)
+- Scope:
+  - Align implementation plan + tracker to the Agent Loop redesign doc:
+    `backend-core/docs/design/agencyclaw-agent-loop.md`.
+  - Lock phase boundaries:
+    - Planner sub-agent integration is Phase C17H (not Phase 1).
+    - `delegate_planner` remains a future path until C17H.
+  - Define chunk-by-chunk acceptance/rollback guidance for C17A-H.
+- Acceptance:
+  - `docs/24_agencyclaw_implementation_plan.md` includes C17 roadmap + details.
+  - `docs/25_agencyclaw_execution_tracker.md` has placeholder rows for C17A-H.
+  - No code behavior changes.
+
+## C17B: Agent Storage Foundation (Schema Only)
+- Scope:
+  - Add migration for:
+    - `agent_runs`
+    - `agent_messages`
+    - `agent_skill_events`
+  - Include indexes and minimal default access posture.
+  - Keep `parent_run_id` nullable and unused in runtime for now.
+- Acceptance:
+  - Migration applies cleanly.
+  - No runtime read/write integration yet.
+  - Tests or migration verification steps documented in tracker.
+
+## C17C: Per-Session Lane Queue Serialization
+- Scope:
+  - Introduce per-session (lane) serialization in Slack DM runtime.
+  - Ensure same session messages are processed serially.
+  - Keep cross-session concurrency intact.
+- Acceptance:
+  - Race test demonstrates no parallel mutation execution in one lane.
+  - Existing behavior remains unchanged when queue is idle.
+
+## C17D: Agent Loop v0 (Reply-Only + Logging)
+- Scope:
+  - Add `agent_loop.py` behind `AGENCYCLAW_AGENT_LOOP_ENABLED`.
+  - Implement reply-only loop (no skill execution yet).
+  - Persist `agent_runs` + `agent_messages` for each handled turn.
+- Acceptance:
+  - Simple conversational DM ("hello") is handled via agent loop when flag enabled.
+  - Run/message rows are written for each turn.
+  - Flag-off path remains unchanged.
+
+## C17E: Skill-Result Loop v1 (Read-Only Skill)
+- Scope:
+  - Enable one read-only skill end-to-end via loop (canonical `clickup_task_list`).
+  - LLM receives skill result payload and composes final response naturally.
+  - Persist `agent_skill_events` (`skill_call`, `skill_result`) for that turn.
+- Acceptance:
+  - One-turn read query works with natural response grounded in skill output.
+  - Structured skill events are persisted.
+  - No mutation skills in this chunk.
+
+## C17F: Mutation Confirmation Contract
+- Scope:
+  - Implement `pending_confirmation` payload contract with:
+    `run_id`, `trace_id`, `skill_id`, `args`, `proposal_fingerprint`, `expires_at`, `actor_profile_id`.
+  - Support confirmation by:
+    - natural language ("yes, create it")
+    - Slack buttons
+  - Validate confirmation payload deterministically before mutation execute.
+- Acceptance:
+  - Valid confirmation executes exactly once.
+  - Stale/mismatched confirmation is rejected and re-prompted naturally.
+  - Idempotency rails remain enforced.
+
+## C17G: Context Skills + Retention Summaries + Rehydration
+- Scope:
+  - Add context-loading skills:
+    `lookup_client`, `lookup_brand`, `search_kb`, `resolve_brand`, `get_client_context`.
+  - Add `payload_summary` prompt usage for large skill results.
+  - Add rehydration skill (`load_prior_skill_result`) to reload full prior evidence on demand.
+- Acceptance:
+  - Context-heavy asks resolve via skills without regex routing.
+  - Follow-up questions about earlier results can reload evidence deterministically.
+  - Prompt window remains bounded without losing audit payloads.
+
+## C17H: Planner Sub-Agent Integration
+- Scope:
+  - Rework planner as internal sub-agent with child runs.
+  - Main agent can delegate via `delegate_planner`, receive structured planner report,
+    then continue loop and respond in main-agent voice.
+  - Persist planner run hierarchy and events (`parent_run_id`, shared `trace_id`).
+- Acceptance:
+  - Complex multi-step request executes through planner sub-agent loop.
+  - Planner output is not user-facing directly; main agent narrates result.
+  - Parent/child run trace is queryable and auditable.
 
 ## 6. C9 Runtime Env Prerequisites
 Source of truth for deployed values:
