@@ -123,6 +123,8 @@ def _build_deps(
         get_session_service_fn=lambda: session_service,
         get_slack_service_fn=lambda: slack,
         preference_memory_service_factory=lambda _db: _DummyPrefService(),
+        is_agent_loop_enabled_fn=lambda: False,
+        run_agent_loop_reply_fn=_noop_async,
         handle_pending_task_continuation_fn=handle_pending_task_continuation_fn,
         is_llm_orchestrator_enabled_fn=lambda: False,
         try_llm_orchestrator_fn=_noop_async,

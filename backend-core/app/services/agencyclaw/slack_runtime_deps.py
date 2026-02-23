@@ -44,6 +44,8 @@ class SlackDMRuntimeDeps:
     get_session_service_fn: Callable[[], SessionServiceProtocol]
     get_slack_service_fn: Callable[[], SlackClientProtocol]
     preference_memory_service_factory: Callable[[Any], Any]
+    is_agent_loop_enabled_fn: Callable[[], bool]
+    run_agent_loop_reply_fn: Callable[..., Awaitable[bool]]
     handle_pending_task_continuation_fn: Callable[..., Awaitable[bool]]
     is_llm_orchestrator_enabled_fn: Callable[[], bool]
     try_llm_orchestrator_fn: Callable[..., Awaitable[bool]]

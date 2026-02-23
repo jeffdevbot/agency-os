@@ -108,6 +108,50 @@ class TestFeatureFlag:
             assert _is_llm_orchestrator_enabled() is False
 
 
+class TestAgentLoopFlagDispatch:
+    @pytest.mark.asyncio
+    async def test_agent_loop_flag_off_keeps_legacy_parity(self):
+        svc, slack = _make_mocks()
+
+        with (
+            patch("app.api.routes.slack._is_agent_loop_enabled", return_value=False),
+            patch("app.api.routes.slack._is_llm_orchestrator_enabled", return_value=False),
+            patch("app.api.routes.slack.get_playbook_session_service", return_value=svc),
+            patch("app.api.routes.slack.get_slack_service", return_value=slack),
+            patch(
+                "app.api.routes.slack._runtime_run_reply_only_agent_loop_turn",
+                new_callable=AsyncMock,
+                return_value=True,
+            ) as mock_agent_loop,
+        ):
+            await _handle_dm_event(slack_user_id="U123", channel="C1", text="hello")
+
+        mock_agent_loop.assert_not_called()
+        slack.post_message.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_agent_loop_flag_on_routes_to_reply_loop(self):
+        svc, slack = _make_mocks()
+
+        with (
+            patch("app.api.routes.slack._is_agent_loop_enabled", return_value=True),
+            patch("app.api.routes.slack._is_llm_orchestrator_enabled", return_value=False),
+            patch("app.api.routes.slack.get_playbook_session_service", return_value=svc),
+            patch("app.api.routes.slack.get_slack_service", return_value=slack),
+            patch("app.api.routes.slack.get_supabase_admin_client", return_value=MagicMock()),
+            patch(
+                "app.api.routes.slack._runtime_run_reply_only_agent_loop_turn",
+                new_callable=AsyncMock,
+                return_value=True,
+            ) as mock_agent_loop,
+            patch("app.api.routes.slack._classify_message") as mock_classify,
+        ):
+            await _handle_dm_event(slack_user_id="U123", channel="C1", text="hello")
+
+        mock_agent_loop.assert_called_once()
+        mock_classify.assert_not_called()
+
+
 class TestStrictModeHelpers:
     def test_llm_strict_mode_true_when_orchestrator_on_and_legacy_off(self):
         with (

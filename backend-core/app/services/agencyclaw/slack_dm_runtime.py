@@ -28,6 +28,16 @@ async def handle_dm_event_runtime(
             session = await asyncio.to_thread(session_service.get_or_create_session, slack_user_id)
             await asyncio.to_thread(session_service.touch_session, session.id)
 
+            if deps.is_agent_loop_enabled_fn():
+                handled = await deps.run_agent_loop_reply_fn(
+                    text=text,
+                    session=session,
+                    channel=channel,
+                    slack=slack,
+                )
+                if handled:
+                    return
+
             pending = session.context.get("pending_task_create")
             if isinstance(pending, dict) and pending.get("awaiting"):
                 consumed = await deps.handle_pending_task_continuation_fn(

@@ -61,6 +61,9 @@ from ...services.agencyclaw.slack_planner_runtime import (
 from ...services.agencyclaw.slack_orchestrator_runtime import (
     try_llm_orchestrator_runtime as _runtime_try_llm_orchestrator,
 )
+from ...services.agencyclaw.agent_loop_runtime import (
+    run_reply_only_agent_loop_turn as _runtime_run_reply_only_agent_loop_turn,
+)
 from ...services.agencyclaw.slack_dm_runtime import (
     handle_dm_event_runtime as _runtime_handle_dm_event,
 )
@@ -138,6 +141,12 @@ router = APIRouter(prefix="/slack", tags=["slack"])
 
 def _is_llm_orchestrator_enabled() -> bool:
     return _helpers_is_llm_orchestrator_enabled()
+
+
+def _is_agent_loop_enabled() -> bool:
+    return os.environ.get("AGENCYCLAW_AGENT_LOOP_ENABLED", "").strip().lower() in {
+        "1", "true", "yes", "on",
+    }
 
 
 def _is_planner_enabled() -> bool:
@@ -797,10 +806,22 @@ async def _check_skill_policy(
     return evaluate_skill_policy(actor, surface, skill_id, args, session.context)
 
 async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> None:
+    async def _run_agent_loop_reply_turn(*, text: str, session: Any, channel: str, slack: Any) -> bool:
+        return await _runtime_run_reply_only_agent_loop_turn(
+            text=text,
+            session=session,
+            channel=channel,
+            slack=slack,
+            supabase_client=get_supabase_admin_client(),
+            logger=_logger,
+        )
+
     dm_deps = SlackDMRuntimeDeps(
         get_session_service_fn=get_playbook_session_service,
         get_slack_service_fn=get_slack_service,
         preference_memory_service_factory=PreferenceMemoryService,
+        is_agent_loop_enabled_fn=_is_agent_loop_enabled,
+        run_agent_loop_reply_fn=_run_agent_loop_reply_turn,
         handle_pending_task_continuation_fn=_handle_pending_task_continuation,
         is_llm_orchestrator_enabled_fn=_is_llm_orchestrator_enabled,
         try_llm_orchestrator_fn=_try_llm_orchestrator,
