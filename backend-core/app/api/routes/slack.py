@@ -806,13 +806,61 @@ async def _check_skill_policy(
     return evaluate_skill_policy(actor, surface, skill_id, args, session.context)
 
 async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> None:
-    async def _run_agent_loop_reply_turn(*, text: str, session: Any, channel: str, slack: Any) -> bool:
+    async def _run_agent_loop_reply_turn(
+        *,
+        text: str,
+        session: Any,
+        slack_user_id: str,
+        session_service: Any,
+        channel: str,
+        slack: Any,
+    ) -> bool:
+        class _CaptureSlack:
+            def __init__(self) -> None:
+                self.messages: list[str] = []
+
+            async def post_message(
+                self,
+                *,
+                channel: str,
+                text: str,
+                blocks: list[dict[str, Any]] | None = None,
+            ) -> None:
+                _ = channel, blocks
+                self.messages.append(text)
+
+        async def _execute_task_list_for_agent_loop(
+            *,
+            slack_user_id: str,
+            channel: str,
+            args: dict[str, Any],
+            session: Any,
+            session_service: Any,
+        ) -> dict[str, Any]:
+            _ = session
+            capture = _CaptureSlack()
+            await _handle_task_list(
+                slack_user_id=slack_user_id,
+                channel=channel,
+                client_name_hint=str(args.get("client_name") or ""),
+                window=str(args.get("window") or ""),
+                window_days=args.get("window_days"),
+                date_from=str(args.get("date_from") or ""),
+                date_to=str(args.get("date_to") or ""),
+                session_service=session_service,
+                slack=capture,
+            )
+            return {"response_text": capture.messages[-1] if capture.messages else "No task list response"}
+
         return await _runtime_run_reply_only_agent_loop_turn(
             text=text,
             session=session,
+            slack_user_id=slack_user_id,
+            session_service=session_service,
             channel=channel,
             slack=slack,
             supabase_client=get_supabase_admin_client(),
+            execute_task_list_fn=_execute_task_list_for_agent_loop,
             logger=_logger,
         )
 

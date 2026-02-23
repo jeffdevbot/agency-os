@@ -71,6 +71,8 @@ async def test_reply_only_runtime_logs_and_completes(monkeypatch):
     handled = await run_reply_only_agent_loop_turn(
         text="hello",
         session=_FakeSession(),
+        slack_user_id="U123",
+        session_service=MagicMock(),
         channel="D1",
         slack=slack,
         supabase_client=MagicMock(),
@@ -124,6 +126,8 @@ async def test_reply_only_runtime_failure_marks_failed_and_posts_fallback(monkey
     handled = await run_reply_only_agent_loop_turn(
         text="hello",
         session=_FakeSession(),
+        slack_user_id="U123",
+        session_service=MagicMock(),
         channel="D1",
         slack=slack,
         supabase_client=MagicMock(),

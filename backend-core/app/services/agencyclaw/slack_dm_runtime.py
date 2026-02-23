@@ -32,6 +32,8 @@ async def handle_dm_event_runtime(
                 handled = await deps.run_agent_loop_reply_fn(
                     text=text,
                     session=session,
+                    slack_user_id=slack_user_id,
+                    session_service=session_service,
                     channel=channel,
                     slack=slack,
                 )
