@@ -1,7 +1,11 @@
 """Evidence rehydration reader for the AgencyClaw agent loop (C17G).
 
 Accepts a rehydration key and an ``AgentLoopStore`` instance, fetches the
-corresponding skill event, and returns a deterministic result dict.
+corresponding skill event(s), and returns a deterministic result dict.
+
+Supports two key formats:
+- ``ev:<run_id>/<event_id>`` — single-event rehydration
+- ``ev:<run_id>`` — run-scoped aggregate of recent skill events
 
 No runtime wiring — pure service function consumed by tests until
 integration lands.
@@ -18,9 +22,16 @@ from .agent_loop_evidence import (
 )
 from .agent_loop_store import AgentLoopStore
 
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+_RUN_SCOPE_EVENT_LIMIT: int = 10
+_RUN_SCOPE_SUMMARY_MAX_CHARS: int = 1000
+
 
 def read_evidence(store: AgentLoopStore, key: str) -> dict[str, Any]:
-    """Rehydrate a single evidence record from a rehydration key.
+    """Rehydrate evidence from a rehydration key.
 
     Parameters
     ----------
@@ -28,7 +39,7 @@ def read_evidence(store: AgentLoopStore, key: str) -> dict[str, Any]:
         An ``AgentLoopStore`` instance wired to the database.
     key:
         A rehydration key produced by :func:`rehydration_key`
-        (e.g. ``"ev:run-1/evt-2"``).
+        (e.g. ``"ev:run-1/evt-2"`` or ``"ev:run-1"``).
 
     Returns
     -------
@@ -52,19 +63,26 @@ def read_evidence(store: AgentLoopStore, key: str) -> dict[str, Any]:
     run_id: str = parsed["run_id"]
     event_id: str | None = parsed["event_id"]
 
-    # --- Run-only keys: not yet implemented ----------------------------------
+    # --- Run-scope aggregation -----------------------------------------------
     if event_id is None:
-        return _fail(
-            run_id=run_id,
-            error="not_implemented_run_scope",
-        )
+        return _read_run_scope(store, run_id)
 
-    # --- Fetch event ---------------------------------------------------------
+    # --- Single-event rehydration --------------------------------------------
+    return _read_single_event(store, run_id, event_id)
+
+
+# ---------------------------------------------------------------------------
+# Single-event path
+# ---------------------------------------------------------------------------
+
+
+def _read_single_event(
+    store: AgentLoopStore, run_id: str, event_id: str,
+) -> dict[str, Any]:
     row = store.get_skill_event_by_id(run_id, event_id)
     if not row:
         return _fail(run_id=run_id, event_id=event_id, error="not_found")
 
-    # --- Extract fields ------------------------------------------------------
     skill_id = row.get("skill_id")
     event_type = row.get("event_type")
     payload = row.get("payload")
@@ -82,7 +100,6 @@ def read_evidence(store: AgentLoopStore, key: str) -> dict[str, Any]:
             error="invalid_event_payload",
         )
 
-    # --- Build summary and note ----------------------------------------------
     payload_summary = build_payload_summary(skill_id, payload)
     note = build_evidence_note(event_type, skill_id, payload_summary)
 
@@ -92,6 +109,69 @@ def read_evidence(store: AgentLoopStore, key: str) -> dict[str, Any]:
         "event_id": event_id,
         "note": note,
         "payload_summary": payload_summary,
+        "error": None,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Run-scope path
+# ---------------------------------------------------------------------------
+
+
+def _read_run_scope(store: AgentLoopStore, run_id: str) -> dict[str, Any]:
+    rows = store.list_recent_skill_events(run_id, limit=_RUN_SCOPE_EVENT_LIMIT)
+
+    if not rows:
+        return _fail(run_id=run_id, error="not_found")
+
+    # Build individual notes, oldest-first for chronological reading.
+    # The store returns newest-first, so reverse.
+    notes: list[str] = []
+    for row in reversed(rows):
+        skill_id = row.get("skill_id")
+        event_type = row.get("event_type")
+        payload = row.get("payload")
+
+        if (
+            not isinstance(skill_id, str)
+            or not skill_id.strip()
+            or not isinstance(event_type, str)
+            or not event_type.strip()
+        ):
+            continue
+
+        if isinstance(payload, dict):
+            summary = build_payload_summary(skill_id, payload)
+        else:
+            ps = row.get("payload_summary")
+            summary = str(ps) if ps is not None else "{}"
+
+        notes.append(build_evidence_note(event_type, skill_id, summary))
+
+    if not notes:
+        return _fail(run_id=run_id, error="not_found")
+
+    # Aggregate note: join with newlines, bounded by char budget.
+    aggregate_note = "\n".join(notes)
+    if len(aggregate_note) > _RUN_SCOPE_SUMMARY_MAX_CHARS:
+        aggregate_note = aggregate_note[:_RUN_SCOPE_SUMMARY_MAX_CHARS - 3] + "..."
+
+    # Compact summary: count + skill list.
+    skill_ids = []
+    seen: set[str] = set()
+    for row in reversed(rows):
+        sid = row.get("skill_id")
+        if isinstance(sid, str) and sid.strip() and sid not in seen:
+            skill_ids.append(sid)
+            seen.add(sid)
+    compact_summary = f"{len(notes)} events across {len(skill_ids)} skill(s): {', '.join(skill_ids)}"
+
+    return {
+        "ok": True,
+        "run_id": run_id,
+        "event_id": None,
+        "note": aggregate_note,
+        "payload_summary": compact_summary,
         "error": None,
     }
 

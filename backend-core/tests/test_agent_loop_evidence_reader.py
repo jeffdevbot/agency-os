@@ -30,6 +30,7 @@ def _mock_db(*, execute_data: Any = None) -> MagicMock:
     db.table.return_value = table
     table.select.return_value = table
     table.eq.return_value = table
+    table.order.return_value = table
     table.limit.return_value = table
     table.execute.return_value = response
 
@@ -181,26 +182,144 @@ class TestInvalidKey:
 
 
 # ===================================================================
-# Run-only key (not implemented)
+# Run-scope key (aggregate evidence)
 # ===================================================================
 
 
-class TestRunOnlyKey:
-    def test_returns_not_implemented(self) -> None:
-        result = read_evidence(_store(), "ev:run-abc")
+class TestRunScopeKey:
+    def test_returns_aggregate_for_multiple_events(self) -> None:
+        rows = [
+            _valid_row(event_id="e2", event_type="skill_result", payload={"count": 3}),
+            _valid_row(event_id="e1", event_type="skill_call", payload={"client": "Acme"}),
+        ]
+        store = _store(execute_data=rows)
+
+        result = read_evidence(store, "ev:run-1")
+
+        assert result["ok"] is True
+        assert result["run_id"] == "run-1"
+        assert result["event_id"] is None
+        assert result["error"] is None
+        # Note contains both events (oldest-first = reversed from store order)
+        assert "[skill_call]" in result["note"]
+        assert "[skill_result]" in result["note"]
+        # Compact summary lists skill count
+        assert "2 events" in result["payload_summary"]
+        assert "clickup_task_list" in result["payload_summary"]
+
+    def test_single_event_run_scope(self) -> None:
+        rows = [_valid_row(event_id="e1", payload={"x": 1})]
+        store = _store(execute_data=rows)
+
+        result = read_evidence(store, "ev:run-1")
+
+        assert result["ok"] is True
+        assert "1 events" in result["payload_summary"]
+        assert result["note"] == '[skill_call] clickup_task_list: {"x":1}'
+
+    def test_empty_run_returns_not_found(self) -> None:
+        store = _store(execute_data=[])
+
+        result = read_evidence(store, "ev:run-empty")
 
         assert result["ok"] is False
-        assert result["error"] == "not_implemented_run_scope"
-        assert result["run_id"] == "run-abc"
+        assert result["error"] == "not_found"
+        assert result["run_id"] == "run-empty"
         assert result["event_id"] is None
-        assert result["note"] is None
-        assert result["payload_summary"] is None
 
     def test_preserves_run_id(self) -> None:
-        result = read_evidence(_store(), "ev:my-special-run-123")
+        rows = [_valid_row()]
+        store = _store(execute_data=rows)
+
+        result = read_evidence(store, "ev:my-special-run-123")
 
         assert result["run_id"] == "my-special-run-123"
-        assert result["error"] == "not_implemented_run_scope"
+        assert result["ok"] is True
+
+    def test_chronological_order_in_note(self) -> None:
+        """Notes appear oldest-first (reversed from store's newest-first)."""
+        rows = [
+            _valid_row(event_id="e2", skill_id="skill_b", event_type="skill_result", payload={"b": 2}),
+            _valid_row(event_id="e1", skill_id="skill_a", event_type="skill_call", payload={"a": 1}),
+        ]
+        store = _store(execute_data=rows)
+
+        result = read_evidence(store, "ev:run-1")
+
+        lines = result["note"].split("\n")
+        assert "skill_a" in lines[0]
+        assert "skill_b" in lines[1]
+
+    def test_multiple_skills_listed_in_summary(self) -> None:
+        rows = [
+            _valid_row(event_id="e2", skill_id="brand_lookup", event_type="skill_result", payload={}),
+            _valid_row(event_id="e1", skill_id="clickup_task_list", event_type="skill_call", payload={}),
+        ]
+        store = _store(execute_data=rows)
+
+        result = read_evidence(store, "ev:run-1")
+
+        assert "2 skill(s)" in result["payload_summary"]
+        assert "clickup_task_list" in result["payload_summary"]
+        assert "brand_lookup" in result["payload_summary"]
+
+    def test_skips_malformed_rows_in_aggregate(self) -> None:
+        rows = [
+            _valid_row(event_id="e2", payload={"good": True}),
+            {"id": "e1", "skill_id": "", "event_type": "skill_call", "payload": {"x": 1}},
+        ]
+        store = _store(execute_data=rows)
+
+        result = read_evidence(store, "ev:run-1")
+
+        assert result["ok"] is True
+        assert "1 events" in result["payload_summary"]
+
+    def test_all_malformed_rows_returns_not_found(self) -> None:
+        rows = [
+            {"id": "e1", "skill_id": "", "event_type": "skill_call", "payload": {}},
+            {"id": "e2", "event_type": "skill_call", "payload": {}},
+        ]
+        store = _store(execute_data=rows)
+
+        result = read_evidence(store, "ev:run-1")
+
+        assert result["ok"] is False
+        assert result["error"] == "not_found"
+
+    def test_aggregate_note_truncated_for_large_runs(self) -> None:
+        rows = [
+            _valid_row(
+                event_id=f"e{i}",
+                skill_id=f"skill_{i}",
+                payload={"data": "x" * 200},
+            )
+            for i in range(10)
+        ]
+        store = _store(execute_data=rows)
+
+        result = read_evidence(store, "ev:run-1")
+
+        assert result["ok"] is True
+        assert len(result["note"]) <= 1000
+
+    def test_non_dict_payload_uses_payload_summary_field(self) -> None:
+        """When payload is not a dict, fall back to payload_summary field."""
+        rows = [
+            {
+                "id": "e1",
+                "skill_id": "test_skill",
+                "event_type": "skill_call",
+                "payload": "not-a-dict",
+                "payload_summary": "custom summary",
+            },
+        ]
+        store = _store(execute_data=rows)
+
+        result = read_evidence(store, "ev:run-1")
+
+        assert result["ok"] is True
+        assert "custom summary" in result["note"]
 
 
 # ===================================================================
@@ -398,3 +517,91 @@ class TestIntegrationSeam:
         assert result["ok"] is False
         assert result["error"] == "not_found"
         db.table.assert_called_with("agent_skill_events")
+
+    def test_run_scope_queries_skill_events_table(self) -> None:
+        rows = [_valid_row()]
+        db = _mock_db(execute_data=rows)
+        store = AgentLoopStore(db)
+
+        read_evidence(store, "ev:run-1")
+
+        db.table.assert_called_with("agent_skill_events")
+
+    def test_run_scope_applies_limit(self) -> None:
+        rows = [_valid_row()]
+        db = _mock_db(execute_data=rows)
+        store = AgentLoopStore(db)
+
+        read_evidence(store, "ev:run-1")
+
+        db.table.return_value.limit.assert_called_with(10)
+
+    def test_run_scope_orders_desc(self) -> None:
+        rows = [_valid_row()]
+        db = _mock_db(execute_data=rows)
+        store = AgentLoopStore(db)
+
+        read_evidence(store, "ev:run-1")
+
+        db.table.return_value.order.assert_called_with("created_at", desc=True)
+
+
+# ===================================================================
+# Store: list_recent_skill_events
+# ===================================================================
+
+
+class TestListRecentSkillEvents:
+    def test_returns_rows(self) -> None:
+        rows = [{"id": "e1"}, {"id": "e2"}]
+        db = _mock_db(execute_data=rows)
+        store = AgentLoopStore(db)
+
+        result = store.list_recent_skill_events("run-1")
+
+        assert result == rows
+        db.table.assert_called_with("agent_skill_events")
+
+    def test_empty_returns_empty_list(self) -> None:
+        store = _store(execute_data=[])
+
+        result = store.list_recent_skill_events("run-1")
+
+        assert result == []
+
+    def test_filters_non_dict_rows(self) -> None:
+        rows = [{"id": "e1"}, "bad", 123, {"id": "e2"}]
+        store = _store(execute_data=rows)
+
+        result = store.list_recent_skill_events("run-1")
+
+        assert result == [{"id": "e1"}, {"id": "e2"}]
+
+    def test_empty_run_id_raises(self) -> None:
+        store = _store()
+
+        with pytest.raises(ValueError, match="run_id is required"):
+            store.list_recent_skill_events("")
+
+    def test_zero_limit_raises(self) -> None:
+        store = _store()
+
+        with pytest.raises(ValueError, match="limit must be > 0"):
+            store.list_recent_skill_events("run-1", limit=0)
+
+    def test_custom_limit(self) -> None:
+        db = _mock_db(execute_data=[])
+        store = AgentLoopStore(db)
+
+        store.list_recent_skill_events("run-1", limit=5)
+
+        db.table.return_value.limit.assert_called_with(5)
+
+    def test_none_data_returns_empty(self) -> None:
+        db = _mock_db()
+        db.table.return_value.execute.return_value.data = None
+        store = AgentLoopStore(db)
+
+        result = store.list_recent_skill_events("run-1")
+
+        assert result == []

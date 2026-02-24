@@ -410,11 +410,10 @@ Locked regression fixtures for C10B:
     `lookup_client`, `lookup_brand`, `search_kb`, `resolve_brand`, `get_client_context`.
   - Add `payload_summary` prompt usage for large skill results.
   - Add rehydration skill (`load_prior_skill_result`) to reload full prior evidence on demand.
-- Contract gaps (intentional):
-  - Run-scope rehydration keys (`ev:<run_id>` without event_id) are parsed but return
-    `not_implemented_run_scope` from `read_evidence()`.  Broad run-level event queries
-    are deferred until a concrete consumer needs them.  This is an intentional design
-    boundary, not a bug.
+- Contract notes:
+  - Run-scope rehydration keys (`ev:<run_id>`) return an aggregate summary of recent
+    skill events (up to 10, newest first, rendered oldest-first).  Notes are truncated
+    to 1000 chars; compact summary lists event count and distinct skill IDs.
   - Integration seam tests (reader + live Supabase) are out of scope for unit-only
     foundation; add when wiring into DM runtime.
 - Acceptance:

@@ -144,6 +144,26 @@ class AgentLoopStore:
         )
         return _first_row(response)
 
+    def list_recent_skill_events(self, run_id: str, limit: int = 20) -> list[dict[str, Any]]:
+        """Fetch recent skill events for a run, newest first.
+
+        Returns a list of row dicts, or ``[]`` if none found.
+        """
+        run_id = _require_non_empty("run_id", run_id)
+        if limit <= 0:
+            raise ValueError("limit must be > 0")
+
+        response = (
+            self.db.table("agent_skill_events")
+            .select("*")
+            .eq("run_id", run_id)
+            .order("created_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        rows = response.data if isinstance(response.data, list) else []
+        return [row for row in rows if isinstance(row, dict)]
+
     def list_recent_run_messages(self, run_id: str, limit: int = 20) -> list[dict[str, Any]]:
         run_id = _require_non_empty("run_id", run_id)
         if limit <= 0:
