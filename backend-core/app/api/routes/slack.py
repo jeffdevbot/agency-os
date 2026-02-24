@@ -837,7 +837,19 @@ async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> No
             session: Any,
             session_service: Any,
         ) -> dict[str, Any]:
-            _ = session
+            policy = await _check_skill_policy(
+                slack_user_id=slack_user_id,
+                session=session,
+                channel=channel,
+                skill_id="clickup_task_list",
+                args=args,
+            )
+            if not policy.get("allowed"):
+                return {
+                    "response_text": str(policy.get("user_message") or "That action is not allowed."),
+                    "policy_denied": True,
+                }
+
             capture = _CaptureSlack()
             await _handle_task_list(
                 slack_user_id=slack_user_id,
