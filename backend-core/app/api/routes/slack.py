@@ -17,7 +17,6 @@ from ...services.agencyclaw.policy_gate import (
 )
 from ...services.agencyclaw.brand_context_resolver import (
     BrandResolution,
-    resolve_brand_context,
 )
 from ...services.agencyclaw.brand_mapping_remediation import (
     apply_brand_mapping_remediation_plan,
@@ -75,6 +74,11 @@ from ...services.agencyclaw.slack_planner_delegate_runtime import (
 from ...services.agencyclaw.slack_agent_loop_bridge_runtime import (
     SlackAgentLoopBridgeRuntimeDeps,
     run_agent_loop_reply_turn_bridge_runtime,
+)
+from ...services.agencyclaw.slack_resolution_runtime import (
+    resolve_assignment_client_runtime,
+    resolve_brand_for_task_runtime,
+    resolve_client_for_task_runtime,
 )
 from ...services.agencyclaw.slack_dm_runtime import (
     handle_dm_event_runtime as _runtime_handle_dm_event,
@@ -340,60 +344,15 @@ async def _resolve_client_for_task(
     slack: Any,
     pref_service: Any | None = None,
 ) -> tuple[str | None, str]:
-    """Resolve client_id + client_name from hint or active session.
-
-    Returns (client_id, client_name).  client_id is None on failure (message already sent).
-
-    Precedence: explicit hint > actor preference > session active client > picker.
-    """
-    if client_name_hint:
-        matches = await asyncio.to_thread(
-            session_service.find_client_matches, session.profile_id, client_name_hint
-        )
-        if not matches:
-            await slack.post_message(
-                channel=channel,
-                text=f"I couldn't find a client matching *{client_name_hint}*.",
-            )
-            return None, ""
-        if len(matches) > 1:
-            blocks = _build_client_picker_blocks(matches)
-            await slack.post_message(
-                channel=channel,
-                text=f"Multiple clients match *{client_name_hint}*. Pick one and try again:",
-                blocks=blocks,
-            )
-            return None, ""
-        return str(matches[0].get("id") or ""), str(matches[0].get("name") or client_name_hint)
-
-    # C10E: Check actor preference (durable default)
-    if pref_service and session.profile_id:
-        pref_client_id = await asyncio.to_thread(
-            pref_service.get_default_client_id, session.profile_id
-        )
-        if pref_client_id:
-            name = await asyncio.to_thread(session_service.get_client_name, pref_client_id)
-            if name:
-                return pref_client_id, name
-
-    if session.active_client_id:
-        name = await asyncio.to_thread(session_service.get_client_name, session.active_client_id)
-        return session.active_client_id, name or "Client"
-
-    clients = await asyncio.to_thread(session_service.list_clients_for_picker, session.profile_id)
-    if clients:
-        blocks = _build_client_picker_blocks(clients)
-        await slack.post_message(
-            channel=channel,
-            text="Which client is this task for? Pick one and try again:",
-            blocks=blocks,
-        )
-    else:
-        await slack.post_message(
-            channel=channel,
-            text="I couldn't find any clients. Ask an admin to assign you.",
-        )
-    return None, ""
+    return await resolve_client_for_task_runtime(
+        client_name_hint=client_name_hint,
+        session=session,
+        session_service=session_service,
+        channel=channel,
+        slack=slack,
+        pref_service=pref_service,
+        build_client_picker_blocks_fn=_build_client_picker_blocks,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -412,29 +371,17 @@ async def _resolve_brand_for_task(
     channel: str,
     slack: Any,
 ) -> BrandResolution:
-    """Resolve brand context for task creation.
-
-    Fetches brands, calls the pure resolver, posts picker if ambiguous.
-    """
-    brands = await asyncio.to_thread(
-        session_service.get_brands_with_context_for_client, client_id,
+    return await resolve_brand_for_task_runtime(
+        client_id=client_id,
+        client_name=client_name,
+        task_text=task_text,
+        brand_hint=brand_hint,
+        session=session,
+        session_service=session_service,
+        channel=channel,
+        slack=slack,
+        build_brand_picker_blocks_fn=_build_brand_picker_blocks,
     )
-    resolution = resolve_brand_context(brands, brand_hint=brand_hint, task_text=task_text)
-
-    if resolution["mode"] in ("ambiguous_brand", "ambiguous_destination"):
-        qualifier = (
-            "different ClickUp destinations"
-            if resolution["mode"] == "ambiguous_destination"
-            else "multiple brands"
-        )
-        blocks = _build_brand_picker_blocks(resolution["candidates"], client_name)
-        await slack.post_message(
-            channel=channel,
-            text=f"*{client_name}* has {qualifier}. Which brand is this for?",
-            blocks=blocks,
-        )
-
-    return resolution
 
 
 # ---------------------------------------------------------------------------
@@ -469,59 +416,14 @@ async def _resolve_assignment_client(
     channel: str,
     slack: Any,
 ) -> str | bool:
-    """Resolve client for assignment skills (always requires a concrete client).
-
-    Unlike ``_resolve_cc_client_hint`` (which returns None for "scan all"),
-    assignment skills always need a client_id.
-
-    Returns:
-    - A client_id string on success.
-    - ``False`` if resolution failed (message already posted to Slack).
-    """
-    client_hint = str(args.get("client_name") or "").strip()
-
-    # Explicit client_name hint — resolve via fuzzy match
-    if client_hint:
-        matches = await asyncio.to_thread(
-            session_service.find_client_matches, session.profile_id, client_hint,
-        )
-        if not matches:
-            await slack.post_message(
-                channel=channel,
-                text=f"I couldn't find a client matching *{client_hint}*.",
-            )
-            return False
-        if len(matches) > 1:
-            blocks = _build_client_picker_blocks(matches)
-            await slack.post_message(
-                channel=channel,
-                text=f"Multiple clients match *{client_hint}*. Pick one and try again:",
-                blocks=blocks,
-            )
-            return False
-        return str(matches[0].get("id") or "")
-
-    # No hint — fall back to active client on session
-    if session.active_client_id:
-        return str(session.active_client_id)
-
-    # No active client — ask user to pick or switch
-    clients = await asyncio.to_thread(
-        session_service.list_clients_for_picker, session.profile_id,
+    return await resolve_assignment_client_runtime(
+        args=args,
+        session_service=session_service,
+        session=session,
+        channel=channel,
+        slack=slack,
+        build_client_picker_blocks_fn=_build_client_picker_blocks,
     )
-    if clients:
-        blocks = _build_client_picker_blocks(clients)
-        await slack.post_message(
-            channel=channel,
-            text="Which client is this assignment for? Pick one or say *switch to <client>* first:",
-            blocks=blocks,
-        )
-    else:
-        await slack.post_message(
-            channel=channel,
-            text="I need a client for this assignment. Say *switch to <client>* first.",
-        )
-    return False
 
 
 def _format_remediation_preview(plan: list[dict[str, Any]]) -> str:
