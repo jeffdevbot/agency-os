@@ -198,7 +198,9 @@ Last updated: 2026-02-24 (C17G completion pass landed; C17H remains deferred)
 - C17C lane queue serialization: DM runtime now acquires per-actor lane lock before session creation/read and resolves session inside lock; first-message race covered; targeted suites `test_c17c_lane_queue_runtime.py` + `test_c17c_lane_queue_scaffold.py` + `test_c9b_integration.py` passing.
 - C17D reply-only agent loop: feature-flagged reply path logs `agent_runs`/`agent_messages` and assembles bounded prompt context from session history + run messages; failure path posts conversational fallback and marks run failed when run exists.
 - C17E read-only skill loop v1: agent-loop path supports one allowlisted read-only tool call (`clickup_task_list`) with skill event logging and second LLM pass; disallowed skills fail-closed; policy gate enforced before task-list execution in executor wrapper.
-- Current backend full-suite baseline after C17E + policy patch: `1049 passed, 1 warning`, `0 failed`.
+- C17F mutation confirmation contract: agent-loop path now validates deterministic confirmation payloads (actor + fingerprint + expiry), re-checks mutation policy at confirm-time, and preserves retry safety by retaining pending payload on execution failure.
+- C17G context/rehydration runtime: added context skills (`lookup_client`, `lookup_brand`, `search_kb`, `resolve_brand`, `get_client_context`) and rehydration skill (`load_prior_skill_result`) to agent-loop read path with policy-gated callback dispatch, skill-event logging, and bounded evidence-note injection into prompt assembly.
+- Current backend full-suite baseline after C17G completion pass: `1180 passed, 1 warning`, `0 failed`.
 
 ## 4. Validation Checklist (Per Chunk)
 - [ ] Behavior works in Slack runtime path.

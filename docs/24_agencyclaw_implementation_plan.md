@@ -6,10 +6,12 @@ It is separate from `docs/23_agencyclaw_prd.md`:
 - PRD = product decisions and behavior.
 - Implementation plan = execution order, prompts, and acceptance gates.
 
-Status note (2026-02-20):
+Status note (2026-02-24):
 - Post-C12 runtime hardening/decomposition has completed through C16C.
+- C17A-C17G have landed (agent-loop foundation, lane serialization, reply/tool loop,
+  mutation confirmation contract, context/rehydration runtime wiring).
 - See `docs/25_agencyclaw_execution_tracker.md` for commit-by-commit evidence.
-- C17 is reserved for the Agent Loop migration described in
+- C17H remains the pending step in the Agent Loop migration described in
   `backend-core/docs/design/agencyclaw-agent-loop.md`.
 
 ## 2. Working Rules

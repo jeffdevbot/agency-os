@@ -45,7 +45,7 @@ Action:
 
 ---
 
-## 3) Runtime Cleanup Status (As Of C16C)
+## 3) Runtime Cleanup Status (As Of C17G)
 
 Completed:
 1. Strict LLM-first gating is in place (`C13A`), with non-control deterministic fallback blocked in strict mode.
@@ -55,6 +55,11 @@ Completed:
 5. Runtime-focused unit suites landed (`C14X`) and full backend suite is currently green.
 6. Orchestrator-first planner delegation + resilience landed (`C15A`-`C15C`).
 7. Canonical task-list routing landed with weekly alias compatibility (`C16A`-`C16C`).
+8. Agent-loop foundation landed through `C17A`-`C17G`:
+   - run/message/event storage + lane serialization
+   - feature-flagged reply + read-skill loops
+   - mutation confirmation contract
+   - context/rehydration skill wiring with bounded evidence injection.
 
 Still optional (not release blockers):
 1. Convert deterministic control intents (`switch_client`, `set_default_client`, `clear_defaults`) into first-class skills.
