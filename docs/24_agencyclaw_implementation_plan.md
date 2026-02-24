@@ -434,6 +434,23 @@ Locked regression fixtures for C10B:
   - Planner output is not user-facing directly; main agent narrates result.
   - Parent/child run trace is queryable and auditable.
 
+### C17H+ (Follow-on): Planner Loop Hardening (Jarvis-like Sub-Agent Behavior)
+- Scope:
+  - Upgrade planner from single-shot plan generation to bounded iterative loop:
+    `plan -> execute step(s) -> observe results -> re-plan when needed -> finalize report`.
+  - Keep deterministic safety rails (`policy_gate`, idempotency, confirmation) around mutations.
+  - Persist per-iteration planner messages and skill events under child `run_type='planner'`.
+  - Return structured planner report to main agent after loop completion or bounded stop.
+- Guardrails:
+  - Bounded iteration budget (for example max turns/steps) to avoid runaway loops.
+  - Explicit stop states: `completed`, `blocked`, `failed`, `budget_exhausted`.
+  - Fail-safe fallback: main agent returns conversational narrowing prompt if planner cannot complete.
+- Acceptance:
+  - Planner can perform at least one re-plan cycle based on tool results in the same delegated run.
+  - Planner report captures actions taken, evidence, open questions, and confidence.
+  - Main agent response remains user-facing single voice (planner remains internal).
+  - Parent/child trace remains auditable end-to-end.
+
 ## 6. C9 Runtime Env Prerequisites
 Source of truth for deployed values:
 - Render env group: `agency-os-env-var`

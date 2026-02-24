@@ -68,6 +68,7 @@ Last updated: 2026-02-24 (C17G completion pass landed; C17H remains deferred)
 | C17F | Mutation confirmation contract | Codex | done | merged (`494587a`, `6338459`) | Added deterministic `pending_confirmation` contract with confirmation/cancel/expiry handling, fingerprint integrity validation, confirm-time mutation policy recheck, and retry-safe pending semantics (retain on execute failure, clear on success/cancel/expiry/invalid). |
 | C17G | Context skills + retention summaries + rehydration | Codex | done | `8a56c74`, `95dcec1`, `88443ff`, `af8721b`, `173cd2b` | Agent-loop read allowlist expanded with context/rehydration skills, policy-gated runtime callback dispatch wired to existing services, bounded recent skill-event evidence injection added to prompt assembly path, and follow-up hardening landed for fail-closed `lookup_client` arg validation plus deterministic `search_kb` brand scoping. |
 | C17H | Planner sub-agent integration | unassigned | planned | - | Pending; `delegate_planner` and child-run hierarchy land here (not before C17H). |
+| C17H+ | Planner loop hardening (iterative sub-agent) | unassigned | planned | - | Follow-on after C17H: move planner from single-shot to bounded iterative loop (`plan -> execute -> observe -> re-plan`), with deterministic safety rails and auditable planner child-run iterations. |
 
 ## 3. Open Blockers
 - [x] Confirm migration `20260217000006_clickup_space_skill_seed.sql` is applied.
