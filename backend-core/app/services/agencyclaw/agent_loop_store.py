@@ -58,6 +58,9 @@ class AgentLoopStore:
             "session_id": session_id,
             "run_type": run_type,
             "status": "running",
+            # Legacy runtime-isolation schema requires run_key (NOT NULL).
+            # Use stable session scope so modern + legacy shapes both work.
+            "run_key": f"session:{session_id}",
         }
         if parent_run_id is not None:
             payload["parent_run_id"] = parent_run_id

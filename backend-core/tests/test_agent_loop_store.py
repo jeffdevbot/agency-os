@@ -38,6 +38,7 @@ def test_create_run_happy_path():
     assert insert_payload["session_id"] == "s1"
     assert insert_payload["run_type"] == "main"
     assert insert_payload["status"] == "running"
+    assert insert_payload["run_key"] == "session:s1"
 
 
 def test_append_message_happy_path():
