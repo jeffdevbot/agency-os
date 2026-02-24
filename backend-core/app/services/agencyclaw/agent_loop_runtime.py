@@ -159,10 +159,9 @@ def _validate_read_skill_args(skill_id: str, args: dict[str, Any]) -> dict[str, 
     if skill_id == "clickup_task_list":
         return _validate_task_list_args(args)
     if skill_id == "cc_client_lookup":
-        query = str(args.get("query") or "").strip()
-        if not query:
-            raise ValueError("query is required")
-        return {"query": query}
+        if "query" not in args or args.get("query") is None:
+            return {}
+        return {"query": str(args.get("query") or "").strip()}
     if skill_id == "cc_brand_list_all":
         client_name = str(args.get("client_name") or "").strip()
         return {"client_name": client_name} if client_name else {}

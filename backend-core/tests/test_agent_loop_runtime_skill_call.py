@@ -129,14 +129,15 @@ async def test_c17e_task_list_round_trip_logs_events(monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "skill_id,args",
+    "skill_id,args,expected_args",
     [
-        ("cc_client_lookup", {"query": "dist"}),
-        ("cc_brand_list_all", {"client_name": "Distex"}),
-        ("cc_brand_clickup_mapping_audit", {}),
+        ("cc_client_lookup", {"query": "dist"}, {"query": "dist"}),
+        ("cc_client_lookup", {"query": ""}, {"query": ""}),
+        ("cc_brand_list_all", {"client_name": "Distex"}, {"client_name": "Distex"}),
+        ("cc_brand_clickup_mapping_audit", {}, {}),
     ],
 )
-async def test_c17g_read_skill_round_trip_logs_events(monkeypatch, skill_id, args):
+async def test_c17g_read_skill_round_trip_logs_events(monkeypatch, skill_id, args, expected_args):
     calls: list[tuple[str, tuple]] = []
 
     class FakeStore:
@@ -227,9 +228,9 @@ async def test_c17g_read_skill_round_trip_logs_events(monkeypatch, skill_id, arg
     )
 
     assert handled is True
-    assert executed == [(skill_id, args)]
+    assert executed == [(skill_id, expected_args)]
     assert slack.messages == [{"channel": "D1", "text": "Done."}]
-    assert ("log_skill_call", ("run-1", skill_id, args)) in calls
+    assert ("log_skill_call", ("run-1", skill_id, expected_args)) in calls
     assert ("log_skill_result", ("run-1", skill_id, {"response_text": f"{skill_id} ok"})) in calls
     assert ("complete_run", ("run-1", "completed")) in calls
 
