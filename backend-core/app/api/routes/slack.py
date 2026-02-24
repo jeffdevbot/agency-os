@@ -864,6 +864,76 @@ async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> No
             )
             return {"response_text": capture.messages[-1] if capture.messages else "No task list response"}
 
+        async def _execute_create_task_for_agent_loop(
+            *,
+            slack_user_id: str,
+            channel: str,
+            args: dict[str, Any],
+            session: Any,
+            session_service: Any,
+        ) -> dict[str, Any]:
+            capture = _CaptureSlack()
+            pref_service = PreferenceMemoryService(session_service.db)
+            client_id, client_name = await _resolve_client_for_task(
+                client_name_hint=str(args.get("client_name") or ""),
+                session=session,
+                session_service=session_service,
+                channel=channel,
+                slack=capture,
+                pref_service=pref_service,
+            )
+            if not client_id:
+                return {"response_text": capture.messages[-1] if capture.messages else "Could not resolve client."}
+
+            task_title = str(args.get("task_title") or "").strip()
+            if not task_title:
+                return {"response_text": "I need a task title before I can create a task."}
+
+            resolution = await _resolve_brand_for_task(
+                client_id=client_id,
+                client_name=client_name,
+                task_text=task_title,
+                brand_hint=str(args.get("brand_name") or ""),
+                session=session,
+                session_service=session_service,
+                channel=channel,
+                slack=capture,
+            )
+            if resolution["mode"] == "no_destination":
+                return {
+                    "response_text": capture.messages[-1] if capture.messages else "No ClickUp destination found."
+                }
+            if resolution["mode"] in ("ambiguous_brand", "ambiguous_destination"):
+                return {
+                    "response_text": capture.messages[-1] if capture.messages else "Brand mapping is ambiguous."
+                }
+
+            brand_ctx = resolution["brand_context"]
+            brand_id = str(brand_ctx["id"]) if brand_ctx else None
+            brand_name = str(brand_ctx["name"]) if brand_ctx else None
+            draft = await _enrich_task_draft(
+                task_title=task_title,
+                client_id=client_id,
+                client_name=client_name,
+            )
+            task_description = str(args.get("task_description") or "")
+            if not task_description and isinstance(draft, dict):
+                task_description = str(draft.get("description_md") or "")
+
+            await _execute_task_create(
+                channel=channel,
+                session=session,
+                session_service=session_service,
+                slack=capture,
+                client_id=client_id,
+                client_name=client_name,
+                task_title=task_title,
+                task_description=task_description,
+                brand_id=brand_id,
+                brand_name=brand_name,
+            )
+            return {"response_text": capture.messages[-1] if capture.messages else "Task request processed."}
+
         return await _runtime_run_reply_only_agent_loop_turn(
             text=text,
             session=session,
@@ -873,6 +943,8 @@ async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> No
             slack=slack,
             supabase_client=get_supabase_admin_client(),
             execute_task_list_fn=_execute_task_list_for_agent_loop,
+            execute_create_task_fn=_execute_create_task_for_agent_loop,
+            check_mutation_policy_fn=_check_skill_policy,
             logger=_logger,
         )
 

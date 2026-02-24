@@ -15,6 +15,10 @@ from .agent_loop_context_assembler import assemble_prompt_context
 from .agent_loop_store import AgentLoopStore
 from .agent_loop_turn_logger import AgentLoopTurnLogger
 from .openai_client import ChatCompletionResult, OpenAIError, call_chat_completion, parse_json_response
+from .pending_confirmation import (
+    build_pending_confirmation,
+    validate_confirmation,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -29,6 +33,7 @@ _SYSTEM_PROMPT = (
 _FAILURE_FALLBACK_TEXT = (
     "I hit an issue while processing that. Could you rephrase and try again?"
 )
+_PENDING_KEY = "pending_confirmation"
 
 
 def _build_session_rows(session: Any) -> list[dict[str, Any]]:
@@ -114,6 +119,29 @@ def _validate_task_list_args(args: dict[str, Any]) -> dict[str, Any]:
     return normalized
 
 
+def _validate_task_create_args(args: dict[str, Any]) -> dict[str, Any]:
+    allowed = {"client_name", "task_title", "task_description", "brand_name"}
+    for key in args:
+        if key not in allowed:
+            raise ValueError(f"unsupported arg: {key}")
+
+    task_title = str(args.get("task_title") or "").strip()
+    if not task_title:
+        raise ValueError("task_title is required")
+
+    normalized: dict[str, Any] = {"task_title": task_title}
+    client_name = str(args.get("client_name") or "").strip()
+    if client_name:
+        normalized["client_name"] = client_name
+    task_description = args.get("task_description")
+    if task_description is not None:
+        normalized["task_description"] = str(task_description)
+    brand_name = str(args.get("brand_name") or "").strip()
+    if brand_name:
+        normalized["brand_name"] = brand_name
+    return normalized
+
+
 async def run_reply_only_agent_loop_turn(
     *,
     text: str,
@@ -124,6 +152,8 @@ async def run_reply_only_agent_loop_turn(
     slack: Any,
     supabase_client: Any,
     execute_task_list_fn: Callable[..., Awaitable[dict[str, Any]]] | None = None,
+    execute_create_task_fn: Callable[..., Awaitable[dict[str, Any]]] | None = None,
+    check_mutation_policy_fn: Callable[..., Awaitable[dict[str, Any]]] | None = None,
     call_chat_completion_fn: Callable[..., Awaitable[ChatCompletionResult]] = call_chat_completion,
     logger: logging.Logger = _LOGGER,
 ) -> bool:
@@ -142,6 +172,49 @@ async def run_reply_only_agent_loop_turn(
             raise ValueError("failed to create agent run")
 
         await asyncio.to_thread(turn_logger.log_user_message, run_id, text)
+
+        pending = session.context.get(_PENDING_KEY)
+        decision = validate_confirmation(
+            pending if isinstance(pending, dict) else None,
+            slack_user_id=slack_user_id,
+            text=text,
+        )
+        if decision["state"] in {"expired", "cancel", "wrong_actor", "confirm"}:
+            if decision["state"] in {"expired", "cancel"}:
+                await asyncio.to_thread(session_service.update_context, session.id, {_PENDING_KEY: None})
+            if decision["state"] == "cancel":
+                assistant_text = "Cancelled. I won't create that task."
+            elif decision["state"] == "expired":
+                assistant_text = "That confirmation expired. Please ask me to create it again."
+            elif decision["state"] == "wrong_actor":
+                assistant_text = "Only the original requester can confirm or cancel this proposal."
+            else:
+                if not isinstance(pending, dict):
+                    raise ValueError("missing pending payload")
+                await asyncio.to_thread(session_service.update_context, session.id, {_PENDING_KEY: None})
+                skill_id = str(pending.get("skill_id") or "")
+                args = pending.get("args")
+                if skill_id != "clickup_task_create" or not isinstance(args, dict):
+                    raise ValueError("invalid pending confirmation payload")
+                if execute_create_task_fn is None:
+                    raise ValueError("create-task executor not provided")
+                await asyncio.to_thread(turn_logger.log_skill_call, run_id, skill_id, args)
+                result = await execute_create_task_fn(
+                    slack_user_id=slack_user_id,
+                    channel=channel,
+                    args=args,
+                    session=session,
+                    session_service=session_service,
+                )
+                if not isinstance(result, dict):
+                    raise ValueError("create-task result must be dict")
+                await asyncio.to_thread(turn_logger.log_skill_result, run_id, skill_id, result)
+                assistant_text = str(result.get("response_text") or "Task request processed.")
+
+            await slack.post_message(channel=channel, text=assistant_text)
+            await asyncio.to_thread(turn_logger.log_assistant_message, run_id, assistant_text)
+            await asyncio.to_thread(turn_logger.complete_run, run_id, "completed")
+            return True
 
         session_rows = _build_session_rows(session)
         run_rows = await asyncio.to_thread(store.list_recent_run_messages, run_id, 20)
@@ -165,43 +238,75 @@ async def run_reply_only_agent_loop_turn(
 
         if first_payload.get("mode") == "tool_call":
             skill_id = str(first_payload.get("skill_id") or "")
-            if skill_id != "clickup_task_list":
-                raise ValueError(f"disallowed skill in C17E: {skill_id}")
-            if execute_task_list_fn is None:
-                raise ValueError("task-list executor not provided")
+            if skill_id == "clickup_task_list":
+                if execute_task_list_fn is None:
+                    raise ValueError("task-list executor not provided")
 
-            args = _validate_task_list_args(first_payload.get("args") or {})
-            await asyncio.to_thread(turn_logger.log_skill_call, run_id, skill_id, args)
-            tool_result = await execute_task_list_fn(
-                slack_user_id=slack_user_id,
-                channel=channel,
-                args=args,
-                session=session,
-                session_service=session_service,
-            )
-            if not isinstance(tool_result, dict):
-                raise ValueError("tool result must be dict")
-            await asyncio.to_thread(turn_logger.log_skill_result, run_id, skill_id, tool_result)
+                args = _validate_task_list_args(first_payload.get("args") or {})
+                await asyncio.to_thread(turn_logger.log_skill_call, run_id, skill_id, args)
+                tool_result = await execute_task_list_fn(
+                    slack_user_id=slack_user_id,
+                    channel=channel,
+                    args=args,
+                    session=session,
+                    session_service=session_service,
+                )
+                if not isinstance(tool_result, dict):
+                    raise ValueError("tool result must be dict")
+                await asyncio.to_thread(turn_logger.log_skill_result, run_id, skill_id, tool_result)
 
-            tool_context = json.dumps(tool_result, ensure_ascii=True, separators=(",", ":"))
-            second_prompt = list(prompt_messages)
-            second_prompt.append(
-                {
-                    "role": "system",
-                    "content": (
-                        "Tool result for clickup_task_list (JSON): " + tool_context
-                        + ". Respond naturally to the user using this result."
-                    ),
-                }
-            )
-            second_prompt.append({"role": "user", "content": text})
-            completion2 = await call_chat_completion_fn(
-                second_prompt,
-                temperature=0.2,
-                max_tokens=400,
-            )
-            second_payload = _extract_mode_payload(str(completion2.get("content") or ""))
-            assistant_text = str(second_payload.get("text") or "").strip() or "How can I help?"
+                tool_context = json.dumps(tool_result, ensure_ascii=True, separators=(",", ":"))
+                second_prompt = list(prompt_messages)
+                second_prompt.append(
+                    {
+                        "role": "system",
+                        "content": (
+                            "Tool result for clickup_task_list (JSON): " + tool_context
+                            + ". Respond naturally to the user using this result."
+                        ),
+                    }
+                )
+                second_prompt.append({"role": "user", "content": text})
+                completion2 = await call_chat_completion_fn(
+                    second_prompt,
+                    temperature=0.2,
+                    max_tokens=400,
+                )
+                second_payload = _extract_mode_payload(str(completion2.get("content") or ""))
+                assistant_text = str(second_payload.get("text") or "").strip() or "How can I help?"
+            elif skill_id == "clickup_task_create":
+                args = _validate_task_create_args(first_payload.get("args") or {})
+                if check_mutation_policy_fn is None:
+                    raise ValueError("mutation policy checker not provided")
+                policy = await check_mutation_policy_fn(
+                    slack_user_id=slack_user_id,
+                    session=session,
+                    channel=channel,
+                    skill_id="clickup_task_create",
+                    args=args,
+                )
+                if not policy.get("allowed"):
+                    assistant_text = str(policy.get("user_message") or "That action is not allowed.")
+                else:
+                    proposal = build_pending_confirmation(
+                        action_type="mutation",
+                        skill_id="clickup_task_create",
+                        args=args,
+                        requested_by=slack_user_id,
+                        lane_key=slack_user_id,
+                    )
+                    await asyncio.to_thread(
+                        session_service.update_context,
+                        session.id,
+                        {_PENDING_KEY: proposal},
+                    )
+                    title = str(args.get("task_title") or "this task")
+                    assistant_text = (
+                        f"Ready to create task *{title}*. "
+                        "Reply `confirm` to proceed or `cancel` to discard."
+                    )
+            else:
+                raise ValueError(f"disallowed skill in C17E/C17F: {skill_id}")
         else:
             assistant_text = str(first_payload.get("text") or "").strip() or "How can I help?"
 
