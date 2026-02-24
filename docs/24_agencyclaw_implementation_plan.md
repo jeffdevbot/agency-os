@@ -11,8 +11,8 @@ Status note (2026-02-24):
 - C17A-C17G have landed (agent-loop foundation, lane serialization, reply/tool loop,
   mutation confirmation contract, context/rehydration runtime wiring).
 - See `docs/25_agencyclaw_execution_tracker.md` for commit-by-commit evidence.
-- C17H has landed (bounded main-agent multi-turn loop + `delegate_planner` single-shot delegation).
-- C17H+ remains the pending follow-on for iterative planner re-planning/hardening.
+- C17H has landed (bounded main-agent multi-turn loop + `delegate_planner` delegation).
+- C17H+ has landed (iterative planner loop hardening with bounded stop-state contract).
 
 ## 2. Working Rules
 - Work one chunk at a time.
@@ -344,7 +344,7 @@ Locked regression fixtures for C10B:
     `backend-core/docs/design/agencyclaw-agent-loop.md`.
   - Lock phase boundaries:
     - Planner sub-agent integration is Phase C17H (not Phase 1).
-    - `delegate_planner` remains a future path until C17H.
+    - `delegate_planner` was a future path until C17H (now implemented).
   - Define chunk-by-chunk acceptance/rollback guidance for C17A-H.
 - Acceptance:
   - `docs/24_agencyclaw_implementation_plan.md` includes C17 roadmap + details.
@@ -436,7 +436,7 @@ Locked regression fixtures for C10B:
 - Non-goals:
   - Planner MUST NOT execute mutations directly in C17H.
     Mutation proposals are returned in planner report for main-agent confirmation flow.
-  - Planner iterative re-planning is deferred to C17H+.
+  - Planner iterative re-planning was deferred to C17H+ (now implemented).
 - Coexistence:
   - Legacy `slack_planner_runtime.py` remains active when
     `AGENCYCLAW_AGENT_LOOP_ENABLED=false`.
@@ -449,7 +449,7 @@ Locked regression fixtures for C10B:
   - Planner can use read-only skill allowlist; mutation steps are rejected.
   - Parent/child run trace is queryable by `trace_id`.
 
-### C17H+ (Follow-on): Planner Loop Hardening (Iterative Sub-Agent)
+### C17H+ (Landed): Planner Loop Hardening (Iterative Sub-Agent)
 - Scope:
   - Upgrade planner from single-shot to bounded iterative loop:
     `plan -> execute step(s) -> observe results -> re-plan if needed -> finalize report`.

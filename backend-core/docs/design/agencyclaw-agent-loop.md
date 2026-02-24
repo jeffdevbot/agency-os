@@ -1,6 +1,6 @@
 # AgencyClaw Agent Loop Redesign
 
-**Status:** Active (C17H implemented; C17H+ pending)
+**Status:** Active (C17H and C17H+ implemented)
 **Author:** Jeff + Claude + Codex
 **Date:** 2026-02-24
 
@@ -12,9 +12,10 @@
   - first-class `delegate_planner` tool path,
   - planner child-run linkage (`run_type='planner'`, `parent_run_id`, shared `trace_id`),
   - planner mutation steps are rejected into proposals (not executed directly).
-- C17H+ is still pending:
-  - iterative planner re-planning loop (`plan -> execute -> observe -> re-plan`),
-  - planner stop-state hardening and budget-exhaustion partial-report behavior.
+- C17H+ is implemented:
+  - iterative planner re-planning loop (`plan -> execute -> observe -> re-plan`) with bounded budgets,
+  - planner stop-state hardening including `budget_exhausted` and `needs_clarification` in report payloads,
+  - child-run persistence remains on storage enum (`completed|blocked|failed`) with fine-grained states preserved in planner report.
 
 ## Problem Statement
 
