@@ -1228,6 +1228,57 @@ async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> No
             )
             return {"response_text": capture.messages[-1] if capture.messages else "Task request processed."}
 
+        async def _execute_planner_delegate_for_agent_loop(
+            *,
+            request_text: str,
+            slack_user_id: str,
+            channel: str,
+            session: Any,
+            session_service: Any,
+            parent_run_id: str,
+            child_run_id: str,
+            trace_id: str,
+        ) -> dict[str, Any]:
+            _ = parent_run_id, child_run_id, trace_id
+            capture = _CaptureSlack()
+            try:
+                handled = await _try_planner(
+                    text=request_text,
+                    slack_user_id=slack_user_id,
+                    channel=channel,
+                    session=session,
+                    session_service=session_service,
+                    slack=capture,
+                )
+            except Exception as exc:  # noqa: BLE001
+                _logger.warning("Agent-loop planner delegate failed: %s", exc, exc_info=True)
+                return {
+                    "ok": False,
+                    "status": "failed",
+                    "request_text": request_text,
+                    "messages": capture.messages,
+                    "response_text": "I couldn't run planning right now. Could you try again?",
+                    "error": "planner_exception",
+                }
+
+            if not handled:
+                return {
+                    "ok": False,
+                    "status": "blocked",
+                    "request_text": request_text,
+                    "messages": capture.messages,
+                    "response_text": "I couldn't run planning right now. Could you try again?",
+                    "error": "planner_unavailable",
+                }
+
+            return {
+                "ok": True,
+                "status": "completed",
+                "request_text": request_text,
+                "messages": capture.messages,
+                "response_text": capture.messages[-1] if capture.messages else "Planner completed.",
+            }
+
         return await _runtime_run_reply_only_agent_loop_turn(
             text=text,
             session=session,
@@ -1237,6 +1288,7 @@ async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> No
             slack=slack,
             supabase_client=get_supabase_admin_client(),
             execute_read_skill_fn=_execute_read_skill_for_agent_loop,
+            execute_delegate_planner_fn=_execute_planner_delegate_for_agent_loop,
             execute_task_list_fn=_execute_task_list_for_agent_loop,
             execute_create_task_fn=_execute_create_task_for_agent_loop,
             check_mutation_policy_fn=_check_skill_policy,

@@ -1,6 +1,6 @@
 # AgencyClaw Execution Tracker
 
-Last updated: 2026-02-24 (C17G completion pass landed; C17H remains deferred)
+Last updated: 2026-02-24 (C17H planner sub-agent delegation landed; no iterative loop yet)
 
 ## 1. Baseline Status
 - [x] PRD updated to v1.19 (`docs/23_agencyclaw_prd.md`)
@@ -67,7 +67,7 @@ Last updated: 2026-02-24 (C17G completion pass landed; C17H remains deferred)
 | C17E | Skill-result loop v1 (read-only skill) | Codex | done | merged (`6f89b43`, `7dc785f`) | Added single read-only skill round-trip (`clickup_task_list`) in agent-loop path with skill_call/skill_result logging and second-pass natural response synthesis; policy gate enforced in task-list executor path. |
 | C17F | Mutation confirmation contract | Codex | done | merged (`494587a`, `6338459`) | Added deterministic `pending_confirmation` contract with confirmation/cancel/expiry handling, fingerprint integrity validation, confirm-time mutation policy recheck, and retry-safe pending semantics (retain on execute failure, clear on success/cancel/expiry/invalid). |
 | C17G | Context skills + retention summaries + rehydration | Codex | done | `8a56c74`, `95dcec1`, `88443ff`, `af8721b`, `173cd2b` | Agent-loop read allowlist expanded with context/rehydration skills, policy-gated runtime callback dispatch wired to existing services, bounded recent skill-event evidence injection added to prompt assembly path, and follow-up hardening landed for fail-closed `lookup_client` arg validation plus deterministic `search_kb` brand scoping. |
-| C17H | Planner sub-agent integration | unassigned | planned | - | Pending; `delegate_planner` and child-run hierarchy land here (not before C17H). |
+| C17H | Planner sub-agent integration | Codex | done | - | Added agent-loop `delegate_planner` mode with planner child-run creation (`run_type=planner`), `parent_run_id` linkage, shared trace semantics, logged planner report message in main run, and second-pass main-agent response synthesis. C17H+ iterative planner loop remains out of scope. |
 | C17H+ | Planner loop hardening (iterative sub-agent) | unassigned | planned | - | Follow-on after C17H: move planner from single-shot to bounded iterative loop (`plan -> execute -> observe -> re-plan`), with deterministic safety rails and auditable planner child-run iterations. |
 
 ## 3. Open Blockers

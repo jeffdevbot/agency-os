@@ -62,6 +62,23 @@ class AgentLoopTurnLogger:
         terminal = status in {"completed", "failed", "blocked"}
         self._store.update_run_status(run_id, status, completed=terminal)
 
+    def start_planner_run(
+        self,
+        session_id: str,
+        *,
+        parent_run_id: str,
+        trace_id: str,
+    ) -> dict[str, Any]:
+        return self._store.create_run(
+            session_id,
+            run_type="planner",
+            parent_run_id=parent_run_id,
+            trace_id=trace_id,
+        )
+
+    def set_run_trace_id(self, run_id: str, trace_id: str) -> None:
+        self._store.set_run_trace_id(run_id, trace_id)
+
     # ------------------------------------------------------------------
     # Message logging
     # ------------------------------------------------------------------
@@ -86,6 +103,21 @@ class AgentLoopTurnLogger:
         """Record an outbound assistant reply."""
         return self._store.append_message(
             run_id, "assistant", {"text": text}, summary=summary,
+        )
+
+    def log_planner_report(
+        self,
+        run_id: str,
+        report: dict[str, Any],
+        summary: str | None = None,
+    ) -> dict[str, Any]:
+        if not isinstance(report, dict):
+            raise ValueError("report must be a dict")
+        return self._store.append_message(
+            run_id,
+            "planner_report",
+            {"report": report},
+            summary=summary or summarize_json(report),
         )
 
     # ------------------------------------------------------------------

@@ -126,6 +126,11 @@ class AgentLoopStore:
 
         self.db.table("agent_runs").update(payload).eq("id", run_id).execute()
 
+    def set_run_trace_id(self, run_id: str, trace_id: str) -> None:
+        run_id = _require_non_empty("run_id", run_id)
+        trace_id = _require_non_empty("trace_id", trace_id)
+        self.db.table("agent_runs").update({"trace_id": trace_id}).eq("id", run_id).execute()
+
     def get_skill_event_by_id(self, run_id: str, event_id: str) -> dict[str, Any]:
         """Fetch a single skill event by run and event ID.
 

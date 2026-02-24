@@ -377,6 +377,46 @@ class TestAgentLoopFlagDispatch:
 
         assert expected_text.lower() in captured_result["response_text"].lower()
 
+    @pytest.mark.asyncio
+    async def test_agent_loop_delegate_planner_executor_routes_to_planner_runtime(self):
+        svc, slack = _make_mocks()
+        captured_report: dict[str, Any] = {}
+
+        async def _exercise_executor(**kwargs) -> bool:
+            execute_delegate_planner_fn = kwargs["execute_delegate_planner_fn"]
+            captured_report.update(
+                await execute_delegate_planner_fn(
+                    request_text="plan this work",
+                    slack_user_id="U123",
+                    channel="C1",
+                    session=svc.get_or_create_session.return_value,
+                    session_service=svc,
+                    parent_run_id="run-main",
+                    child_run_id="run-child",
+                    trace_id="trace-1",
+                )
+            )
+            return True
+
+        with (
+            patch("app.api.routes.slack._is_agent_loop_enabled", return_value=True),
+            patch("app.api.routes.slack._is_llm_orchestrator_enabled", return_value=False),
+            patch("app.api.routes.slack.get_playbook_session_service", return_value=svc),
+            patch("app.api.routes.slack.get_slack_service", return_value=slack),
+            patch("app.api.routes.slack.get_supabase_admin_client", return_value=MagicMock()),
+            patch(
+                "app.api.routes.slack._runtime_run_reply_only_agent_loop_turn",
+                side_effect=_exercise_executor,
+            ),
+            patch("app.api.routes.slack._try_planner", new_callable=AsyncMock, return_value=True) as mock_try_planner,
+        ):
+            await _handle_dm_event(slack_user_id="U123", channel="C1", text="plan this")
+
+        assert captured_report["ok"] is True
+        assert captured_report["status"] == "completed"
+        assert captured_report["request_text"] == "plan this work"
+        assert mock_try_planner.call_args.kwargs["text"] == "plan this work"
+
 
 class TestStrictModeHelpers:
     def test_llm_strict_mode_true_when_orchestrator_on_and_legacy_off(self):

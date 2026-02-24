@@ -1,10 +1,12 @@
-"""C17D/C17E/C17F/C17G: Feature-flagged agent loop runtime helper.
+"""C17D/C17E/C17F/C17G/C17H: Feature-flagged agent loop runtime helper.
 
 C17D: reply-only turn handling
 C17E: single read-only tool round-trip (`clickup_task_list`) per turn
 C17F: mutation confirmation contract (`clickup_task_create`)
 C17G: read-only context skills (`cc_client_lookup`, `cc_brand_list_all`,
 `cc_brand_clickup_mapping_audit`)
+C17H: planner sub-agent delegation (`delegate_planner`) with parent/child
+run linkage
 """
 
 from __future__ import annotations
@@ -42,6 +44,7 @@ _SYSTEM_PROMPT = (
     '{"mode":"tool_call","skill_id":"resolve_brand","args":{...}} or '
     '{"mode":"tool_call","skill_id":"get_client_context","args":{...}} or '
     '{"mode":"tool_call","skill_id":"load_prior_skill_result","args":{...}} or '
+    '{"mode":"delegate_planner","args":{"request_text":"..."}} or '
     '{"mode":"tool_call","skill_id":"clickup_task_create","args":{...}}.'
 )
 _FAILURE_FALLBACK_TEXT = (
@@ -108,6 +111,11 @@ def _extract_mode_payload(content: str) -> dict[str, Any]:
         return {
             "mode": "tool_call",
             "skill_id": str(payload.get("skill_id") or "").strip(),
+            "args": payload.get("args") if isinstance(payload.get("args"), dict) else {},
+        }
+    if mode == "delegate_planner":
+        return {
+            "mode": "delegate_planner",
             "args": payload.get("args") if isinstance(payload.get("args"), dict) else {},
         }
 
@@ -271,19 +279,22 @@ async def run_reply_only_agent_loop_turn(
     slack: Any,
     supabase_client: Any,
     execute_read_skill_fn: Callable[..., Awaitable[dict[str, Any]]] | None = None,
+    execute_delegate_planner_fn: Callable[..., Awaitable[dict[str, Any]]] | None = None,
     execute_task_list_fn: Callable[..., Awaitable[dict[str, Any]]] | None = None,
     execute_create_task_fn: Callable[..., Awaitable[dict[str, Any]]] | None = None,
     check_mutation_policy_fn: Callable[..., Awaitable[dict[str, Any]]] | None = None,
     call_chat_completion_fn: Callable[..., Awaitable[ChatCompletionResult]] = call_chat_completion,
     logger: logging.Logger = _LOGGER,
 ) -> bool:
-    """Run a C17D/C17E/C17F/C17G turn with run/message/event logging.
+    """Run a C17D/C17E/C17F/C17G/C17H turn with run/message/event logging.
 
     Returns True when the turn was handled (including fallback paths).
     """
     store = AgentLoopStore(supabase_client)
     turn_logger = AgentLoopTurnLogger(store)
     run_id: str | None = None
+    planner_child_run_id: str | None = None
+    planner_child_done = False
 
     try:
         run = await asyncio.to_thread(turn_logger.start_main_run, str(session.id))
@@ -471,7 +482,75 @@ async def run_reply_only_agent_loop_turn(
                         "Reply `confirm` to proceed or `cancel` to discard."
                     )
             else:
-                raise ValueError(f"disallowed skill in C17E/C17F/C17G: {skill_id}")
+                raise ValueError(f"disallowed skill in C17E/C17F/C17G/C17H: {skill_id}")
+        elif first_payload.get("mode") == "delegate_planner":
+            if execute_delegate_planner_fn is None:
+                raise ValueError("planner delegate executor not provided")
+            delegate_args = first_payload.get("args") or {}
+            if not isinstance(delegate_args, dict):
+                delegate_args = {}
+            request_text = str(delegate_args.get("request_text") or "").strip() or text
+            trace_id = str(run.get("trace_id") or "").strip() or run_id
+            if not str(run.get("trace_id") or "").strip():
+                if hasattr(turn_logger, "set_run_trace_id"):
+                    await asyncio.to_thread(turn_logger.set_run_trace_id, run_id, trace_id)
+
+            planner_child = await asyncio.to_thread(
+                turn_logger.start_planner_run,
+                str(session.id),
+                parent_run_id=run_id,
+                trace_id=trace_id,
+            )
+            planner_child_run_id = str(planner_child.get("id") or "").strip()
+            if not planner_child_run_id:
+                raise ValueError("failed to create planner child run")
+
+            planner_report = await execute_delegate_planner_fn(
+                request_text=request_text,
+                slack_user_id=slack_user_id,
+                channel=channel,
+                session=session,
+                session_service=session_service,
+                parent_run_id=run_id,
+                child_run_id=planner_child_run_id,
+                trace_id=trace_id,
+            )
+            if not isinstance(planner_report, dict):
+                raise ValueError("planner delegate report must be dict")
+
+            status = str(planner_report.get("status") or "").strip().lower()
+            if status not in {"completed", "failed", "blocked"}:
+                status = "completed" if bool(planner_report.get("ok")) else "failed"
+            await asyncio.to_thread(turn_logger.complete_run, planner_child_run_id, status)
+            planner_child_done = True
+
+            await asyncio.to_thread(turn_logger.log_planner_report, run_id, planner_report)
+
+            if status != "completed":
+                assistant_text = str(
+                    planner_report.get("response_text")
+                    or "I couldn't run planning right now. Could you rephrase and try again?"
+                )
+            else:
+                report_context = json.dumps(planner_report, ensure_ascii=True, separators=(",", ":"))
+                second_prompt = list(prompt_messages)
+                second_prompt.append(
+                    {
+                        "role": "system",
+                        "content": (
+                            "Planner sub-agent report (JSON): " + report_context
+                            + ". Respond in the main assistant voice with a concise, user-facing reply."
+                        ),
+                    }
+                )
+                second_prompt.append({"role": "user", "content": text})
+                completion2 = await call_chat_completion_fn(
+                    second_prompt,
+                    temperature=0.2,
+                    max_tokens=400,
+                )
+                second_payload = _extract_mode_payload(str(completion2.get("content") or ""))
+                assistant_text = str(second_payload.get("text") or "").strip() or "How can I help?"
         else:
             assistant_text = str(first_payload.get("text") or "").strip() or "How can I help?"
 
@@ -481,6 +560,11 @@ async def run_reply_only_agent_loop_turn(
         return True
     except Exception as exc:  # noqa: BLE001
         logger.warning("Agent loop reply-only turn failed: %s", exc, exc_info=True)
+        if planner_child_run_id and not planner_child_done:
+            try:
+                await asyncio.to_thread(turn_logger.complete_run, planner_child_run_id, "failed")
+            except Exception:  # noqa: BLE001
+                pass
         if run_id:
             try:
                 await asyncio.to_thread(turn_logger.complete_run, run_id, "failed")
