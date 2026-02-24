@@ -80,8 +80,12 @@ def build_pending_confirmation(
     requested_at = now_dt.isoformat()
     expires_at = (now_dt + timedelta(seconds=ttl_seconds)).isoformat()
     canonical_args = json.dumps(args, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
-    fingerprint_base = f"{skill_id}|{canonical_args}|{requested_by}|{lane_key}"
-    proposal_fingerprint = hashlib.sha256(fingerprint_base.encode("utf-8")).hexdigest()
+    proposal_fingerprint = compute_proposal_fingerprint(
+        skill_id=skill_id,
+        args_json=canonical_args,
+        requested_by=requested_by,
+        lane_key=lane_key,
+    )
     return PendingConfirmation(
         action_type=action_type,
         skill_id=skill_id,
@@ -91,6 +95,37 @@ def build_pending_confirmation(
         expires_at=expires_at,
         proposal_fingerprint=proposal_fingerprint,
     )
+
+
+def compute_proposal_fingerprint(
+    *,
+    skill_id: str,
+    args_json: str,
+    requested_by: str,
+    lane_key: str,
+) -> str:
+    base = f"{skill_id}|{args_json}|{requested_by}|{lane_key}"
+    return hashlib.sha256(base.encode("utf-8")).hexdigest()
+
+
+def payload_has_valid_fingerprint(payload: dict[str, Any], *, lane_key: str) -> bool:
+    try:
+        skill_id = str(payload.get("skill_id") or "").strip()
+        requested_by = str(payload.get("requested_by") or "").strip()
+        args = payload.get("args")
+        actual = str(payload.get("proposal_fingerprint") or "").strip()
+        if not skill_id or not requested_by or not isinstance(args, dict) or not actual:
+            return False
+        args_json = json.dumps(args, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+        expected = compute_proposal_fingerprint(
+            skill_id=skill_id,
+            args_json=args_json,
+            requested_by=requested_by,
+            lane_key=(lane_key or "").strip(),
+        )
+        return actual == expected
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def is_expired(payload: dict[str, Any], now: datetime | None = None) -> bool:
@@ -120,17 +155,20 @@ def validate_confirmation(
     *,
     slack_user_id: str,
     text: str,
+    lane_key: str | None = None,
     now: datetime | None = None,
 ) -> ValidationResult:
     if not isinstance(payload, dict):
         return ValidationResult(state="invalid", reason="missing_payload")
-    if is_expired(payload, now=now):
-        return ValidationResult(state="expired", reason="expired")
 
     requested_by = str(payload.get("requested_by") or "").strip()
     actor = (slack_user_id or "").strip()
     if requested_by and actor and requested_by != actor:
         return ValidationResult(state="wrong_actor", reason="wrong_actor")
+    if not payload_has_valid_fingerprint(payload, lane_key=lane_key or slack_user_id):
+        return ValidationResult(state="invalid", reason="fingerprint_mismatch")
+    if is_expired(payload, now=now):
+        return ValidationResult(state="expired", reason="expired")
 
     if is_negative(text):
         return ValidationResult(state="cancel", reason="user_cancelled")

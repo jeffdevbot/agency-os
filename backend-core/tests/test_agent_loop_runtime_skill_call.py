@@ -256,6 +256,10 @@ async def test_c17f_confirm_executes_once_and_clears_payload(monkeypatch):
         executed += 1
         return {"response_text": "Task created: <url|Fix title>"}
 
+    async def _allow_policy(**kwargs):
+        _ = kwargs
+        return {"allowed": True, "user_message": "", "reason_code": "allowed", "meta": {}}
+
     monkeypatch.setattr("app.services.agencyclaw.agent_loop_runtime.AgentLoopStore", FakeStore)
     monkeypatch.setattr("app.services.agencyclaw.agent_loop_runtime.AgentLoopTurnLogger", FakeTurnLogger)
 
@@ -271,6 +275,7 @@ async def test_c17f_confirm_executes_once_and_clears_payload(monkeypatch):
         slack=slack,
         supabase_client=MagicMock(),
         execute_create_task_fn=_execute_create_task,
+        check_mutation_policy_fn=_allow_policy,
     )
 
     assert handled is True
@@ -452,3 +457,190 @@ async def test_c17f_wrong_actor_cannot_confirm(monkeypatch):
     assert handled is True
     assert session.context.get("pending_confirmation") is not None
     assert "original requester" in slack.messages[-1]["text"].lower()
+
+
+@pytest.mark.asyncio
+async def test_c17f_confirm_time_policy_denial_blocks_execution_and_keeps_pending(monkeypatch):
+    class FakeStore:
+        def __init__(self, _db):
+            pass
+
+        def list_recent_run_messages(self, run_id: str, limit: int = 20):
+            return []
+
+    class FakeTurnLogger:
+        def __init__(self, _store):
+            pass
+
+        def start_main_run(self, session_id: str):
+            return {"id": "run-1", "status": "running"}
+
+        def log_user_message(self, run_id: str, text: str):
+            return {"id": "m1"}
+
+        def log_assistant_message(self, run_id: str, text: str):
+            return {"id": "m2"}
+
+        def complete_run(self, run_id: str, status: str):
+            return None
+
+    pending = build_pending_confirmation(
+        action_type="mutation",
+        skill_id="clickup_task_create",
+        args={"task_title": "Fix title"},
+        requested_by="U123",
+        lane_key="U123",
+    )
+    executed = 0
+
+    async def _execute_create_task(**kwargs):
+        nonlocal executed
+        _ = kwargs
+        executed += 1
+        return {"response_text": "Task created"}
+
+    async def _deny_policy(**kwargs):
+        _ = kwargs
+        return {"allowed": False, "user_message": "Not allowed in this channel.", "reason_code": "deny", "meta": {}}
+
+    monkeypatch.setattr("app.services.agencyclaw.agent_loop_runtime.AgentLoopStore", FakeStore)
+    monkeypatch.setattr("app.services.agencyclaw.agent_loop_runtime.AgentLoopTurnLogger", FakeTurnLogger)
+
+    session = _FakeSession(context={"pending_confirmation": pending})
+    session_service = _FakeSessionService(session)
+    slack = _FakeSlack()
+    handled = await run_reply_only_agent_loop_turn(
+        text="confirm",
+        session=session,
+        slack_user_id="U123",
+        session_service=session_service,
+        channel="D1",
+        slack=slack,
+        supabase_client=MagicMock(),
+        execute_create_task_fn=_execute_create_task,
+        check_mutation_policy_fn=_deny_policy,
+    )
+
+    assert handled is True
+    assert executed == 0
+    assert session.context.get("pending_confirmation") is not None
+    assert "not allowed" in slack.messages[-1]["text"].lower()
+
+
+@pytest.mark.asyncio
+async def test_c17f_fingerprint_mismatch_rejected_and_cleared(monkeypatch):
+    class FakeStore:
+        def __init__(self, _db):
+            pass
+
+        def list_recent_run_messages(self, run_id: str, limit: int = 20):
+            return []
+
+    class FakeTurnLogger:
+        def __init__(self, _store):
+            pass
+
+        def start_main_run(self, session_id: str):
+            return {"id": "run-1", "status": "running"}
+
+        def log_user_message(self, run_id: str, text: str):
+            return {"id": "m1"}
+
+        def log_assistant_message(self, run_id: str, text: str):
+            return {"id": "m2"}
+
+        def complete_run(self, run_id: str, status: str):
+            return None
+
+    pending = build_pending_confirmation(
+        action_type="mutation",
+        skill_id="clickup_task_create",
+        args={"task_title": "Fix title"},
+        requested_by="U123",
+        lane_key="U123",
+    )
+    pending["proposal_fingerprint"] = "bad-fingerprint"
+
+    monkeypatch.setattr("app.services.agencyclaw.agent_loop_runtime.AgentLoopStore", FakeStore)
+    monkeypatch.setattr("app.services.agencyclaw.agent_loop_runtime.AgentLoopTurnLogger", FakeTurnLogger)
+
+    session = _FakeSession(context={"pending_confirmation": pending})
+    session_service = _FakeSessionService(session)
+    slack = _FakeSlack()
+    handled = await run_reply_only_agent_loop_turn(
+        text="confirm",
+        session=session,
+        slack_user_id="U123",
+        session_service=session_service,
+        channel="D1",
+        slack=slack,
+        supabase_client=MagicMock(),
+    )
+
+    assert handled is True
+    assert session.context.get("pending_confirmation") is None
+    assert "couldn't validate" in slack.messages[-1]["text"].lower()
+
+
+@pytest.mark.asyncio
+async def test_c17f_failed_create_keeps_pending_for_retry(monkeypatch):
+    class FakeStore:
+        def __init__(self, _db):
+            pass
+
+        def list_recent_run_messages(self, run_id: str, limit: int = 20):
+            return []
+
+    class FakeTurnLogger:
+        def __init__(self, _store):
+            pass
+
+        def start_main_run(self, session_id: str):
+            return {"id": "run-1", "status": "running"}
+
+        def log_user_message(self, run_id: str, text: str):
+            return {"id": "m1"}
+
+        def log_skill_call(self, run_id: str, skill_id: str, payload: dict):
+            return {"id": "e1"}
+
+        def complete_run(self, run_id: str, status: str):
+            return None
+
+    pending = build_pending_confirmation(
+        action_type="mutation",
+        skill_id="clickup_task_create",
+        args={"task_title": "Fix title"},
+        requested_by="U123",
+        lane_key="U123",
+    )
+
+    async def _raise_create(**kwargs):
+        _ = kwargs
+        raise RuntimeError("create failed")
+
+    async def _allow_policy(**kwargs):
+        _ = kwargs
+        return {"allowed": True, "user_message": "", "reason_code": "allowed", "meta": {}}
+
+    monkeypatch.setattr("app.services.agencyclaw.agent_loop_runtime.AgentLoopStore", FakeStore)
+    monkeypatch.setattr("app.services.agencyclaw.agent_loop_runtime.AgentLoopTurnLogger", FakeTurnLogger)
+
+    session = _FakeSession(context={"pending_confirmation": pending})
+    session_service = _FakeSessionService(session)
+    slack = _FakeSlack()
+    handled = await run_reply_only_agent_loop_turn(
+        text="confirm",
+        session=session,
+        slack_user_id="U123",
+        session_service=session_service,
+        channel="D1",
+        slack=slack,
+        supabase_client=MagicMock(),
+        execute_create_task_fn=_raise_create,
+        check_mutation_policy_fn=_allow_policy,
+    )
+
+    assert handled is True
+    assert session.context.get("pending_confirmation") is not None
+    assert "issue" in slack.messages[-1]["text"].lower()

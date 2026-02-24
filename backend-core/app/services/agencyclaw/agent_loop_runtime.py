@@ -25,10 +25,11 @@ _LOGGER = logging.getLogger(__name__)
 _SYSTEM_PROMPT = (
     "You are AgencyClaw, an internal assistant for e-commerce operations. "
     "Reply conversationally and helpfully using available conversation context. "
-    "For this runtime version, you may request at most one read-only tool call "
+    "For this runtime version, you may request at most one tool call "
     "using strict JSON only. Output either "
     '{"mode":"reply","text":"..."} or '
-    '{"mode":"tool_call","skill_id":"clickup_task_list","args":{...}}.'
+    '{"mode":"tool_call","skill_id":"clickup_task_list","args":{...}} or '
+    '{"mode":"tool_call","skill_id":"clickup_task_create","args":{...}}.'
 )
 _FAILURE_FALLBACK_TEXT = (
     "I hit an issue while processing that. Could you rephrase and try again?"
@@ -174,30 +175,49 @@ async def run_reply_only_agent_loop_turn(
         await asyncio.to_thread(turn_logger.log_user_message, run_id, text)
 
         pending = session.context.get(_PENDING_KEY)
-        decision = validate_confirmation(
-            pending if isinstance(pending, dict) else None,
-            slack_user_id=slack_user_id,
-            text=text,
-        )
-        if decision["state"] in {"expired", "cancel", "wrong_actor", "confirm"}:
-            if decision["state"] in {"expired", "cancel"}:
+        decision = {"state": "ignore", "reason": "no_pending_confirmation"}
+        if isinstance(pending, dict):
+            decision = validate_confirmation(
+                pending,
+                slack_user_id=slack_user_id,
+                text=text,
+                lane_key=slack_user_id,
+            )
+        if decision["state"] in {"expired", "cancel", "wrong_actor", "invalid", "confirm"}:
+            if decision["state"] in {"expired", "cancel", "invalid"}:
                 await asyncio.to_thread(session_service.update_context, session.id, {_PENDING_KEY: None})
             if decision["state"] == "cancel":
                 assistant_text = "Cancelled. I won't create that task."
             elif decision["state"] == "expired":
                 assistant_text = "That confirmation expired. Please ask me to create it again."
+            elif decision["state"] == "invalid":
+                assistant_text = "I couldn't validate that confirmation payload. Please create the request again."
             elif decision["state"] == "wrong_actor":
                 assistant_text = "Only the original requester can confirm or cancel this proposal."
             else:
                 if not isinstance(pending, dict):
                     raise ValueError("missing pending payload")
-                await asyncio.to_thread(session_service.update_context, session.id, {_PENDING_KEY: None})
                 skill_id = str(pending.get("skill_id") or "")
                 args = pending.get("args")
                 if skill_id != "clickup_task_create" or not isinstance(args, dict):
                     raise ValueError("invalid pending confirmation payload")
                 if execute_create_task_fn is None:
                     raise ValueError("create-task executor not provided")
+                if check_mutation_policy_fn is None:
+                    raise ValueError("mutation policy checker not provided")
+                policy = await check_mutation_policy_fn(
+                    slack_user_id=slack_user_id,
+                    session=session,
+                    channel=channel,
+                    skill_id="clickup_task_create",
+                    args=args,
+                )
+                if not policy.get("allowed"):
+                    assistant_text = str(policy.get("user_message") or "That action is not allowed.")
+                    await slack.post_message(channel=channel, text=assistant_text)
+                    await asyncio.to_thread(turn_logger.log_assistant_message, run_id, assistant_text)
+                    await asyncio.to_thread(turn_logger.complete_run, run_id, "completed")
+                    return True
                 await asyncio.to_thread(turn_logger.log_skill_call, run_id, skill_id, args)
                 result = await execute_create_task_fn(
                     slack_user_id=slack_user_id,
@@ -208,6 +228,7 @@ async def run_reply_only_agent_loop_turn(
                 )
                 if not isinstance(result, dict):
                     raise ValueError("create-task result must be dict")
+                await asyncio.to_thread(session_service.update_context, session.id, {_PENDING_KEY: None})
                 await asyncio.to_thread(turn_logger.log_skill_result, run_id, skill_id, result)
                 assistant_text = str(result.get("response_text") or "Task request processed.")
 

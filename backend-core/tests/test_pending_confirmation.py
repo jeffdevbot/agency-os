@@ -4,9 +4,11 @@ from datetime import datetime, timedelta, timezone
 
 from app.services.agencyclaw.pending_confirmation import (
     build_pending_confirmation,
+    compute_proposal_fingerprint,
     is_affirmative,
     is_expired,
     is_negative,
+    payload_has_valid_fingerprint,
     validate_confirmation,
 )
 
@@ -81,3 +83,30 @@ def test_validate_confirmation_states():
         )["state"]
         == "expired"
     )
+
+
+def test_fingerprint_helpers_and_mismatch_rejected():
+    payload = build_pending_confirmation(
+        action_type="mutation",
+        skill_id="clickup_task_create",
+        args={"task_title": "Fix listing"},
+        requested_by="U123",
+        lane_key="U123",
+    )
+    assert payload_has_valid_fingerprint(payload, lane_key="U123") is True
+    expected = compute_proposal_fingerprint(
+        skill_id="clickup_task_create",
+        args_json='{"task_title":"Fix listing"}',
+        requested_by="U123",
+        lane_key="U123",
+    )
+    assert payload["proposal_fingerprint"] == expected
+
+    tampered = dict(payload)
+    tampered["args"] = {"task_title": "Tampered"}
+    result = validate_confirmation(
+        tampered,
+        slack_user_id="U123",
+        text="confirm",
+    )
+    assert result["state"] == "invalid"
