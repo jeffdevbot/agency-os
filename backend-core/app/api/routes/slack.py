@@ -70,10 +70,6 @@ from ...services.agencyclaw.slack_planner_delegate_runtime import (
     SlackPlannerDelegateRuntimeDeps,
     execute_planner_delegate_for_agent_loop_runtime,
 )
-from ...services.agencyclaw.slack_agent_loop_bridge_runtime import (
-    SlackAgentLoopBridgeRuntimeDeps,
-    run_agent_loop_reply_turn_bridge_runtime,
-)
 from ...services.agencyclaw.slack_resolution_runtime import (
     resolve_brand_for_task_runtime,
     resolve_client_for_task_runtime,
@@ -85,15 +81,12 @@ from ...services.agencyclaw.slack_route_helpers import (
     parse_json_payload as _parse_json,
     verify_request_or_401 as _verify_request_or_401,
 )
-from ...services.agencyclaw.slack_dm_runtime import (
-    handle_dm_event_runtime as _runtime_handle_dm_event,
-)
-from ...services.agencyclaw.slack_interaction_runtime import (
-    handle_interaction_runtime as _runtime_handle_interaction,
+from ...services.agencyclaw.slack_route_runtime import (
+    SlackRouteRuntimeDeps,
+    handle_dm_event_route_runtime,
+    handle_interaction_route_runtime,
 )
 from ...services.agencyclaw.slack_runtime_deps import (
-    SlackDMRuntimeDeps,
-    SlackInteractionRuntimeDeps,
     SlackOrchestratorRuntimeDeps,
     SlackPlannerRuntimeDeps,
 )
@@ -603,99 +596,76 @@ async def _check_skill_policy(
     surface = resolve_surface_context(channel)
     return evaluate_skill_policy(actor, surface, skill_id, args, session.context)
 
-async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> None:
-    async def _run_agent_loop_reply_turn(
-        *,
-        text: str,
-        session: Any,
-        slack_user_id: str,
-        session_service: Any,
-        channel: str,
-        slack: Any,
-    ) -> bool:
-        bridge_deps = SlackAgentLoopBridgeRuntimeDeps(
-            logger=_logger,
-            get_supabase_admin_client_fn=get_supabase_admin_client,
-            runtime_run_reply_only_agent_loop_turn_fn=_runtime_run_reply_only_agent_loop_turn,
-            check_skill_policy_fn=_check_skill_policy,
-            handle_task_list_fn=_handle_task_list,
-            handle_cc_skill_fn=_handle_cc_skill,
-            lookup_clients_fn=lookup_clients,
-            format_client_list_fn=format_client_list,
-            list_brands_fn=list_brands,
-            format_brand_list_fn=format_brand_list,
-            retrieve_kb_context_fn=retrieve_kb_context,
-            preference_memory_service_cls=PreferenceMemoryService,
-            resolve_client_for_task_fn=_resolve_client_for_task,
-            resolve_brand_for_task_fn=_resolve_brand_for_task,
-            build_client_context_pack_fn=build_client_context_pack,
-            read_evidence_fn=read_evidence,
-            agent_loop_store_cls=AgentLoopStore,
-            enrich_task_draft_fn=_enrich_task_draft,
-            execute_task_create_fn=_execute_task_create,
-            execute_planner_delegate_runtime_fn=execute_planner_delegate_for_agent_loop_runtime,
-            planner_delegate_runtime_deps_factory=lambda execute_read_skill_fn: SlackPlannerDelegateRuntimeDeps(
-                logger=_logger,
-                get_supabase_admin_client_fn=get_supabase_admin_client,
-                retrieve_kb_context_fn=retrieve_kb_context,
-                generate_plan_fn=generate_plan,
-                execute_plan_fn=execute_plan,
-                get_skill_descriptions_for_prompt_fn=get_skill_descriptions_for_prompt,
-                check_skill_policy_fn=_check_skill_policy,
-                execute_read_skill_fn=execute_read_skill_fn,
-                handle_cc_skill_fn=_handle_cc_skill,
-                agent_loop_store_cls=AgentLoopStore,
-                agent_loop_turn_logger_cls=AgentLoopTurnLogger,
-            ),
-        )
-        return await run_agent_loop_reply_turn_bridge_runtime(
-            text=text,
-            session=session,
-            slack_user_id=slack_user_id,
-            session_service=session_service,
-            channel=channel,
-            slack=slack,
-            deps=bridge_deps,
-        )
+def _planner_delegate_runtime_deps_factory(
+    execute_read_skill_fn: Any,
+) -> SlackPlannerDelegateRuntimeDeps:
+    return SlackPlannerDelegateRuntimeDeps(
+        logger=_logger,
+        get_supabase_admin_client_fn=get_supabase_admin_client,
+        retrieve_kb_context_fn=retrieve_kb_context,
+        generate_plan_fn=generate_plan,
+        execute_plan_fn=execute_plan,
+        get_skill_descriptions_for_prompt_fn=get_skill_descriptions_for_prompt,
+        check_skill_policy_fn=_check_skill_policy,
+        execute_read_skill_fn=execute_read_skill_fn,
+        handle_cc_skill_fn=_handle_cc_skill,
+        agent_loop_store_cls=AgentLoopStore,
+        agent_loop_turn_logger_cls=AgentLoopTurnLogger,
+    )
 
-    dm_deps = SlackDMRuntimeDeps(
+
+def _build_route_runtime_deps() -> SlackRouteRuntimeDeps:
+    return SlackRouteRuntimeDeps(
+        logger=_logger,
+        get_supabase_admin_client_fn=get_supabase_admin_client,
+        runtime_run_reply_only_agent_loop_turn_fn=_runtime_run_reply_only_agent_loop_turn,
+        check_skill_policy_fn=_check_skill_policy,
+        handle_task_list_fn=_handle_task_list,
+        handle_cc_skill_fn=_handle_cc_skill,
+        lookup_clients_fn=lookup_clients,
+        format_client_list_fn=format_client_list,
+        list_brands_fn=list_brands,
+        format_brand_list_fn=format_brand_list,
+        retrieve_kb_context_fn=retrieve_kb_context,
+        preference_memory_service_cls=PreferenceMemoryService,
+        resolve_client_for_task_fn=_resolve_client_for_task,
+        resolve_brand_for_task_fn=_resolve_brand_for_task,
+        build_client_context_pack_fn=build_client_context_pack,
+        read_evidence_fn=read_evidence,
+        agent_loop_store_cls=AgentLoopStore,
+        enrich_task_draft_fn=_enrich_task_draft,
+        execute_task_create_fn=_execute_task_create,
+        execute_planner_delegate_runtime_fn=execute_planner_delegate_for_agent_loop_runtime,
+        planner_delegate_runtime_deps_factory=_planner_delegate_runtime_deps_factory,
         get_session_service_fn=get_playbook_session_service,
         get_slack_service_fn=get_slack_service,
-        preference_memory_service_factory=PreferenceMemoryService,
         is_agent_loop_enabled_fn=_is_agent_loop_enabled,
-        run_agent_loop_reply_fn=_run_agent_loop_reply_turn,
         handle_pending_task_continuation_fn=_handle_pending_task_continuation,
         is_llm_orchestrator_enabled_fn=_is_llm_orchestrator_enabled,
         try_llm_orchestrator_fn=_try_llm_orchestrator,
         classify_message_fn=_classify_message,
         should_block_deterministic_intent_fn=_should_block_deterministic_intent,
-        check_skill_policy_fn=_check_skill_policy,
         handle_create_task_fn=_handle_create_task,
-        handle_task_list_fn=_handle_task_list,
         help_text_fn=_help_text,
         build_client_picker_blocks_fn=_build_client_picker_blocks,
-        handle_cc_skill_fn=_handle_cc_skill,
-        logger=_logger,
         slack_api_error_cls=SlackAPIError,
+        get_receipt_service_fn=_get_receipt_service,
     )
-    await _runtime_handle_dm_event(
+
+
+async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> None:
+    await handle_dm_event_route_runtime(
         slack_user_id=slack_user_id,
         channel=channel,
         text=text,
-        deps=dm_deps,
+        deps=_build_route_runtime_deps(),
     )
+
+
 async def _handle_interaction(payload: dict[str, Any]) -> None:
-    interaction_deps = SlackInteractionRuntimeDeps(
-        get_receipt_service_fn=_get_receipt_service,
-        get_session_service_fn=get_playbook_session_service,
-        get_slack_service_fn=get_slack_service,
-        handle_pending_task_continuation_fn=_handle_pending_task_continuation,
-        logger=_logger,
-        slack_api_error_cls=SlackAPIError,
-    )
-    await _runtime_handle_interaction(
+    await handle_interaction_route_runtime(
         payload,
-        deps=interaction_deps,
+        deps=_build_route_runtime_deps(),
     )
 
 
