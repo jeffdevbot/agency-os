@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from typing import Any, Awaitable, Callable
 
 from .agent_loop_context_assembler import assemble_prompt_context
@@ -35,6 +36,12 @@ _SYSTEM_PROMPT = (
     '{"mode":"tool_call","skill_id":"cc_client_lookup","args":{...}} or '
     '{"mode":"tool_call","skill_id":"cc_brand_list_all","args":{...}} or '
     '{"mode":"tool_call","skill_id":"cc_brand_clickup_mapping_audit","args":{...}} or '
+    '{"mode":"tool_call","skill_id":"lookup_client","args":{...}} or '
+    '{"mode":"tool_call","skill_id":"lookup_brand","args":{...}} or '
+    '{"mode":"tool_call","skill_id":"search_kb","args":{...}} or '
+    '{"mode":"tool_call","skill_id":"resolve_brand","args":{...}} or '
+    '{"mode":"tool_call","skill_id":"get_client_context","args":{...}} or '
+    '{"mode":"tool_call","skill_id":"load_prior_skill_result","args":{...}} or '
     '{"mode":"tool_call","skill_id":"clickup_task_create","args":{...}}.'
 )
 _FAILURE_FALLBACK_TEXT = (
@@ -46,7 +53,14 @@ _READ_ONLY_SKILLS = {
     "cc_client_lookup",
     "cc_brand_list_all",
     "cc_brand_clickup_mapping_audit",
+    "lookup_client",
+    "lookup_brand",
+    "search_kb",
+    "resolve_brand",
+    "get_client_context",
+    "load_prior_skill_result",
 }
+_REHYDRATION_KEY_PATTERN = re.compile(r"^ev:[^/\s]+(?:/[^/\s]+)?$")
 
 
 def _build_session_rows(session: Any) -> list[dict[str, Any]]:
@@ -158,15 +172,84 @@ def _validate_task_create_args(args: dict[str, Any]) -> dict[str, Any]:
 def _validate_read_skill_args(skill_id: str, args: dict[str, Any]) -> dict[str, Any]:
     if skill_id == "clickup_task_list":
         return _validate_task_list_args(args)
-    if skill_id == "cc_client_lookup":
+    if skill_id in {"cc_client_lookup", "lookup_client"}:
         if "query" not in args or args.get("query") is None:
             return {}
         return {"query": str(args.get("query") or "").strip()}
     if skill_id == "cc_brand_list_all":
+        allowed = {"client_name"}
+        for key in args:
+            if key not in allowed:
+                raise ValueError(f"unsupported arg: {key}")
         client_name = str(args.get("client_name") or "").strip()
         return {"client_name": client_name} if client_name else {}
+    if skill_id == "lookup_brand":
+        allowed = {"client_name", "brand_name"}
+        for key in args:
+            if key not in allowed:
+                raise ValueError(f"unsupported arg: {key}")
+        client_name = str(args.get("client_name") or "").strip()
+        brand_name = str(args.get("brand_name") or "").strip()
+        normalized: dict[str, Any] = {}
+        if client_name:
+            normalized["client_name"] = client_name
+        if brand_name:
+            normalized["brand_name"] = brand_name
+        return normalized
     if skill_id == "cc_brand_clickup_mapping_audit":
         return {}
+    if skill_id == "search_kb":
+        allowed = {"query", "client_name", "brand_name"}
+        for key in args:
+            if key not in allowed:
+                raise ValueError(f"unsupported arg: {key}")
+        query = str(args.get("query") or "").strip()
+        if not query:
+            raise ValueError("query is required")
+        normalized = {"query": query}
+        client_name = str(args.get("client_name") or "").strip()
+        brand_name = str(args.get("brand_name") or "").strip()
+        if client_name:
+            normalized["client_name"] = client_name
+        if brand_name:
+            normalized["brand_name"] = brand_name
+        return normalized
+    if skill_id == "resolve_brand":
+        allowed = {"task_text", "client_name", "brand_hint"}
+        for key in args:
+            if key not in allowed:
+                raise ValueError(f"unsupported arg: {key}")
+        task_text = str(args.get("task_text") or "").strip()
+        if not task_text:
+            raise ValueError("task_text is required")
+        normalized = {"task_text": task_text}
+        client_name = str(args.get("client_name") or "").strip()
+        brand_hint = str(args.get("brand_hint") or "").strip()
+        if client_name:
+            normalized["client_name"] = client_name
+        if brand_hint:
+            normalized["brand_hint"] = brand_hint
+        return normalized
+    if skill_id == "get_client_context":
+        allowed = {"client_name"}
+        for key in args:
+            if key not in allowed:
+                raise ValueError(f"unsupported arg: {key}")
+        client_name = str(args.get("client_name") or "").strip()
+        if not client_name:
+            raise ValueError("client_name is required")
+        return {"client_name": client_name}
+    if skill_id == "load_prior_skill_result":
+        allowed = {"key"}
+        for key in args:
+            if key not in allowed:
+                raise ValueError(f"unsupported arg: {key}")
+        evidence_key = str(args.get("key") or "").strip()
+        if not evidence_key:
+            raise ValueError("key is required")
+        if not _REHYDRATION_KEY_PATTERN.match(evidence_key):
+            raise ValueError("invalid evidence key format")
+        return {"key": evidence_key}
     raise ValueError(f"disallowed read skill: {skill_id}")
 
 
@@ -267,14 +350,28 @@ async def run_reply_only_agent_loop_turn(
 
         session_rows = _build_session_rows(session)
         run_rows = await asyncio.to_thread(store.list_recent_run_messages, run_id, 20)
+        if hasattr(store, "list_recent_skill_events"):
+            run_skill_events = await asyncio.to_thread(store.list_recent_skill_events, run_id, 12)
+        else:
+            run_skill_events = []
         assembled = assemble_prompt_context(
             messages=[*session_rows, *run_rows],
-            skill_events=[],
+            skill_events=run_skill_events,
             budget_chars=4000,
         )
 
         prompt_messages = [{"role": "system", "content": _SYSTEM_PROMPT}]
         prompt_messages.extend(assembled["messages_for_llm"])
+        if assembled["evidence_notes"]:
+            evidence_text = "\n".join(assembled["evidence_notes"][-8:])
+            if len(evidence_text) > 1200:
+                evidence_text = evidence_text[:1197] + "..."
+            prompt_messages.append(
+                {
+                    "role": "system",
+                    "content": "Recent skill evidence:\n" + evidence_text,
+                }
+            )
         if not any(m.get("role") == "user" for m in assembled["messages_for_llm"]):
             prompt_messages.append({"role": "user", "content": text})
 

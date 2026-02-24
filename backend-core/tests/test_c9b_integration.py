@@ -235,6 +235,105 @@ class TestAgentLoopFlagDispatch:
         assert call_kwargs["skill_id"] == "cc_brand_list_all"
         assert call_kwargs["args"] == {"client_name": "Distex"}
 
+    @pytest.mark.asyncio
+    async def test_agent_loop_new_context_skill_policy_denial_blocks_execution(self):
+        svc, slack = _make_mocks()
+        captured_result: dict[str, Any] = {}
+        deny_policy = {
+            "allowed": False,
+            "reason_code": "not_allowed",
+            "user_message": "Denied by policy.",
+            "meta": {},
+        }
+
+        async def _exercise_executor(**kwargs) -> bool:
+            execute_read_skill_fn = kwargs["execute_read_skill_fn"]
+            captured_result.update(
+                await execute_read_skill_fn(
+                    skill_id="search_kb",
+                    slack_user_id="U123",
+                    channel="C1",
+                    args={"query": "coupon setup"},
+                    session=svc.get_or_create_session.return_value,
+                    session_service=svc,
+                )
+            )
+            return True
+
+        with (
+            patch("app.api.routes.slack._is_agent_loop_enabled", return_value=True),
+            patch("app.api.routes.slack._is_llm_orchestrator_enabled", return_value=False),
+            patch("app.api.routes.slack.get_playbook_session_service", return_value=svc),
+            patch("app.api.routes.slack.get_slack_service", return_value=slack),
+            patch("app.api.routes.slack.get_supabase_admin_client", return_value=MagicMock()),
+            patch(
+                "app.api.routes.slack._runtime_run_reply_only_agent_loop_turn",
+                side_effect=_exercise_executor,
+            ),
+            patch("app.api.routes.slack._check_skill_policy", new_callable=AsyncMock, return_value=deny_policy),
+            patch("app.api.routes.slack.retrieve_kb_context", new_callable=AsyncMock) as mock_kb,
+        ):
+            await _handle_dm_event(slack_user_id="U123", channel="C1", text="search kb coupon setup")
+
+        assert captured_result["policy_denied"] is True
+        assert "denied by policy" in captured_result["response_text"].lower()
+        mock_kb.assert_not_called()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "evidence_result,expected_text",
+        [
+            (
+                {"ok": True, "note": "[skill_result] clickup_task_list: {}", "payload_summary": "ok"},
+                "[skill_result] clickup_task_list: {}",
+            ),
+            (
+                {"ok": False, "error": "not_found"},
+                "couldn't find a prior result",
+            ),
+            (
+                {"ok": False, "error": "invalid_key"},
+                "key format is invalid",
+            ),
+        ],
+    )
+    async def test_agent_loop_rehydration_executor_maps_result_to_safe_response(
+        self, evidence_result, expected_text
+    ):
+        svc, slack = _make_mocks()
+        captured_result: dict[str, Any] = {}
+
+        async def _exercise_executor(**kwargs) -> bool:
+            execute_read_skill_fn = kwargs["execute_read_skill_fn"]
+            captured_result.update(
+                await execute_read_skill_fn(
+                    skill_id="load_prior_skill_result",
+                    slack_user_id="U123",
+                    channel="C1",
+                    args={"key": "ev:run-1"},
+                    session=svc.get_or_create_session.return_value,
+                    session_service=svc,
+                )
+            )
+            return True
+
+        with (
+            patch("app.api.routes.slack._is_agent_loop_enabled", return_value=True),
+            patch("app.api.routes.slack._is_llm_orchestrator_enabled", return_value=False),
+            patch("app.api.routes.slack.get_playbook_session_service", return_value=svc),
+            patch("app.api.routes.slack.get_slack_service", return_value=slack),
+            patch("app.api.routes.slack.get_supabase_admin_client", return_value=MagicMock()),
+            patch(
+                "app.api.routes.slack._runtime_run_reply_only_agent_loop_turn",
+                side_effect=_exercise_executor,
+            ),
+            patch("app.api.routes.slack._check_skill_policy", new_callable=AsyncMock, return_value=_ALLOW_POLICY),
+            patch("app.api.routes.slack.read_evidence", return_value=evidence_result),
+        ):
+            await _handle_dm_event(slack_user_id="U123", channel="C1", text="load prior result")
+
+        assert expected_text.lower() in captured_result["response_text"].lower()
+
 
 class TestStrictModeHelpers:
     def test_llm_strict_mode_true_when_orchestrator_on_and_legacy_off(self):

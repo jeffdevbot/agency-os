@@ -51,6 +51,9 @@ from ...services.agencyclaw.command_center_lookup import (
 )
 from ...services.agencyclaw.grounded_task_draft import build_grounded_task_draft
 from ...services.agencyclaw.kb_retrieval import retrieve_kb_context
+from ...services.agencyclaw.client_context_builder import build_client_context_pack
+from ...services.agencyclaw.agent_loop_evidence_reader import read_evidence
+from ...services.agencyclaw.agent_loop_store import AgentLoopStore
 from ...services.agencyclaw.slack_pending_flow import (
     compose_asin_pending_description as _pending_flow_compose_asin_pending_description,
     handle_pending_task_continuation as _pending_flow_handle_pending_task_continuation,
@@ -903,9 +906,85 @@ async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> No
                     "response_text": capture.messages[-1] if capture.messages else "No task list response",
                 }
 
+            if skill_id == "cc_client_lookup":
+                result_text = await _handle_cc_skill(
+                    skill_id=skill_id,
+                    args=args,
+                    session=session,
+                    session_service=session_service,
+                    channel=channel,
+                    slack=capture,
+                )
+                if capture.messages:
+                    return {"response_text": capture.messages[-1]}
+                return {
+                    "response_text": (
+                        result_text if isinstance(result_text, str) and result_text.strip() else "Read skill completed."
+                    )
+                }
+
+            if skill_id == "lookup_client":
+                query = str(args.get("query") or "")
+                clients = await asyncio.to_thread(
+                    lookup_clients,
+                    session_service.db,
+                    session.profile_id,
+                    query,
+                )
+                return {
+                    "response_text": format_client_list(clients),
+                    "clients": clients,
+                    "query": query,
+                }
+
+            if skill_id == "cc_brand_list_all":
+                result_text = await _handle_cc_skill(
+                    skill_id=skill_id,
+                    args=args,
+                    session=session,
+                    session_service=session_service,
+                    channel=channel,
+                    slack=capture,
+                )
+                if capture.messages:
+                    return {"response_text": capture.messages[-1]}
+                return {
+                    "response_text": (
+                        result_text if isinstance(result_text, str) and result_text.strip() else "Read skill completed."
+                    )
+                }
+
+            if skill_id == "lookup_brand":
+                client_name_hint = str(args.get("client_name") or "").strip()
+                brand_name_hint = str(args.get("brand_name") or "").strip().lower()
+
+                client_id: str | None = None
+                if client_name_hint:
+                    matches = await asyncio.to_thread(
+                        session_service.find_client_matches, session.profile_id, client_name_hint
+                    )
+                    if not matches:
+                        return {"response_text": f"I couldn't find a client matching *{client_name_hint}*."}
+                    if len(matches) > 1:
+                        names = ", ".join(str(m.get("name") or "") for m in matches[:5] if isinstance(m, dict))
+                        return {"response_text": f"Multiple clients match *{client_name_hint}*: {names}"}
+                    client_id = str(matches[0].get("id") or "")
+
+                brands = await asyncio.to_thread(list_brands, session_service.db, client_id)
+                if brand_name_hint:
+                    brands = [
+                        b
+                        for b in brands
+                        if brand_name_hint in str(b.get("name") or "").strip().lower()
+                    ]
+
+                return {
+                    "response_text": format_brand_list(brands),
+                    "brands": brands,
+                    "client_id": client_id,
+                }
+
             if skill_id in {
-                "cc_client_lookup",
-                "cc_brand_list_all",
                 "cc_brand_clickup_mapping_audit",
             }:
                 result_text = await _handle_cc_skill(
@@ -922,6 +1001,154 @@ async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> No
                     "response_text": (
                         result_text if isinstance(result_text, str) and result_text.strip() else "Read skill completed."
                     )
+                }
+
+            if skill_id == "search_kb":
+                query = str(args.get("query") or "")
+                client_id: str | None = None
+                client_name_hint = str(args.get("client_name") or "").strip()
+                if client_name_hint:
+                    matches = await asyncio.to_thread(
+                        session_service.find_client_matches, session.profile_id, client_name_hint
+                    )
+                    if len(matches) == 1:
+                        client_id = str(matches[0].get("id") or "")
+                retrieval = await retrieve_kb_context(
+                    query=query,
+                    client_id=client_id,
+                    skill_id=skill_id,
+                    db=session_service.db,
+                    max_chars=1200,
+                )
+                sources = retrieval.get("sources") if isinstance(retrieval, dict) else []
+                if not isinstance(sources, list) or not sources:
+                    return {
+                        "response_text": "I couldn't find relevant knowledge-base context for that query.",
+                        "kb_sources": [],
+                    }
+                top_titles = [
+                    str(src.get("title") or "Untitled source")
+                    for src in sources[:3]
+                    if isinstance(src, dict)
+                ]
+                return {
+                    "response_text": "Found KB context from: " + "; ".join(top_titles),
+                    "kb_sources": sources[:5],
+                    "tiers_hit": retrieval.get("tiers_hit", []),
+                }
+
+            if skill_id == "resolve_brand":
+                task_text = str(args.get("task_text") or "").strip()
+                brand_hint = str(args.get("brand_hint") or "")
+                pref_service = PreferenceMemoryService(session_service.db)
+                client_id, client_name = await _resolve_client_for_task(
+                    client_name_hint=str(args.get("client_name") or "").strip(),
+                    session=session,
+                    session_service=session_service,
+                    channel=channel,
+                    slack=capture,
+                    pref_service=pref_service,
+                )
+                if not client_id:
+                    return {
+                        "response_text": capture.messages[-1] if capture.messages else "Could not resolve client context.",
+                    }
+                resolution = await _resolve_brand_for_task(
+                    client_id=client_id,
+                    client_name=client_name,
+                    task_text=task_text,
+                    brand_hint=brand_hint,
+                    session=session,
+                    session_service=session_service,
+                    channel=channel,
+                    slack=capture,
+                )
+                if capture.messages:
+                    response_text = capture.messages[-1]
+                else:
+                    response_text = f"Brand resolution mode: {resolution.get('mode', 'unknown')}."
+                return {
+                    "response_text": response_text,
+                    "resolution": resolution,
+                    "client_id": client_id,
+                    "client_name": client_name,
+                }
+
+            if skill_id == "get_client_context":
+                client_name_hint = str(args.get("client_name") or "").strip()
+                matches = await asyncio.to_thread(
+                    session_service.find_client_matches, session.profile_id, client_name_hint
+                )
+                if not matches:
+                    return {"response_text": f"I couldn't find a client matching *{client_name_hint}*."}
+                if len(matches) > 1:
+                    names = ", ".join(str(m.get("name") or "") for m in matches[:5] if isinstance(m, dict))
+                    return {"response_text": f"Multiple clients match *{client_name_hint}*: {names}"}
+                client_id = str(matches[0].get("id") or "")
+                client_name = str(matches[0].get("name") or client_name_hint)
+                brands = await asyncio.to_thread(list_brands, session_service.db, client_id)
+                brand_lines = [
+                    f"{str(b.get('name') or 'Brand')} (space={b.get('clickup_space_id') or '-'}, list={b.get('clickup_list_id') or '-'})"
+                    for b in brands[:12]
+                    if isinstance(b, dict)
+                ]
+                recent_events = []
+                recent_exchanges = session.context.get("recent_exchanges") if isinstance(session.context, dict) else []
+                if isinstance(recent_exchanges, list):
+                    for item in recent_exchanges[-5:]:
+                        if not isinstance(item, dict):
+                            continue
+                        user_text = str(item.get("user") or "").strip()
+                        assistant_text = str(item.get("assistant") or "").strip()
+                        if user_text:
+                            recent_events.append(f"user: {user_text}")
+                        if assistant_text:
+                            recent_events.append(f"assistant: {assistant_text}")
+
+                context_pack = build_client_context_pack(
+                    {
+                        "assignments": [],
+                        "kpi_targets": [],
+                        "active_tasks": brand_lines,
+                        "completed_tasks": [],
+                        "sop_slices": [],
+                        "recent_events": recent_events,
+                        "freshness_context": {"client_id": client_id, "client_name": client_name},
+                    },
+                    max_tokens=700,
+                )
+                context_text = str(context_pack.get("context_text") or "").strip()
+                if not context_text:
+                    context_text = f"No detailed context available for {client_name}."
+                return {
+                    "response_text": context_text,
+                    "client_context": context_pack,
+                    "client_id": client_id,
+                    "client_name": client_name,
+                }
+
+            if skill_id == "load_prior_skill_result":
+                key = str(args.get("key") or "").strip()
+                evidence = await asyncio.to_thread(
+                    read_evidence,
+                    AgentLoopStore(get_supabase_admin_client()),
+                    key,
+                )
+                if evidence.get("ok"):
+                    summary = str(evidence.get("payload_summary") or "").strip()
+                    note = str(evidence.get("note") or "").strip()
+                    response_text = note or summary or "Loaded prior skill result."
+                else:
+                    err = str(evidence.get("error") or "unknown_error")
+                    if err == "invalid_key":
+                        response_text = "I couldn't load that prior result because the key format is invalid."
+                    elif err == "not_found":
+                        response_text = "I couldn't find a prior result for that key."
+                    else:
+                        response_text = "I couldn't load that prior result."
+                return {
+                    "response_text": response_text,
+                    "evidence": evidence,
                 }
 
             raise ValueError(f"unsupported read skill in agent loop: {skill_id}")

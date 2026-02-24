@@ -122,6 +122,92 @@ SKILL_SCHEMAS: dict[str, SkillSchema] = {
         "description": "Audit brands missing ClickUp space or list mappings. Admin only.",
         "args": {},
     },
+    # C17G: Agent-loop context/rehydration read skills
+    "lookup_client": {
+        "description": "Search or list clients for context retrieval.",
+        "args": {
+            "query": {
+                "type": "string",
+                "required": False,
+                "description": "Optional client name search query. Omit to list accessible clients.",
+            },
+        },
+    },
+    "lookup_brand": {
+        "description": "List or filter brands for context retrieval.",
+        "args": {
+            "brand_name": {
+                "type": "string",
+                "required": False,
+                "description": "Optional brand-name filter.",
+            },
+            "client_name": {
+                "type": "string",
+                "required": False,
+                "description": "Optional client-name filter.",
+            },
+        },
+    },
+    "search_kb": {
+        "description": "Search knowledge base context for a query.",
+        "args": {
+            "query": {
+                "type": "string",
+                "required": True,
+                "description": "Search query.",
+            },
+            "client_name": {
+                "type": "string",
+                "required": False,
+                "description": "Optional client scope hint.",
+            },
+            "brand_name": {
+                "type": "string",
+                "required": False,
+                "description": "Optional brand scope hint.",
+            },
+        },
+    },
+    "resolve_brand": {
+        "description": "Resolve brand context/destination for task text.",
+        "args": {
+            "task_text": {
+                "type": "string",
+                "required": True,
+                "description": "Task text used to resolve brand context.",
+            },
+            "client_name": {
+                "type": "string",
+                "required": False,
+                "description": "Optional client hint.",
+            },
+            "brand_hint": {
+                "type": "string",
+                "required": False,
+                "description": "Optional brand hint.",
+            },
+        },
+    },
+    "get_client_context": {
+        "description": "Build bounded client context summary for prompting.",
+        "args": {
+            "client_name": {
+                "type": "string",
+                "required": True,
+                "description": "Client name to build context for.",
+            },
+        },
+    },
+    "load_prior_skill_result": {
+        "description": "Rehydrate prior skill evidence by key `ev:<run_id>` or `ev:<run_id>/<event_id>`.",
+        "args": {
+            "key": {
+                "type": "string",
+                "required": True,
+                "description": "Evidence key (`ev:<run_id>` or `ev:<run_id>/<event_id>`).",
+            },
+        },
+    },
     # C11E: Brand mapping remediation skills
     "cc_brand_mapping_remediation_preview": {
         "description": "Preview a remediation plan for brands missing ClickUp mappings. Admin only. Shows which brands can be auto-fixed and which are blocked.",
