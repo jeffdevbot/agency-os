@@ -126,6 +126,24 @@ class AgentLoopStore:
 
         self.db.table("agent_runs").update(payload).eq("id", run_id).execute()
 
+    def get_skill_event_by_id(self, run_id: str, event_id: str) -> dict[str, Any]:
+        """Fetch a single skill event by run and event ID.
+
+        Returns the row dict, or ``{}`` if not found.
+        """
+        run_id = _require_non_empty("run_id", run_id)
+        event_id = _require_non_empty("event_id", event_id)
+
+        response = (
+            self.db.table("agent_skill_events")
+            .select("*")
+            .eq("run_id", run_id)
+            .eq("id", event_id)
+            .limit(1)
+            .execute()
+        )
+        return _first_row(response)
+
     def list_recent_run_messages(self, run_id: str, limit: int = 20) -> list[dict[str, Any]]:
         run_id = _require_non_empty("run_id", run_id)
         if limit <= 0:
