@@ -1,7 +1,6 @@
 import asyncio
 import json
 import logging
-import os
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
@@ -86,6 +85,13 @@ from ...services.agencyclaw.slack_route_runtime import (
     handle_dm_event_route_runtime,
     handle_interaction_route_runtime,
 )
+from ...services.agencyclaw.slack_policy_bridge_runtime import (
+    SlackPolicyBridgeRuntimeDeps,
+    check_skill_policy_runtime,
+    is_agent_loop_enabled_runtime,
+    is_llm_strict_mode_runtime,
+    is_planner_enabled_runtime,
+)
 from ...services.agencyclaw.slack_runtime_deps import (
     SlackOrchestratorRuntimeDeps,
     SlackPlannerRuntimeDeps,
@@ -151,22 +157,29 @@ _task_create_inflight_lock = asyncio.Lock()
 
 router = APIRouter(prefix="/slack", tags=["slack"])
 
+def _build_policy_bridge_deps() -> SlackPolicyBridgeRuntimeDeps:
+    return SlackPolicyBridgeRuntimeDeps(
+        get_supabase_admin_client_fn=get_supabase_admin_client,
+        resolve_actor_context_fn=resolve_actor_context,
+        resolve_surface_context_fn=resolve_surface_context,
+        evaluate_skill_policy_fn=evaluate_skill_policy,
+        is_llm_orchestrator_enabled_fn=_is_llm_orchestrator_enabled,
+        is_legacy_intent_fallback_enabled_fn=_is_legacy_intent_fallback_enabled,
+        is_deterministic_control_intent_fn=_is_deterministic_control_intent,
+    )
+
 
 def _is_llm_orchestrator_enabled() -> bool:
     return _helpers_is_llm_orchestrator_enabled()
 
 
 def _is_agent_loop_enabled() -> bool:
-    return os.environ.get("AGENCYCLAW_AGENT_LOOP_ENABLED", "").strip().lower() in {
-        "1", "true", "yes", "on",
-    }
+    return is_agent_loop_enabled_runtime()
 
 
 def _is_planner_enabled() -> bool:
     """Check if the C10D planner feature flag is enabled."""
-    return os.environ.get("AGENCYCLAW_ENABLE_PLANNER", "").strip().lower() in {
-        "1", "true", "yes", "on",
-    }
+    return is_planner_enabled_runtime()
 
 
 def _is_legacy_intent_fallback_enabled() -> bool:
@@ -174,7 +187,7 @@ def _is_legacy_intent_fallback_enabled() -> bool:
 
 
 def _is_llm_strict_mode() -> bool:
-    return _is_llm_orchestrator_enabled() and not _is_legacy_intent_fallback_enabled()
+    return is_llm_strict_mode_runtime(_build_policy_bridge_deps())
 
 
 def _is_deterministic_control_intent(intent: str) -> bool:
@@ -587,14 +600,14 @@ async def _check_skill_policy(
     Returns the PolicyDecision dict.  Caller should check ``allowed`` and
     post ``user_message`` on deny.
     """
-    actor = await asyncio.to_thread(
-        resolve_actor_context,
-        get_supabase_admin_client(),
-        slack_user_id,
-        session.profile_id,
+    return await check_skill_policy_runtime(
+        slack_user_id=slack_user_id,
+        session=session,
+        channel=channel,
+        skill_id=skill_id,
+        args=args,
+        deps=_build_policy_bridge_deps(),
     )
-    surface = resolve_surface_context(channel)
-    return evaluate_skill_policy(actor, surface, skill_id, args, session.context)
 
 def _planner_delegate_runtime_deps_factory(
     execute_read_skill_fn: Any,
