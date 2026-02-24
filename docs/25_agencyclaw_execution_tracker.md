@@ -66,7 +66,7 @@ Last updated: 2026-02-23 (C17E landed; policy-gated agent-loop read path)
 | C17D | Agent loop v0 (reply-only + logging) | Codex | done | merged (`622adfc`, `d452aac`, `af67487`, `746cc71`) | Added agent loop storage/logging services + context assembler and wired feature-flagged reply-only DM runtime path (`AGENCYCLAW_AGENT_LOOP_ENABLED`) with run/message persistence and failure fallback. |
 | C17E | Skill-result loop v1 (read-only skill) | Codex | done | merged (`6f89b43`, `7dc785f`) | Added single read-only skill round-trip (`clickup_task_list`) in agent-loop path with skill_call/skill_result logging and second-pass natural response synthesis; policy gate enforced in task-list executor path. |
 | C17F | Mutation confirmation contract | unassigned | planned | - | Pending; add `pending_confirmation` contract and deterministic validation. |
-| C17G | Context skills + retention summaries + rehydration | unassigned | planned | - | Pending; context skill set plus payload summary + rehydration path. |
+| C17G | Context skills + retention summaries + rehydration | Codex | in-progress | `8a56c74` (evidence foundation) | Evidence utilities + reader landed; `read_evidence(store, key)` handles event-scoped keys end-to-end. Run-scope keys (`ev:<run_id>` without event_id) return `not_implemented_run_scope` — intentional contract gap until broad-query method is designed. Context skills (`lookup_client`, etc.) pending. |
 | C17H | Planner sub-agent integration | unassigned | planned | - | Pending; `delegate_planner` and child-run hierarchy land here (not before C17H). |
 
 ## 3. Open Blockers

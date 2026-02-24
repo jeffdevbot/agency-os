@@ -332,3 +332,69 @@ class TestOutputShape:
         result = read_evidence(_store(execute_data=[row]), "ev:run-1/evt-1")
 
         assert set(result.keys()) == self._EXPECTED_KEYS
+
+
+# ===================================================================
+# Integration seam: reader → store query path
+# ===================================================================
+
+
+class TestIntegrationSeam:
+    """Verify read_evidence drives the store's query interface correctly.
+
+    These tests validate the seam contract between reader and store so
+    that wiring to a real Supabase client later requires no reader changes.
+    """
+
+    def test_store_receives_correct_table_and_filters(self) -> None:
+        row = _valid_row(event_id="evt-42", skill_id="my_skill")
+        db = _mock_db(execute_data=[row])
+        store = AgentLoopStore(db)
+
+        read_evidence(store, "ev:run-99/evt-42")
+
+        db.table.assert_called_with("agent_skill_events")
+        eq_calls = db.table.return_value.eq.call_args_list
+        eq_args = [(c.args[0], c.args[1]) for c in eq_calls]
+        assert ("run_id", "run-99") in eq_args
+        assert ("id", "evt-42") in eq_args
+
+    def test_store_limit_1_applied(self) -> None:
+        db = _mock_db(execute_data=[_valid_row()])
+        store = AgentLoopStore(db)
+
+        read_evidence(store, "ev:run-1/evt-1")
+
+        db.table.return_value.limit.assert_called_with(1)
+
+    def test_round_trip_key_to_result(self) -> None:
+        """Full pipeline: generate key → read_evidence → verify deterministic output."""
+        from app.services.agencyclaw.agent_loop_evidence import rehydration_key
+
+        key = rehydration_key("run-abc", event_id="evt-xyz")
+        row = _valid_row(
+            event_id="evt-xyz",
+            skill_id="clickup_task_list",
+            event_type="skill_result",
+            payload={"tasks": [{"id": "t1", "name": "Fix bug"}]},
+        )
+        store = _store(execute_data=[row])
+
+        result = read_evidence(store, key)
+
+        assert result["ok"] is True
+        assert result["run_id"] == "run-abc"
+        assert result["event_id"] == "evt-xyz"
+        assert result["note"].startswith("[skill_result] clickup_task_list:")
+        assert "t1" in result["payload_summary"]
+
+    def test_missing_event_propagates_through_store(self) -> None:
+        """Store returns {} for missing row; reader maps to not_found."""
+        db = _mock_db(execute_data=[])
+        store = AgentLoopStore(db)
+
+        result = read_evidence(store, "ev:run-1/evt-ghost")
+
+        assert result["ok"] is False
+        assert result["error"] == "not_found"
+        db.table.assert_called_with("agent_skill_events")
