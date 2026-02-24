@@ -1,0 +1,103 @@
+"""Factory helpers for Slack route runtime dependency wiring."""
+
+from __future__ import annotations
+
+from typing import Any, Awaitable, Callable
+
+from .slack_planner_delegate_runtime import SlackPlannerDelegateRuntimeDeps
+from .slack_route_runtime import SlackRouteRuntimeDeps
+
+
+def build_route_runtime_deps_runtime(
+    *,
+    logger: Any,
+    get_supabase_admin_client_fn: Callable[[], Any],
+    runtime_run_reply_only_agent_loop_turn_fn: Callable[..., Awaitable[bool]],
+    check_skill_policy_fn: Callable[..., Awaitable[dict[str, Any]]],
+    handle_task_list_fn: Callable[..., Awaitable[None]],
+    handle_cc_skill_fn: Callable[..., Awaitable[str]],
+    lookup_clients_fn: Callable[..., Any],
+    format_client_list_fn: Callable[..., str],
+    list_brands_fn: Callable[..., Any],
+    format_brand_list_fn: Callable[..., str],
+    retrieve_kb_context_fn: Callable[..., Awaitable[dict[str, Any]]],
+    preference_memory_service_cls: type[Any],
+    resolve_client_for_task_fn: Callable[..., Awaitable[tuple[str | None, str]]],
+    resolve_brand_for_task_fn: Callable[..., Awaitable[dict[str, Any]]],
+    build_client_context_pack_fn: Callable[..., dict[str, Any]],
+    read_evidence_fn: Callable[..., dict[str, Any]],
+    agent_loop_store_cls: type[Any],
+    enrich_task_draft_fn: Callable[..., Awaitable[dict[str, Any] | None]],
+    execute_task_create_fn: Callable[..., Awaitable[None]],
+    execute_planner_delegate_runtime_fn: Callable[..., Awaitable[dict[str, Any]]],
+    generate_plan_fn: Callable[..., Awaitable[Any]],
+    execute_plan_fn: Callable[..., Awaitable[Any]],
+    get_skill_descriptions_for_prompt_fn: Callable[..., Any],
+    agent_loop_turn_logger_cls: type[Any],
+    get_session_service_fn: Callable[[], Any],
+    get_slack_service_fn: Callable[[], Any],
+    is_agent_loop_enabled_fn: Callable[[], bool],
+    handle_pending_task_continuation_fn: Callable[..., Awaitable[bool]],
+    is_llm_orchestrator_enabled_fn: Callable[[], bool],
+    try_llm_orchestrator_fn: Callable[..., Awaitable[bool]],
+    classify_message_fn: Callable[[str], tuple[str, str, str]],
+    should_block_deterministic_intent_fn: Callable[[str], bool],
+    handle_create_task_fn: Callable[..., Awaitable[None]],
+    help_text_fn: Callable[[], str],
+    build_client_picker_blocks_fn: Callable[[list[dict[str, Any]]], list[dict[str, Any]]],
+    slack_api_error_cls: type[Exception],
+    get_receipt_service_fn: Callable[[], Any],
+) -> SlackRouteRuntimeDeps:
+    def _planner_delegate_runtime_deps_factory(
+        execute_read_skill_fn: Any,
+    ) -> SlackPlannerDelegateRuntimeDeps:
+        return SlackPlannerDelegateRuntimeDeps(
+            logger=logger,
+            get_supabase_admin_client_fn=get_supabase_admin_client_fn,
+            retrieve_kb_context_fn=retrieve_kb_context_fn,
+            generate_plan_fn=generate_plan_fn,
+            execute_plan_fn=execute_plan_fn,
+            get_skill_descriptions_for_prompt_fn=get_skill_descriptions_for_prompt_fn,
+            check_skill_policy_fn=check_skill_policy_fn,
+            execute_read_skill_fn=execute_read_skill_fn,
+            handle_cc_skill_fn=handle_cc_skill_fn,
+            agent_loop_store_cls=agent_loop_store_cls,
+            agent_loop_turn_logger_cls=agent_loop_turn_logger_cls,
+        )
+
+    return SlackRouteRuntimeDeps(
+        logger=logger,
+        get_supabase_admin_client_fn=get_supabase_admin_client_fn,
+        runtime_run_reply_only_agent_loop_turn_fn=runtime_run_reply_only_agent_loop_turn_fn,
+        check_skill_policy_fn=check_skill_policy_fn,
+        handle_task_list_fn=handle_task_list_fn,
+        handle_cc_skill_fn=handle_cc_skill_fn,
+        lookup_clients_fn=lookup_clients_fn,
+        format_client_list_fn=format_client_list_fn,
+        list_brands_fn=list_brands_fn,
+        format_brand_list_fn=format_brand_list_fn,
+        retrieve_kb_context_fn=retrieve_kb_context_fn,
+        preference_memory_service_cls=preference_memory_service_cls,
+        resolve_client_for_task_fn=resolve_client_for_task_fn,
+        resolve_brand_for_task_fn=resolve_brand_for_task_fn,
+        build_client_context_pack_fn=build_client_context_pack_fn,
+        read_evidence_fn=read_evidence_fn,
+        agent_loop_store_cls=agent_loop_store_cls,
+        enrich_task_draft_fn=enrich_task_draft_fn,
+        execute_task_create_fn=execute_task_create_fn,
+        execute_planner_delegate_runtime_fn=execute_planner_delegate_runtime_fn,
+        planner_delegate_runtime_deps_factory=_planner_delegate_runtime_deps_factory,
+        get_session_service_fn=get_session_service_fn,
+        get_slack_service_fn=get_slack_service_fn,
+        is_agent_loop_enabled_fn=is_agent_loop_enabled_fn,
+        handle_pending_task_continuation_fn=handle_pending_task_continuation_fn,
+        is_llm_orchestrator_enabled_fn=is_llm_orchestrator_enabled_fn,
+        try_llm_orchestrator_fn=try_llm_orchestrator_fn,
+        classify_message_fn=classify_message_fn,
+        should_block_deterministic_intent_fn=should_block_deterministic_intent_fn,
+        handle_create_task_fn=handle_create_task_fn,
+        help_text_fn=help_text_fn,
+        build_client_picker_blocks_fn=build_client_picker_blocks_fn,
+        slack_api_error_cls=slack_api_error_cls,
+        get_receipt_service_fn=get_receipt_service_fn,
+    )

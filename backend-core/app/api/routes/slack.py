@@ -65,10 +65,7 @@ from ...services.agencyclaw.slack_orchestrator_runtime import (
 from ...services.agencyclaw.agent_loop_runtime import (
     run_reply_only_agent_loop_turn as _runtime_run_reply_only_agent_loop_turn,
 )
-from ...services.agencyclaw.slack_planner_delegate_runtime import (
-    SlackPlannerDelegateRuntimeDeps,
-    execute_planner_delegate_for_agent_loop_runtime,
-)
+from ...services.agencyclaw.slack_planner_delegate_runtime import execute_planner_delegate_for_agent_loop_runtime
 from ...services.agencyclaw.slack_resolution_runtime import (
     resolve_brand_for_task_runtime,
     resolve_client_for_task_runtime,
@@ -85,6 +82,7 @@ from ...services.agencyclaw.slack_route_runtime import (
     handle_dm_event_route_runtime,
     handle_interaction_route_runtime,
 )
+from ...services.agencyclaw.slack_route_deps_runtime import build_route_runtime_deps_runtime
 from ...services.agencyclaw.slack_policy_bridge_runtime import (
     SlackPolicyBridgeRuntimeDeps,
     check_skill_policy_runtime,
@@ -609,26 +607,8 @@ async def _check_skill_policy(
         deps=_build_policy_bridge_deps(),
     )
 
-def _planner_delegate_runtime_deps_factory(
-    execute_read_skill_fn: Any,
-) -> SlackPlannerDelegateRuntimeDeps:
-    return SlackPlannerDelegateRuntimeDeps(
-        logger=_logger,
-        get_supabase_admin_client_fn=get_supabase_admin_client,
-        retrieve_kb_context_fn=retrieve_kb_context,
-        generate_plan_fn=generate_plan,
-        execute_plan_fn=execute_plan,
-        get_skill_descriptions_for_prompt_fn=get_skill_descriptions_for_prompt,
-        check_skill_policy_fn=_check_skill_policy,
-        execute_read_skill_fn=execute_read_skill_fn,
-        handle_cc_skill_fn=_handle_cc_skill,
-        agent_loop_store_cls=AgentLoopStore,
-        agent_loop_turn_logger_cls=AgentLoopTurnLogger,
-    )
-
-
 def _build_route_runtime_deps() -> SlackRouteRuntimeDeps:
-    return SlackRouteRuntimeDeps(
+    return build_route_runtime_deps_runtime(
         logger=_logger,
         get_supabase_admin_client_fn=get_supabase_admin_client,
         runtime_run_reply_only_agent_loop_turn_fn=_runtime_run_reply_only_agent_loop_turn,
@@ -649,7 +629,10 @@ def _build_route_runtime_deps() -> SlackRouteRuntimeDeps:
         enrich_task_draft_fn=_enrich_task_draft,
         execute_task_create_fn=_execute_task_create,
         execute_planner_delegate_runtime_fn=execute_planner_delegate_for_agent_loop_runtime,
-        planner_delegate_runtime_deps_factory=_planner_delegate_runtime_deps_factory,
+        generate_plan_fn=generate_plan,
+        execute_plan_fn=execute_plan,
+        get_skill_descriptions_for_prompt_fn=get_skill_descriptions_for_prompt,
+        agent_loop_turn_logger_cls=AgentLoopTurnLogger,
         get_session_service_fn=get_playbook_session_service,
         get_slack_service_fn=get_slack_service,
         is_agent_loop_enabled_fn=_is_agent_loop_enabled,
