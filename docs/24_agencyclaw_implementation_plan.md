@@ -461,6 +461,10 @@ Locked regression fixtures for C10B:
     `main_max_turns + planner_max_turns` (12 by default).
   - Explicit stop states:
     `completed`, `blocked`, `failed`, `budget_exhausted`, `needs_clarification`.
+  - Persistence contract: planner child-run DB status remains
+    `completed|blocked|failed` (storage enum), while
+    `budget_exhausted` / `needs_clarification` are preserved in the
+    structured planner report payload for downstream handling.
   - Planner still MUST NOT execute mutations directly.
   - Fail-safe fallback: main agent returns conversational narrowing prompt if planner
     cannot complete within budget.

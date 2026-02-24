@@ -1,6 +1,6 @@
 # AgencyClaw Execution Tracker
 
-Last updated: 2026-02-24 (C17H landed: bounded multi-turn + delegate_planner; C17H+ iterative loop deferred)
+Last updated: 2026-02-24 (C17H+ hardening landed: iterative delegate loop + stop-state contract clarified)
 
 ## 1. Baseline Status
 - [x] PRD updated to v1.19 (`docs/23_agencyclaw_prd.md`)
@@ -68,7 +68,7 @@ Last updated: 2026-02-24 (C17H landed: bounded multi-turn + delegate_planner; C1
 | C17F | Mutation confirmation contract | Codex | done | merged (`494587a`, `6338459`) | Added deterministic `pending_confirmation` contract with confirmation/cancel/expiry handling, fingerprint integrity validation, confirm-time mutation policy recheck, and retry-safe pending semantics (retain on execute failure, clear on success/cancel/expiry/invalid). |
 | C17G | Context skills + retention summaries + rehydration | Codex | done | `8a56c74`, `95dcec1`, `88443ff`, `af8721b`, `173cd2b` | Agent-loop read allowlist expanded with context/rehydration skills, policy-gated runtime callback dispatch wired to existing services, bounded recent skill-event evidence injection added to prompt assembly path, and follow-up hardening landed for fail-closed `lookup_client` arg validation plus deterministic `search_kb` brand scoping. |
 | C17H | Main-agent multi-turn loop + planner sub-agent delegation | Codex | done | - | Added bounded main-agent tool loop (max 6), first-class `delegate_planner` tool path, planner child run linkage (`run_type=planner`, `parent_run_id`, inherited `trace_id`), planner report audit logging/injection, and mutation-step rejection into planner proposals (no planner direct mutation execution). |
-| C17H+ | Planner loop hardening (iterative sub-agent) | unassigned | planned | - | Follow-on after C17H: upgrade planner to bounded iterative re-plan loop with stop states (`completed`, `blocked`, `failed`, `budget_exhausted`, `needs_clarification`) and retained mutation-safety boundary. |
+| C17H+ | Planner loop hardening (iterative sub-agent) | Codex | done | `c76fa84` | Bounded iterative delegate loop landed (`planner_max_turns=6`) with mutation-proposal safety, per-iteration child-run evidence logging, and explicit stop-state contract: planner report keeps fine-grained states (`completed`, `blocked`, `failed`, `budget_exhausted`, `needs_clarification`) while `agent_runs.status` remains collapsed to storage enum (`completed|blocked|failed`). |
 
 ## 3. Open Blockers
 - [x] Confirm migration `20260217000006_clickup_space_skill_seed.sql` is applied.
