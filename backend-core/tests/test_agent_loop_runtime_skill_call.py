@@ -328,6 +328,94 @@ async def test_c17g_read_skill_round_trip_logs_events(monkeypatch, skill_id, arg
 
 
 @pytest.mark.asyncio
+async def test_c17g_skill_id_alias_brand_list_maps_to_cc_brand_list_all(monkeypatch):
+    calls: list[tuple[str, tuple]] = []
+
+    class FakeStore:
+        def __init__(self, _db):
+            pass
+
+        def list_recent_run_messages(self, run_id: str, limit: int = 20):
+            return []
+
+    class FakeTurnLogger:
+        def __init__(self, _store):
+            pass
+
+        def start_main_run(self, session_id: str):
+            return {"id": "run-1", "status": "running"}
+
+        def log_user_message(self, run_id: str, text: str):
+            return {"id": "m1"}
+
+        def log_skill_call(self, run_id: str, skill_id: str, payload: dict):
+            calls.append(("log_skill_call", (run_id, skill_id, payload)))
+            return {"id": "e1"}
+
+        def log_skill_result(self, run_id: str, skill_id: str, payload: dict):
+            calls.append(("log_skill_result", (run_id, skill_id, payload)))
+            return {"id": "e2"}
+
+        def log_assistant_message(self, run_id: str, text: str):
+            return {"id": "m2"}
+
+        def complete_run(self, run_id: str, status: str):
+            calls.append(("complete_run", (run_id, status)))
+            return None
+
+    completions = iter(
+        [
+            {
+                "content": '{"mode":"tool_call","skill_id":"brand_list","args":{"query":"Distex"}}',
+                "tokens_in": 10,
+                "tokens_out": 5,
+                "tokens_total": 15,
+                "model": "gpt-4o-mini",
+                "duration_ms": 10,
+            },
+            {
+                "content": '{"mode":"reply","text":"Done."}',
+                "tokens_in": 10,
+                "tokens_out": 5,
+                "tokens_total": 15,
+                "model": "gpt-4o-mini",
+                "duration_ms": 10,
+            },
+        ]
+    )
+
+    async def _fake_completion(*args, **kwargs):
+        _ = args, kwargs
+        return next(completions)
+
+    async def _execute_read_skill(**kwargs):
+        assert kwargs["skill_id"] == "cc_brand_list_all"
+        assert kwargs["args"] == {"client_name": "Distex"}
+        return {"response_text": "Brands listed."}
+
+    monkeypatch.setattr("app.services.agencyclaw.agent_loop_runtime.AgentLoopStore", FakeStore)
+    monkeypatch.setattr("app.services.agencyclaw.agent_loop_runtime.AgentLoopTurnLogger", FakeTurnLogger)
+
+    session = _FakeSession()
+    slack = _FakeSlack()
+    handled = await run_reply_only_agent_loop_turn(
+        text="show brands",
+        session=session,
+        slack_user_id="U123",
+        session_service=_FakeSessionService(session),
+        channel="D1",
+        slack=slack,
+        supabase_client=MagicMock(),
+        execute_read_skill_fn=_execute_read_skill,
+        call_chat_completion_fn=_fake_completion,
+    )
+
+    assert handled is True
+    assert ("log_skill_call", ("run-1", "cc_brand_list_all", {"client_name": "Distex"})) in calls
+    assert ("complete_run", ("run-1", "completed")) in calls
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "tool_result",
     [
@@ -926,8 +1014,8 @@ async def test_c17g_disallowed_read_skill_fails_safely(monkeypatch):
 
     assert handled is True
     assert len(slack.messages) == 1
-    assert "issue" in slack.messages[-1]["text"].lower()
-    assert ("complete_run", ("run-1", "failed")) in calls
+    assert "rephrase" in slack.messages[-1]["text"].lower()
+    assert ("complete_run", ("run-1", "completed")) in calls
 
 
 @pytest.mark.asyncio
@@ -984,8 +1072,8 @@ async def test_c17g_lookup_client_unknown_arg_fails_safe(monkeypatch):
 
     assert handled is True
     assert len(slack.messages) == 1
-    assert "issue" in slack.messages[-1]["text"].lower()
-    assert ("complete_run", ("run-1", "failed")) in calls
+    assert "clarification" in slack.messages[-1]["text"].lower()
+    assert ("complete_run", ("run-1", "completed")) in calls
 
 
 @pytest.mark.asyncio

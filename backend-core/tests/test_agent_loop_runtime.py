@@ -243,6 +243,63 @@ async def test_main_agent_multi_turn_skill_chain_single_turn(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_reply_cleanup_unwraps_malformed_reply_json(monkeypatch):
+    class FakeStore:
+        def __init__(self, _db):
+            pass
+
+        def list_recent_run_messages(self, run_id: str, limit: int = 20):
+            return []
+
+    class FakeTurnLogger:
+        def __init__(self, _store):
+            pass
+
+        def start_main_run(self, session_id: str):
+            return {"id": "run-1", "status": "running"}
+
+        def log_user_message(self, run_id: str, text: str):
+            return {"id": "m1"}
+
+        def log_assistant_message(self, run_id: str, text: str):
+            return {"id": "m2"}
+
+        def complete_run(self, run_id: str, status: str):
+            return None
+
+    async def _fake_completion(*args, **kwargs):
+        _ = args, kwargs
+        return {
+            # Missing final braces/quote shape can leak raw JSON-looking text.
+            "content": '{"mode":"reply","text":"Line 1\\nLine 2"',
+            "tokens_in": 10,
+            "tokens_out": 5,
+            "tokens_total": 15,
+            "model": "gpt-4o-mini",
+            "duration_ms": 10,
+        }
+
+    monkeypatch.setattr("app.services.agencyclaw.agent_loop_runtime.AgentLoopStore", FakeStore)
+    monkeypatch.setattr("app.services.agencyclaw.agent_loop_runtime.AgentLoopTurnLogger", FakeTurnLogger)
+
+    slack = _FakeSlack()
+    handled = await run_reply_only_agent_loop_turn(
+        text="hello",
+        session=_FakeSession(),
+        slack_user_id="U123",
+        session_service=MagicMock(),
+        channel="D1",
+        slack=slack,
+        supabase_client=MagicMock(),
+        call_chat_completion_fn=_fake_completion,
+    )
+
+    assert handled is True
+    assert len(slack.messages) == 1
+    assert slack.messages[0]["text"] == "Line 1\nLine 2"
+
+
+@pytest.mark.asyncio
 async def test_delegate_planner_happy_path_creates_child_run_and_main_reply(monkeypatch):
     calls: list[tuple[str, tuple, dict]] = []
     prompts: list[list[dict[str, str]]] = []

@@ -12,6 +12,7 @@ run linkage
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import re
@@ -75,6 +76,17 @@ _MUTATION_SKILLS = {
 }
 _REHYDRATION_KEY_PATTERN = re.compile(r"^ev:[^/\s]+(?:/[^/\s]+)?$")
 _MAX_LOOP_TURNS = 6
+_SKILL_ID_ALIASES = {
+    "task_list": "clickup_task_list",
+    "weekly_tasks": "clickup_task_list_weekly",
+    "list_tasks": "clickup_task_list",
+    "client_lookup": "cc_client_lookup",
+    "list_clients": "cc_client_lookup",
+    "brand_list": "cc_brand_list_all",
+    "list_brands": "cc_brand_list_all",
+    "get_brands": "cc_brand_list_all",
+    "brand_mapping_audit": "cc_brand_clickup_mapping_audit",
+}
 
 
 def _build_session_rows(session: Any) -> list[dict[str, Any]]:
@@ -137,17 +149,79 @@ def _extract_mode_payload(content: str) -> dict[str, Any]:
     return {"mode": "reply", "text": content.strip() or "How can I help?"}
 
 
+def _canonical_skill_id(skill_id: str) -> str:
+    normalized = (skill_id or "").strip()
+    return _SKILL_ID_ALIASES.get(normalized, normalized)
+
+
+def _clean_assistant_text(text: str) -> str:
+    cleaned = (text or "").strip()
+    if not cleaned:
+        return "How can I help?"
+
+    # Sometimes the model returns malformed JSON-looking text for replies.
+    # Best effort unwrap avoids exposing raw control JSON to end users.
+    if cleaned.startswith("{") and "\"mode\"" in cleaned and "\"text\"" in cleaned:
+        try:
+            parsed = json.loads(cleaned)
+            if isinstance(parsed, dict):
+                mode = str(parsed.get("mode") or "").strip()
+                txt = parsed.get("text")
+                if mode == "reply" and isinstance(txt, str) and txt.strip():
+                    return txt.strip()
+        except Exception:
+            pass
+
+        text_match = re.search(r'"text"\s*:\s*"([\s\S]*)$', cleaned)
+        if text_match:
+            candidate = text_match.group(1).strip()
+            candidate = candidate.rstrip("}").rstrip('"').strip()
+            candidate = candidate.replace('\\"', '"').replace("\\n", "\n")
+            if candidate:
+                return candidate
+
+    return cleaned
+
+
+def _error_code(exc: Exception) -> str:
+    raw = f"{type(exc).__name__}:{exc}"
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:8]
+
+
 def _validate_task_list_args(args: dict[str, Any]) -> dict[str, Any]:
-    allowed = {"client_name", "window", "window_days", "date_from", "date_to"}
+    allowed = {
+        "client_name",
+        "client",
+        "client_hint",
+        "window",
+        "window_days",
+        "date_from",
+        "date_to",
+        "top_n",
+        "limit",
+        "prioritize",
+        "sort_by",
+        "include_overdue",
+    }
     for key in args:
         if key not in allowed:
             raise ValueError(f"unsupported arg: {key}")
 
     normalized: dict[str, Any] = {}
-    if "client_name" in args and args["client_name"] is not None:
-        normalized["client_name"] = str(args["client_name"])
+    client_name = args.get("client_name")
+    if client_name is None:
+        client_name = args.get("client")
+    if client_name is None:
+        client_name = args.get("client_hint")
+    if client_name is not None:
+        normalized["client_name"] = str(client_name)
     if "window" in args and args["window"] is not None:
-        normalized["window"] = str(args["window"])
+        window = str(args["window"]).strip().lower()
+        if window in {"week", "weekly"}:
+            window = "this_week"
+        elif window in {"month", "monthly"}:
+            window = "this_month"
+        normalized["window"] = window
     if "window_days" in args and args["window_days"] is not None:
         value = args["window_days"]
         if isinstance(value, bool):
@@ -327,6 +401,12 @@ async def run_reply_only_agent_loop_turn(
             logger.warning("Agent loop logging call failed: %s", exc, exc_info=True)
             return None
 
+    async def _safe_log_method(method_name: str, *args: Any) -> Any:
+        method = getattr(turn_logger, method_name, None)
+        if not callable(method):
+            return None
+        return await _safe_log_call(method, *args)
+
     try:
         run: dict[str, Any] = {}
         try:
@@ -381,8 +461,8 @@ async def run_reply_only_agent_loop_turn(
                 if not policy.get("allowed"):
                     assistant_text = str(policy.get("user_message") or "That action is not allowed.")
                     await slack.post_message(channel=channel, text=assistant_text)
-                    await _safe_log_call(turn_logger.log_assistant_message, run_id, assistant_text)
-                    await _safe_log_call(turn_logger.complete_run, run_id, "completed")
+                    await _safe_log_method("log_assistant_message", run_id, assistant_text)
+                    await _safe_log_method("complete_run", run_id, "completed")
                     return True
                 await _safe_log_call(turn_logger.log_skill_call, run_id, skill_id, args)
                 result = await execute_create_task_fn(
@@ -399,8 +479,8 @@ async def run_reply_only_agent_loop_turn(
                 assistant_text = str(result.get("response_text") or "Task request processed.")
 
             await slack.post_message(channel=channel, text=assistant_text)
-            await _safe_log_call(turn_logger.log_assistant_message, run_id, assistant_text)
-            await _safe_log_call(turn_logger.complete_run, run_id, "completed")
+            await _safe_log_method("log_assistant_message", run_id, assistant_text)
+            await _safe_log_method("complete_run", run_id, "completed")
             return True
 
         session_rows = _build_session_rows(session)
@@ -432,6 +512,7 @@ async def run_reply_only_agent_loop_turn(
 
         loop_messages = list(prompt_messages)
         assistant_text: str | None = None
+        last_tool_error: str | None = None
 
         async def _execute_read_skill(
             skill_id: str,
@@ -478,200 +559,235 @@ async def run_reply_only_agent_loop_turn(
                 assistant_text = str(payload.get("text") or "").strip() or "How can I help?"
                 break
 
-            skill_id = str(payload.get("skill_id") or "").strip()
+            skill_id = _canonical_skill_id(str(payload.get("skill_id") or ""))
             raw_args = payload.get("args") if isinstance(payload.get("args"), dict) else {}
 
-            if skill_id in _READ_ONLY_SKILLS:
-                args = _validate_read_skill_args(skill_id, raw_args)
-                await _safe_log_call(turn_logger.log_skill_call, run_id, skill_id, args)
-                tool_result = await _execute_read_skill(skill_id, args)
-                await _safe_log_call(turn_logger.log_skill_result, run_id, skill_id, tool_result)
+            try:
+                if skill_id in _READ_ONLY_SKILLS:
+                    args = _validate_read_skill_args(skill_id, raw_args)
+                    await _safe_log_call(turn_logger.log_skill_call, run_id, skill_id, args)
+                    tool_result = await _execute_read_skill(skill_id, args)
+                    await _safe_log_call(turn_logger.log_skill_result, run_id, skill_id, tool_result)
 
-                tool_context = json.dumps(tool_result, ensure_ascii=True, separators=(",", ":"))
-                loop_messages.append(
-                    {
-                        "role": "system",
-                        "content": (
-                            f"Tool result for {skill_id} (JSON): " + tool_context
-                            + ". Continue by either calling another tool or replying to the user."
-                        ),
-                    }
-                )
-                continue
-
-            if skill_id == "delegate_planner":
-                if execute_delegate_planner_fn is None:
-                    raise ValueError("planner delegate executor not provided")
-                if not run_id:
-                    assistant_text = (
-                        "Planning isn't available right now because run logging is unavailable. "
-                        "Please try again in a moment."
-                    )
-                    break
-                args = _validate_delegate_planner_args(raw_args)
-                await _safe_log_call(turn_logger.log_skill_call, run_id, skill_id, args)
-                request_text = str(args.get("request_text") or "").strip() or text
-                trace_id = str(run.get("trace_id") or "").strip() or run_id
-                if not str(run.get("trace_id") or "").strip() and hasattr(turn_logger, "set_run_trace_id"):
-                    await _safe_log_call(turn_logger.set_run_trace_id, run_id, trace_id)
-
-                planner_child = await asyncio.to_thread(
-                    turn_logger.start_planner_run,
-                    str(session.id),
-                    parent_run_id=run_id,
-                    trace_id=trace_id,
-                )
-                planner_child_run_id = str(planner_child.get("id") or "").strip()
-                if not planner_child_run_id:
-                    raise ValueError("failed to create planner child run")
-
-                async def _planner_tool_executor(
-                    *,
-                    skill_id: str,
-                    args: dict[str, Any] | None = None,
-                    plan_args: dict[str, Any] | None = None,
-                    **_kwargs: Any,
-                ) -> dict[str, Any]:
-                    normalized_skill = str(skill_id or "").strip()
-                    if not normalized_skill:
-                        raise ValueError("skill_id is required")
-                    raw_tool_args = (
-                        dict(args)
-                        if isinstance(args, dict)
-                        else dict(plan_args)
-                        if isinstance(plan_args, dict)
-                        else {}
-                    )
-
-                    if normalized_skill in _MUTATION_SKILLS:
-                        proposal = {
-                            "skill_id": normalized_skill,
-                            "args": raw_tool_args,
-                            "rejected_reason": "planner_mutation_execution_disallowed",
+                    tool_context = json.dumps(tool_result, ensure_ascii=True, separators=(",", ":"))
+                    loop_messages.append(
+                        {
+                            "role": "system",
+                            "content": (
+                                f"Tool result for {skill_id} (JSON): " + tool_context
+                                + ". Continue by either calling another tool or replying to the user."
+                            ),
                         }
-                        return {
-                            "ok": True,
-                            "blocked": True,
-                            "status": "mutation_proposal",
-                            "response_text": "Mutation execution is disabled in planner delegation.",
-                            "mutation_proposals": [proposal],
-                        }
-                    if normalized_skill not in _READ_ONLY_SKILLS:
-                        raise ValueError(f"disallowed planner skill: {normalized_skill}")
-
-                    normalized_args = _validate_read_skill_args(normalized_skill, raw_tool_args)
-                    return await _execute_read_skill(normalized_skill, normalized_args)
-
-                planner_report = await execute_delegate_planner_fn(
-                    request_text=request_text,
-                    slack_user_id=slack_user_id,
-                    channel=channel,
-                    session=session,
-                    session_service=session_service,
-                    parent_run_id=run_id,
-                    child_run_id=planner_child_run_id,
-                    trace_id=trace_id,
-                    tool_executor=_planner_tool_executor,
-                    execute_skill_fn=_planner_tool_executor,
-                    max_planner_turns=_MAX_LOOP_TURNS,
-                    max_turns=_MAX_LOOP_TURNS,
-                )
-                if not isinstance(planner_report, dict):
-                    raise ValueError("planner delegate report must be dict")
-                await _safe_log_call(turn_logger.log_skill_result, run_id, skill_id, planner_report)
-
-                planner_status = str(planner_report.get("status") or "").strip().lower()
-                if planner_status not in {
-                    "completed",
-                    "blocked",
-                    "failed",
-                    "budget_exhausted",
-                    "needs_clarification",
-                }:
-                    planner_status = "completed" if bool(planner_report.get("ok")) else "failed"
-
-                child_run_status = (
-                    "completed"
-                    if planner_status == "completed"
-                    else "failed"
-                    if planner_status == "failed"
-                    else "blocked"
-                )
-                await _safe_log_call(turn_logger.complete_run, planner_child_run_id, child_run_status)
-                planner_child_done = True
-                await _safe_log_call(turn_logger.log_planner_report, run_id, planner_report)
-
-                tool_context = json.dumps(planner_report, ensure_ascii=True, separators=(",", ":"))
-                loop_messages.append(
-                    {
-                        "role": "system",
-                        "content": (
-                            "Tool result for delegate_planner (JSON): " + tool_context
-                            + ". Continue in the main assistant voice."
-                        ),
-                    }
-                )
-                if planner_status != "completed":
-                    assistant_text = str(
-                        planner_report.get("response_text")
-                        or "I couldn't run planning right now. Could you rephrase and try again?"
                     )
-                    break
-                continue
+                    continue
 
-            if skill_id == "clickup_task_create":
-                args = _validate_task_create_args(raw_args)
-                if check_mutation_policy_fn is None:
-                    raise ValueError("mutation policy checker not provided")
-                policy = await check_mutation_policy_fn(
-                    slack_user_id=slack_user_id,
-                    session=session,
-                    channel=channel,
-                    skill_id="clickup_task_create",
-                    args=args,
-                )
-                if not policy.get("allowed"):
-                    assistant_text = str(policy.get("user_message") or "That action is not allowed.")
-                else:
-                    proposal = build_pending_confirmation(
-                        action_type="mutation",
+                if skill_id == "delegate_planner":
+                    if execute_delegate_planner_fn is None:
+                        raise ValueError("planner delegate executor not provided")
+                    if not run_id:
+                        assistant_text = (
+                            "Planning isn't available right now because run logging is unavailable. "
+                            "Please try again in a moment."
+                        )
+                        break
+                    args = _validate_delegate_planner_args(raw_args)
+                    await _safe_log_call(turn_logger.log_skill_call, run_id, skill_id, args)
+                    request_text = str(args.get("request_text") or "").strip() or text
+                    trace_id = str(run.get("trace_id") or "").strip() or run_id
+                    if not str(run.get("trace_id") or "").strip():
+                        await _safe_log_method("set_run_trace_id", run_id, trace_id)
+
+                    planner_child = await asyncio.to_thread(
+                        turn_logger.start_planner_run,
+                        str(session.id),
+                        parent_run_id=run_id,
+                        trace_id=trace_id,
+                    )
+                    planner_child_run_id = str(planner_child.get("id") or "").strip()
+                    if not planner_child_run_id:
+                        raise ValueError("failed to create planner child run")
+
+                    async def _planner_tool_executor(
+                        *,
+                        skill_id: str,
+                        args: dict[str, Any] | None = None,
+                        plan_args: dict[str, Any] | None = None,
+                        **_kwargs: Any,
+                    ) -> dict[str, Any]:
+                        normalized_skill = str(skill_id or "").strip()
+                        if not normalized_skill:
+                            raise ValueError("skill_id is required")
+                        raw_tool_args = (
+                            dict(args)
+                            if isinstance(args, dict)
+                            else dict(plan_args)
+                            if isinstance(plan_args, dict)
+                            else {}
+                        )
+
+                        if normalized_skill in _MUTATION_SKILLS:
+                            proposal = {
+                                "skill_id": normalized_skill,
+                                "args": raw_tool_args,
+                                "rejected_reason": "planner_mutation_execution_disallowed",
+                            }
+                            return {
+                                "ok": True,
+                                "blocked": True,
+                                "status": "mutation_proposal",
+                                "response_text": "Mutation execution is disabled in planner delegation.",
+                                "mutation_proposals": [proposal],
+                            }
+                        if normalized_skill not in _READ_ONLY_SKILLS:
+                            raise ValueError(f"disallowed planner skill: {normalized_skill}")
+
+                        normalized_args = _validate_read_skill_args(normalized_skill, raw_tool_args)
+                        return await _execute_read_skill(normalized_skill, normalized_args)
+
+                    planner_report = await execute_delegate_planner_fn(
+                        request_text=request_text,
+                        slack_user_id=slack_user_id,
+                        channel=channel,
+                        session=session,
+                        session_service=session_service,
+                        parent_run_id=run_id,
+                        child_run_id=planner_child_run_id,
+                        trace_id=trace_id,
+                        tool_executor=_planner_tool_executor,
+                        execute_skill_fn=_planner_tool_executor,
+                        max_planner_turns=_MAX_LOOP_TURNS,
+                        max_turns=_MAX_LOOP_TURNS,
+                    )
+                    if not isinstance(planner_report, dict):
+                        raise ValueError("planner delegate report must be dict")
+                    await _safe_log_call(turn_logger.log_skill_result, run_id, skill_id, planner_report)
+
+                    planner_status = str(planner_report.get("status") or "").strip().lower()
+                    if planner_status not in {
+                        "completed",
+                        "blocked",
+                        "failed",
+                        "budget_exhausted",
+                        "needs_clarification",
+                    }:
+                        planner_status = "completed" if bool(planner_report.get("ok")) else "failed"
+
+                    child_run_status = (
+                        "completed"
+                        if planner_status == "completed"
+                        else "failed"
+                        if planner_status == "failed"
+                        else "blocked"
+                    )
+                    await _safe_log_method("complete_run", planner_child_run_id, child_run_status)
+                    planner_child_done = True
+                    await _safe_log_method("log_planner_report", run_id, planner_report)
+
+                    tool_context = json.dumps(planner_report, ensure_ascii=True, separators=(",", ":"))
+                    loop_messages.append(
+                        {
+                            "role": "system",
+                            "content": (
+                                "Tool result for delegate_planner (JSON): " + tool_context
+                                + ". Continue in the main assistant voice."
+                            ),
+                        }
+                    )
+                    if planner_status != "completed":
+                        assistant_text = str(
+                            planner_report.get("response_text")
+                            or "I couldn't run planning right now. Could you rephrase and try again?"
+                        )
+                        break
+                    continue
+
+                if skill_id == "clickup_task_create":
+                    args = _validate_task_create_args(raw_args)
+                    if check_mutation_policy_fn is None:
+                        raise ValueError("mutation policy checker not provided")
+                    policy = await check_mutation_policy_fn(
+                        slack_user_id=slack_user_id,
+                        session=session,
+                        channel=channel,
                         skill_id="clickup_task_create",
                         args=args,
-                        requested_by=slack_user_id,
-                        lane_key=slack_user_id,
                     )
-                    await asyncio.to_thread(session_service.update_context, session.id, {_PENDING_KEY: proposal})
-                    title = str(args.get("task_title") or "this task")
-                    assistant_text = (
-                        f"Ready to create task *{title}*. "
-                        "Reply `confirm` to proceed or `cancel` to discard."
-                    )
-                break
+                    if not policy.get("allowed"):
+                        assistant_text = str(policy.get("user_message") or "That action is not allowed.")
+                    else:
+                        proposal = build_pending_confirmation(
+                            action_type="mutation",
+                            skill_id="clickup_task_create",
+                            args=args,
+                            requested_by=slack_user_id,
+                            lane_key=slack_user_id,
+                        )
+                        await asyncio.to_thread(session_service.update_context, session.id, {_PENDING_KEY: proposal})
+                        title = str(args.get("task_title") or "this task")
+                        assistant_text = (
+                            f"Ready to create task *{title}*. "
+                            "Reply `confirm` to proceed or `cancel` to discard."
+                        )
+                    break
 
-            raise ValueError(f"disallowed skill in C17E/C17F/C17G/C17H: {skill_id}")
+                if not skill_id:
+                    raise ValueError("missing skill_id in tool_call")
+
+                loop_messages.append(
+                    {
+                        "role": "system",
+                        "content": (
+                            f"Unsupported skill_id `{skill_id}`. "
+                            "Use an available skill or reply directly to the user."
+                        ),
+                    }
+                )
+                continue
+            except Exception as tool_exc:  # noqa: BLE001
+                last_tool_error = f"{skill_id}: {tool_exc}"
+                logger.info("Tool-call handling soft-failed (%s)", last_tool_error, exc_info=True)
+                loop_messages.append(
+                    {
+                        "role": "system",
+                        "content": (
+                            f"Previous tool call failed ({last_tool_error}). "
+                            "Adjust args/skill and continue, or reply with a clarification question."
+                        ),
+                    }
+                )
+                continue
 
         if not assistant_text:
-            assistant_text = "I couldn't complete that flow. Could you rephrase and try again?"
+            if last_tool_error:
+                assistant_text = (
+                    "I can help with that, but I need one quick clarification "
+                    "to run the right action. Could you rephrase with client and target outcome?"
+                )
+            else:
+                assistant_text = "I couldn't complete that flow. Could you rephrase and try again?"
+
+        assistant_text = _clean_assistant_text(assistant_text)
 
         await slack.post_message(channel=channel, text=assistant_text)
-        await _safe_log_call(turn_logger.log_assistant_message, run_id, assistant_text)
-        await _safe_log_call(turn_logger.complete_run, run_id, "completed")
+        await _safe_log_method("log_assistant_message", run_id, assistant_text)
+        await _safe_log_method("complete_run", run_id, "completed")
         return True
     except Exception as exc:  # noqa: BLE001
         logger.warning("Agent loop reply-only turn failed: %s", exc, exc_info=True)
         if planner_child_run_id and not planner_child_done:
             try:
-                await _safe_log_call(turn_logger.complete_run, planner_child_run_id, "failed")
+                await _safe_log_method("complete_run", planner_child_run_id, "failed")
             except Exception:  # noqa: BLE001
                 pass
         if run_id:
             try:
-                await _safe_log_call(turn_logger.complete_run, run_id, "failed")
+                await _safe_log_method("complete_run", run_id, "failed")
             except Exception:  # noqa: BLE001
                 pass
         short_ref = (run_id or "n/a")[-8:]
+        code = _error_code(exc)
         await slack.post_message(
             channel=channel,
-            text=f"{_FAILURE_FALLBACK_TEXT} (ref: {short_ref})",
+            text=f"{_FAILURE_FALLBACK_TEXT} (ref: {short_ref}, code: {code})",
         )
         return True
