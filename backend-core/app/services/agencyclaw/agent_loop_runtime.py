@@ -497,10 +497,24 @@ async def run_reply_only_agent_loop_turn(
                     raise ValueError("planner delegate report must be dict")
                 await asyncio.to_thread(turn_logger.log_skill_result, run_id, skill_id, planner_report)
 
-                status = str(planner_report.get("status") or "").strip().lower()
-                if status not in {"completed", "failed", "blocked"}:
-                    status = "completed" if bool(planner_report.get("ok")) else "failed"
-                await asyncio.to_thread(turn_logger.complete_run, planner_child_run_id, status)
+                planner_status = str(planner_report.get("status") or "").strip().lower()
+                if planner_status not in {
+                    "completed",
+                    "blocked",
+                    "failed",
+                    "budget_exhausted",
+                    "needs_clarification",
+                }:
+                    planner_status = "completed" if bool(planner_report.get("ok")) else "failed"
+
+                child_run_status = (
+                    "completed"
+                    if planner_status == "completed"
+                    else "failed"
+                    if planner_status == "failed"
+                    else "blocked"
+                )
+                await asyncio.to_thread(turn_logger.complete_run, planner_child_run_id, child_run_status)
                 planner_child_done = True
                 await asyncio.to_thread(turn_logger.log_planner_report, run_id, planner_report)
 
@@ -514,7 +528,7 @@ async def run_reply_only_agent_loop_turn(
                         ),
                     }
                 )
-                if status != "completed":
+                if planner_status != "completed":
                     assistant_text = str(
                         planner_report.get("response_text")
                         or "I couldn't run planning right now. Could you rephrase and try again?"

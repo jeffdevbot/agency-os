@@ -496,6 +496,270 @@ class TestAgentLoopFlagDispatch:
         assert proposal["rejected_reason"] == "planner_mutation_execution_disallowed"
         mock_execute_plan.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_agent_loop_delegate_planner_performs_replan_cycle(self):
+        svc, slack = _make_mocks()
+        captured_report: dict[str, Any] = {}
+
+        async def _exercise_executor(**kwargs) -> bool:
+            execute_delegate_planner_fn = kwargs["execute_delegate_planner_fn"]
+            captured_report.update(
+                await execute_delegate_planner_fn(
+                    request_text="plan this work",
+                    slack_user_id="U123",
+                    channel="C1",
+                    session=svc.get_or_create_session.return_value,
+                    session_service=svc,
+                    parent_run_id="run-main",
+                    child_run_id="run-child",
+                    trace_id="trace-1",
+                )
+            )
+            return True
+
+        plan1 = {
+            "intent": "phase1",
+            "steps": [{"skill_id": "lookup_client", "args": {"query": "Distex"}, "requires_confirmation": False, "reason": "ctx1"}],
+            "confidence": 0.8,
+            "tokens_in": None,
+            "tokens_out": None,
+            "tokens_total": None,
+            "model_used": None,
+        }
+        plan2 = {
+            "intent": "phase2",
+            "steps": [{"skill_id": "search_kb", "args": {"query": "coupon setup"}, "requires_confirmation": False, "reason": "ctx2"}],
+            "confidence": 0.8,
+            "tokens_in": None,
+            "tokens_out": None,
+            "tokens_total": None,
+            "model_used": None,
+        }
+
+        with (
+            patch("app.api.routes.slack._is_agent_loop_enabled", return_value=True),
+            patch("app.api.routes.slack._is_llm_orchestrator_enabled", return_value=False),
+            patch("app.api.routes.slack.get_playbook_session_service", return_value=svc),
+            patch("app.api.routes.slack.get_slack_service", return_value=slack),
+            patch("app.api.routes.slack.get_supabase_admin_client", return_value=MagicMock()),
+            patch(
+                "app.api.routes.slack._runtime_run_reply_only_agent_loop_turn",
+                side_effect=_exercise_executor,
+            ),
+            patch("app.api.routes.slack.generate_plan", new_callable=AsyncMock, side_effect=[plan1, plan2, plan2]) as mock_generate,
+            patch("app.api.routes.slack.execute_plan", new_callable=AsyncMock, return_value={
+                "plan_intent": "phase",
+                "steps_attempted": 1,
+                "steps_succeeded": 1,
+                "step_results": [],
+                "aborted": False,
+                "abort_reason": None,
+            }) as mock_execute_plan,
+        ):
+            await _handle_dm_event(slack_user_id="U123", channel="C1", text="plan iterative")
+
+        assert captured_report["status"] == "completed"
+        assert len(captured_report.get("iteration_reports", [])) >= 2
+        assert mock_generate.call_count >= 2
+        assert mock_execute_plan.call_count >= 2
+
+    @pytest.mark.asyncio
+    async def test_agent_loop_delegate_planner_logs_child_run_step_events_per_iteration(self):
+        svc, slack = _make_mocks()
+        captured_report: dict[str, Any] = {}
+        logger_calls: list[tuple[str, str, dict[str, Any]]] = []
+
+        async def _exercise_executor(**kwargs) -> bool:
+            execute_delegate_planner_fn = kwargs["execute_delegate_planner_fn"]
+            captured_report.update(
+                await execute_delegate_planner_fn(
+                    request_text="plan this work",
+                    slack_user_id="U123",
+                    channel="C1",
+                    session=svc.get_or_create_session.return_value,
+                    session_service=svc,
+                    parent_run_id="run-main",
+                    child_run_id="run-child",
+                    trace_id="trace-1",
+                )
+            )
+            return True
+
+        class _FakePlannerLogger:
+            def __init__(self, _store):
+                pass
+
+            def log_user_message(self, run_id: str, text: str):
+                _ = run_id, text
+                return {"id": "m-user"}
+
+            def log_skill_call(self, run_id: str, skill_id: str, payload: dict[str, Any]):
+                _ = run_id
+                logger_calls.append(("skill_call", skill_id, payload))
+                return {"id": "e-call"}
+
+            def log_skill_result(self, run_id: str, skill_id: str, payload: dict[str, Any]):
+                _ = run_id
+                logger_calls.append(("skill_result", skill_id, payload))
+                return {"id": "e-result"}
+
+            def log_planner_report(self, run_id: str, report: dict[str, Any]):
+                _ = run_id, report
+                return {"id": "m-report"}
+
+        plan = {
+            "intent": "phase1",
+            "steps": [{"skill_id": "lookup_client", "args": {"query": "Distex"}, "requires_confirmation": False, "reason": "ctx"}],
+            "confidence": 0.8,
+            "tokens_in": None,
+            "tokens_out": None,
+            "tokens_total": None,
+            "model_used": None,
+        }
+
+        with (
+            patch("app.api.routes.slack._is_agent_loop_enabled", return_value=True),
+            patch("app.api.routes.slack._is_llm_orchestrator_enabled", return_value=False),
+            patch("app.api.routes.slack.get_playbook_session_service", return_value=svc),
+            patch("app.api.routes.slack.get_slack_service", return_value=slack),
+            patch("app.api.routes.slack.get_supabase_admin_client", return_value=MagicMock()),
+            patch(
+                "app.api.routes.slack._runtime_run_reply_only_agent_loop_turn",
+                side_effect=_exercise_executor,
+            ),
+            patch("app.api.routes.slack.AgentLoopTurnLogger", _FakePlannerLogger),
+            patch("app.api.routes.slack.generate_plan", new_callable=AsyncMock, side_effect=[plan, plan]),
+            patch("app.api.routes.slack.execute_plan", new_callable=AsyncMock, return_value={
+                "plan_intent": "phase1",
+                "steps_attempted": 1,
+                "steps_succeeded": 1,
+                "step_results": [{"skill_id": "lookup_client", "status": "success", "reason": "ctx", "user_message": ""}],
+                "aborted": False,
+                "abort_reason": None,
+            }),
+        ):
+            await _handle_dm_event(slack_user_id="U123", channel="C1", text="plan iterative logging")
+
+        assert captured_report["status"] == "completed"
+        assert any(
+            call_kind == "skill_call"
+            and skill_id == "lookup_client"
+            and payload.get("source") == "planner_iteration"
+            for call_kind, skill_id, payload in logger_calls
+        )
+        assert any(
+            call_kind == "skill_result"
+            and skill_id == "lookup_client"
+            and payload.get("source") == "planner_iteration"
+            and payload.get("status") == "success"
+            for call_kind, skill_id, payload in logger_calls
+        )
+
+    @pytest.mark.asyncio
+    async def test_agent_loop_delegate_planner_budget_exhausted_partial_report(self):
+        svc, slack = _make_mocks()
+        captured_report: dict[str, Any] = {}
+
+        async def _exercise_executor(**kwargs) -> bool:
+            execute_delegate_planner_fn = kwargs["execute_delegate_planner_fn"]
+            captured_report.update(
+                await execute_delegate_planner_fn(
+                    request_text="plan this work",
+                    slack_user_id="U123",
+                    channel="C1",
+                    session=svc.get_or_create_session.return_value,
+                    session_service=svc,
+                    parent_run_id="run-main",
+                    child_run_id="run-child",
+                    trace_id="trace-1",
+                )
+            )
+            return True
+
+        def _plan(turn: int) -> dict[str, Any]:
+            return {
+                "intent": f"phase{turn}",
+                "steps": [{"skill_id": "lookup_client", "args": {"query": f"q{turn}"}, "requires_confirmation": False, "reason": f"r{turn}"}],
+                "confidence": 0.8,
+                "tokens_in": None,
+                "tokens_out": None,
+                "tokens_total": None,
+                "model_used": None,
+            }
+
+        with (
+            patch("app.api.routes.slack._is_agent_loop_enabled", return_value=True),
+            patch("app.api.routes.slack._is_llm_orchestrator_enabled", return_value=False),
+            patch("app.api.routes.slack.get_playbook_session_service", return_value=svc),
+            patch("app.api.routes.slack.get_slack_service", return_value=slack),
+            patch("app.api.routes.slack.get_supabase_admin_client", return_value=MagicMock()),
+            patch(
+                "app.api.routes.slack._runtime_run_reply_only_agent_loop_turn",
+                side_effect=_exercise_executor,
+            ),
+            patch("app.api.routes.slack.generate_plan", new_callable=AsyncMock, side_effect=[_plan(i) for i in range(1, 7)]),
+            patch("app.api.routes.slack.execute_plan", new_callable=AsyncMock, return_value={
+                "plan_intent": "phase",
+                "steps_attempted": 1,
+                "steps_succeeded": 1,
+                "step_results": [],
+                "aborted": False,
+                "abort_reason": None,
+            }),
+        ):
+            await _handle_dm_event(slack_user_id="U123", channel="C1", text="plan budget")
+
+        assert captured_report["status"] == "budget_exhausted"
+        assert len(captured_report.get("iteration_reports", [])) == 6
+        assert "iteration budget" in captured_report.get("response_text", "").lower()
+
+    @pytest.mark.asyncio
+    async def test_agent_loop_delegate_planner_needs_clarification_returns_open_questions(self):
+        svc, slack = _make_mocks()
+        captured_report: dict[str, Any] = {}
+
+        async def _exercise_executor(**kwargs) -> bool:
+            execute_delegate_planner_fn = kwargs["execute_delegate_planner_fn"]
+            captured_report.update(
+                await execute_delegate_planner_fn(
+                    request_text="ambiguous ask",
+                    slack_user_id="U123",
+                    channel="C1",
+                    session=svc.get_or_create_session.return_value,
+                    session_service=svc,
+                    parent_run_id="run-main",
+                    child_run_id="run-child",
+                    trace_id="trace-1",
+                )
+            )
+            return True
+
+        with (
+            patch("app.api.routes.slack._is_agent_loop_enabled", return_value=True),
+            patch("app.api.routes.slack._is_llm_orchestrator_enabled", return_value=False),
+            patch("app.api.routes.slack.get_playbook_session_service", return_value=svc),
+            patch("app.api.routes.slack.get_slack_service", return_value=slack),
+            patch("app.api.routes.slack.get_supabase_admin_client", return_value=MagicMock()),
+            patch(
+                "app.api.routes.slack._runtime_run_reply_only_agent_loop_turn",
+                side_effect=_exercise_executor,
+            ),
+            patch("app.api.routes.slack.generate_plan", new_callable=AsyncMock, return_value={
+                "intent": "unknown",
+                "steps": [],
+                "confidence": 0.1,
+                "tokens_in": None,
+                "tokens_out": None,
+                "tokens_total": None,
+                "model_used": None,
+            }),
+        ):
+            await _handle_dm_event(slack_user_id="U123", channel="C1", text="plan unclear")
+
+        assert captured_report["status"] == "needs_clarification"
+        assert isinstance(captured_report.get("open_questions"), list)
+        assert len(captured_report["open_questions"]) >= 1
+
 
 class TestStrictModeHelpers:
     def test_legacy_prompt_skill_block_excludes_delegate_planner(self):
