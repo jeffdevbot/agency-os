@@ -110,7 +110,6 @@ from ...services.agencyclaw.slack_cc_bridge_runtime import (
 )
 from ...services.agencyclaw.slack_task_bridge_runtime import (
     build_task_bridge_runtime_deps,
-    build_task_list_runtime_deps_bridge_runtime,
     enrich_task_draft_bridge_runtime,
     execute_task_create_bridge_runtime,
     handle_create_task_bridge_runtime,
@@ -247,10 +246,6 @@ def _build_cc_bridge_deps():
         update_brand_fn=update_brand,
         format_brand_update_result_fn=format_brand_update_result,
     )
-
-
-def _build_task_list_runtime_deps():
-    return build_task_list_runtime_deps_bridge_runtime(_build_task_bridge_deps())
 
 
 async def _handle_task_list(
