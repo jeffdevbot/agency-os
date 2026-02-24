@@ -408,14 +408,82 @@ class TestAgentLoopFlagDispatch:
                 "app.api.routes.slack._runtime_run_reply_only_agent_loop_turn",
                 side_effect=_exercise_executor,
             ),
-            patch("app.api.routes.slack._try_planner", new_callable=AsyncMock, return_value=True) as mock_try_planner,
+            patch("app.api.routes.slack.generate_plan", new_callable=AsyncMock, return_value={
+                "intent": "multi_step",
+                "steps": [{"skill_id": "clickup_task_list", "args": {"client_name": "Distex"}, "requires_confirmation": False, "reason": "read"}],
+                "confidence": 0.8,
+                "tokens_in": None,
+                "tokens_out": None,
+                "tokens_total": None,
+                "model_used": None,
+            }),
+            patch("app.api.routes.slack.execute_plan", new_callable=AsyncMock, return_value={
+                "plan_intent": "multi_step",
+                "steps_attempted": 1,
+                "steps_succeeded": 1,
+                "step_results": [],
+                "aborted": False,
+                "abort_reason": None,
+            }) as mock_execute_plan,
         ):
             await _handle_dm_event(slack_user_id="U123", channel="C1", text="plan this")
 
         assert captured_report["ok"] is True
         assert captured_report["status"] == "completed"
         assert captured_report["request_text"] == "plan this work"
-        assert mock_try_planner.call_args.kwargs["text"] == "plan this work"
+        assert mock_execute_plan.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_agent_loop_delegate_planner_rejects_mutation_steps(self):
+        svc, slack = _make_mocks()
+        captured_report: dict[str, Any] = {}
+
+        async def _exercise_executor(**kwargs) -> bool:
+            execute_delegate_planner_fn = kwargs["execute_delegate_planner_fn"]
+            captured_report.update(
+                await execute_delegate_planner_fn(
+                    request_text="plan this work",
+                    slack_user_id="U123",
+                    channel="C1",
+                    session=svc.get_or_create_session.return_value,
+                    session_service=svc,
+                    parent_run_id="run-main",
+                    child_run_id="run-child",
+                    trace_id="trace-1",
+                )
+            )
+            return True
+
+        with (
+            patch("app.api.routes.slack._is_agent_loop_enabled", return_value=True),
+            patch("app.api.routes.slack._is_llm_orchestrator_enabled", return_value=False),
+            patch("app.api.routes.slack.get_playbook_session_service", return_value=svc),
+            patch("app.api.routes.slack.get_slack_service", return_value=slack),
+            patch("app.api.routes.slack.get_supabase_admin_client", return_value=MagicMock()),
+            patch(
+                "app.api.routes.slack._runtime_run_reply_only_agent_loop_turn",
+                side_effect=_exercise_executor,
+            ),
+            patch("app.api.routes.slack.generate_plan", new_callable=AsyncMock, return_value={
+                "intent": "create_only",
+                "steps": [{"skill_id": "clickup_task_create", "args": {"task_title": "X"}, "requires_confirmation": True, "reason": "mut"}],
+                "confidence": 0.7,
+                "tokens_in": None,
+                "tokens_out": None,
+                "tokens_total": None,
+                "model_used": None,
+            }),
+            patch("app.api.routes.slack.execute_plan", new_callable=AsyncMock) as mock_execute_plan,
+        ):
+            await _handle_dm_event(slack_user_id="U123", channel="C1", text="plan create")
+
+        assert captured_report["ok"] is True
+        assert captured_report["status"] == "completed"
+        assert len(captured_report.get("mutation_proposals", [])) == 1
+        proposal = captured_report["mutation_proposals"][0]
+        assert proposal["skill_id"] == "clickup_task_create"
+        assert proposal["rejected_reason"] == "planner_mutation_execution_disallowed"
+        mock_execute_plan.assert_not_called()
 
 
 class TestStrictModeHelpers:

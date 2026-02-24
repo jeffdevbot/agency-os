@@ -1,6 +1,6 @@
 # AgencyClaw Execution Tracker
 
-Last updated: 2026-02-24 (C17H/C17H+ scope refined; C17G complete)
+Last updated: 2026-02-24 (C17H landed: bounded multi-turn + delegate_planner; C17H+ iterative loop deferred)
 
 ## 1. Baseline Status
 - [x] PRD updated to v1.19 (`docs/23_agencyclaw_prd.md`)
@@ -67,7 +67,7 @@ Last updated: 2026-02-24 (C17H/C17H+ scope refined; C17G complete)
 | C17E | Skill-result loop v1 (read-only skill) | Codex | done | merged (`6f89b43`, `7dc785f`) | Added single read-only skill round-trip (`clickup_task_list`) in agent-loop path with skill_call/skill_result logging and second-pass natural response synthesis; policy gate enforced in task-list executor path. |
 | C17F | Mutation confirmation contract | Codex | done | merged (`494587a`, `6338459`) | Added deterministic `pending_confirmation` contract with confirmation/cancel/expiry handling, fingerprint integrity validation, confirm-time mutation policy recheck, and retry-safe pending semantics (retain on execute failure, clear on success/cancel/expiry/invalid). |
 | C17G | Context skills + retention summaries + rehydration | Codex | done | `8a56c74`, `95dcec1`, `88443ff`, `af8721b`, `173cd2b` | Agent-loop read allowlist expanded with context/rehydration skills, policy-gated runtime callback dispatch wired to existing services, bounded recent skill-event evidence injection added to prompt assembly path, and follow-up hardening landed for fail-closed `lookup_client` arg validation plus deterministic `search_kb` brand scoping. |
-| C17H | Main-agent multi-turn loop + planner sub-agent delegation | unassigned | planned | - | Prerequisite chunk for planner delegation: add bounded main-agent loop, wire `delegate_planner`, persist planner child runs (`run_type=planner`, `parent_run_id`, inherited `trace_id`), keep planner single-shot and read-only (no direct mutations). |
+| C17H | Main-agent multi-turn loop + planner sub-agent delegation | Codex | done | - | Added bounded main-agent tool loop (max 6), first-class `delegate_planner` tool path, planner child run linkage (`run_type=planner`, `parent_run_id`, inherited `trace_id`), planner report audit logging/injection, and mutation-step rejection into planner proposals (no planner direct mutation execution). |
 | C17H+ | Planner loop hardening (iterative sub-agent) | unassigned | planned | - | Follow-on after C17H: upgrade planner to bounded iterative re-plan loop with stop states (`completed`, `blocked`, `failed`, `budget_exhausted`, `needs_clarification`) and retained mutation-safety boundary. |
 
 ## 3. Open Blockers
@@ -94,7 +94,7 @@ Last updated: 2026-02-24 (C17H/C17H+ scope refined; C17G complete)
 - [ ] Optional later path: `catalog_lookup` skill with real product data source integration.
 - [ ] Multi-user channel memory hardening under C10E:
   actor-scoped preferences only, requester-bound pending state, and explicit `requested_by` vs `confirmed_by` audit fields.
-- [ ] `delegate_planner` runtime path remains pending C17H implementation in agent-loop runtime (legacy planner path remains unchanged while C17H is incomplete).
+- [x] `delegate_planner` runtime path implemented in agent-loop runtime for `AGENCYCLAW_AGENT_LOOP_ENABLED=true`; legacy planner runtime path remains unchanged when agent-loop flag is off.
 
 ## 3.4 Scope Freeze (Near-Term)
 - Committed now:

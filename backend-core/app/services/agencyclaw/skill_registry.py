@@ -208,6 +208,16 @@ SKILL_SCHEMAS: dict[str, SkillSchema] = {
             },
         },
     },
+    "delegate_planner": {
+        "description": "Delegate to planner sub-agent for a single-shot plan and execution report.",
+        "args": {
+            "request_text": {
+                "type": "string",
+                "required": False,
+                "description": "Optional planning request text; defaults to the current user message.",
+            },
+        },
+    },
     # C11E: Brand mapping remediation skills
     "cc_brand_mapping_remediation_preview": {
         "description": "Preview a remediation plan for brands missing ClickUp mappings. Admin only. Shows which brands can be auto-fixed and which are blocked.",

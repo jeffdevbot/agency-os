@@ -31,8 +31,9 @@ _LOGGER = logging.getLogger(__name__)
 _SYSTEM_PROMPT = (
     "You are AgencyClaw, an internal assistant for e-commerce operations. "
     "Reply conversationally and helpfully using available conversation context. "
-    "For this runtime version, you may request at most one tool call "
-    "using strict JSON only. Output either "
+    "For this runtime version, use strict JSON only. "
+    "Each response may either request one tool call or provide a final reply. "
+    "Output either "
     '{"mode":"reply","text":"..."} or '
     '{"mode":"tool_call","skill_id":"clickup_task_list","args":{...}} or '
     '{"mode":"tool_call","skill_id":"cc_client_lookup","args":{...}} or '
@@ -44,7 +45,7 @@ _SYSTEM_PROMPT = (
     '{"mode":"tool_call","skill_id":"resolve_brand","args":{...}} or '
     '{"mode":"tool_call","skill_id":"get_client_context","args":{...}} or '
     '{"mode":"tool_call","skill_id":"load_prior_skill_result","args":{...}} or '
-    '{"mode":"delegate_planner","args":{"request_text":"..."}} or '
+    '{"mode":"tool_call","skill_id":"delegate_planner","args":{"request_text":"..."}} or '
     '{"mode":"tool_call","skill_id":"clickup_task_create","args":{...}}.'
 )
 _FAILURE_FALLBACK_TEXT = (
@@ -64,6 +65,7 @@ _READ_ONLY_SKILLS = {
     "load_prior_skill_result",
 }
 _REHYDRATION_KEY_PATTERN = re.compile(r"^ev:[^/\s]+(?:/[^/\s]+)?$")
+_MAX_LOOP_TURNS = 6
 
 
 def _build_session_rows(session: Any) -> list[dict[str, Any]]:
@@ -115,7 +117,8 @@ def _extract_mode_payload(content: str) -> dict[str, Any]:
         }
     if mode == "delegate_planner":
         return {
-            "mode": "delegate_planner",
+            "mode": "tool_call",
+            "skill_id": "delegate_planner",
             "args": payload.get("args") if isinstance(payload.get("args"), dict) else {},
         }
 
@@ -269,6 +272,15 @@ def _validate_read_skill_args(skill_id: str, args: dict[str, Any]) -> dict[str, 
     raise ValueError(f"disallowed read skill: {skill_id}")
 
 
+def _validate_delegate_planner_args(args: dict[str, Any]) -> dict[str, Any]:
+    allowed = {"request_text"}
+    for key in args:
+        if key not in allowed:
+            raise ValueError(f"unsupported arg: {key}")
+    request_text = str(args.get("request_text") or "").strip()
+    return {"request_text": request_text} if request_text else {}
+
+
 async def run_reply_only_agent_loop_turn(
     *,
     text: str,
@@ -394,17 +406,25 @@ async def run_reply_only_agent_loop_turn(
         if not any(m.get("role") == "user" for m in assembled["messages_for_llm"]):
             prompt_messages.append({"role": "user", "content": text})
 
-        completion = await call_chat_completion_fn(
-            prompt_messages,
-            temperature=0.2,
-            max_tokens=400,
-        )
-        first_payload = _extract_mode_payload(str(completion.get("content") or ""))
+        loop_messages = list(prompt_messages)
+        assistant_text: str | None = None
 
-        if first_payload.get("mode") == "tool_call":
-            skill_id = str(first_payload.get("skill_id") or "")
+        for _turn in range(_MAX_LOOP_TURNS):
+            completion = await call_chat_completion_fn(
+                loop_messages,
+                temperature=0.2,
+                max_tokens=400,
+            )
+            payload = _extract_mode_payload(str(completion.get("content") or ""))
+            if payload.get("mode") != "tool_call":
+                assistant_text = str(payload.get("text") or "").strip() or "How can I help?"
+                break
+
+            skill_id = str(payload.get("skill_id") or "").strip()
+            raw_args = payload.get("args") if isinstance(payload.get("args"), dict) else {}
+
             if skill_id in _READ_ONLY_SKILLS:
-                args = _validate_read_skill_args(skill_id, first_payload.get("args") or {})
+                args = _validate_read_skill_args(skill_id, raw_args)
                 await asyncio.to_thread(turn_logger.log_skill_call, run_id, skill_id, args)
                 if execute_read_skill_fn is not None:
                     tool_result = await execute_read_skill_fn(
@@ -432,26 +452,78 @@ async def run_reply_only_agent_loop_turn(
                 await asyncio.to_thread(turn_logger.log_skill_result, run_id, skill_id, tool_result)
 
                 tool_context = json.dumps(tool_result, ensure_ascii=True, separators=(",", ":"))
-                second_prompt = list(prompt_messages)
-                second_prompt.append(
+                loop_messages.append(
                     {
                         "role": "system",
                         "content": (
                             f"Tool result for {skill_id} (JSON): " + tool_context
-                            + ". Respond naturally to the user using this result."
+                            + ". Continue by either calling another tool or replying to the user."
                         ),
                     }
                 )
-                second_prompt.append({"role": "user", "content": text})
-                completion2 = await call_chat_completion_fn(
-                    second_prompt,
-                    temperature=0.2,
-                    max_tokens=400,
+                continue
+
+            if skill_id == "delegate_planner":
+                if execute_delegate_planner_fn is None:
+                    raise ValueError("planner delegate executor not provided")
+                args = _validate_delegate_planner_args(raw_args)
+                await asyncio.to_thread(turn_logger.log_skill_call, run_id, skill_id, args)
+                request_text = str(args.get("request_text") or "").strip() or text
+                trace_id = str(run.get("trace_id") or "").strip() or run_id
+                if not str(run.get("trace_id") or "").strip() and hasattr(turn_logger, "set_run_trace_id"):
+                    await asyncio.to_thread(turn_logger.set_run_trace_id, run_id, trace_id)
+
+                planner_child = await asyncio.to_thread(
+                    turn_logger.start_planner_run,
+                    str(session.id),
+                    parent_run_id=run_id,
+                    trace_id=trace_id,
                 )
-                second_payload = _extract_mode_payload(str(completion2.get("content") or ""))
-                assistant_text = str(second_payload.get("text") or "").strip() or "How can I help?"
-            elif skill_id == "clickup_task_create":
-                args = _validate_task_create_args(first_payload.get("args") or {})
+                planner_child_run_id = str(planner_child.get("id") or "").strip()
+                if not planner_child_run_id:
+                    raise ValueError("failed to create planner child run")
+
+                planner_report = await execute_delegate_planner_fn(
+                    request_text=request_text,
+                    slack_user_id=slack_user_id,
+                    channel=channel,
+                    session=session,
+                    session_service=session_service,
+                    parent_run_id=run_id,
+                    child_run_id=planner_child_run_id,
+                    trace_id=trace_id,
+                )
+                if not isinstance(planner_report, dict):
+                    raise ValueError("planner delegate report must be dict")
+                await asyncio.to_thread(turn_logger.log_skill_result, run_id, skill_id, planner_report)
+
+                status = str(planner_report.get("status") or "").strip().lower()
+                if status not in {"completed", "failed", "blocked"}:
+                    status = "completed" if bool(planner_report.get("ok")) else "failed"
+                await asyncio.to_thread(turn_logger.complete_run, planner_child_run_id, status)
+                planner_child_done = True
+                await asyncio.to_thread(turn_logger.log_planner_report, run_id, planner_report)
+
+                tool_context = json.dumps(planner_report, ensure_ascii=True, separators=(",", ":"))
+                loop_messages.append(
+                    {
+                        "role": "system",
+                        "content": (
+                            "Tool result for delegate_planner (JSON): " + tool_context
+                            + ". Continue in the main assistant voice."
+                        ),
+                    }
+                )
+                if status != "completed":
+                    assistant_text = str(
+                        planner_report.get("response_text")
+                        or "I couldn't run planning right now. Could you rephrase and try again?"
+                    )
+                    break
+                continue
+
+            if skill_id == "clickup_task_create":
+                args = _validate_task_create_args(raw_args)
                 if check_mutation_policy_fn is None:
                     raise ValueError("mutation policy checker not provided")
                 policy = await check_mutation_policy_fn(
@@ -471,88 +543,18 @@ async def run_reply_only_agent_loop_turn(
                         requested_by=slack_user_id,
                         lane_key=slack_user_id,
                     )
-                    await asyncio.to_thread(
-                        session_service.update_context,
-                        session.id,
-                        {_PENDING_KEY: proposal},
-                    )
+                    await asyncio.to_thread(session_service.update_context, session.id, {_PENDING_KEY: proposal})
                     title = str(args.get("task_title") or "this task")
                     assistant_text = (
                         f"Ready to create task *{title}*. "
                         "Reply `confirm` to proceed or `cancel` to discard."
                     )
-            else:
-                raise ValueError(f"disallowed skill in C17E/C17F/C17G/C17H: {skill_id}")
-        elif first_payload.get("mode") == "delegate_planner":
-            if execute_delegate_planner_fn is None:
-                raise ValueError("planner delegate executor not provided")
-            delegate_args = first_payload.get("args") or {}
-            if not isinstance(delegate_args, dict):
-                delegate_args = {}
-            request_text = str(delegate_args.get("request_text") or "").strip() or text
-            trace_id = str(run.get("trace_id") or "").strip() or run_id
-            if not str(run.get("trace_id") or "").strip():
-                if hasattr(turn_logger, "set_run_trace_id"):
-                    await asyncio.to_thread(turn_logger.set_run_trace_id, run_id, trace_id)
+                break
 
-            planner_child = await asyncio.to_thread(
-                turn_logger.start_planner_run,
-                str(session.id),
-                parent_run_id=run_id,
-                trace_id=trace_id,
-            )
-            planner_child_run_id = str(planner_child.get("id") or "").strip()
-            if not planner_child_run_id:
-                raise ValueError("failed to create planner child run")
+            raise ValueError(f"disallowed skill in C17E/C17F/C17G/C17H: {skill_id}")
 
-            planner_report = await execute_delegate_planner_fn(
-                request_text=request_text,
-                slack_user_id=slack_user_id,
-                channel=channel,
-                session=session,
-                session_service=session_service,
-                parent_run_id=run_id,
-                child_run_id=planner_child_run_id,
-                trace_id=trace_id,
-            )
-            if not isinstance(planner_report, dict):
-                raise ValueError("planner delegate report must be dict")
-
-            status = str(planner_report.get("status") or "").strip().lower()
-            if status not in {"completed", "failed", "blocked"}:
-                status = "completed" if bool(planner_report.get("ok")) else "failed"
-            await asyncio.to_thread(turn_logger.complete_run, planner_child_run_id, status)
-            planner_child_done = True
-
-            await asyncio.to_thread(turn_logger.log_planner_report, run_id, planner_report)
-
-            if status != "completed":
-                assistant_text = str(
-                    planner_report.get("response_text")
-                    or "I couldn't run planning right now. Could you rephrase and try again?"
-                )
-            else:
-                report_context = json.dumps(planner_report, ensure_ascii=True, separators=(",", ":"))
-                second_prompt = list(prompt_messages)
-                second_prompt.append(
-                    {
-                        "role": "system",
-                        "content": (
-                            "Planner sub-agent report (JSON): " + report_context
-                            + ". Respond in the main assistant voice with a concise, user-facing reply."
-                        ),
-                    }
-                )
-                second_prompt.append({"role": "user", "content": text})
-                completion2 = await call_chat_completion_fn(
-                    second_prompt,
-                    temperature=0.2,
-                    max_tokens=400,
-                )
-                second_payload = _extract_mode_payload(str(completion2.get("content") or ""))
-                assistant_text = str(second_payload.get("text") or "").strip() or "How can I help?"
-        else:
-            assistant_text = str(first_payload.get("text") or "").strip() or "How can I help?"
+        if not assistant_text:
+            assistant_text = "I couldn't complete that flow. Could you rephrase and try again?"
 
         await slack.post_message(channel=channel, text=assistant_text)
         await asyncio.to_thread(turn_logger.log_assistant_message, run_id, assistant_text)

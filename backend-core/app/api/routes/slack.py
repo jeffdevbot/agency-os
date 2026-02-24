@@ -1241,15 +1241,145 @@ async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> No
         ) -> dict[str, Any]:
             _ = parent_run_id, child_run_id, trace_id
             capture = _CaptureSlack()
+            mutation_skill_ids = {
+                "clickup_task_create",
+                "cc_assignment_upsert",
+                "cc_assignment_remove",
+                "cc_brand_create",
+                "cc_brand_update",
+                "cc_brand_mapping_remediation_apply",
+            }
             try:
-                handled = await _try_planner(
+                client_context_pack = ""
+                if session.active_client_id:
+                    client_name = await asyncio.to_thread(
+                        session_service.get_client_name, session.active_client_id,
+                    )
+                    client_context_pack = (
+                        f"Active client: {client_name or 'Unknown'} (id={session.active_client_id})"
+                    )
+
+                kb_summary = ""
+                try:
+                    retrieval = await retrieve_kb_context(
+                        query=request_text,
+                        client_id=str(session.active_client_id or ""),
+                        db=get_supabase_admin_client(),
+                    )
+                    sources = retrieval.get("sources", []) if isinstance(retrieval, dict) else []
+                    if isinstance(sources, list) and sources:
+                        kb_summary = "\n".join(
+                            f"- [{s.get('tier', '?')}] {s.get('title', 'Untitled')}: {str(s.get('content', ''))[:200]}"
+                            for s in sources[:3]
+                            if isinstance(s, dict)
+                        )
+                except Exception:  # noqa: BLE001
+                    kb_summary = ""
+
+                plan = await generate_plan(
                     text=request_text,
-                    slack_user_id=slack_user_id,
-                    channel=channel,
-                    session=session,
-                    session_service=session_service,
-                    slack=capture,
+                    session_context=session.context,
+                    client_context_pack=client_context_pack,
+                    kb_context_summary=kb_summary,
                 )
+                if not plan or not plan.get("steps"):
+                    return {
+                        "ok": False,
+                        "status": "blocked",
+                        "request_text": request_text,
+                        "messages": [],
+                        "response_text": "I couldn't run planning right now. Could you try again?",
+                        "error": "planner_unavailable",
+                    }
+
+                mutation_proposals: list[dict[str, Any]] = []
+                executable_steps: list[dict[str, Any]] = []
+                for step in plan.get("steps", []):
+                    if not isinstance(step, dict):
+                        continue
+                    sid = str(step.get("skill_id") or "")
+                    requires_confirmation = bool(step.get("requires_confirmation"))
+                    if sid in mutation_skill_ids or requires_confirmation:
+                        mutation_proposals.append(
+                            {
+                                "skill_id": sid,
+                                "args": step.get("args") if isinstance(step.get("args"), dict) else {},
+                                "reason": str(step.get("reason") or ""),
+                                "rejected_reason": "planner_mutation_execution_disallowed",
+                            }
+                        )
+                    else:
+                        executable_steps.append(step)
+
+                exec_result: dict[str, Any] | None = None
+                if executable_steps:
+                    async def _planner_cc_step_handler(
+                        *,
+                        skill_id: str,
+                        client_name_hint: str = "",
+                        plan_args: dict[str, Any] | None = None,
+                        **_kwargs: Any,
+                    ) -> None:
+                        args = dict(plan_args or {})
+                        if client_name_hint and not args.get("client_name"):
+                            args["client_name"] = client_name_hint
+                        await _handle_cc_skill(
+                            skill_id=skill_id,
+                            args=args,
+                            session=session,
+                            session_service=session_service,
+                            channel=channel,
+                            slack=capture,
+                        )
+
+                    exec_plan = {
+                        "intent": str(plan.get("intent") or "unknown"),
+                        "steps": executable_steps,
+                        "confidence": float(plan.get("confidence") or 0.0),
+                        "tokens_in": plan.get("tokens_in"),
+                        "tokens_out": plan.get("tokens_out"),
+                        "tokens_total": plan.get("tokens_total"),
+                        "model_used": plan.get("model_used"),
+                    }
+                    exec_result = await execute_plan(
+                        plan=exec_plan,
+                        slack_user_id=slack_user_id,
+                        channel=channel,
+                        session=session,
+                        session_service=session_service,
+                        slack=capture,
+                        check_policy=_check_skill_policy,
+                        handler_map={
+                            "clickup_task_list": _handle_task_list,
+                            "clickup_task_list_weekly": _handle_task_list,
+                            "cc_client_lookup": lambda **kwargs: _planner_cc_step_handler(
+                                skill_id="cc_client_lookup", **kwargs,
+                            ),
+                            "cc_brand_list_all": lambda **kwargs: _planner_cc_step_handler(
+                                skill_id="cc_brand_list_all", **kwargs,
+                            ),
+                            "cc_brand_clickup_mapping_audit": lambda **kwargs: _planner_cc_step_handler(
+                                skill_id="cc_brand_clickup_mapping_audit", **kwargs,
+                            ),
+                        },
+                    )
+
+                steps_attempted = int(exec_result.get("steps_attempted", 0)) if isinstance(exec_result, dict) else 0
+                steps_succeeded = int(exec_result.get("steps_succeeded", 0)) if isinstance(exec_result, dict) else 0
+                summary = f"Planner completed {steps_succeeded}/{steps_attempted} executable steps."
+                if mutation_proposals:
+                    summary += f" Deferred {len(mutation_proposals)} mutation proposal(s)."
+                return {
+                    "ok": True,
+                    "status": "completed",
+                    "request_text": request_text,
+                    "plan_intent": str(plan.get("intent") or "unknown"),
+                    "planner_plan": plan,
+                    "execution_result": exec_result,
+                    "mutation_proposals": mutation_proposals,
+                    "messages": capture.messages,
+                    "response_text": summary,
+                }
             except Exception as exc:  # noqa: BLE001
                 _logger.warning("Agent-loop planner delegate failed: %s", exc, exc_info=True)
                 return {
@@ -1261,22 +1391,14 @@ async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> No
                     "error": "planner_exception",
                 }
 
-            if not handled:
-                return {
-                    "ok": False,
-                    "status": "blocked",
-                    "request_text": request_text,
-                    "messages": capture.messages,
-                    "response_text": "I couldn't run planning right now. Could you try again?",
-                    "error": "planner_unavailable",
-                }
-
+            # Unreachable, but keep shape explicit if flow changes.
             return {
-                "ok": True,
-                "status": "completed",
+                "ok": False,
+                "status": "blocked",
                 "request_text": request_text,
                 "messages": capture.messages,
-                "response_text": capture.messages[-1] if capture.messages else "Planner completed.",
+                "response_text": "I couldn't run planning right now. Could you try again?",
+                "error": "planner_unavailable",
             }
 
         return await _runtime_run_reply_only_agent_loop_turn(

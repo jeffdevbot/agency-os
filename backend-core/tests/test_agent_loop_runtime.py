@@ -143,8 +143,109 @@ async def test_reply_only_runtime_failure_marks_failed_and_posts_fallback(monkey
 
 
 @pytest.mark.asyncio
+async def test_main_agent_multi_turn_skill_chain_single_turn(monkeypatch):
+    calls: list[tuple[str, tuple, dict]] = []
+
+    class FakeStore:
+        def __init__(self, _db):
+            pass
+
+        def list_recent_run_messages(self, run_id: str, limit: int = 20):
+            return []
+
+    class FakeTurnLogger:
+        def __init__(self, _store):
+            pass
+
+        def start_main_run(self, session_id: str):
+            return {"id": "run-1", "status": "running"}
+
+        def log_user_message(self, run_id: str, text: str):
+            return {"id": "m1"}
+
+        def log_skill_call(self, run_id: str, skill_id: str, payload: dict):
+            calls.append(("log_skill_call", (run_id, skill_id, payload), {}))
+            return {"id": "e1"}
+
+        def log_skill_result(self, run_id: str, skill_id: str, payload: dict):
+            calls.append(("log_skill_result", (run_id, skill_id, payload), {}))
+            return {"id": "e2"}
+
+        def log_assistant_message(self, run_id: str, text: str):
+            calls.append(("log_assistant_message", (run_id, text), {}))
+            return {"id": "m2"}
+
+        def complete_run(self, run_id: str, status: str):
+            calls.append(("complete_run", (run_id, status), {}))
+            return None
+
+    completions = iter(
+        [
+            {
+                "content": '{"mode":"tool_call","skill_id":"lookup_client","args":{"query":"dist"}}',
+                "tokens_in": 10,
+                "tokens_out": 5,
+                "tokens_total": 15,
+                "model": "gpt-4o-mini",
+                "duration_ms": 10,
+            },
+            {
+                "content": '{"mode":"tool_call","skill_id":"search_kb","args":{"query":"coupon setup"}}',
+                "tokens_in": 10,
+                "tokens_out": 5,
+                "tokens_total": 15,
+                "model": "gpt-4o-mini",
+                "duration_ms": 10,
+            },
+            {
+                "content": '{"mode":"reply","text":"Here is the combined answer."}',
+                "tokens_in": 10,
+                "tokens_out": 5,
+                "tokens_total": 15,
+                "model": "gpt-4o-mini",
+                "duration_ms": 10,
+            },
+        ]
+    )
+
+    async def _fake_completion(*args, **kwargs):
+        _ = args, kwargs
+        return next(completions)
+
+    async def _execute_read_skill(**kwargs):
+        if kwargs["skill_id"] == "lookup_client":
+            return {"response_text": "Clients: Distex"}
+        if kwargs["skill_id"] == "search_kb":
+            return {"response_text": "KB: coupon SOP"}
+        raise AssertionError("unexpected skill")
+
+    monkeypatch.setattr("app.services.agencyclaw.agent_loop_runtime.AgentLoopStore", FakeStore)
+    monkeypatch.setattr("app.services.agencyclaw.agent_loop_runtime.AgentLoopTurnLogger", FakeTurnLogger)
+
+    slack = _FakeSlack()
+    handled = await run_reply_only_agent_loop_turn(
+        text="help with distex coupons",
+        session=_FakeSession(),
+        slack_user_id="U123",
+        session_service=MagicMock(),
+        channel="D1",
+        slack=slack,
+        supabase_client=MagicMock(),
+        execute_read_skill_fn=_execute_read_skill,
+        call_chat_completion_fn=_fake_completion,
+    )
+
+    assert handled is True
+    assert slack.messages == [{"channel": "D1", "text": "Here is the combined answer."}]
+    assert ("log_skill_call", ("run-1", "lookup_client", {"query": "dist"}), {}) in calls
+    assert ("log_skill_call", ("run-1", "search_kb", {"query": "coupon setup"}), {}) in calls
+    assert ("complete_run", ("run-1", "completed"), {}) in calls
+
+
+@pytest.mark.asyncio
 async def test_delegate_planner_happy_path_creates_child_run_and_main_reply(monkeypatch):
     calls: list[tuple[str, tuple, dict]] = []
+    prompts: list[list[dict[str, str]]] = []
 
     class FakeStore:
         def __init__(self, _db):
@@ -176,6 +277,14 @@ async def test_delegate_planner_happy_path_creates_child_run_and_main_reply(monk
             calls.append(("log_user_message", (run_id, text), {}))
             return {"id": "m1"}
 
+        def log_skill_call(self, run_id: str, skill_id: str, payload: dict):
+            calls.append(("log_skill_call", (run_id, skill_id, payload), {}))
+            return {"id": "e1"}
+
+        def log_skill_result(self, run_id: str, skill_id: str, payload: dict):
+            calls.append(("log_skill_result", (run_id, skill_id, payload), {}))
+            return {"id": "e2"}
+
         def log_planner_report(self, run_id: str, report: dict[str, Any], summary: str | None = None):
             calls.append(("log_planner_report", (run_id, report), {"summary": summary}))
             return {"id": "m2"}
@@ -191,7 +300,7 @@ async def test_delegate_planner_happy_path_creates_child_run_and_main_reply(monk
     completions = iter(
         [
             {
-                "content": '{"mode":"delegate_planner","args":{"request_text":"make a plan"}}',
+                "content": '{"mode":"tool_call","skill_id":"delegate_planner","args":{"request_text":"make a plan"}}',
                 "tokens_in": 10,
                 "tokens_out": 5,
                 "tokens_total": 15,
@@ -210,7 +319,8 @@ async def test_delegate_planner_happy_path_creates_child_run_and_main_reply(monk
     )
 
     async def _fake_completion(*args, **kwargs):
-        _ = args, kwargs
+        prompts.append(args[0])
+        _ = kwargs
         return next(completions)
 
     async def _delegate_planner(**kwargs):
@@ -248,6 +358,10 @@ async def test_delegate_planner_happy_path_creates_child_run_and_main_reply(monk
     assert ("start_planner_run", ("sess-1",), {"parent_run_id": "run-main", "trace_id": "run-main"}) in calls
     assert ("complete_run", ("run-child", "completed"), {}) in calls
     assert ("complete_run", ("run-main", "completed"), {}) in calls
+    assert any(
+        isinstance(msg, dict) and "Tool result for delegate_planner" in str(msg.get("content", ""))
+        for msg in prompts[1]
+    )
 
 
 @pytest.mark.asyncio
@@ -275,6 +389,14 @@ async def test_delegate_planner_unavailable_returns_safe_reply_and_marks_child_b
         def log_user_message(self, run_id: str, text: str):
             return {"id": "m1"}
 
+        def log_skill_call(self, run_id: str, skill_id: str, payload: dict):
+            _ = run_id, skill_id, payload
+            return {"id": "e1"}
+
+        def log_skill_result(self, run_id: str, skill_id: str, payload: dict):
+            _ = run_id, skill_id, payload
+            return {"id": "e2"}
+
         def log_planner_report(self, run_id: str, report: dict[str, Any], summary: str | None = None):
             _ = run_id, report, summary
             return {"id": "m2"}
@@ -290,7 +412,7 @@ async def test_delegate_planner_unavailable_returns_safe_reply_and_marks_child_b
     async def _fake_completion(*args, **kwargs):
         _ = args, kwargs
         return {
-            "content": '{"mode":"delegate_planner","args":{"request_text":"do planning"}}',
+            "content": '{"mode":"tool_call","skill_id":"delegate_planner","args":{"request_text":"do planning"}}',
             "tokens_in": 10,
             "tokens_out": 5,
             "tokens_total": 15,
