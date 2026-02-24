@@ -423,33 +423,55 @@ Locked regression fixtures for C10B:
   - Follow-up questions about earlier results can reload evidence deterministically.
   - Prompt window remains bounded without losing audit payloads.
 
-## C17H: Planner Sub-Agent Integration
+## C17H: Main-Agent Multi-Turn Loop + Planner Sub-Agent Delegation
 - Scope:
-  - Rework planner as internal sub-agent with child runs.
-  - Main agent can delegate via `delegate_planner`, receive structured planner report,
-    then continue loop and respond in main-agent voice.
-  - Persist planner run hierarchy and events (`parent_run_id`, shared `trace_id`).
+  - Add bounded multi-turn iteration to main agent loop (`max_turns=6`):
+    LLM call -> skill execution -> append results -> continue loop.
+  - Add `delegate_planner` as a first-class tool/skill path in the agent loop.
+  - Implement planner delegation as single-shot planner execution:
+    generate plan -> execute plan -> return structured planner report.
+  - Persist planner child runs with `run_type='planner'`, `parent_run_id`,
+    and shared `trace_id`.
+  - Add `start_planner_run(session_id, parent_run_id, trace_id)` to `AgentLoopTurnLogger`.
+- Non-goals:
+  - Planner MUST NOT execute mutations directly in C17H.
+    Mutation proposals are returned in planner report for main-agent confirmation flow.
+  - Planner iterative re-planning is deferred to C17H+.
+- Coexistence:
+  - Legacy `slack_planner_runtime.py` remains active when
+    `AGENCYCLAW_AGENT_LOOP_ENABLED=false`.
+  - When `AGENCYCLAW_AGENT_LOOP_ENABLED=true`, planner delegation runs through
+    the `delegate_planner` path in agent-loop runtime.
 - Acceptance:
-  - Complex multi-step request executes through planner sub-agent loop.
-  - Planner output is not user-facing directly; main agent narrates result.
-  - Parent/child run trace is queryable and auditable.
+  - Main agent can execute multiple skill/tool turns in one message cycle.
+  - Main agent can delegate to planner and narrate planner report in main-agent voice.
+  - Planner child run is persisted with `parent_run_id` and inherited `trace_id`.
+  - Planner can use read-only skill allowlist; mutation steps are rejected.
+  - Parent/child run trace is queryable by `trace_id`.
 
-### C17H+ (Follow-on): Planner Loop Hardening (Jarvis-like Sub-Agent Behavior)
+### C17H+ (Follow-on): Planner Loop Hardening (Iterative Sub-Agent)
 - Scope:
-  - Upgrade planner from single-shot plan generation to bounded iterative loop:
-    `plan -> execute step(s) -> observe results -> re-plan when needed -> finalize report`.
-  - Keep deterministic safety rails (`policy_gate`, idempotency, confirmation) around mutations.
+  - Upgrade planner from single-shot to bounded iterative loop:
+    `plan -> execute step(s) -> observe results -> re-plan if needed -> finalize report`.
   - Persist per-iteration planner messages and skill events under child `run_type='planner'`.
   - Return structured planner report to main agent after loop completion or bounded stop.
 - Guardrails:
-  - Bounded iteration budget (for example max turns/steps) to avoid runaway loops.
-  - Explicit stop states: `completed`, `blocked`, `failed`, `budget_exhausted`.
-  - Fail-safe fallback: main agent returns conversational narrowing prompt if planner cannot complete.
+  - Bounded planner budget (`planner_max_turns=6`) independent from main agent.
+  - Total LLM call ceiling per user message:
+    `main_max_turns + planner_max_turns` (12 by default).
+  - Explicit stop states:
+    `completed`, `blocked`, `failed`, `budget_exhausted`, `needs_clarification`.
+  - Planner still MUST NOT execute mutations directly.
+  - Fail-safe fallback: main agent returns conversational narrowing prompt if planner
+    cannot complete within budget.
+- Non-goals:
+  - Planner-initiated direct user messaging (main agent remains the only user-facing voice).
+  - Multi-round main-agent -> planner feedback cycles beyond one delegated planner run.
 - Acceptance:
-  - Planner can perform at least one re-plan cycle based on tool results in the same delegated run.
-  - Planner report captures actions taken, evidence, open questions, and confidence.
-  - Main agent response remains user-facing single voice (planner remains internal).
-  - Parent/child trace remains auditable end-to-end.
+  - Planner performs at least one re-plan cycle based on skill results.
+  - Planner report includes `actions_taken[]`, `evidence[]`, `open_questions[]`, `confidence`.
+  - `needs_clarification` reports are relayed by main agent, not planner directly.
+  - Budget exhaustion returns coherent partial report (no crash).
 
 ## 6. C9 Runtime Env Prerequisites
 Source of truth for deployed values:

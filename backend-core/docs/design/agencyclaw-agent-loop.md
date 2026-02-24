@@ -267,10 +267,12 @@ Proposed: `search_kb` is a skill the LLM invokes when it recognizes a task might
 
 ### Phase 3: Planner Sub-Agent Loop
 - Rework planner as internal sub-agent:
-  - planner can run multi-step skill loops
   - planner writes its own run/messages/events
   - planner returns structured report to main agent
-- Main agent can iterate (feedback → another planner run) before user-facing response
+  - `delegate_planner` runs inside the main agent loop
+- Delivery sequencing:
+  - C17H: main-agent bounded multi-turn loop + single-shot planner delegation (read-only planner skills; no planner mutations)
+  - C17H+: planner iterative re-plan loop (`plan -> execute -> observe -> re-plan`) with bounded stop states
 
 ### Phase 4: Mutation Skills + Confirmation
 - Wire up mutation skills with policy gate
@@ -357,21 +359,22 @@ Model is swappable later — the agent loop design is model-agnostic as long as 
 - scoped context snapshot from main agent
 
 **Behavior**
-1. Planner runs its own LLM loop with planner-specific system prompt
-2. Planner may call skills repeatedly (policy-gated)
-3. Planner produces structured report:
+1. C17H baseline: planner runs single-shot planning/execution and returns a structured report
+2. C17H+ upgrade: planner runs its own bounded LLM loop with planner-specific prompt and may re-plan based on tool results
+3. Planner skills are read-only in delegated mode; mutation actions are returned as proposals for main-agent confirmation
+4. Planner produces structured report:
    - `summary`
    - `actions_taken[]`
    - `evidence[]`
    - `open_questions[]`
    - `confidence`
-4. Report is returned to main agent (not directly to end user)
-5. Main agent may provide feedback and launch a subsequent planner run (new child run) before responding to user
+5. Report is returned to main agent (not directly to end user)
+6. Main agent may provide feedback and launch a subsequent planner run (new child run) before responding to user
 
 **Output**
 - `planner_report` JSON
 - `planner_run_id`
-- `status` (`completed|blocked|failed`)
+- `status` (`completed|blocked|failed|budget_exhausted|needs_clarification`)
 
 ## Appendix B: Proposed Storage Schema
 
