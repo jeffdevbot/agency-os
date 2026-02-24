@@ -328,6 +328,12 @@ async def test_delegate_planner_happy_path_creates_child_run_and_main_reply(monk
         assert kwargs["parent_run_id"] == "run-main"
         assert kwargs["child_run_id"] == "run-child"
         assert kwargs["trace_id"] == "run-main"
+        assert kwargs.get("max_turns") == 6 or kwargs.get("max_planner_turns") == 6
+        executor = kwargs.get("tool_executor") or kwargs.get("execute_skill_fn")
+        assert callable(executor)
+        blocked = await executor(skill_id="clickup_task_create", args={"task_title": "X"})
+        assert blocked.get("blocked") is True
+        assert blocked.get("mutation_proposals", [{}])[0].get("skill_id") == "clickup_task_create"
         return {
             "ok": True,
             "status": "completed",

@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 import os
-from typing import Any
+from typing import Any, Awaitable, Callable
 from urllib.parse import parse_qs
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
@@ -1240,10 +1240,22 @@ async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> No
             parent_run_id: str,
             child_run_id: str,
             trace_id: str,
+            tool_executor: Callable[..., Awaitable[dict[str, Any]]] | None = None,
+            execute_skill_fn: Callable[..., Awaitable[dict[str, Any]]] | None = None,
+            max_planner_turns: int = 6,
+            max_turns: int | None = None,
         ) -> dict[str, Any]:
-            _ = parent_run_id, child_run_id, trace_id
+            _ = parent_run_id, child_run_id, trace_id, tool_executor, execute_skill_fn
             capture = _CaptureSlack()
-            planner_max_turns = 6
+            planner_max_turns = (
+                max_turns
+                if isinstance(max_turns, int) and not isinstance(max_turns, bool) and max_turns > 0
+                else max_planner_turns
+                if isinstance(max_planner_turns, int)
+                and not isinstance(max_planner_turns, bool)
+                and max_planner_turns > 0
+                else 6
+            )
             planner_logger = AgentLoopTurnLogger(AgentLoopStore(get_supabase_admin_client()))
             mutation_skill_ids = {
                 "clickup_task_create",

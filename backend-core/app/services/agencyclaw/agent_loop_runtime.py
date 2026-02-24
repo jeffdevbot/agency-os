@@ -64,6 +64,14 @@ _READ_ONLY_SKILLS = {
     "get_client_context",
     "load_prior_skill_result",
 }
+_MUTATION_SKILLS = {
+    "clickup_task_create",
+    "cc_assignment_upsert",
+    "cc_assignment_remove",
+    "cc_brand_create",
+    "cc_brand_update",
+    "cc_brand_mapping_remediation_apply",
+}
 _REHYDRATION_KEY_PATTERN = re.compile(r"^ev:[^/\s]+(?:/[^/\s]+)?$")
 _MAX_LOOP_TURNS = 6
 
@@ -409,6 +417,35 @@ async def run_reply_only_agent_loop_turn(
         loop_messages = list(prompt_messages)
         assistant_text: str | None = None
 
+        async def _execute_read_skill(
+            skill_id: str,
+            args: dict[str, Any],
+        ) -> dict[str, Any]:
+            if execute_read_skill_fn is not None:
+                tool_result = await execute_read_skill_fn(
+                    skill_id=skill_id,
+                    slack_user_id=slack_user_id,
+                    channel=channel,
+                    args=args,
+                    session=session,
+                    session_service=session_service,
+                )
+            elif skill_id == "clickup_task_list":
+                if execute_task_list_fn is None:
+                    raise ValueError("read-skill executor not provided")
+                tool_result = await execute_task_list_fn(
+                    slack_user_id=slack_user_id,
+                    channel=channel,
+                    args=args,
+                    session=session,
+                    session_service=session_service,
+                )
+            else:
+                raise ValueError("read-skill executor not provided")
+            if not isinstance(tool_result, dict):
+                raise ValueError("tool result must be dict")
+            return tool_result
+
         for _turn in range(_MAX_LOOP_TURNS):
             completion = await call_chat_completion_fn(
                 loop_messages,
@@ -426,29 +463,7 @@ async def run_reply_only_agent_loop_turn(
             if skill_id in _READ_ONLY_SKILLS:
                 args = _validate_read_skill_args(skill_id, raw_args)
                 await asyncio.to_thread(turn_logger.log_skill_call, run_id, skill_id, args)
-                if execute_read_skill_fn is not None:
-                    tool_result = await execute_read_skill_fn(
-                        skill_id=skill_id,
-                        slack_user_id=slack_user_id,
-                        channel=channel,
-                        args=args,
-                        session=session,
-                        session_service=session_service,
-                    )
-                elif skill_id == "clickup_task_list":
-                    if execute_task_list_fn is None:
-                        raise ValueError("read-skill executor not provided")
-                    tool_result = await execute_task_list_fn(
-                        slack_user_id=slack_user_id,
-                        channel=channel,
-                        args=args,
-                        session=session,
-                        session_service=session_service,
-                    )
-                else:
-                    raise ValueError("read-skill executor not provided")
-                if not isinstance(tool_result, dict):
-                    raise ValueError("tool result must be dict")
+                tool_result = await _execute_read_skill(skill_id, args)
                 await asyncio.to_thread(turn_logger.log_skill_result, run_id, skill_id, tool_result)
 
                 tool_context = json.dumps(tool_result, ensure_ascii=True, separators=(",", ":"))
@@ -483,6 +498,43 @@ async def run_reply_only_agent_loop_turn(
                 if not planner_child_run_id:
                     raise ValueError("failed to create planner child run")
 
+                async def _planner_tool_executor(
+                    *,
+                    skill_id: str,
+                    args: dict[str, Any] | None = None,
+                    plan_args: dict[str, Any] | None = None,
+                    **_kwargs: Any,
+                ) -> dict[str, Any]:
+                    normalized_skill = str(skill_id or "").strip()
+                    if not normalized_skill:
+                        raise ValueError("skill_id is required")
+                    raw_tool_args = (
+                        dict(args)
+                        if isinstance(args, dict)
+                        else dict(plan_args)
+                        if isinstance(plan_args, dict)
+                        else {}
+                    )
+
+                    if normalized_skill in _MUTATION_SKILLS:
+                        proposal = {
+                            "skill_id": normalized_skill,
+                            "args": raw_tool_args,
+                            "rejected_reason": "planner_mutation_execution_disallowed",
+                        }
+                        return {
+                            "ok": True,
+                            "blocked": True,
+                            "status": "mutation_proposal",
+                            "response_text": "Mutation execution is disabled in planner delegation.",
+                            "mutation_proposals": [proposal],
+                        }
+                    if normalized_skill not in _READ_ONLY_SKILLS:
+                        raise ValueError(f"disallowed planner skill: {normalized_skill}")
+
+                    normalized_args = _validate_read_skill_args(normalized_skill, raw_tool_args)
+                    return await _execute_read_skill(normalized_skill, normalized_args)
+
                 planner_report = await execute_delegate_planner_fn(
                     request_text=request_text,
                     slack_user_id=slack_user_id,
@@ -492,6 +544,10 @@ async def run_reply_only_agent_loop_turn(
                     parent_run_id=run_id,
                     child_run_id=planner_child_run_id,
                     trace_id=trace_id,
+                    tool_executor=_planner_tool_executor,
+                    execute_skill_fn=_planner_tool_executor,
+                    max_planner_turns=_MAX_LOOP_TURNS,
+                    max_turns=_MAX_LOOP_TURNS,
                 )
                 if not isinstance(planner_report, dict):
                     raise ValueError("planner delegate report must be dict")

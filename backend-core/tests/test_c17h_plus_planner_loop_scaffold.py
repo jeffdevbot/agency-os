@@ -238,12 +238,6 @@ class TestIterativePlannerLoop:
     tool-result feedback before producing a final report."""
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(
-        reason="Deferred API contract: runtime currently runs planner iteration "
-               "inside delegate runtime and does not pass a tool-executor callback "
-               "into execute_delegate_planner_fn",
-        strict=True,
-    )
     async def test_planner_receives_tool_executor_callback(self, monkeypatch):
         """The delegate_planner_fn must receive a tool executor callback so
         the planner sub-agent can call read-only skills iteratively."""
@@ -260,11 +254,6 @@ class TestIterativePlannerLoop:
         )
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(
-        reason="Deferred API contract: runtime owns planner_max_turns internally "
-               "and does not pass max_turns kwarg to execute_delegate_planner_fn",
-        strict=True,
-    )
     async def test_planner_receives_max_turns_parameter(self, monkeypatch):
         """The runtime must pass a max_turns budget parameter to the
         delegate_planner_fn so the planner can bound its iterations."""
@@ -391,11 +380,6 @@ class TestPlannerBudget:
     """C17H+ gate: bounded planner turns with partial report on exhaustion."""
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(
-        reason="Deferred API contract: runtime owns planner_max_turns internally "
-               "and does not pass max_turns kwarg to execute_delegate_planner_fn",
-        strict=True,
-    )
     async def test_planner_receives_turn_budget(self, monkeypatch):
         """The delegate_planner_fn must receive a turn budget parameter."""
         r = await _run(
@@ -467,11 +451,6 @@ class TestPlannerMutationSafety:
     """
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(
-        reason="Deferred API contract: runtime does not inject a tool-executor "
-               "callback into execute_delegate_planner_fn",
-        strict=True,
-    )
     async def test_planner_receives_mutation_blocking_executor(self, monkeypatch):
         """The delegate_planner_fn must receive a callable tool_executor
         that blocks mutation skill calls."""
@@ -496,6 +475,12 @@ class TestPlannerMutationSafety:
         )
         executor = kw.get("tool_executor") or kw.get("execute_skill_fn")
         assert callable(executor)
+        blocked = await executor(skill_id="clickup_task_create", args={"task_title": "Test task"})
+        assert isinstance(blocked, dict)
+        assert blocked.get("blocked") is True
+        proposals = blocked.get("mutation_proposals")
+        assert isinstance(proposals, list) and len(proposals) == 1
+        assert proposals[0].get("skill_id") == "clickup_task_create"
 
     @pytest.mark.asyncio
     async def test_main_loop_no_mutation_during_planner_delegation(self, monkeypatch):

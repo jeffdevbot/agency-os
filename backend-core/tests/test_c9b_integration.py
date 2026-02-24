@@ -389,6 +389,8 @@ class TestAgentLoopFlagDispatch:
 
         async def _exercise_executor(**kwargs) -> bool:
             execute_delegate_planner_fn = kwargs["execute_delegate_planner_fn"]
+            async def _noop_tool_executor(**_tool_kwargs):
+                return {"ok": True}
             captured_report.update(
                 await execute_delegate_planner_fn(
                     request_text="plan this work",
@@ -399,6 +401,8 @@ class TestAgentLoopFlagDispatch:
                     parent_run_id="run-main",
                     child_run_id="run-child",
                     trace_id="trace-1",
+                    tool_executor=_noop_tool_executor,
+                    max_planner_turns=4,
                 )
             )
             return True
