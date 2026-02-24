@@ -75,7 +75,6 @@ from ...services.agencyclaw.slack_agent_loop_bridge_runtime import (
     run_agent_loop_reply_turn_bridge_runtime,
 )
 from ...services.agencyclaw.slack_resolution_runtime import (
-    resolve_assignment_client_runtime,
     resolve_brand_for_task_runtime,
     resolve_client_for_task_runtime,
 )
@@ -92,30 +91,30 @@ from ...services.agencyclaw.slack_dm_runtime import (
 from ...services.agencyclaw.slack_interaction_runtime import (
     handle_interaction_runtime as _runtime_handle_interaction,
 )
-from ...services.agencyclaw.slack_task_runtime import (
-    enrich_task_draft_runtime as _runtime_enrich_task_draft,
-    execute_task_create_runtime as _runtime_execute_task_create,
-    handle_create_task_runtime as _runtime_handle_create_task,
-)
-from ...services.agencyclaw.slack_task_list_runtime import (
-    handle_task_list_runtime as _runtime_handle_task_list,
-)
 from ...services.agencyclaw.slack_runtime_deps import (
     SlackDMRuntimeDeps,
     SlackInteractionRuntimeDeps,
     SlackOrchestratorRuntimeDeps,
     SlackPlannerRuntimeDeps,
-    SlackTaskListRuntimeDeps,
-    SlackTaskRuntimeDeps,
 )
 from ...services.agencyclaw.plan_executor import execute_plan
 from ...services.agencyclaw.planner import generate_plan
 from ...services.agencyclaw.skill_registry import get_skill_descriptions_for_prompt
-from ...services.agencyclaw.slack_cc_dispatch import (
-    format_remediation_apply_result as _cc_format_remediation_apply_result,
-    format_remediation_preview as _cc_format_remediation_preview,
-    handle_cc_skill as _cc_handle_cc_skill,
-    resolve_cc_client_hint as _cc_resolve_cc_client_hint,
+from ...services.agencyclaw.slack_cc_bridge_runtime import (
+    build_cc_bridge_runtime_deps,
+    format_remediation_apply_result_bridge_runtime,
+    format_remediation_preview_bridge_runtime,
+    handle_cc_skill_bridge_runtime,
+    resolve_assignment_client_bridge_runtime,
+    resolve_cc_client_hint_bridge_runtime,
+)
+from ...services.agencyclaw.slack_task_bridge_runtime import (
+    build_task_bridge_runtime_deps,
+    build_task_list_runtime_deps_bridge_runtime,
+    enrich_task_draft_bridge_runtime,
+    execute_task_create_bridge_runtime,
+    handle_create_task_bridge_runtime,
+    handle_task_list_bridge_runtime,
 )
 from ...services.agencyclaw.slack_helpers import (
     _WEEKLY_TASK_CAP,
@@ -140,9 +139,9 @@ from ...services.agencyclaw.clickup_reliability import (
     retry_with_backoff,
 )
 from ...services.ai_token_usage_logger import log_ai_token_usage
-from ...services.clickup import ClickUpError, ClickUpConfigurationError, get_clickup_service
 from ...services.agencyclaw.preference_memory import PreferenceMemoryService
 from ...services.playbook_session import get_playbook_session_service, get_supabase_admin_client
+from ...services.clickup import ClickUpError, ClickUpConfigurationError, get_clickup_service
 from ...services.slack import (
     SlackAPIError,
     SlackReceiptService,
@@ -197,16 +196,61 @@ def _should_block_deterministic_intent(intent: str) -> bool:
 def _get_receipt_service() -> SlackReceiptService:
     return SlackReceiptService(get_supabase_admin_client())
 
-def _build_task_list_runtime_deps() -> SlackTaskListRuntimeDeps:
-    return SlackTaskListRuntimeDeps(
+def _build_task_bridge_deps():
+    return build_task_bridge_runtime_deps(
+        inflight_lock=_task_create_inflight_lock,
+        inflight_set=_task_create_inflight,
+        logger=_logger,
+        build_client_picker_blocks_fn=_build_client_picker_blocks,
+        get_supabase_admin_client_fn=get_supabase_admin_client,
+        resolve_client_for_task_fn=_resolve_client_for_task,
+        resolve_brand_for_task_fn=_resolve_brand_for_task,
         get_clickup_service_fn=get_clickup_service,
         clickup_configuration_error_cls=ClickUpConfigurationError,
         clickup_error_cls=ClickUpError,
-        build_client_picker_blocks_fn=_build_client_picker_blocks,
         resolve_task_range_fn=_resolve_task_range,
         format_task_list_response_fn=_format_task_list_response,
         task_cap=_WEEKLY_TASK_CAP,
+        build_idempotency_key_fn=build_idempotency_key,
+        check_duplicate_fn=check_duplicate,
+        retry_with_backoff_fn=retry_with_backoff,
+        retry_exhausted_error_cls=RetryExhaustedError,
+        emit_orphan_event_fn=emit_orphan_event,
+        extract_product_identifiers_fn=_extract_product_identifiers,
+        retrieve_kb_context_fn=retrieve_kb_context,
+        build_grounded_task_draft_fn=build_grounded_task_draft,
     )
+
+def _build_cc_bridge_deps():
+    return build_cc_bridge_runtime_deps(
+        build_client_picker_blocks_fn=_build_client_picker_blocks,
+        lookup_clients_fn=lookup_clients,
+        format_client_list_fn=format_client_list,
+        list_brands_fn=list_brands,
+        format_brand_list_fn=format_brand_list,
+        audit_brand_mappings_fn=audit_brand_mappings,
+        format_mapping_audit_fn=format_mapping_audit,
+        build_brand_mapping_remediation_plan_fn=build_brand_mapping_remediation_plan,
+        apply_brand_mapping_remediation_plan_fn=apply_brand_mapping_remediation_plan,
+        resolve_person_fn=resolve_person,
+        resolve_role_fn=resolve_role,
+        resolve_brand_for_assignment_fn=resolve_brand_for_assignment,
+        upsert_assignment_fn=upsert_assignment,
+        remove_assignment_fn=remove_assignment,
+        format_person_ambiguous_fn=format_person_ambiguous,
+        format_upsert_result_fn=format_upsert_result,
+        format_remove_result_fn=format_remove_result,
+        create_brand_fn=create_brand,
+        format_brand_create_result_fn=format_brand_create_result,
+        resolve_brand_for_mutation_fn=resolve_brand_for_mutation,
+        format_brand_ambiguous_fn=format_brand_ambiguous,
+        update_brand_fn=update_brand,
+        format_brand_update_result_fn=format_brand_update_result,
+    )
+
+
+def _build_task_list_runtime_deps():
+    return build_task_list_runtime_deps_bridge_runtime(_build_task_bridge_deps())
 
 
 async def _handle_task_list(
@@ -221,17 +265,17 @@ async def _handle_task_list(
     date_from: str = "",
     date_to: str = "",
 ) -> None:
-    await _runtime_handle_task_list(
+    await handle_task_list_bridge_runtime(
         slack_user_id=slack_user_id,
         channel=channel,
         client_name_hint=client_name_hint,
         session_service=session_service,
         slack=slack,
+        deps=_build_task_bridge_deps(),
         window=window,
         window_days=window_days,
         date_from=date_from,
         date_to=date_to,
-        deps=_build_task_list_runtime_deps(),
     )
 
 
@@ -324,13 +368,14 @@ async def _resolve_cc_client_hint(
     slack: Any,
     build_client_picker_blocks: Any | None = None,
 ) -> str | None | bool:
-    return await _cc_resolve_cc_client_hint(
+    return await resolve_cc_client_hint_bridge_runtime(
         args=args,
         session_service=session_service,
         session=session,
         channel=channel,
         slack=slack,
-        build_client_picker_blocks=build_client_picker_blocks or _build_client_picker_blocks,
+        deps=_build_cc_bridge_deps(),
+        build_client_picker_blocks=build_client_picker_blocks,
     )
 
 
@@ -342,22 +387,22 @@ async def _resolve_assignment_client(
     channel: str,
     slack: Any,
 ) -> str | bool:
-    return await resolve_assignment_client_runtime(
+    return await resolve_assignment_client_bridge_runtime(
         args=args,
         session_service=session_service,
         session=session,
         channel=channel,
         slack=slack,
-        build_client_picker_blocks_fn=_build_client_picker_blocks,
+        deps=_build_cc_bridge_deps(),
     )
 
 
 def _format_remediation_preview(plan: list[dict[str, Any]]) -> str:
-    return _cc_format_remediation_preview(plan)
+    return format_remediation_preview_bridge_runtime(plan)
 
 
 def _format_remediation_apply_result(result: dict[str, Any]) -> str:
-    return _cc_format_remediation_apply_result(result)
+    return format_remediation_apply_result_bridge_runtime(result)
 
 
 async def _handle_cc_skill(
@@ -369,40 +414,14 @@ async def _handle_cc_skill(
     channel: str,
     slack: Any,
 ) -> str:
-    return await _cc_handle_cc_skill(
+    return await handle_cc_skill_bridge_runtime(
         skill_id=skill_id,
         args=args,
         session=session,
         session_service=session_service,
         channel=channel,
         slack=slack,
-        build_client_picker_blocks=_build_client_picker_blocks,
-        resolve_cc_client_hint_fn=_resolve_cc_client_hint,
-        resolve_assignment_client_fn=_resolve_assignment_client,
-        lookup_clients_fn=lookup_clients,
-        format_client_list_fn=format_client_list,
-        list_brands_fn=list_brands,
-        format_brand_list_fn=format_brand_list,
-        audit_brand_mappings_fn=audit_brand_mappings,
-        format_mapping_audit_fn=format_mapping_audit,
-        build_brand_mapping_remediation_plan_fn=build_brand_mapping_remediation_plan,
-        apply_brand_mapping_remediation_plan_fn=apply_brand_mapping_remediation_plan,
-        format_remediation_preview_fn=_format_remediation_preview,
-        format_remediation_apply_result_fn=_format_remediation_apply_result,
-        resolve_person_fn=resolve_person,
-        resolve_role_fn=resolve_role,
-        resolve_brand_for_assignment_fn=resolve_brand_for_assignment,
-        upsert_assignment_fn=upsert_assignment,
-        remove_assignment_fn=remove_assignment,
-        format_person_ambiguous_fn=format_person_ambiguous,
-        format_upsert_result_fn=format_upsert_result,
-        format_remove_result_fn=format_remove_result,
-        create_brand_fn=create_brand,
-        format_brand_create_result_fn=format_brand_create_result,
-        resolve_brand_for_mutation_fn=resolve_brand_for_mutation,
-        format_brand_ambiguous_fn=format_brand_ambiguous,
-        update_brand_fn=update_brand,
-        format_brand_update_result_fn=format_brand_update_result,
+        deps=_build_cc_bridge_deps(),
     )
 
 
@@ -419,26 +438,7 @@ async def _execute_task_create(
     brand_id: str | None = None,
     brand_name: str | None = None,
 ) -> None:
-    task_deps = SlackTaskRuntimeDeps(
-        inflight_lock=_task_create_inflight_lock,
-        inflight_set=_task_create_inflight,
-        build_idempotency_key_fn=build_idempotency_key,
-        get_supabase_admin_client_fn=get_supabase_admin_client,
-        check_duplicate_fn=check_duplicate,
-        get_clickup_service_fn=get_clickup_service,
-        retry_with_backoff_fn=retry_with_backoff,
-        retry_exhausted_error_cls=RetryExhaustedError,
-        clickup_configuration_error_cls=ClickUpConfigurationError,
-        clickup_error_cls=ClickUpError,
-        emit_orphan_event_fn=emit_orphan_event,
-        extract_product_identifiers_fn=_extract_product_identifiers,
-        logger=_logger,
-        resolve_client_for_task_fn=_resolve_client_for_task,
-        resolve_brand_for_task_fn=_resolve_brand_for_task,
-        retrieve_kb_context_fn=retrieve_kb_context,
-        build_grounded_task_draft_fn=build_grounded_task_draft,
-    )
-    await _runtime_execute_task_create(
+    await execute_task_create_bridge_runtime(
         channel=channel,
         session=session,
         session_service=session_service,
@@ -449,7 +449,7 @@ async def _execute_task_create(
         task_description=task_description,
         brand_id=brand_id,
         brand_name=brand_name,
-        deps=task_deps,
+        deps=_build_task_bridge_deps(),
     )
 
 
@@ -463,26 +463,7 @@ async def _handle_create_task(
     slack: Any,
     pref_service: Any | None = None,
 ) -> None:
-    task_deps = SlackTaskRuntimeDeps(
-        inflight_lock=_task_create_inflight_lock,
-        inflight_set=_task_create_inflight,
-        build_idempotency_key_fn=build_idempotency_key,
-        get_supabase_admin_client_fn=get_supabase_admin_client,
-        check_duplicate_fn=check_duplicate,
-        get_clickup_service_fn=get_clickup_service,
-        retry_with_backoff_fn=retry_with_backoff,
-        retry_exhausted_error_cls=RetryExhaustedError,
-        clickup_configuration_error_cls=ClickUpConfigurationError,
-        clickup_error_cls=ClickUpError,
-        emit_orphan_event_fn=emit_orphan_event,
-        extract_product_identifiers_fn=_extract_product_identifiers,
-        logger=_logger,
-        resolve_client_for_task_fn=_resolve_client_for_task,
-        resolve_brand_for_task_fn=_resolve_brand_for_task,
-        retrieve_kb_context_fn=retrieve_kb_context,
-        build_grounded_task_draft_fn=build_grounded_task_draft,
-    )
-    await _runtime_handle_create_task(
+    await handle_create_task_bridge_runtime(
         slack_user_id=slack_user_id,
         channel=channel,
         client_name_hint=client_name_hint,
@@ -490,7 +471,7 @@ async def _handle_create_task(
         session_service=session_service,
         slack=slack,
         pref_service=pref_service,
-        deps=task_deps,
+        deps=_build_task_bridge_deps(),
     )
 
 
@@ -534,30 +515,11 @@ async def _enrich_task_draft(
     client_id: str,
     client_name: str,
 ) -> dict[str, Any] | None:
-    task_deps = SlackTaskRuntimeDeps(
-        inflight_lock=_task_create_inflight_lock,
-        inflight_set=_task_create_inflight,
-        build_idempotency_key_fn=build_idempotency_key,
-        get_supabase_admin_client_fn=get_supabase_admin_client,
-        check_duplicate_fn=check_duplicate,
-        get_clickup_service_fn=get_clickup_service,
-        retry_with_backoff_fn=retry_with_backoff,
-        retry_exhausted_error_cls=RetryExhaustedError,
-        clickup_configuration_error_cls=ClickUpConfigurationError,
-        clickup_error_cls=ClickUpError,
-        emit_orphan_event_fn=emit_orphan_event,
-        extract_product_identifiers_fn=_extract_product_identifiers,
-        logger=_logger,
-        resolve_client_for_task_fn=_resolve_client_for_task,
-        resolve_brand_for_task_fn=_resolve_brand_for_task,
-        retrieve_kb_context_fn=retrieve_kb_context,
-        build_grounded_task_draft_fn=build_grounded_task_draft,
-    )
-    return await _runtime_enrich_task_draft(
+    return await enrich_task_draft_bridge_runtime(
         task_title=task_title,
         client_id=client_id,
         client_name=client_name,
-        deps=task_deps,
+        deps=_build_task_bridge_deps(),
     )
 
 
