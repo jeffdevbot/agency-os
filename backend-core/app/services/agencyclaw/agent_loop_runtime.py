@@ -316,13 +316,27 @@ async def run_reply_only_agent_loop_turn(
     planner_child_run_id: str | None = None
     planner_child_done = False
 
-    try:
-        run = await asyncio.to_thread(turn_logger.start_main_run, str(session.id))
-        run_id = str(run.get("id") or "").strip()
+    async def _safe_log_call(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         if not run_id:
-            raise ValueError("failed to create agent run")
+            return None
+        try:
+            return await asyncio.to_thread(fn, *args, **kwargs)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Agent loop logging call failed: %s", exc, exc_info=True)
+            return None
 
-        await asyncio.to_thread(turn_logger.log_user_message, run_id, text)
+    try:
+        run: dict[str, Any] = {}
+        try:
+            run = await asyncio.to_thread(turn_logger.start_main_run, str(session.id))
+            run_id = str(run.get("id") or "").strip() or None
+            if not run_id:
+                logger.warning("Agent loop run start returned empty run_id; continuing without run logging")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Agent loop run logging init failed; continuing without run logging: %s", exc, exc_info=True)
+            run_id = None
+
+        await _safe_log_call(turn_logger.log_user_message, run_id, text)
 
         pending = session.context.get(_PENDING_KEY)
         decision = {"state": "ignore", "reason": "no_pending_confirmation"}
@@ -365,10 +379,10 @@ async def run_reply_only_agent_loop_turn(
                 if not policy.get("allowed"):
                     assistant_text = str(policy.get("user_message") or "That action is not allowed.")
                     await slack.post_message(channel=channel, text=assistant_text)
-                    await asyncio.to_thread(turn_logger.log_assistant_message, run_id, assistant_text)
-                    await asyncio.to_thread(turn_logger.complete_run, run_id, "completed")
+                    await _safe_log_call(turn_logger.log_assistant_message, run_id, assistant_text)
+                    await _safe_log_call(turn_logger.complete_run, run_id, "completed")
                     return True
-                await asyncio.to_thread(turn_logger.log_skill_call, run_id, skill_id, args)
+                await _safe_log_call(turn_logger.log_skill_call, run_id, skill_id, args)
                 result = await execute_create_task_fn(
                     slack_user_id=slack_user_id,
                     channel=channel,
@@ -379,17 +393,17 @@ async def run_reply_only_agent_loop_turn(
                 if not isinstance(result, dict):
                     raise ValueError("create-task result must be dict")
                 await asyncio.to_thread(session_service.update_context, session.id, {_PENDING_KEY: None})
-                await asyncio.to_thread(turn_logger.log_skill_result, run_id, skill_id, result)
+                await _safe_log_call(turn_logger.log_skill_result, run_id, skill_id, result)
                 assistant_text = str(result.get("response_text") or "Task request processed.")
 
             await slack.post_message(channel=channel, text=assistant_text)
-            await asyncio.to_thread(turn_logger.log_assistant_message, run_id, assistant_text)
-            await asyncio.to_thread(turn_logger.complete_run, run_id, "completed")
+            await _safe_log_call(turn_logger.log_assistant_message, run_id, assistant_text)
+            await _safe_log_call(turn_logger.complete_run, run_id, "completed")
             return True
 
         session_rows = _build_session_rows(session)
-        run_rows = await asyncio.to_thread(store.list_recent_run_messages, run_id, 20)
-        if hasattr(store, "list_recent_skill_events"):
+        run_rows = await asyncio.to_thread(store.list_recent_run_messages, run_id, 20) if run_id else []
+        if run_id and hasattr(store, "list_recent_skill_events"):
             run_skill_events = await asyncio.to_thread(store.list_recent_skill_events, run_id, 12)
         else:
             run_skill_events = []
@@ -447,11 +461,16 @@ async def run_reply_only_agent_loop_turn(
             return tool_result
 
         for _turn in range(_MAX_LOOP_TURNS):
-            completion = await call_chat_completion_fn(
-                loop_messages,
-                temperature=0.2,
-                max_tokens=400,
-            )
+            try:
+                completion = await call_chat_completion_fn(
+                    loop_messages,
+                    temperature=0.2,
+                    max_tokens=400,
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Agent loop model call failed: %s", exc, exc_info=True)
+                assistant_text = "I couldn't reach the AI service right now. Please try again in a moment."
+                break
             payload = _extract_mode_payload(str(completion.get("content") or ""))
             if payload.get("mode") != "tool_call":
                 assistant_text = str(payload.get("text") or "").strip() or "How can I help?"
@@ -462,9 +481,9 @@ async def run_reply_only_agent_loop_turn(
 
             if skill_id in _READ_ONLY_SKILLS:
                 args = _validate_read_skill_args(skill_id, raw_args)
-                await asyncio.to_thread(turn_logger.log_skill_call, run_id, skill_id, args)
+                await _safe_log_call(turn_logger.log_skill_call, run_id, skill_id, args)
                 tool_result = await _execute_read_skill(skill_id, args)
-                await asyncio.to_thread(turn_logger.log_skill_result, run_id, skill_id, tool_result)
+                await _safe_log_call(turn_logger.log_skill_result, run_id, skill_id, tool_result)
 
                 tool_context = json.dumps(tool_result, ensure_ascii=True, separators=(",", ":"))
                 loop_messages.append(
@@ -481,12 +500,18 @@ async def run_reply_only_agent_loop_turn(
             if skill_id == "delegate_planner":
                 if execute_delegate_planner_fn is None:
                     raise ValueError("planner delegate executor not provided")
+                if not run_id:
+                    assistant_text = (
+                        "Planning isn't available right now because run logging is unavailable. "
+                        "Please try again in a moment."
+                    )
+                    break
                 args = _validate_delegate_planner_args(raw_args)
-                await asyncio.to_thread(turn_logger.log_skill_call, run_id, skill_id, args)
+                await _safe_log_call(turn_logger.log_skill_call, run_id, skill_id, args)
                 request_text = str(args.get("request_text") or "").strip() or text
                 trace_id = str(run.get("trace_id") or "").strip() or run_id
                 if not str(run.get("trace_id") or "").strip() and hasattr(turn_logger, "set_run_trace_id"):
-                    await asyncio.to_thread(turn_logger.set_run_trace_id, run_id, trace_id)
+                    await _safe_log_call(turn_logger.set_run_trace_id, run_id, trace_id)
 
                 planner_child = await asyncio.to_thread(
                     turn_logger.start_planner_run,
@@ -551,7 +576,7 @@ async def run_reply_only_agent_loop_turn(
                 )
                 if not isinstance(planner_report, dict):
                     raise ValueError("planner delegate report must be dict")
-                await asyncio.to_thread(turn_logger.log_skill_result, run_id, skill_id, planner_report)
+                await _safe_log_call(turn_logger.log_skill_result, run_id, skill_id, planner_report)
 
                 planner_status = str(planner_report.get("status") or "").strip().lower()
                 if planner_status not in {
@@ -570,9 +595,9 @@ async def run_reply_only_agent_loop_turn(
                     if planner_status == "failed"
                     else "blocked"
                 )
-                await asyncio.to_thread(turn_logger.complete_run, planner_child_run_id, child_run_status)
+                await _safe_log_call(turn_logger.complete_run, planner_child_run_id, child_run_status)
                 planner_child_done = True
-                await asyncio.to_thread(turn_logger.log_planner_report, run_id, planner_report)
+                await _safe_log_call(turn_logger.log_planner_report, run_id, planner_report)
 
                 tool_context = json.dumps(planner_report, ensure_ascii=True, separators=(",", ":"))
                 loop_messages.append(
@@ -627,20 +652,24 @@ async def run_reply_only_agent_loop_turn(
             assistant_text = "I couldn't complete that flow. Could you rephrase and try again?"
 
         await slack.post_message(channel=channel, text=assistant_text)
-        await asyncio.to_thread(turn_logger.log_assistant_message, run_id, assistant_text)
-        await asyncio.to_thread(turn_logger.complete_run, run_id, "completed")
+        await _safe_log_call(turn_logger.log_assistant_message, run_id, assistant_text)
+        await _safe_log_call(turn_logger.complete_run, run_id, "completed")
         return True
     except Exception as exc:  # noqa: BLE001
         logger.warning("Agent loop reply-only turn failed: %s", exc, exc_info=True)
         if planner_child_run_id and not planner_child_done:
             try:
-                await asyncio.to_thread(turn_logger.complete_run, planner_child_run_id, "failed")
+                await _safe_log_call(turn_logger.complete_run, planner_child_run_id, "failed")
             except Exception:  # noqa: BLE001
                 pass
         if run_id:
             try:
-                await asyncio.to_thread(turn_logger.complete_run, run_id, "failed")
+                await _safe_log_call(turn_logger.complete_run, run_id, "failed")
             except Exception:  # noqa: BLE001
                 pass
-        await slack.post_message(channel=channel, text=_FAILURE_FALLBACK_TEXT)
+        short_ref = (run_id or "n/a")[-8:]
+        await slack.post_message(
+            channel=channel,
+            text=f"{_FAILURE_FALLBACK_TEXT} (ref: {short_ref})",
+        )
         return True

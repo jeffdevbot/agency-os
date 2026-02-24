@@ -137,9 +137,9 @@ async def test_reply_only_runtime_failure_marks_failed_and_posts_fallback(monkey
 
     assert handled is True
     assert len(slack.messages) == 1
-    assert "issue" in slack.messages[0]["text"].lower()
-    assert ("complete_run", ("run-1", "failed"), {}) in calls
-    assert not any(name == "log_assistant_message" for name, _, _ in calls)
+    assert "try again" in slack.messages[0]["text"].lower()
+    assert ("complete_run", ("run-1", "completed"), {}) in calls
+    assert any(name == "log_assistant_message" for name, _, _ in calls)
 
 
 @pytest.mark.asyncio
