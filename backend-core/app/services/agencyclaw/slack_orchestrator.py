@@ -16,7 +16,7 @@ from .openai_client import (
 )
 from .skill_registry import (
     get_missing_required_fields,
-    get_skill_descriptions_for_prompt,
+    get_legacy_skill_descriptions_for_prompt,
     validate_skill_call,
 )
 
@@ -60,7 +60,7 @@ def _build_system_prompt(
     client_context_pack: str,
     session_context: dict[str, Any],
 ) -> str:
-    skill_block = get_skill_descriptions_for_prompt()
+    skill_block = get_legacy_skill_descriptions_for_prompt()
 
     session_summary_parts: list[str] = []
     if session_context.get("active_client_id"):

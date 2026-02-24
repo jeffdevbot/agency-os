@@ -20,6 +20,11 @@ from app.api.routes.slack import (
     _try_llm_orchestrator,
 )
 from app.services.agencyclaw.slack_orchestrator import OrchestratorResult
+from app.services.agencyclaw import slack_orchestrator as slack_orchestrator_module
+from app.services.agencyclaw.skill_registry import (
+    LEGACY_PROMPT_EXCLUDED_SKILLS,
+    get_legacy_skill_descriptions_for_prompt,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -410,13 +415,13 @@ class TestAgentLoopFlagDispatch:
             ),
             patch("app.api.routes.slack.generate_plan", new_callable=AsyncMock, return_value={
                 "intent": "multi_step",
-                "steps": [{"skill_id": "clickup_task_list", "args": {"client_name": "Distex"}, "requires_confirmation": False, "reason": "read"}],
+                "steps": [{"skill_id": "lookup_client", "args": {"query": "Distex"}, "requires_confirmation": False, "reason": "read"}],
                 "confidence": 0.8,
                 "tokens_in": None,
                 "tokens_out": None,
                 "tokens_total": None,
                 "model_used": None,
-            }),
+            }) as mock_generate_plan,
             patch("app.api.routes.slack.execute_plan", new_callable=AsyncMock, return_value={
                 "plan_intent": "multi_step",
                 "steps_attempted": 1,
@@ -432,6 +437,12 @@ class TestAgentLoopFlagDispatch:
         assert captured_report["status"] == "completed"
         assert captured_report["request_text"] == "plan this work"
         assert mock_execute_plan.call_count == 1
+        execute_kwargs = mock_execute_plan.call_args.kwargs
+        assert execute_kwargs["plan"]["steps"][0]["skill_id"] == "lookup_client"
+        assert "lookup_client" in execute_kwargs["handler_map"]
+        assert "delegate_planner" not in captured_report["planner_available_skill_ids"]
+        available_text = mock_generate_plan.call_args.kwargs.get("available_skills", "")
+        assert "### delegate_planner" not in available_text
 
     @pytest.mark.asyncio
     async def test_agent_loop_delegate_planner_rejects_mutation_steps(self):
@@ -487,6 +498,15 @@ class TestAgentLoopFlagDispatch:
 
 
 class TestStrictModeHelpers:
+    def test_legacy_prompt_skill_block_excludes_delegate_planner(self):
+        prompt = get_legacy_skill_descriptions_for_prompt()
+        assert "### delegate_planner" not in prompt
+        assert "delegate_planner" in LEGACY_PROMPT_EXCLUDED_SKILLS
+
+    def test_orchestrator_system_prompt_excludes_delegate_planner(self):
+        system_prompt = slack_orchestrator_module._build_system_prompt("", {})
+        assert "### delegate_planner" not in system_prompt
+
     def test_llm_strict_mode_true_when_orchestrator_on_and_legacy_off(self):
         with (
             patch("app.api.routes.slack._is_llm_orchestrator_enabled", return_value=True),
@@ -761,6 +781,36 @@ class TestOrchestratorPlannerDelegation:
         assert planner_kwargs["text"] == "for distex list weekly tasks then create follow-ups"
         assert planner_kwargs["session_service"] is svc
         assert planner_kwargs["slack"] is slack
+
+    @pytest.mark.asyncio
+    async def test_planner_runtime_generate_plan_uses_legacy_skill_filter(self):
+        svc, slack = _make_mocks()
+        session = svc.get_or_create_session.return_value
+
+        with (
+            patch("app.api.routes.slack._is_planner_enabled", return_value=True),
+            patch("app.api.routes.slack.generate_plan", new_callable=AsyncMock, return_value={
+                "intent": "unknown",
+                "steps": [],
+                "confidence": 0.0,
+                "tokens_in": None,
+                "tokens_out": None,
+                "tokens_total": None,
+                "model_used": None,
+            }) as mock_generate,
+            patch("app.api.routes.slack.retrieve_kb_context", new_callable=AsyncMock, return_value={"sources": []}),
+        ):
+            await _try_planner(
+                text="plan this",
+                slack_user_id="U123",
+                channel="C1",
+                session=session,
+                session_service=svc,
+                slack=slack,
+            )
+
+        available = mock_generate.call_args.kwargs.get("available_skills", "")
+        assert "### delegate_planner" not in available
 
     @pytest.mark.asyncio
     async def test_plan_request_planner_disabled_returns_conversational_clarify(self):

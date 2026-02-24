@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+from .skill_registry import get_legacy_skill_descriptions_for_prompt
 from .slack_runtime_deps import SlackPlannerRuntimeDeps
 
 
@@ -53,6 +54,7 @@ async def try_planner_runtime(
             session_context=session.context,
             client_context_pack=client_context_pack,
             kb_context_summary=kb_summary,
+            available_skills=get_legacy_skill_descriptions_for_prompt(),
         )
 
         if not plan or not plan["steps"]:

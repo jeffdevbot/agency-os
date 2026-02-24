@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, TypedDict
+from typing import Any, Iterable, TypedDict
 
 
 class ArgSchema(TypedDict):
@@ -424,10 +424,33 @@ def get_missing_required_fields(skill_id: str, args: dict[str, Any]) -> list[str
     return missing
 
 
-def get_skill_descriptions_for_prompt() -> str:
+LEGACY_PROMPT_EXCLUDED_SKILLS = frozenset({"delegate_planner"})
+
+
+def get_skill_ids_for_prompt(
+    *,
+    include_skill_ids: Iterable[str] | None = None,
+    exclude_skill_ids: Iterable[str] | None = None,
+) -> list[str]:
+    """Return deterministic skill IDs for prompt rendering."""
+    include = list(include_skill_ids) if include_skill_ids is not None else list(SKILL_SCHEMAS.keys())
+    include_set = set(include)
+    exclude_set = set(exclude_skill_ids or [])
+    return [skill_id for skill_id in include if skill_id in include_set and skill_id in SKILL_SCHEMAS and skill_id not in exclude_set]
+
+
+def get_skill_descriptions_for_prompt(
+    *,
+    include_skill_ids: Iterable[str] | None = None,
+    exclude_skill_ids: Iterable[str] | None = None,
+) -> str:
     """Format skill schemas into a text block for the LLM system prompt."""
     lines: list[str] = []
-    for skill_id, schema in SKILL_SCHEMAS.items():
+    for skill_id in get_skill_ids_for_prompt(
+        include_skill_ids=include_skill_ids,
+        exclude_skill_ids=exclude_skill_ids,
+    ):
+        schema = SKILL_SCHEMAS[skill_id]
         lines.append(f"### {skill_id}")
         lines.append(schema["description"])
         lines.append("Arguments:")
@@ -436,3 +459,8 @@ def get_skill_descriptions_for_prompt() -> str:
             lines.append(f"  - {arg_name} ({arg_def['type']}, {req}): {arg_def['description']}")
         lines.append("")
     return "\n".join(lines)
+
+
+def get_legacy_skill_descriptions_for_prompt() -> str:
+    """Prompt skill block for legacy orchestrator/planner paths."""
+    return get_skill_descriptions_for_prompt(exclude_skill_ids=LEGACY_PROMPT_EXCLUDED_SKILLS)

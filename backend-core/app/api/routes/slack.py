@@ -91,6 +91,7 @@ from ...services.agencyclaw.slack_runtime_deps import (
 )
 from ...services.agencyclaw.plan_executor import execute_plan
 from ...services.agencyclaw.planner import generate_plan
+from ...services.agencyclaw.skill_registry import get_skill_descriptions_for_prompt
 from ...services.agencyclaw.slack_cc_dispatch import (
     format_remediation_apply_result as _cc_format_remediation_apply_result,
     format_remediation_preview as _cc_format_remediation_preview,
@@ -1249,6 +1250,21 @@ async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> No
                 "cc_brand_update",
                 "cc_brand_mapping_remediation_apply",
             }
+            planner_executable_read_skills = {
+                "clickup_task_list",
+                "clickup_task_list_weekly",
+                "cc_client_lookup",
+                "cc_brand_list_all",
+                "cc_brand_clickup_mapping_audit",
+                "cc_brand_mapping_remediation_preview",
+                "lookup_client",
+                "lookup_brand",
+                "search_kb",
+                "resolve_brand",
+                "get_client_context",
+                "load_prior_skill_result",
+            }
+            planner_prompt_skill_ids = planner_executable_read_skills | mutation_skill_ids
             try:
                 client_context_pack = ""
                 if session.active_client_id:
@@ -1281,6 +1297,10 @@ async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> No
                     session_context=session.context,
                     client_context_pack=client_context_pack,
                     kb_context_summary=kb_summary,
+                    available_skills=get_skill_descriptions_for_prompt(
+                        include_skill_ids=planner_prompt_skill_ids,
+                        exclude_skill_ids={"delegate_planner"},
+                    ),
                 )
                 if not plan or not plan.get("steps"):
                     return {
@@ -1311,8 +1331,31 @@ async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> No
                     else:
                         executable_steps.append(step)
 
+                unsupported_steps: list[dict[str, Any]] = []
                 exec_result: dict[str, Any] | None = None
                 if executable_steps:
+                    async def _planner_read_step_handler(
+                        *,
+                        skill_id: str,
+                        client_name_hint: str = "",
+                        plan_args: dict[str, Any] | None = None,
+                        **_kwargs: Any,
+                    ) -> None:
+                        args = dict(plan_args or {})
+                        if client_name_hint and not args.get("client_name"):
+                            args["client_name"] = client_name_hint
+                        if skill_id == "clickup_task_list_weekly" and not args.get("window"):
+                            args["window"] = "this_week"
+                        canonical_skill = "clickup_task_list" if skill_id == "clickup_task_list_weekly" else skill_id
+                        await _execute_read_skill_for_agent_loop(
+                            skill_id=canonical_skill,
+                            slack_user_id=slack_user_id,
+                            channel=channel,
+                            args=args,
+                            session=session,
+                            session_service=session_service,
+                        )
+
                     async def _planner_cc_step_handler(
                         *,
                         skill_id: str,
@@ -1332,43 +1375,97 @@ async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> No
                             slack=capture,
                         )
 
+                    handler_map = {
+                        "clickup_task_list": lambda **kwargs: _planner_read_step_handler(
+                            skill_id="clickup_task_list", **kwargs,
+                        ),
+                        "clickup_task_list_weekly": lambda **kwargs: _planner_read_step_handler(
+                            skill_id="clickup_task_list_weekly", **kwargs,
+                        ),
+                        "cc_client_lookup": lambda **kwargs: _planner_read_step_handler(
+                            skill_id="cc_client_lookup", **kwargs,
+                        ),
+                        "cc_brand_list_all": lambda **kwargs: _planner_read_step_handler(
+                            skill_id="cc_brand_list_all", **kwargs,
+                        ),
+                        "cc_brand_clickup_mapping_audit": lambda **kwargs: _planner_read_step_handler(
+                            skill_id="cc_brand_clickup_mapping_audit", **kwargs,
+                        ),
+                        "cc_brand_mapping_remediation_preview": lambda **kwargs: _planner_cc_step_handler(
+                            skill_id="cc_brand_mapping_remediation_preview", **kwargs,
+                        ),
+                        "lookup_client": lambda **kwargs: _planner_read_step_handler(
+                            skill_id="lookup_client", **kwargs,
+                        ),
+                        "lookup_brand": lambda **kwargs: _planner_read_step_handler(
+                            skill_id="lookup_brand", **kwargs,
+                        ),
+                        "search_kb": lambda **kwargs: _planner_read_step_handler(
+                            skill_id="search_kb", **kwargs,
+                        ),
+                        "resolve_brand": lambda **kwargs: _planner_read_step_handler(
+                            skill_id="resolve_brand", **kwargs,
+                        ),
+                        "get_client_context": lambda **kwargs: _planner_read_step_handler(
+                            skill_id="get_client_context", **kwargs,
+                        ),
+                        "load_prior_skill_result": lambda **kwargs: _planner_read_step_handler(
+                            skill_id="load_prior_skill_result", **kwargs,
+                        ),
+                    }
+
+                    filtered_exec_steps: list[dict[str, Any]] = []
+                    for step in executable_steps:
+                        sid = str(step.get("skill_id") or "")
+                        if sid in handler_map:
+                            filtered_exec_steps.append(step)
+                        else:
+                            unsupported_steps.append(
+                                {
+                                    "skill_id": sid,
+                                    "args": step.get("args") if isinstance(step.get("args"), dict) else {},
+                                    "reason": str(step.get("reason") or ""),
+                                    "rejected_reason": "planner_skill_not_executable",
+                                }
+                            )
+
                     exec_plan = {
                         "intent": str(plan.get("intent") or "unknown"),
-                        "steps": executable_steps,
+                        "steps": filtered_exec_steps,
                         "confidence": float(plan.get("confidence") or 0.0),
                         "tokens_in": plan.get("tokens_in"),
                         "tokens_out": plan.get("tokens_out"),
                         "tokens_total": plan.get("tokens_total"),
                         "model_used": plan.get("model_used"),
                     }
-                    exec_result = await execute_plan(
-                        plan=exec_plan,
-                        slack_user_id=slack_user_id,
-                        channel=channel,
-                        session=session,
-                        session_service=session_service,
-                        slack=capture,
-                        check_policy=_check_skill_policy,
-                        handler_map={
-                            "clickup_task_list": _handle_task_list,
-                            "clickup_task_list_weekly": _handle_task_list,
-                            "cc_client_lookup": lambda **kwargs: _planner_cc_step_handler(
-                                skill_id="cc_client_lookup", **kwargs,
-                            ),
-                            "cc_brand_list_all": lambda **kwargs: _planner_cc_step_handler(
-                                skill_id="cc_brand_list_all", **kwargs,
-                            ),
-                            "cc_brand_clickup_mapping_audit": lambda **kwargs: _planner_cc_step_handler(
-                                skill_id="cc_brand_clickup_mapping_audit", **kwargs,
-                            ),
-                        },
-                    )
+                    if filtered_exec_steps:
+                        exec_result = await execute_plan(
+                            plan=exec_plan,
+                            slack_user_id=slack_user_id,
+                            channel=channel,
+                            session=session,
+                            session_service=session_service,
+                            slack=capture,
+                            check_policy=_check_skill_policy,
+                            handler_map=handler_map,
+                        )
+                    else:
+                        exec_result = {
+                            "plan_intent": str(plan.get("intent") or "unknown"),
+                            "steps_attempted": 0,
+                            "steps_succeeded": 0,
+                            "step_results": [],
+                            "aborted": False,
+                            "abort_reason": None,
+                        }
 
                 steps_attempted = int(exec_result.get("steps_attempted", 0)) if isinstance(exec_result, dict) else 0
                 steps_succeeded = int(exec_result.get("steps_succeeded", 0)) if isinstance(exec_result, dict) else 0
                 summary = f"Planner completed {steps_succeeded}/{steps_attempted} executable steps."
                 if mutation_proposals:
                     summary += f" Deferred {len(mutation_proposals)} mutation proposal(s)."
+                if unsupported_steps:
+                    summary += f" Blocked {len(unsupported_steps)} unsupported step(s)."
                 return {
                     "ok": True,
                     "status": "completed",
@@ -1377,6 +1474,8 @@ async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> No
                     "planner_plan": plan,
                     "execution_result": exec_result,
                     "mutation_proposals": mutation_proposals,
+                    "unsupported_steps": unsupported_steps,
+                    "planner_available_skill_ids": sorted(planner_prompt_skill_ids - {"delegate_planner"}),
                     "messages": capture.messages,
                     "response_text": summary,
                 }

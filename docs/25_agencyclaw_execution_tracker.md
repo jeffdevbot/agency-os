@@ -201,6 +201,7 @@ Last updated: 2026-02-24 (C17H landed: bounded multi-turn + delegate_planner; C1
 - C17E read-only skill loop v1: agent-loop path supports one allowlisted read-only tool call (`clickup_task_list`) with skill event logging and second LLM pass; disallowed skills fail-closed; policy gate enforced before task-list execution in executor wrapper.
 - C17F mutation confirmation contract: agent-loop path now validates deterministic confirmation payloads (actor + fingerprint + expiry), re-checks mutation policy at confirm-time, and preserves retry safety by retaining pending payload on execution failure.
 - C17G context/rehydration runtime: added context skills (`lookup_client`, `lookup_brand`, `search_kb`, `resolve_brand`, `get_client_context`) and rehydration skill (`load_prior_skill_result`) to agent-loop read path with policy-gated callback dispatch, skill-event logging, and bounded evidence-note injection into prompt assembly.
+- C17H follow-up (legacy isolation + delegate alignment): legacy orchestrator/planner prompt skill blocks now use shared skill-registry filtering that excludes `delegate_planner`; delegate planner runtime now prompts with an explicit executable/proposal skill surface, executes expanded read/context skills, rejects mutation steps into `mutation_proposals`, and deterministically records unsupported-step blocks.
 - Current backend full-suite baseline after C17G completion pass + follow-up hardening: `1182 passed, 1 warning`, `0 failed`.
 
 ## 4. Validation Checklist (Per Chunk)
