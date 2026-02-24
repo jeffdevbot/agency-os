@@ -66,7 +66,7 @@ Last updated: 2026-02-24 (C17G completion pass landed; C17H remains deferred)
 | C17D | Agent loop v0 (reply-only + logging) | Codex | done | merged (`622adfc`, `d452aac`, `af67487`, `746cc71`) | Added agent loop storage/logging services + context assembler and wired feature-flagged reply-only DM runtime path (`AGENCYCLAW_AGENT_LOOP_ENABLED`) with run/message persistence and failure fallback. |
 | C17E | Skill-result loop v1 (read-only skill) | Codex | done | merged (`6f89b43`, `7dc785f`) | Added single read-only skill round-trip (`clickup_task_list`) in agent-loop path with skill_call/skill_result logging and second-pass natural response synthesis; policy gate enforced in task-list executor path. |
 | C17F | Mutation confirmation contract | Codex | done | merged (`494587a`, `6338459`) | Added deterministic `pending_confirmation` contract with confirmation/cancel/expiry handling, fingerprint integrity validation, confirm-time mutation policy recheck, and retry-safe pending semantics (retain on execute failure, clear on success/cancel/expiry/invalid). |
-| C17G | Context skills + retention summaries + rehydration | Codex | done | `8a56c74`, `95dcec1`, `88443ff`, `af8721b` | Agent-loop read allowlist expanded with context/rehydration skills, policy-gated runtime callback dispatch wired to existing services, and bounded recent skill-event evidence injection added to prompt assembly path. |
+| C17G | Context skills + retention summaries + rehydration | Codex | done | `8a56c74`, `95dcec1`, `88443ff`, `af8721b`, `173cd2b` | Agent-loop read allowlist expanded with context/rehydration skills, policy-gated runtime callback dispatch wired to existing services, bounded recent skill-event evidence injection added to prompt assembly path, and follow-up hardening landed for fail-closed `lookup_client` arg validation plus deterministic `search_kb` brand scoping. |
 | C17H | Planner sub-agent integration | unassigned | planned | - | Pending; `delegate_planner` and child-run hierarchy land here (not before C17H). |
 
 ## 3. Open Blockers
@@ -200,7 +200,7 @@ Last updated: 2026-02-24 (C17G completion pass landed; C17H remains deferred)
 - C17E read-only skill loop v1: agent-loop path supports one allowlisted read-only tool call (`clickup_task_list`) with skill event logging and second LLM pass; disallowed skills fail-closed; policy gate enforced before task-list execution in executor wrapper.
 - C17F mutation confirmation contract: agent-loop path now validates deterministic confirmation payloads (actor + fingerprint + expiry), re-checks mutation policy at confirm-time, and preserves retry safety by retaining pending payload on execution failure.
 - C17G context/rehydration runtime: added context skills (`lookup_client`, `lookup_brand`, `search_kb`, `resolve_brand`, `get_client_context`) and rehydration skill (`load_prior_skill_result`) to agent-loop read path with policy-gated callback dispatch, skill-event logging, and bounded evidence-note injection into prompt assembly.
-- Current backend full-suite baseline after C17G completion pass: `1180 passed, 1 warning`, `0 failed`.
+- Current backend full-suite baseline after C17G completion pass + follow-up hardening: `1182 passed, 1 warning`, `0 failed`.
 
 ## 4. Validation Checklist (Per Chunk)
 - [ ] Behavior works in Slack runtime path.
