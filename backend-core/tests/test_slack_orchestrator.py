@@ -12,6 +12,7 @@ from app.services.agencyclaw.slack_orchestrator import orchestrate_dm_message
 from app.services.agencyclaw.skill_registry import (
     SKILL_SCHEMAS,
     get_missing_required_fields,
+    get_skill_ids_for_prompt,
     get_skill_descriptions_for_prompt,
     validate_skill_call,
 )
@@ -108,6 +109,22 @@ class TestToolRegistry:
         assert "clickup_task_list_weekly" in SKILL_SCHEMAS
         assert "clickup_task_create" in SKILL_SCHEMAS
         assert "task_title" in SKILL_SCHEMAS["clickup_task_create"]["args"]
+
+    def test_get_skill_ids_for_prompt_canonical_order_with_include_set(self):
+        include = {"clickup_task_create", "cc_client_lookup", "clickup_task_list"}
+        expected = [sid for sid in SKILL_SCHEMAS.keys() if sid in include]
+        first = get_skill_ids_for_prompt(include_skill_ids=include)
+        second = get_skill_ids_for_prompt(include_skill_ids=include)
+        third = get_skill_ids_for_prompt(include_skill_ids=include)
+        assert first == expected
+        assert second == expected
+        assert third == expected
+
+    def test_get_skill_ids_for_prompt_canonical_order_without_include(self):
+        exclude = {"delegate_planner", "clickup_task_list_weekly"}
+        expected = [sid for sid in SKILL_SCHEMAS.keys() if sid not in exclude]
+        actual = get_skill_ids_for_prompt(exclude_skill_ids=exclude)
+        assert actual == expected
 
 
 # ---------------------------------------------------------------------------

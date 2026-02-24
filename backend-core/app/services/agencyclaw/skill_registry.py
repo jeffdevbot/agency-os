@@ -433,10 +433,13 @@ def get_skill_ids_for_prompt(
     exclude_skill_ids: Iterable[str] | None = None,
 ) -> list[str]:
     """Return deterministic skill IDs for prompt rendering."""
-    include = list(include_skill_ids) if include_skill_ids is not None else list(SKILL_SCHEMAS.keys())
-    include_set = set(include)
+    include_set = set(include_skill_ids) if include_skill_ids is not None else set(SKILL_SCHEMAS.keys())
     exclude_set = set(exclude_skill_ids or [])
-    return [skill_id for skill_id in include if skill_id in include_set and skill_id in SKILL_SCHEMAS and skill_id not in exclude_set]
+    return [
+        skill_id
+        for skill_id in SKILL_SCHEMAS.keys()
+        if skill_id in include_set and skill_id not in exclude_set
+    ]
 
 
 def get_skill_descriptions_for_prompt(
