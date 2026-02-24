@@ -1245,8 +1245,9 @@ async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> No
             max_planner_turns: int = 6,
             max_turns: int | None = None,
         ) -> dict[str, Any]:
-            _ = parent_run_id, child_run_id, trace_id, tool_executor, execute_skill_fn
+            _ = parent_run_id, child_run_id, trace_id
             capture = _CaptureSlack()
+            planner_step_executor = tool_executor or execute_skill_fn
             planner_max_turns = (
                 max_turns
                 if isinstance(max_turns, int) and not isinstance(max_turns, bool) and max_turns > 0
@@ -1319,6 +1320,29 @@ async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> No
                     if skill_id == "clickup_task_list_weekly" and not args.get("window"):
                         args["window"] = "this_week"
                     canonical_skill = "clickup_task_list" if skill_id == "clickup_task_list_weekly" else skill_id
+                    if planner_step_executor is not None:
+                        try:
+                            callback_result = await planner_step_executor(
+                                skill_id=canonical_skill,
+                                args=args,
+                                plan_args=args,
+                                slack_user_id=slack_user_id,
+                                channel=channel,
+                                session=session,
+                                session_service=session_service,
+                            )
+                            if isinstance(callback_result, dict):
+                                callback_text = str(callback_result.get("response_text") or "").strip()
+                                if callback_text:
+                                    capture.messages.append(callback_text)
+                                return
+                            raise ValueError("planner delegate callback must return dict")
+                        except Exception:  # noqa: BLE001
+                            _logger.warning(
+                                "Planner delegate callback failed for %s; falling back to local read handler",
+                                canonical_skill,
+                                exc_info=True,
+                            )
                     await _execute_read_skill_for_agent_loop(
                         skill_id=canonical_skill,
                         slack_user_id=slack_user_id,
@@ -1338,6 +1362,29 @@ async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> No
                     args = dict(plan_args or {})
                     if client_name_hint and not args.get("client_name"):
                         args["client_name"] = client_name_hint
+                    if planner_step_executor is not None:
+                        try:
+                            callback_result = await planner_step_executor(
+                                skill_id=skill_id,
+                                args=args,
+                                plan_args=args,
+                                slack_user_id=slack_user_id,
+                                channel=channel,
+                                session=session,
+                                session_service=session_service,
+                            )
+                            if isinstance(callback_result, dict):
+                                callback_text = str(callback_result.get("response_text") or "").strip()
+                                if callback_text:
+                                    capture.messages.append(callback_text)
+                                return
+                            raise ValueError("planner delegate callback must return dict")
+                        except Exception:  # noqa: BLE001
+                            _logger.warning(
+                                "Planner delegate callback failed for %s; falling back to local CC handler",
+                                skill_id,
+                                exc_info=True,
+                            )
                     await _handle_cc_skill(
                         skill_id=skill_id,
                         args=args,

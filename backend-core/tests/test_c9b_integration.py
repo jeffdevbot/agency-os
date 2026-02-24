@@ -386,11 +386,13 @@ class TestAgentLoopFlagDispatch:
     async def test_agent_loop_delegate_planner_executor_routes_to_planner_runtime(self):
         svc, slack = _make_mocks()
         captured_report: dict[str, Any] = {}
+        tool_executor_calls: list[dict[str, Any]] = []
 
         async def _exercise_executor(**kwargs) -> bool:
             execute_delegate_planner_fn = kwargs["execute_delegate_planner_fn"]
             async def _noop_tool_executor(**_tool_kwargs):
-                return {"ok": True}
+                tool_executor_calls.append(dict(_tool_kwargs))
+                return {"ok": True, "response_text": "callback-ok"}
             captured_report.update(
                 await execute_delegate_planner_fn(
                     request_text="plan this work",
@@ -406,6 +408,30 @@ class TestAgentLoopFlagDispatch:
                 )
             )
             return True
+
+        async def _fake_execute_plan(*, plan: dict[str, Any], handler_map: dict[str, Any], **_kwargs: Any) -> dict[str, Any]:
+            steps = plan.get("steps") if isinstance(plan, dict) else []
+            attempted = 0
+            for step in steps or []:
+                if not isinstance(step, dict):
+                    continue
+                skill_id = str(step.get("skill_id") or "")
+                handler = handler_map.get(skill_id)
+                if handler is None:
+                    continue
+                attempted += 1
+                await handler(
+                    plan_args=step.get("args") if isinstance(step.get("args"), dict) else {},
+                    client_name_hint="",
+                )
+            return {
+                "plan_intent": str(plan.get("intent") or "multi_step"),
+                "steps_attempted": attempted,
+                "steps_succeeded": attempted,
+                "step_results": [],
+                "aborted": False,
+                "abort_reason": None,
+            }
 
         with (
             patch("app.api.routes.slack._is_agent_loop_enabled", return_value=True),
@@ -426,14 +452,7 @@ class TestAgentLoopFlagDispatch:
                 "tokens_total": None,
                 "model_used": None,
             }) as mock_generate_plan,
-            patch("app.api.routes.slack.execute_plan", new_callable=AsyncMock, return_value={
-                "plan_intent": "multi_step",
-                "steps_attempted": 1,
-                "steps_succeeded": 1,
-                "step_results": [],
-                "aborted": False,
-                "abort_reason": None,
-            }) as mock_execute_plan,
+            patch("app.api.routes.slack.execute_plan", new_callable=AsyncMock, side_effect=_fake_execute_plan) as mock_execute_plan,
         ):
             await _handle_dm_event(slack_user_id="U123", channel="C1", text="plan this")
 
@@ -444,6 +463,7 @@ class TestAgentLoopFlagDispatch:
         execute_kwargs = mock_execute_plan.call_args.kwargs
         assert execute_kwargs["plan"]["steps"][0]["skill_id"] == "lookup_client"
         assert "lookup_client" in execute_kwargs["handler_map"]
+        assert any(call.get("skill_id") == "lookup_client" for call in tool_executor_calls)
         assert "delegate_planner" not in captured_report["planner_available_skill_ids"]
         available_text = mock_generate_plan.call_args.kwargs.get("available_skills", "")
         assert "### delegate_planner" not in available_text
