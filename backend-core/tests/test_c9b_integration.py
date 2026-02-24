@@ -280,6 +280,49 @@ class TestAgentLoopFlagDispatch:
         mock_kb.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_agent_loop_search_kb_brand_name_scopes_query(self):
+        svc, slack = _make_mocks()
+        captured_result: dict[str, Any] = {}
+
+        async def _exercise_executor(**kwargs) -> bool:
+            execute_read_skill_fn = kwargs["execute_read_skill_fn"]
+            captured_result.update(
+                await execute_read_skill_fn(
+                    skill_id="search_kb",
+                    slack_user_id="U123",
+                    channel="C1",
+                    args={"query": "coupon setup", "brand_name": "Alpha"},
+                    session=svc.get_or_create_session.return_value,
+                    session_service=svc,
+                )
+            )
+            return True
+
+        kb_payload = {
+            "sources": [{"title": "SOP Coupons", "content": "..."}, {"title": "Brand Alpha Playbook", "content": "..."}],
+            "tiers_hit": ["sop"],
+        }
+
+        with (
+            patch("app.api.routes.slack._is_agent_loop_enabled", return_value=True),
+            patch("app.api.routes.slack._is_llm_orchestrator_enabled", return_value=False),
+            patch("app.api.routes.slack.get_playbook_session_service", return_value=svc),
+            patch("app.api.routes.slack.get_slack_service", return_value=slack),
+            patch("app.api.routes.slack.get_supabase_admin_client", return_value=MagicMock()),
+            patch(
+                "app.api.routes.slack._runtime_run_reply_only_agent_loop_turn",
+                side_effect=_exercise_executor,
+            ),
+            patch("app.api.routes.slack._check_skill_policy", new_callable=AsyncMock, return_value=_ALLOW_POLICY),
+            patch("app.api.routes.slack.retrieve_kb_context", new_callable=AsyncMock, return_value=kb_payload) as mock_kb,
+        ):
+            await _handle_dm_event(slack_user_id="U123", channel="C1", text="search kb for alpha coupon setup")
+
+        assert "found kb context" in captured_result["response_text"].lower()
+        assert captured_result["query_used"] == "coupon setup brand:Alpha"
+        assert mock_kb.call_args.kwargs["query"] == "coupon setup brand:Alpha"
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "evidence_result,expected_text",
         [

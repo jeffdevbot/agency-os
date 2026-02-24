@@ -1005,6 +1005,7 @@ async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> No
 
             if skill_id == "search_kb":
                 query = str(args.get("query") or "")
+                brand_name_hint = str(args.get("brand_name") or "").strip()
                 client_id: str | None = None
                 client_name_hint = str(args.get("client_name") or "").strip()
                 if client_name_hint:
@@ -1013,8 +1014,11 @@ async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> No
                     )
                     if len(matches) == 1:
                         client_id = str(matches[0].get("id") or "")
+                scoped_query = query
+                if brand_name_hint:
+                    scoped_query = f"{query} brand:{brand_name_hint}".strip()
                 retrieval = await retrieve_kb_context(
-                    query=query,
+                    query=scoped_query,
                     client_id=client_id,
                     skill_id=skill_id,
                     db=session_service.db,
@@ -1035,6 +1039,7 @@ async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> No
                     "response_text": "Found KB context from: " + "; ".join(top_titles),
                     "kb_sources": sources[:5],
                     "tiers_hit": retrieval.get("tiers_hit", []),
+                    "query_used": scoped_query,
                 }
 
             if skill_id == "resolve_brand":

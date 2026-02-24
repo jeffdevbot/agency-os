@@ -172,7 +172,15 @@ def _validate_task_create_args(args: dict[str, Any]) -> dict[str, Any]:
 def _validate_read_skill_args(skill_id: str, args: dict[str, Any]) -> dict[str, Any]:
     if skill_id == "clickup_task_list":
         return _validate_task_list_args(args)
-    if skill_id in {"cc_client_lookup", "lookup_client"}:
+    if skill_id == "cc_client_lookup":
+        if "query" not in args or args.get("query") is None:
+            return {}
+        return {"query": str(args.get("query") or "").strip()}
+    if skill_id == "lookup_client":
+        allowed = {"query"}
+        for key in args:
+            if key not in allowed:
+                raise ValueError(f"unsupported arg: {key}")
         if "query" not in args or args.get("query") is None:
             return {}
         return {"query": str(args.get("query") or "").strip()}

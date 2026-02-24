@@ -929,6 +929,64 @@ async def test_c17g_disallowed_read_skill_fails_safely(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_c17g_lookup_client_unknown_arg_fails_safe(monkeypatch):
+    calls: list[tuple[str, tuple]] = []
+
+    class FakeStore:
+        def __init__(self, _db):
+            pass
+
+        def list_recent_run_messages(self, run_id: str, limit: int = 20):
+            return []
+
+    class FakeTurnLogger:
+        def __init__(self, _store):
+            pass
+
+        def start_main_run(self, session_id: str):
+            return {"id": "run-1", "status": "running"}
+
+        def log_user_message(self, run_id: str, text: str):
+            return {"id": "m1"}
+
+        def complete_run(self, run_id: str, status: str):
+            calls.append(("complete_run", (run_id, status)))
+            return None
+
+    async def _fake_completion(*args, **kwargs):
+        _ = args, kwargs
+        return {
+            "content": '{"mode":"tool_call","skill_id":"lookup_client","args":{"query":"dist","foo":"bar"}}',
+            "tokens_in": 10,
+            "tokens_out": 5,
+            "tokens_total": 15,
+            "model": "gpt-4o-mini",
+            "duration_ms": 10,
+        }
+
+    monkeypatch.setattr("app.services.agencyclaw.agent_loop_runtime.AgentLoopStore", FakeStore)
+    monkeypatch.setattr("app.services.agencyclaw.agent_loop_runtime.AgentLoopTurnLogger", FakeTurnLogger)
+
+    session = _FakeSession()
+    slack = _FakeSlack()
+    handled = await run_reply_only_agent_loop_turn(
+        text="lookup client",
+        session=session,
+        slack_user_id="U123",
+        session_service=_FakeSessionService(session),
+        channel="D1",
+        slack=slack,
+        supabase_client=MagicMock(),
+        call_chat_completion_fn=_fake_completion,
+    )
+
+    assert handled is True
+    assert len(slack.messages) == 1
+    assert "issue" in slack.messages[-1]["text"].lower()
+    assert ("complete_run", ("run-1", "failed")) in calls
+
+
+@pytest.mark.asyncio
 async def test_c17f_failed_create_keeps_pending_for_retry(monkeypatch):
     class FakeStore:
         def __init__(self, _db):
