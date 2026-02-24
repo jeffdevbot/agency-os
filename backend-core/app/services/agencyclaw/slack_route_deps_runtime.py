@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from typing import Any, Awaitable, Callable
 
+from .slack_cc_bridge_runtime import build_cc_bridge_runtime_deps
 from .slack_planner_delegate_runtime import SlackPlannerDelegateRuntimeDeps
 from .slack_route_runtime import SlackRouteRuntimeDeps
+from .slack_task_bridge_runtime import build_task_bridge_runtime_deps
 
 
 def build_route_runtime_deps_runtime(
@@ -47,7 +49,7 @@ def build_route_runtime_deps_runtime(
     build_client_picker_blocks_fn: Callable[[list[dict[str, Any]]], list[dict[str, Any]]],
     slack_api_error_cls: type[Exception],
     get_receipt_service_fn: Callable[[], Any],
-) -> SlackRouteRuntimeDeps:
+    ) -> SlackRouteRuntimeDeps:
     def _planner_delegate_runtime_deps_factory(
         execute_read_skill_fn: Any,
     ) -> SlackPlannerDelegateRuntimeDeps:
@@ -100,4 +102,72 @@ def build_route_runtime_deps_runtime(
         build_client_picker_blocks_fn=build_client_picker_blocks_fn,
         slack_api_error_cls=slack_api_error_cls,
         get_receipt_service_fn=get_receipt_service_fn,
+    )
+
+
+def build_task_bridge_deps_from_bindings_runtime(
+    *,
+    bindings: dict[str, Any],
+    inflight_lock: Any,
+    inflight_set: set[str],
+    logger: Any,
+    build_client_picker_blocks_fn: Callable[[list[dict[str, Any]]], list[dict[str, Any]]],
+    get_supabase_admin_client_fn: Callable[[], Any],
+    resolve_client_for_task_fn: Callable[..., Awaitable[tuple[str | None, str]]],
+    resolve_brand_for_task_fn: Callable[..., Awaitable[dict[str, Any]]],
+) -> Any:
+    return build_task_bridge_runtime_deps(
+        inflight_lock=inflight_lock,
+        inflight_set=inflight_set,
+        logger=logger,
+        build_client_picker_blocks_fn=build_client_picker_blocks_fn,
+        get_supabase_admin_client_fn=get_supabase_admin_client_fn,
+        resolve_client_for_task_fn=resolve_client_for_task_fn,
+        resolve_brand_for_task_fn=resolve_brand_for_task_fn,
+        get_clickup_service_fn=bindings["get_clickup_service"],
+        clickup_configuration_error_cls=bindings["ClickUpConfigurationError"],
+        clickup_error_cls=bindings["ClickUpError"],
+        resolve_task_range_fn=bindings["_resolve_task_range"],
+        format_task_list_response_fn=bindings["_format_task_list_response"],
+        task_cap=bindings["_WEEKLY_TASK_CAP"],
+        build_idempotency_key_fn=bindings["build_idempotency_key"],
+        check_duplicate_fn=bindings["check_duplicate"],
+        retry_with_backoff_fn=bindings["retry_with_backoff"],
+        retry_exhausted_error_cls=bindings["RetryExhaustedError"],
+        emit_orphan_event_fn=bindings["emit_orphan_event"],
+        extract_product_identifiers_fn=bindings["_extract_product_identifiers"],
+        retrieve_kb_context_fn=bindings["retrieve_kb_context"],
+        build_grounded_task_draft_fn=bindings["build_grounded_task_draft"],
+    )
+
+
+def build_cc_bridge_deps_from_bindings_runtime(
+    *,
+    bindings: dict[str, Any],
+    build_client_picker_blocks_fn: Callable[[list[dict[str, Any]]], list[dict[str, Any]]],
+) -> Any:
+    return build_cc_bridge_runtime_deps(
+        build_client_picker_blocks_fn=build_client_picker_blocks_fn,
+        lookup_clients_fn=bindings["lookup_clients"],
+        format_client_list_fn=bindings["format_client_list"],
+        list_brands_fn=bindings["list_brands"],
+        format_brand_list_fn=bindings["format_brand_list"],
+        audit_brand_mappings_fn=bindings["audit_brand_mappings"],
+        format_mapping_audit_fn=bindings["format_mapping_audit"],
+        build_brand_mapping_remediation_plan_fn=bindings["build_brand_mapping_remediation_plan"],
+        apply_brand_mapping_remediation_plan_fn=bindings["apply_brand_mapping_remediation_plan"],
+        resolve_person_fn=bindings["resolve_person"],
+        resolve_role_fn=bindings["resolve_role"],
+        resolve_brand_for_assignment_fn=bindings["resolve_brand_for_assignment"],
+        upsert_assignment_fn=bindings["upsert_assignment"],
+        remove_assignment_fn=bindings["remove_assignment"],
+        format_person_ambiguous_fn=bindings["format_person_ambiguous"],
+        format_upsert_result_fn=bindings["format_upsert_result"],
+        format_remove_result_fn=bindings["format_remove_result"],
+        create_brand_fn=bindings["create_brand"],
+        format_brand_create_result_fn=bindings["format_brand_create_result"],
+        resolve_brand_for_mutation_fn=bindings["resolve_brand_for_mutation"],
+        format_brand_ambiguous_fn=bindings["format_brand_ambiguous"],
+        update_brand_fn=bindings["update_brand"],
+        format_brand_update_result_fn=bindings["format_brand_update_result"],
     )

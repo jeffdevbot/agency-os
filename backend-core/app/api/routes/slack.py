@@ -83,6 +83,10 @@ from ...services.agencyclaw.slack_route_runtime import (
     handle_interaction_route_runtime,
 )
 from ...services.agencyclaw.slack_route_deps_runtime import build_route_runtime_deps_runtime
+from ...services.agencyclaw.slack_route_deps_runtime import (
+    build_cc_bridge_deps_from_bindings_runtime,
+    build_task_bridge_deps_from_bindings_runtime,
+)
 from ...services.agencyclaw.slack_policy_bridge_runtime import (
     SlackPolicyBridgeRuntimeDeps,
     check_skill_policy_runtime,
@@ -98,7 +102,6 @@ from ...services.agencyclaw.plan_executor import execute_plan
 from ...services.agencyclaw.planner import generate_plan
 from ...services.agencyclaw.skill_registry import get_skill_descriptions_for_prompt
 from ...services.agencyclaw.slack_cc_bridge_runtime import (
-    build_cc_bridge_runtime_deps,
     format_remediation_apply_result_bridge_runtime,
     format_remediation_preview_bridge_runtime,
     handle_cc_skill_bridge_runtime,
@@ -106,7 +109,6 @@ from ...services.agencyclaw.slack_cc_bridge_runtime import (
     resolve_cc_client_hint_bridge_runtime,
 )
 from ...services.agencyclaw.slack_task_bridge_runtime import (
-    build_task_bridge_runtime_deps,
     enrich_task_draft_bridge_runtime,
     execute_task_create_bridge_runtime,
     handle_create_task_bridge_runtime,
@@ -200,7 +202,8 @@ def _get_receipt_service() -> SlackReceiptService:
     return SlackReceiptService(get_supabase_admin_client())
 
 def _build_task_bridge_deps():
-    return build_task_bridge_runtime_deps(
+    return build_task_bridge_deps_from_bindings_runtime(
+        bindings=globals(),
         inflight_lock=_task_create_inflight_lock,
         inflight_set=_task_create_inflight,
         logger=_logger,
@@ -208,47 +211,12 @@ def _build_task_bridge_deps():
         get_supabase_admin_client_fn=get_supabase_admin_client,
         resolve_client_for_task_fn=_resolve_client_for_task,
         resolve_brand_for_task_fn=_resolve_brand_for_task,
-        get_clickup_service_fn=get_clickup_service,
-        clickup_configuration_error_cls=ClickUpConfigurationError,
-        clickup_error_cls=ClickUpError,
-        resolve_task_range_fn=_resolve_task_range,
-        format_task_list_response_fn=_format_task_list_response,
-        task_cap=_WEEKLY_TASK_CAP,
-        build_idempotency_key_fn=build_idempotency_key,
-        check_duplicate_fn=check_duplicate,
-        retry_with_backoff_fn=retry_with_backoff,
-        retry_exhausted_error_cls=RetryExhaustedError,
-        emit_orphan_event_fn=emit_orphan_event,
-        extract_product_identifiers_fn=_extract_product_identifiers,
-        retrieve_kb_context_fn=retrieve_kb_context,
-        build_grounded_task_draft_fn=build_grounded_task_draft,
     )
 
 def _build_cc_bridge_deps():
-    return build_cc_bridge_runtime_deps(
+    return build_cc_bridge_deps_from_bindings_runtime(
+        bindings=globals(),
         build_client_picker_blocks_fn=_build_client_picker_blocks,
-        lookup_clients_fn=lookup_clients,
-        format_client_list_fn=format_client_list,
-        list_brands_fn=list_brands,
-        format_brand_list_fn=format_brand_list,
-        audit_brand_mappings_fn=audit_brand_mappings,
-        format_mapping_audit_fn=format_mapping_audit,
-        build_brand_mapping_remediation_plan_fn=build_brand_mapping_remediation_plan,
-        apply_brand_mapping_remediation_plan_fn=apply_brand_mapping_remediation_plan,
-        resolve_person_fn=resolve_person,
-        resolve_role_fn=resolve_role,
-        resolve_brand_for_assignment_fn=resolve_brand_for_assignment,
-        upsert_assignment_fn=upsert_assignment,
-        remove_assignment_fn=remove_assignment,
-        format_person_ambiguous_fn=format_person_ambiguous,
-        format_upsert_result_fn=format_upsert_result,
-        format_remove_result_fn=format_remove_result,
-        create_brand_fn=create_brand,
-        format_brand_create_result_fn=format_brand_create_result,
-        resolve_brand_for_mutation_fn=resolve_brand_for_mutation,
-        format_brand_ambiguous_fn=format_brand_ambiguous,
-        update_brand_fn=update_brand,
-        format_brand_update_result_fn=format_brand_update_result,
     )
 
 
