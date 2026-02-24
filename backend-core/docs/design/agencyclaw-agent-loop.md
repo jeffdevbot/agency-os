@@ -1,8 +1,20 @@
 # AgencyClaw Agent Loop Redesign
 
-**Status:** Draft
+**Status:** Active (C17H implemented; C17H+ pending)
 **Author:** Jeff + Claude + Codex
-**Date:** 2026-02-21
+**Date:** 2026-02-24
+
+## Implementation Snapshot (2026-02-24)
+
+- C17A through C17G are implemented behind `AGENCYCLAW_AGENT_LOOP_ENABLED`.
+- C17H is implemented:
+  - bounded main-agent multi-turn loop (`max_turns=6`),
+  - first-class `delegate_planner` tool path,
+  - planner child-run linkage (`run_type='planner'`, `parent_run_id`, shared `trace_id`),
+  - planner mutation steps are rejected into proposals (not executed directly).
+- C17H+ is still pending:
+  - iterative planner re-planning loop (`plan -> execute -> observe -> re-plan`),
+  - planner stop-state hardening and budget-exhaustion partial-report behavior.
 
 ## Problem Statement
 

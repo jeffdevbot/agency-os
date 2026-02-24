@@ -57,15 +57,24 @@ Components:
 This design keeps a clean seam for future sub-agents without forcing early complexity.
 
 ### 4.4 Runtime Routing Priority (v1)
-Slack DM runtime should follow this order:
+Slack DM runtime is feature-flagged:
+
+Agent-loop path (`AGENCYCLAW_AGENT_LOOP_ENABLED=true`):
 1. Resolve identity + policy context.
-2. Attempt LLM conversational routing (`reply`, `clarify`, `tool_call`, or `plan_request`).
-3. If orchestrator returns `tool_call`, execute the selected skill via typed adapter.
-4. If orchestrator returns `plan_request`, run planner through policy-gated deterministic execution rails.
-5. If orchestrator/planner flow fails, fall back to deterministic intent handlers.
+2. Acquire per-lane lock (serial per actor/session lane).
+3. Run bounded main-agent loop (`max_turns=6`) with LLM-driven `reply`/`tool_call`.
+4. If LLM emits `delegate_planner`, run planner sub-agent delegation and feed report back into main loop.
+5. For mutation skills, enforce confirmation/policy/idempotency rails.
+6. On runtime failure, return conversational safe fallback (not deterministic intent dispatch).
+
+Legacy path (`AGENCYCLAW_AGENT_LOOP_ENABLED=false`):
+1. Resolve identity + policy context.
+2. Attempt orchestrator routing (`reply`, `clarify`, `tool_call`, or `plan_request`).
+3. Execute skill/planner path as available.
+4. If orchestrator/planner flow fails, deterministic intent handlers remain resilience fallback.
 
 Rule:
-- Existing deterministic routes are retained as resilience fallback, not the primary UX.
+- Deterministic intent routing is legacy-resilience behavior, not the primary UX target.
 
 ### 4.5 Runtime vs Skill Boundary (OpenClaw-style)
 AgencyClaw should keep a hard boundary between conversation runtime and modular skills:
@@ -774,16 +783,17 @@ Suggested skills:
 
 ### 13.14 Conversational Orchestrator Rules (Slack DM)
 - Slack DM is LLM-first for conversational interaction quality.
-- Orchestrator response modes are:
+- Main agent response modes are:
   - `reply`: answer directly without tool invocation.
   - `clarify`: ask blocking follow-up for missing required fields.
   - `tool_call`: invoke typed skill adapter with validated arguments.
-  - `plan_request`: delegate multi-step requests to planner execution rails.
+  - `delegate_planner` (tool call): delegate multi-step requests to planner sub-agent path.
 - `tool_call` is limited to enabled skills in `skill_catalog`.
 - For v1 scope, required tool-call coverage includes:
   - `clickup_task_list` (with `clickup_task_list_weekly` compatibility alias)
   - `clickup_task_create`
-- If model routing fails, times out, or returns invalid schema, runtime must transparently fall back to deterministic handlers.
+- In agent-loop mode, model/runtime failure returns conversational safe fallback text.
+- In legacy mode, model/runtime failure may fall through to deterministic handlers.
 - Conversational mode must preserve all existing safeguards:
   confirmation requirements, permission checks, idempotency, and audit logging.
 - Clarify mode for mutation workflows must persist pending slot state (`pending_*`) so follow-up user messages continue the same workflow.
@@ -952,7 +962,7 @@ For all multi-step actions:
 ### Phase 2.7: Slack Conversational Orchestrator
 - Add LLM-first DM routing that chooses `reply`, `clarify`, or `tool_call`.
 - Integrate `client_context_builder` output into orchestrator prompts.
-- Keep deterministic classifier as runtime fallback.
+- Keep deterministic classifier as fallback in legacy path; agent-loop path should prefer conversational fallback.
 - Add integration tests for:
   natural-language weekly task retrieval,
   thin task creation clarification,
@@ -993,7 +1003,8 @@ Specific carve-out:
 - OpenAI-centric stack.
 - Reuse existing FastAPI Slack integration.
 - One orchestrator in v1, with extensible seams.
-- Slack DM runtime is LLM-first conversational, with deterministic fallback retained for resilience.
+- Slack DM runtime is LLM-first conversational in both legacy and agent-loop paths;
+  deterministic fallback is retained only for legacy-path resilience.
 - Slack-native Debrief is the first flagship workflow.
 - Queue lanes are planned, but not mandatory for first release.
 - v1 skill runtime depends on `skill_catalog` + `skill_invocation_log`; policy override enforcement is deferred.
@@ -1031,5 +1042,5 @@ Specific carve-out:
 - Queue lanes, cross-user approval workflow, webhook ingestion, vector retrieval, and external transcript ingestion are explicitly deferred/optional backlog, not active release commitments.
 
 ---
-Document version: 1.19
-Last updated: 2026-02-20
+Document version: 1.20
+Last updated: 2026-02-24

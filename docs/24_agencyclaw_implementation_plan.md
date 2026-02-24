@@ -11,8 +11,8 @@ Status note (2026-02-24):
 - C17A-C17G have landed (agent-loop foundation, lane serialization, reply/tool loop,
   mutation confirmation contract, context/rehydration runtime wiring).
 - See `docs/25_agencyclaw_execution_tracker.md` for commit-by-commit evidence.
-- C17H remains the pending step in the Agent Loop migration described in
-  `backend-core/docs/design/agencyclaw-agent-loop.md`.
+- C17H has landed (bounded main-agent multi-turn loop + `delegate_planner` single-shot delegation).
+- C17H+ remains the pending follow-on for iterative planner re-planning/hardening.
 
 ## 2. Working Rules
 - Work one chunk at a time.
