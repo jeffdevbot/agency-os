@@ -1,6 +1,6 @@
 # AgencyClaw Execution Tracker
 
-Last updated: 2026-02-23 (C17B migrations applied; C17C scaffold reviewed)
+Last updated: 2026-02-23 (C17E landed; policy-gated agent-loop read path)
 
 ## 1. Baseline Status
 - [x] PRD updated to v1.19 (`docs/23_agencyclaw_prd.md`)
@@ -62,9 +62,9 @@ Last updated: 2026-02-23 (C17B migrations applied; C17C scaffold reviewed)
 | C16C | Internal weekly-shim cleanup (canonical task-list routing) | Codex | done | merged (`6338922`), follow-up (`3e4804f`) | Consolidated internal task-list routing/deps on canonical `_handle_task_list` / `handle_task_list_fn`, while preserving external compatibility for `clickup_task_list_weekly` and `_handle_weekly_tasks` wrapper seam. |
 | C17A | Agent loop planning docs sync + acceptance lock | Codex | done | merged (`60368b2`) | Plan/tracker/design language aligned; C17 roadmap locked; `delegate_planner` remains explicitly deferred to C17H. |
 | C17B | Agent storage foundation (schema only) | Codex | done | merged (`60368b2`) | Added migration for `agent_runs`, `agent_messages`, `agent_skill_events` + indexes; `parent_run_id` nullable; no runtime read/write wiring. |
-| C17C | Per-session lane queue serialization | unassigned | planned | - | Pending; runtime lane serialization only, no behavior expansion. |
-| C17D | Agent loop v0 (reply-only + logging) | unassigned | planned | - | Pending; feature-flagged loop path with run/message writes only. |
-| C17E | Skill-result loop v1 (read-only skill) | unassigned | planned | - | Pending; first end-to-end read skill with persisted skill events. |
+| C17C | Per-session lane queue serialization | Codex | done | merged (`9fb9bd0`, `d520a01`, `111a5c4`) | Added per-user lane serialization in DM runtime with in-lock session resolution; first-message race fixed; same-user serialization + cross-user concurrency tests passing. |
+| C17D | Agent loop v0 (reply-only + logging) | Codex | done | merged (`622adfc`, `d452aac`, `af67487`, `746cc71`) | Added agent loop storage/logging services + context assembler and wired feature-flagged reply-only DM runtime path (`AGENCYCLAW_AGENT_LOOP_ENABLED`) with run/message persistence and failure fallback. |
+| C17E | Skill-result loop v1 (read-only skill) | Codex | done | merged (`6f89b43`, `7dc785f`) | Added single read-only skill round-trip (`clickup_task_list`) in agent-loop path with skill_call/skill_result logging and second-pass natural response synthesis; policy gate enforced in task-list executor path. |
 | C17F | Mutation confirmation contract | unassigned | planned | - | Pending; add `pending_confirmation` contract and deterministic validation. |
 | C17G | Context skills + retention summaries + rehydration | unassigned | planned | - | Pending; context skill set plus payload summary + rehydration path. |
 | C17H | Planner sub-agent integration | unassigned | planned | - | Pending; `delegate_planner` and child-run hierarchy land here (not before C17H). |
@@ -195,6 +195,10 @@ Last updated: 2026-02-23 (C17B migrations applied; C17C scaffold reviewed)
 - C16C seam hardening: weekly-focused tests now assert canonical handler routing and retain explicit alias coverage to prove `_handle_weekly_tasks` wrapper compatibility (`window=\"this_week\"` pass-through) for external patch points.
 - C16C validation: `backend-core/tests/test_task_list.py` + `backend-core/tests/test_c9b_integration.py` + `backend-core/tests/test_c10a_policy_gate.py` + `backend-core/tests/test_c11f_conversational_cleanup.py` (`131 passed, 1 warning`), full suite `918 passed, 0 failed, 1 warning`.
 - C16C residual risk: `_handle_weekly_tasks` compatibility wrapper remains intentionally to avoid breaking external test/patch seams; removing it later would require a coordinated seam migration.
+- C17C lane queue serialization: DM runtime now acquires per-actor lane lock before session creation/read and resolves session inside lock; first-message race covered; targeted suites `test_c17c_lane_queue_runtime.py` + `test_c17c_lane_queue_scaffold.py` + `test_c9b_integration.py` passing.
+- C17D reply-only agent loop: feature-flagged reply path logs `agent_runs`/`agent_messages` and assembles bounded prompt context from session history + run messages; failure path posts conversational fallback and marks run failed when run exists.
+- C17E read-only skill loop v1: agent-loop path supports one allowlisted read-only tool call (`clickup_task_list`) with skill event logging and second LLM pass; disallowed skills fail-closed; policy gate enforced before task-list execution in executor wrapper.
+- Current backend full-suite baseline after C17E + policy patch: `1049 passed, 1 warning`, `0 failed`.
 
 ## 4. Validation Checklist (Per Chunk)
 - [ ] Behavior works in Slack runtime path.
