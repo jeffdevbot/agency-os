@@ -432,7 +432,7 @@ class TestPlannerBudget:
 
     @pytest.mark.asyncio
     async def test_budget_exhaustion_report_still_logged(self, monkeypatch):
-        """Even when budget_exhausted collapses to completed, the planner
+        """Even when budget_exhausted collapses to blocked, the planner
         report with partial=True is faithfully logged."""
         r = await _run(
             monkeypatch,
