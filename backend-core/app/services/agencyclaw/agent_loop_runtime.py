@@ -54,6 +54,7 @@ _FAILURE_FALLBACK_TEXT = (
 _PENDING_KEY = "pending_confirmation"
 _READ_ONLY_SKILLS = {
     "clickup_task_list",
+    "clickup_task_list_weekly",
     "cc_client_lookup",
     "cc_brand_list_all",
     "cc_brand_clickup_mapping_audit",
@@ -189,7 +190,7 @@ def _validate_task_create_args(args: dict[str, Any]) -> dict[str, Any]:
 
 
 def _validate_read_skill_args(skill_id: str, args: dict[str, Any]) -> dict[str, Any]:
-    if skill_id == "clickup_task_list":
+    if skill_id in {"clickup_task_list", "clickup_task_list_weekly"}:
         return _validate_task_list_args(args)
     if skill_id == "cc_client_lookup":
         if "query" not in args or args.get("query") is None:
@@ -204,11 +205,12 @@ def _validate_read_skill_args(skill_id: str, args: dict[str, Any]) -> dict[str, 
             return {}
         return {"query": str(args.get("query") or "").strip()}
     if skill_id == "cc_brand_list_all":
-        allowed = {"client_name"}
+        allowed = {"client_name", "query"}
         for key in args:
             if key not in allowed:
                 raise ValueError(f"unsupported arg: {key}")
-        client_name = str(args.get("client_name") or "").strip()
+        # Be tolerant to model arg-shape drift: map query -> client_name.
+        client_name = str(args.get("client_name") or args.get("query") or "").strip()
         return {"client_name": client_name} if client_name else {}
     if skill_id == "lookup_brand":
         allowed = {"client_name", "brand_name"}

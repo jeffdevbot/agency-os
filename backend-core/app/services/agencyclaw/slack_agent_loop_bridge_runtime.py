@@ -115,7 +115,7 @@ async def run_agent_loop_reply_turn_bridge_runtime(
             }
 
         capture = _CaptureSlack()
-        if skill_id == "clickup_task_list":
+        if skill_id in {"clickup_task_list", "clickup_task_list_weekly"}:
             await deps.handle_task_list_fn(
                 slack_user_id=slack_user_id,
                 channel=channel,

@@ -205,6 +205,8 @@ async def test_c17g_injects_recent_skill_evidence_into_prompt(monkeypatch):
         ("cc_client_lookup", {"query": "dist"}, {"query": "dist"}),
         ("cc_client_lookup", {"query": ""}, {"query": ""}),
         ("cc_brand_list_all", {"client_name": "Distex"}, {"client_name": "Distex"}),
+        ("cc_brand_list_all", {"query": "Distex"}, {"client_name": "Distex"}),
+        ("clickup_task_list_weekly", {"client_name": "Distex"}, {"client_name": "Distex"}),
         ("cc_brand_clickup_mapping_audit", {}, {}),
         ("lookup_client", {}, {}),
         ("lookup_client", {"query": "dist"}, {"query": "dist"}),
