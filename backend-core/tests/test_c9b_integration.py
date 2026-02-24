@@ -195,6 +195,46 @@ class TestAgentLoopFlagDispatch:
         assert "admin access" in captured_result["response_text"].lower()
         mock_task_list.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_agent_loop_cc_read_executor_dispatches_and_enforces_policy(self):
+        svc, slack = _make_mocks()
+        captured_result: dict[str, Any] = {}
+
+        async def _exercise_executor(**kwargs) -> bool:
+            execute_read_skill_fn = kwargs["execute_read_skill_fn"]
+            captured_result.update(
+                await execute_read_skill_fn(
+                    skill_id="cc_brand_list_all",
+                    slack_user_id="U123",
+                    channel="C1",
+                    args={"client_name": "Distex"},
+                    session=svc.get_or_create_session.return_value,
+                    session_service=svc,
+                )
+            )
+            return True
+
+        with (
+            patch("app.api.routes.slack._is_agent_loop_enabled", return_value=True),
+            patch("app.api.routes.slack._is_llm_orchestrator_enabled", return_value=False),
+            patch("app.api.routes.slack.get_playbook_session_service", return_value=svc),
+            patch("app.api.routes.slack.get_slack_service", return_value=slack),
+            patch("app.api.routes.slack.get_supabase_admin_client", return_value=MagicMock()),
+            patch(
+                "app.api.routes.slack._runtime_run_reply_only_agent_loop_turn",
+                side_effect=_exercise_executor,
+            ),
+            patch("app.api.routes.slack._check_skill_policy", new_callable=AsyncMock, return_value=_ALLOW_POLICY),
+            patch("app.api.routes.slack._handle_cc_skill", new_callable=AsyncMock, return_value="[Listed brands]") as mock_cc,
+        ):
+            await _handle_dm_event(slack_user_id="U123", channel="C1", text="show brands for distex")
+
+        assert captured_result["response_text"] == "[Listed brands]"
+        mock_cc.assert_called_once()
+        call_kwargs = mock_cc.call_args.kwargs
+        assert call_kwargs["skill_id"] == "cc_brand_list_all"
+        assert call_kwargs["args"] == {"client_name": "Distex"}
+
 
 class TestStrictModeHelpers:
     def test_llm_strict_mode_true_when_orchestrator_on_and_legacy_off(self):

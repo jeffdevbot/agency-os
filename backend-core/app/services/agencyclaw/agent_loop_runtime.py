@@ -1,7 +1,10 @@
-"""C17D/C17E: Feature-flagged agent loop runtime helper.
+"""C17D/C17E/C17F/C17G: Feature-flagged agent loop runtime helper.
 
 C17D: reply-only turn handling
 C17E: single read-only tool round-trip (`clickup_task_list`) per turn
+C17F: mutation confirmation contract (`clickup_task_create`)
+C17G: read-only context skills (`cc_client_lookup`, `cc_brand_list_all`,
+`cc_brand_clickup_mapping_audit`)
 """
 
 from __future__ import annotations
@@ -29,12 +32,21 @@ _SYSTEM_PROMPT = (
     "using strict JSON only. Output either "
     '{"mode":"reply","text":"..."} or '
     '{"mode":"tool_call","skill_id":"clickup_task_list","args":{...}} or '
+    '{"mode":"tool_call","skill_id":"cc_client_lookup","args":{...}} or '
+    '{"mode":"tool_call","skill_id":"cc_brand_list_all","args":{...}} or '
+    '{"mode":"tool_call","skill_id":"cc_brand_clickup_mapping_audit","args":{...}} or '
     '{"mode":"tool_call","skill_id":"clickup_task_create","args":{...}}.'
 )
 _FAILURE_FALLBACK_TEXT = (
     "I hit an issue while processing that. Could you rephrase and try again?"
 )
 _PENDING_KEY = "pending_confirmation"
+_READ_ONLY_SKILLS = {
+    "clickup_task_list",
+    "cc_client_lookup",
+    "cc_brand_list_all",
+    "cc_brand_clickup_mapping_audit",
+}
 
 
 def _build_session_rows(session: Any) -> list[dict[str, Any]]:
@@ -143,6 +155,22 @@ def _validate_task_create_args(args: dict[str, Any]) -> dict[str, Any]:
     return normalized
 
 
+def _validate_read_skill_args(skill_id: str, args: dict[str, Any]) -> dict[str, Any]:
+    if skill_id == "clickup_task_list":
+        return _validate_task_list_args(args)
+    if skill_id == "cc_client_lookup":
+        query = str(args.get("query") or "").strip()
+        if not query:
+            raise ValueError("query is required")
+        return {"query": query}
+    if skill_id == "cc_brand_list_all":
+        client_name = str(args.get("client_name") or "").strip()
+        return {"client_name": client_name} if client_name else {}
+    if skill_id == "cc_brand_clickup_mapping_audit":
+        return {}
+    raise ValueError(f"disallowed read skill: {skill_id}")
+
+
 async def run_reply_only_agent_loop_turn(
     *,
     text: str,
@@ -152,13 +180,14 @@ async def run_reply_only_agent_loop_turn(
     channel: str,
     slack: Any,
     supabase_client: Any,
+    execute_read_skill_fn: Callable[..., Awaitable[dict[str, Any]]] | None = None,
     execute_task_list_fn: Callable[..., Awaitable[dict[str, Any]]] | None = None,
     execute_create_task_fn: Callable[..., Awaitable[dict[str, Any]]] | None = None,
     check_mutation_policy_fn: Callable[..., Awaitable[dict[str, Any]]] | None = None,
     call_chat_completion_fn: Callable[..., Awaitable[ChatCompletionResult]] = call_chat_completion,
     logger: logging.Logger = _LOGGER,
 ) -> bool:
-    """Run a C17D/C17E turn with run/message/event logging.
+    """Run a C17D/C17E/C17F/C17G turn with run/message/event logging.
 
     Returns True when the turn was handled (including fallback paths).
     """
@@ -259,19 +288,30 @@ async def run_reply_only_agent_loop_turn(
 
         if first_payload.get("mode") == "tool_call":
             skill_id = str(first_payload.get("skill_id") or "")
-            if skill_id == "clickup_task_list":
-                if execute_task_list_fn is None:
-                    raise ValueError("task-list executor not provided")
-
-                args = _validate_task_list_args(first_payload.get("args") or {})
+            if skill_id in _READ_ONLY_SKILLS:
+                args = _validate_read_skill_args(skill_id, first_payload.get("args") or {})
                 await asyncio.to_thread(turn_logger.log_skill_call, run_id, skill_id, args)
-                tool_result = await execute_task_list_fn(
-                    slack_user_id=slack_user_id,
-                    channel=channel,
-                    args=args,
-                    session=session,
-                    session_service=session_service,
-                )
+                if execute_read_skill_fn is not None:
+                    tool_result = await execute_read_skill_fn(
+                        skill_id=skill_id,
+                        slack_user_id=slack_user_id,
+                        channel=channel,
+                        args=args,
+                        session=session,
+                        session_service=session_service,
+                    )
+                elif skill_id == "clickup_task_list":
+                    if execute_task_list_fn is None:
+                        raise ValueError("read-skill executor not provided")
+                    tool_result = await execute_task_list_fn(
+                        slack_user_id=slack_user_id,
+                        channel=channel,
+                        args=args,
+                        session=session,
+                        session_service=session_service,
+                    )
+                else:
+                    raise ValueError("read-skill executor not provided")
                 if not isinstance(tool_result, dict):
                     raise ValueError("tool result must be dict")
                 await asyncio.to_thread(turn_logger.log_skill_result, run_id, skill_id, tool_result)
@@ -282,7 +322,7 @@ async def run_reply_only_agent_loop_turn(
                     {
                         "role": "system",
                         "content": (
-                            "Tool result for clickup_task_list (JSON): " + tool_context
+                            f"Tool result for {skill_id} (JSON): " + tool_context
                             + ". Respond naturally to the user using this result."
                         ),
                     }
@@ -327,7 +367,7 @@ async def run_reply_only_agent_loop_turn(
                         "Reply `confirm` to proceed or `cancel` to discard."
                     )
             else:
-                raise ValueError(f"disallowed skill in C17E/C17F: {skill_id}")
+                raise ValueError(f"disallowed skill in C17E/C17F/C17G: {skill_id}")
         else:
             assistant_text = str(first_payload.get("text") or "").strip() or "How can I help?"
 

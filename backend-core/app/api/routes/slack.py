@@ -864,6 +864,68 @@ async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> No
             )
             return {"response_text": capture.messages[-1] if capture.messages else "No task list response"}
 
+        async def _execute_read_skill_for_agent_loop(
+            *,
+            skill_id: str,
+            slack_user_id: str,
+            channel: str,
+            args: dict[str, Any],
+            session: Any,
+            session_service: Any,
+        ) -> dict[str, Any]:
+            policy = await _check_skill_policy(
+                slack_user_id=slack_user_id,
+                session=session,
+                channel=channel,
+                skill_id=skill_id,
+                args=args,
+            )
+            if not policy.get("allowed"):
+                return {
+                    "response_text": str(policy.get("user_message") or "That action is not allowed."),
+                    "policy_denied": True,
+                }
+
+            capture = _CaptureSlack()
+            if skill_id == "clickup_task_list":
+                await _handle_task_list(
+                    slack_user_id=slack_user_id,
+                    channel=channel,
+                    client_name_hint=str(args.get("client_name") or ""),
+                    window=str(args.get("window") or ""),
+                    window_days=args.get("window_days"),
+                    date_from=str(args.get("date_from") or ""),
+                    date_to=str(args.get("date_to") or ""),
+                    session_service=session_service,
+                    slack=capture,
+                )
+                return {
+                    "response_text": capture.messages[-1] if capture.messages else "No task list response",
+                }
+
+            if skill_id in {
+                "cc_client_lookup",
+                "cc_brand_list_all",
+                "cc_brand_clickup_mapping_audit",
+            }:
+                result_text = await _handle_cc_skill(
+                    skill_id=skill_id,
+                    args=args,
+                    session=session,
+                    session_service=session_service,
+                    channel=channel,
+                    slack=capture,
+                )
+                if capture.messages:
+                    return {"response_text": capture.messages[-1]}
+                return {
+                    "response_text": (
+                        result_text if isinstance(result_text, str) and result_text.strip() else "Read skill completed."
+                    )
+                }
+
+            raise ValueError(f"unsupported read skill in agent loop: {skill_id}")
+
         async def _execute_create_task_for_agent_loop(
             *,
             slack_user_id: str,
@@ -942,6 +1004,7 @@ async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> No
             channel=channel,
             slack=slack,
             supabase_client=get_supabase_admin_client(),
+            execute_read_skill_fn=_execute_read_skill_for_agent_loop,
             execute_task_list_fn=_execute_task_list_for_agent_loop,
             execute_create_task_fn=_execute_create_task_for_agent_loop,
             check_mutation_policy_fn=_check_skill_policy,
