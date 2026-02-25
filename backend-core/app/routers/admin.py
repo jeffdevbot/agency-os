@@ -14,10 +14,6 @@ from ..services.clickup_space_registry import (
     sync_clickup_spaces,
 )
 from ..services.clickup import get_clickup_service
-from ..services.wbr.windsor_section1_ingest import (
-    WindsorSection1IngestError,
-    WindsorSection1IngestService,
-)
 from pydantic import BaseModel, Field
 from typing import Optional
 
@@ -85,6 +81,18 @@ def _get_supabase() -> Client:
         return create_client(settings.supabase_url, settings.supabase_service_role)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to initialize Supabase client: {e}")
+
+
+def _get_wbr_ingest_runtime() -> tuple[type, type]:
+    """Lazy-load WBR ingest runtime to avoid startup failure when module is absent."""
+    try:
+        from ..services.wbr.windsor_section1_ingest import (
+            WindsorSection1IngestError as _WindsorSection1IngestError,
+            WindsorSection1IngestService as _WindsorSection1IngestService,
+        )
+        return _WindsorSection1IngestError, _WindsorSection1IngestService
+    except ModuleNotFoundError as exc:
+        raise HTTPException(status_code=503, detail="WBR ingest runtime not available") from exc
 
 
 @router.post("/clickup-spaces/sync")
@@ -166,8 +174,9 @@ async def wbr_section1_ingest_range(
     user=Depends(require_admin_user),
 ):
     """Ingest Windsor Section 1 data for an explicit date range."""
+    wbr_error_cls, wbr_service_cls = _get_wbr_ingest_runtime()
     db = _get_supabase()
-    service = WindsorSection1IngestService(db)
+    service = wbr_service_cls(db)
     try:
         result = await service.ingest_range(
             client_id=request.client_id,
@@ -177,7 +186,7 @@ async def wbr_section1_ingest_range(
             initiated_by=str(user.get("sub")) if isinstance(user, dict) else None,
         )
         return result
-    except WindsorSection1IngestError as e:
+    except wbr_error_cls as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"WBR Section 1 ingest failed: {e}")
@@ -192,8 +201,9 @@ async def wbr_section1_backfill_last_full_weeks(
     if request.weeks <= 0:
         raise HTTPException(status_code=400, detail="weeks must be > 0")
 
+    wbr_error_cls, wbr_service_cls = _get_wbr_ingest_runtime()
     db = _get_supabase()
-    service = WindsorSection1IngestService(db)
+    service = wbr_service_cls(db)
     try:
         result = await service.ingest_previous_full_weeks(
             client_id=request.client_id,
@@ -202,7 +212,7 @@ async def wbr_section1_backfill_last_full_weeks(
             initiated_by=str(user.get("sub")) if isinstance(user, dict) else None,
         )
         return result
-    except WindsorSection1IngestError as e:
+    except wbr_error_cls as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"WBR Section 1 backfill failed: {e}")
