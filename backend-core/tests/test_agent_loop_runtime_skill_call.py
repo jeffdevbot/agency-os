@@ -206,7 +206,13 @@ async def test_c17g_injects_recent_skill_evidence_into_prompt(monkeypatch):
         ("cc_client_lookup", {"query": ""}, {"query": ""}),
         ("cc_brand_list_all", {"client_name": "Distex"}, {"client_name": "Distex"}),
         ("cc_brand_list_all", {"query": "Distex"}, {"client_name": "Distex"}),
+        ("cc_brand_list_all", {"client": "Distex"}, {"client_name": "Distex"}),
         ("clickup_task_list_weekly", {"client_name": "Distex"}, {"client_name": "Distex"}),
+        (
+            "clickup_task_list",
+            {"client": "Distex", "timeframe": "this week", "top": 5},
+            {"client_name": "Distex", "window": "this_week"},
+        ),
         ("cc_brand_clickup_mapping_audit", {}, {}),
         ("lookup_client", {}, {}),
         ("lookup_client", {"query": "dist"}, {"query": "dist"}),
@@ -215,6 +221,7 @@ async def test_c17g_injects_recent_skill_evidence_into_prompt(monkeypatch):
             {"client_name": "Distex", "brand_name": "Alpha"},
             {"client_name": "Distex", "brand_name": "Alpha"},
         ),
+        ("lookup_brand", {"client": "Distex"}, {"client_name": "Distex"}),
         (
             "search_kb",
             {"query": "coupon setup", "client_name": "Distex", "brand_name": "Alpha"},

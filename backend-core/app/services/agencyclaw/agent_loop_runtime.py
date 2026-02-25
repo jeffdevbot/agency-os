@@ -80,11 +80,15 @@ _SKILL_ID_ALIASES = {
     "task_list": "clickup_task_list",
     "weekly_tasks": "clickup_task_list_weekly",
     "list_tasks": "clickup_task_list",
+    "task_priority": "clickup_task_list",
+    "task_priorities": "clickup_task_list",
+    "task_due_list": "clickup_task_list",
     "client_lookup": "cc_client_lookup",
     "list_clients": "cc_client_lookup",
     "brand_list": "cc_brand_list_all",
     "list_brands": "cc_brand_list_all",
     "get_brands": "cc_brand_list_all",
+    "brand_lookup": "lookup_brand",
     "brand_mapping_audit": "cc_brand_clickup_mapping_audit",
 }
 
@@ -189,24 +193,6 @@ def _error_code(exc: Exception) -> str:
 
 
 def _validate_task_list_args(args: dict[str, Any]) -> dict[str, Any]:
-    allowed = {
-        "client_name",
-        "client",
-        "client_hint",
-        "window",
-        "window_days",
-        "date_from",
-        "date_to",
-        "top_n",
-        "limit",
-        "prioritize",
-        "sort_by",
-        "include_overdue",
-    }
-    for key in args:
-        if key not in allowed:
-            raise ValueError(f"unsupported arg: {key}")
-
     normalized: dict[str, Any] = {}
     client_name = args.get("client_name")
     if client_name is None:
@@ -215,11 +201,20 @@ def _validate_task_list_args(args: dict[str, Any]) -> dict[str, Any]:
         client_name = args.get("client_hint")
     if client_name is not None:
         normalized["client_name"] = str(client_name)
-    if "window" in args and args["window"] is not None:
-        window = str(args["window"]).strip().lower()
+    raw_window = args.get("window")
+    if raw_window is None:
+        raw_window = args.get("timeframe")
+    if raw_window is None:
+        raw_window = args.get("period")
+    if raw_window is not None:
+        window = str(raw_window).strip().lower().replace("-", "_").replace(" ", "_")
         if window in {"week", "weekly"}:
             window = "this_week"
         elif window in {"month", "monthly"}:
+            window = "this_month"
+        elif window in {"thisweek"}:
+            window = "this_week"
+        elif window in {"thismonth"}:
             window = "this_month"
         normalized["window"] = window
     if "window_days" in args and args["window_days"] is not None:
@@ -279,19 +274,18 @@ def _validate_read_skill_args(skill_id: str, args: dict[str, Any]) -> dict[str, 
             return {}
         return {"query": str(args.get("query") or "").strip()}
     if skill_id == "cc_brand_list_all":
-        allowed = {"client_name", "query"}
-        for key in args:
-            if key not in allowed:
-                raise ValueError(f"unsupported arg: {key}")
+        # Tolerate common arg-shape drift for client filter.
         # Be tolerant to model arg-shape drift: map query -> client_name.
-        client_name = str(args.get("client_name") or args.get("query") or "").strip()
+        client_name = str(
+            args.get("client_name")
+            or args.get("query")
+            or args.get("client")
+            or args.get("client_hint")
+            or ""
+        ).strip()
         return {"client_name": client_name} if client_name else {}
     if skill_id == "lookup_brand":
-        allowed = {"client_name", "brand_name"}
-        for key in args:
-            if key not in allowed:
-                raise ValueError(f"unsupported arg: {key}")
-        client_name = str(args.get("client_name") or "").strip()
+        client_name = str(args.get("client_name") or args.get("client") or "").strip()
         brand_name = str(args.get("brand_name") or "").strip()
         normalized: dict[str, Any] = {}
         if client_name:
