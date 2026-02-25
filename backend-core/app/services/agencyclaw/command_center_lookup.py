@@ -36,25 +36,43 @@ def lookup_clients(
     """
     query = (query or "").strip()
 
+    effective_profile_id = profile_id
+    if profile_id and _is_profile_admin(db, profile_id):
+        effective_profile_id = None
+
     if query:
-        return _search_clients(db, profile_id, query)
-    return _list_accessible_clients(db, profile_id)
+        return _search_clients(db, effective_profile_id, query)
+    return _list_accessible_clients(db, effective_profile_id)
 
 
 def list_brands(
     db: Any,
     client_id: str | None = None,
+    profile_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """List brands with client name and ClickUp mapping fields.
 
     If *client_id* is provided, filter to that client.
     Uses Supabase foreign-key join to fetch client name.
     """
+    allowed_client_ids: set[str] | None = None
+    if profile_id and not _is_profile_admin(db, profile_id):
+        allowed_client_ids = {
+            str(c.get("id") or "")
+            for c in _list_accessible_clients(db, profile_id)
+            if isinstance(c, dict) and c.get("id")
+        }
+        allowed_client_ids.discard("")
+
+        if client_id and client_id not in allowed_client_ids:
+            return []
+
     rows = _fetch_brand_rows(
         db,
         client_id=client_id,
         limit=_MAX_RESULTS,
         include_client_join=True,
+        allowed_client_ids=allowed_client_ids,
     )
 
     # Join shape can vary by DB metadata; backfill client names by ID when needed.
@@ -176,6 +194,7 @@ def _fetch_brand_rows(
     client_id: str | None,
     limit: int,
     include_client_join: bool,
+    allowed_client_ids: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Fetch brand rows, with safe fallback if FK join metadata is unavailable."""
     select_clause = "id,name,client_id,clickup_space_id,clickup_list_id"
@@ -191,8 +210,20 @@ def _fetch_brand_rows(
         )
         if client_id:
             query = query.eq("client_id", client_id)
+        elif allowed_client_ids is not None:
+            if not allowed_client_ids:
+                return []
+            if hasattr(query, "in_"):
+                query = query.in_("client_id", sorted(allowed_client_ids))
         response = query.execute()
-        return response.data if isinstance(response.data, list) else []
+        rows = response.data if isinstance(response.data, list) else []
+        if allowed_client_ids is not None:
+            return [
+                row
+                for row in rows
+                if isinstance(row, dict) and str(row.get("client_id") or "") in allowed_client_ids
+            ]
+        return rows
     except Exception:  # noqa: BLE001
         if include_client_join:
             logger.warning(
@@ -204,8 +235,35 @@ def _fetch_brand_rows(
                 client_id=client_id,
                 limit=limit,
                 include_client_join=False,
+                allowed_client_ids=allowed_client_ids,
             )
         raise
+
+
+def _is_profile_admin(
+    db: Any,
+    profile_id: str,
+) -> bool:
+    """Return True when profile has admin privileges."""
+    profile_id = (profile_id or "").strip()
+    if not profile_id:
+        return False
+
+    try:
+        response = (
+            db.table("profiles")
+            .select("is_admin")
+            .eq("id", profile_id)
+            .limit(1)
+            .execute()
+        )
+    except Exception:  # noqa: BLE001
+        return False
+
+    rows = response.data if isinstance(response.data, list) else []
+    if not rows or not isinstance(rows[0], dict):
+        return False
+    return bool(rows[0].get("is_admin"))
 
 
 def _fetch_client_name_map(

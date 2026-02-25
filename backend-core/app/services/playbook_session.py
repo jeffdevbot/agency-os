@@ -202,7 +202,7 @@ class PlaybookSessionService:
 
         Prefer assigned clients (via `client_assignments`), with a fallback to all active clients.
         """
-        if profile_id:
+        if profile_id and not self._is_profile_admin(profile_id):
             for column in ("team_member_id", "profile_id"):
                 try:
                     assignments = (
@@ -340,25 +340,27 @@ class PlaybookSessionService:
         if not query_norm:
             return []
 
+        is_admin = bool(profile_id and self._is_profile_admin(profile_id))
         candidates: list[dict[str, Any]] = []
         try:
             candidates.extend(self.list_clients_for_picker(profile_id))
         except Exception:  # noqa: BLE001
             pass
 
-        try:
-            response = (
-                self.db.table("agency_clients")
-                .select("id,name,status")
-                .eq("status", "active")
-                .order("name", desc=False)
-                .limit(200)
-                .execute()
-            )
-            rows = response.data if isinstance(response.data, list) else []
-            candidates.extend([c for c in rows if isinstance(c, dict)])
-        except Exception:  # noqa: BLE001
-            pass
+        if not profile_id or is_admin:
+            try:
+                response = (
+                    self.db.table("agency_clients")
+                    .select("id,name,status")
+                    .eq("status", "active")
+                    .order("name", desc=False)
+                    .limit(200)
+                    .execute()
+                )
+                rows = response.data if isinstance(response.data, list) else []
+                candidates.extend([c for c in rows if isinstance(c, dict)])
+            except Exception:  # noqa: BLE001
+                pass
 
         dedup: dict[str, dict[str, Any]] = {}
         for c in candidates:
@@ -386,6 +388,27 @@ class PlaybookSessionService:
 
         matches.sort(key=lambda c: score(str(c.get("name") or "")))
         return matches
+
+    def _is_profile_admin(self, profile_id: str) -> bool:
+        profile_id = (profile_id or "").strip()
+        if not profile_id:
+            return False
+
+        try:
+            response = (
+                self.db.table("profiles")
+                .select("is_admin")
+                .eq("id", profile_id)
+                .limit(1)
+                .execute()
+            )
+        except Exception:  # noqa: BLE001
+            return False
+
+        rows = response.data if isinstance(response.data, list) else []
+        if not rows or not isinstance(rows[0], dict):
+            return False
+        return bool(rows[0].get("is_admin"))
 
 
 _supabase_admin_client: Client | None = None

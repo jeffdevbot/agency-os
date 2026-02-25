@@ -195,7 +195,9 @@ async def run_agent_loop_reply_turn_bridge_runtime(
                     return {"response_text": f"Multiple clients match *{client_name_hint}*: {names}"}
                 client_id = str(matches[0].get("id") or "")
 
-            brands = await asyncio.to_thread(deps.list_brands_fn, session_service.db, client_id)
+            brands = await asyncio.to_thread(
+                deps.list_brands_fn, session_service.db, client_id, session.profile_id
+            )
             if brand_name_hint:
                 brands = [
                     b
@@ -314,7 +316,9 @@ async def run_agent_loop_reply_turn_bridge_runtime(
                 return {"response_text": f"Multiple clients match *{client_name_hint}*: {names}"}
             client_id = str(matches[0].get("id") or "")
             client_name = str(matches[0].get("name") or client_name_hint)
-            brands = await asyncio.to_thread(deps.list_brands_fn, session_service.db, client_id)
+            brands = await asyncio.to_thread(
+                deps.list_brands_fn, session_service.db, client_id, session.profile_id
+            )
             brand_lines = [
                 f"{str(b.get('name') or 'Brand')} (space={b.get('clickup_space_id') or '-'}, list={b.get('clickup_list_id') or '-'})"
                 for b in brands[:12]

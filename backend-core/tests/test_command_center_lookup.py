@@ -119,6 +119,10 @@ class TestLookupClients:
         """Empty query with no assignments falls back to all active clients."""
         db = MagicMock()
 
+        # Admin check call returns non-admin
+        admin_response = MagicMock()
+        admin_response.data = [{"id": "p1", "is_admin": False}]
+
         # First call (assignments) returns empty
         assign_response = MagicMock()
         assign_response.data = []
@@ -131,11 +135,12 @@ class TestLookupClients:
         db.table.return_value = table_mock
         table_mock.select.return_value = table_mock
         table_mock.eq.return_value = table_mock
+        table_mock.in_.return_value = table_mock
         table_mock.order.return_value = table_mock
         table_mock.limit.return_value = table_mock
 
-        # First execute (assignments) empty, then active clients
-        table_mock.execute.side_effect = [assign_response, assign_response, active_response]
+        # First execute: admin check, then assignments, then active clients
+        table_mock.execute.side_effect = [admin_response, assign_response, assign_response, active_response]
 
         result = lookup_clients(db, profile_id="p1", query="")
 
@@ -171,6 +176,7 @@ class TestLookupClients:
         db.table.return_value = table_mock
         table_mock.select.return_value = table_mock
         table_mock.eq.return_value = table_mock
+        table_mock.in_.return_value = table_mock
         table_mock.order.return_value = table_mock
         table_mock.limit.return_value = table_mock
         table_mock.execute.return_value = assignments_response
@@ -192,6 +198,7 @@ class TestLookupClients:
         db.table.return_value = table_mock
         table_mock.select.return_value = table_mock
         table_mock.eq.return_value = table_mock
+        table_mock.in_.return_value = table_mock
         table_mock.order.return_value = table_mock
         table_mock.limit.return_value = table_mock
         table_mock.execute.return_value = assignments_response
@@ -199,6 +206,28 @@ class TestLookupClients:
         result = lookup_clients(db, profile_id="p1", query="axis")
 
         assert result == []
+
+    def test_admin_profile_id_lists_all_active_clients(self):
+        db = MagicMock()
+
+        profiles_response = MagicMock()
+        profiles_response.data = [{"id": "admin-1", "is_admin": True}]
+
+        active_response = MagicMock()
+        active_response.data = [_client_row("Axis"), _client_row("Distex")]
+
+        table_mock = MagicMock()
+        db.table.return_value = table_mock
+        table_mock.select.return_value = table_mock
+        table_mock.eq.return_value = table_mock
+        table_mock.in_.return_value = table_mock
+        table_mock.order.return_value = table_mock
+        table_mock.limit.return_value = table_mock
+        table_mock.execute.side_effect = [profiles_response, active_response]
+
+        result = lookup_clients(db, profile_id="admin-1", query="")
+
+        assert [c["name"] for c in result] == ["Axis", "Distex"]
 
 
 # ---------------------------------------------------------------------------
@@ -280,6 +309,57 @@ class TestListBrands:
         select_calls = [c.args[0] for c in db.table.return_value.select.call_args_list]
         assert any("agency_clients(name)" in call for call in select_calls)
         assert "id,name,client_id,clickup_space_id,clickup_list_id" in select_calls
+
+    def test_non_admin_profile_scopes_brands_to_assigned_clients(self):
+        db = MagicMock()
+
+        assignments_response = MagicMock()
+        assignments_response.data = [
+            {"agency_clients": {"id": "c1", "name": "Client X", "status": "active"}},
+        ]
+        brands_response = MagicMock()
+        brands_response.data = [
+            _brand_row("Brand X", "Client X", client_id="c1"),
+            _brand_row("Brand Y", "Client Y", client_id="c2"),
+        ]
+
+        table_mock = MagicMock()
+        db.table.return_value = table_mock
+        table_mock.select.return_value = table_mock
+        table_mock.eq.return_value = table_mock
+        table_mock.in_.return_value = table_mock
+        table_mock.order.return_value = table_mock
+        table_mock.limit.return_value = table_mock
+        table_mock.execute.side_effect = [
+            MagicMock(data=[{"id": "p1", "is_admin": False}]),  # profiles lookup
+            assignments_response,  # team_member_id assignments
+            brands_response,  # brands query
+        ]
+
+        result = list_brands(db, client_id=None, profile_id="p1")
+
+        assert len(result) == 1
+        assert result[0]["client_id"] == "c1"
+        assert result[0]["name"] == "Brand X"
+
+    def test_non_admin_profile_cannot_list_unassigned_client_brands(self):
+        db = MagicMock()
+
+        table_mock = MagicMock()
+        db.table.return_value = table_mock
+        table_mock.select.return_value = table_mock
+        table_mock.eq.return_value = table_mock
+        table_mock.in_.return_value = table_mock
+        table_mock.order.return_value = table_mock
+        table_mock.limit.return_value = table_mock
+        table_mock.execute.side_effect = [
+            MagicMock(data=[{"id": "p1", "is_admin": False}]),  # profiles lookup
+            MagicMock(data=[{"agency_clients": {"id": "c1", "name": "Client X", "status": "active"}}]),
+        ]
+
+        result = list_brands(db, client_id="c2", profile_id="p1")
+
+        assert result == []
 
 
 # ---------------------------------------------------------------------------

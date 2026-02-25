@@ -295,5 +295,5 @@ class TestHandleCCSkillBrandListDisambiguation:
             )
 
         assert summary == "[Listed brands]"
-        mock_list_brands.assert_called_once_with(session_service.db, "c1")
+        mock_list_brands.assert_called_once_with(session_service.db, "c1", "p1")
         assert slack.post_message.call_args.kwargs.get("text") == "formatted brand list"

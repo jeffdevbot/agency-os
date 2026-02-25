@@ -203,7 +203,7 @@ async def handle_cc_skill(
                 return "[Brand list client ambiguous]"
             client_id = str(matches[0].get("id") or "")
 
-        brands = await asyncio.to_thread(list_brands_fn, db, client_id)
+        brands = await asyncio.to_thread(list_brands_fn, db, client_id, session.profile_id)
         await slack.post_message(channel=channel, text=format_brand_list_fn(brands))
         return "[Listed brands]"
 
