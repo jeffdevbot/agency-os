@@ -21,6 +21,9 @@
   - planner delegate API contract is propagated (`tool_executor` + explicit turn budgets),
   - runtime decomposition extracted intent-recovery and skill-validation helpers to reduce hot-file size and test-surface drift.
 
+Current-state architecture index:
+- `backend-core/docs/design/agencyclaw-architecture-map.md` is the canonical map for module layout, entry points, and onboarding order.
+
 ## Problem Statement
 
 AgencyClaw currently works but doesn't feel like talking to an AI assistant. It feels like talking to a command router. The root cause: **the LLM is used as a classifier, not as a brain.**

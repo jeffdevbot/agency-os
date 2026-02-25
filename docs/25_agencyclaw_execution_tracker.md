@@ -205,6 +205,7 @@ Last updated: 2026-02-25 (C17H+ hardening stabilized; runtime decomposition + de
 - C17H+ follow-up hardening: propagated planner delegate API contract (`tool_executor`, planner budgets) through runtime/delegate boundaries and converted deferred scaffold xfails into active assertions.
 - Agent-loop runtime decomposition: extracted intent-recovery and skill-validation modules and split oversized runtime tests into focused suites, preserving behavior while reducing file-size risk.
 - Optional debug harness path added for CLI-driven Slack simulation (`/api/slack/debug/chat`) with token gate, fixed-user override, payload limit, and mutation toggle controls for safer rapid iteration.
+- Docs-first architecture pass: added canonical current-state architecture map (`backend-core/docs/design/agencyclaw-architecture-map.md`) and package onboarding index (`backend-core/app/services/agencyclaw/README.md`) ahead of planned folder reorg.
 - Current backend full-suite baseline after C17H+ hardening + runtime decomposition: `1231 passed, 1 warning`, `0 failed`.
 
 ## 4. Validation Checklist (Per Chunk)
