@@ -145,6 +145,18 @@ For Slack DM interactions, AgencyClaw is LLM-first:
 - Tool actions remain policy-gated and auditable through typed adapters.
 - Deterministic classifier remains as fail-safe fallback path.
 
+### 5.4 Debug Chat Harness (Operator Testing)
+AgencyClaw supports an optional non-Slack debug chat path for rapid CLI/operator testing.
+
+Guardrails:
+- Must be explicitly enabled (`AGENCYCLAW_DEBUG_CHAT_ENABLED=true`).
+- Requires token header validation (`AGENCYCLAW_DEBUG_CHAT_TOKEN`).
+- Supports server-side fixed actor override (`AGENCYCLAW_DEBUG_CHAT_USER_ID`) to prevent spoofing.
+- Supports mutation safety toggle (`AGENCYCLAW_DEBUG_CHAT_ALLOW_MUTATIONS`, default false).
+
+Runtime rule:
+- Debug chat path is a testing interface only; it must not bypass policy, confirmation, or idempotency rails.
+
 ## 6. Debrief As Slack-Native Capability
 ### 6.1 Product Behavior
 User can DM or mention AgencyClaw with:
@@ -1042,5 +1054,5 @@ Specific carve-out:
 - Queue lanes, cross-user approval workflow, webhook ingestion, vector retrieval, and external transcript ingestion are explicitly deferred/optional backlog, not active release commitments.
 
 ---
-Document version: 1.20
-Last updated: 2026-02-24
+Document version: 1.21
+Last updated: 2026-02-25

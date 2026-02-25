@@ -1,6 +1,6 @@
 # AgencyClaw Execution Tracker
 
-Last updated: 2026-02-24 (C17H+ hardening landed: iterative delegate loop + stop-state contract clarified)
+Last updated: 2026-02-25 (C17H+ hardening stabilized; runtime decomposition + debug harness documented)
 
 ## 1. Baseline Status
 - [x] PRD updated to v1.19 (`docs/23_agencyclaw_prd.md`)
@@ -67,8 +67,8 @@ Last updated: 2026-02-24 (C17H+ hardening landed: iterative delegate loop + stop
 | C17E | Skill-result loop v1 (read-only skill) | Codex | done | merged (`6f89b43`, `7dc785f`) | Added single read-only skill round-trip (`clickup_task_list`) in agent-loop path with skill_call/skill_result logging and second-pass natural response synthesis; policy gate enforced in task-list executor path. |
 | C17F | Mutation confirmation contract | Codex | done | merged (`494587a`, `6338459`) | Added deterministic `pending_confirmation` contract with confirmation/cancel/expiry handling, fingerprint integrity validation, confirm-time mutation policy recheck, and retry-safe pending semantics (retain on execute failure, clear on success/cancel/expiry/invalid). |
 | C17G | Context skills + retention summaries + rehydration | Codex | done | `8a56c74`, `95dcec1`, `88443ff`, `af8721b`, `173cd2b` | Agent-loop read allowlist expanded with context/rehydration skills, policy-gated runtime callback dispatch wired to existing services, bounded recent skill-event evidence injection added to prompt assembly path, and follow-up hardening landed for fail-closed `lookup_client` arg validation plus deterministic `search_kb` brand scoping. |
-| C17H | Main-agent multi-turn loop + planner sub-agent delegation | Codex | done | - | Added bounded main-agent tool loop (max 6), first-class `delegate_planner` tool path, planner child run linkage (`run_type=planner`, `parent_run_id`, inherited `trace_id`), planner report audit logging/injection, and mutation-step rejection into planner proposals (no planner direct mutation execution). |
-| C17H+ | Planner loop hardening (iterative sub-agent) | Codex | done | `c76fa84` | Bounded iterative delegate loop landed (`planner_max_turns=6`) with mutation-proposal safety, per-iteration child-run evidence logging, and explicit stop-state contract: planner report keeps fine-grained states (`completed`, `blocked`, `failed`, `budget_exhausted`, `needs_clarification`) while `agent_runs.status` remains collapsed to storage enum (`completed|blocked|failed`). |
+| C17H | Main-agent multi-turn loop + planner sub-agent delegation | Codex | done | `87e6c6c`, `8bf600a`, `10ec968`, `5f70358` | Added bounded main-agent tool loop (max 6), first-class `delegate_planner` tool path, planner child run linkage (`run_type=planner`, `parent_run_id`, inherited `trace_id`), planner report audit logging/injection, and mutation-step rejection into planner proposals (no planner direct mutation execution). |
+| C17H+ | Planner loop hardening (iterative sub-agent) | Codex | done | `c76fa84`, `5915080`, `14a0d64`, `54dae73` | Bounded iterative delegate loop landed (`planner_max_turns=6`) with mutation-proposal safety, per-iteration child-run evidence logging, and explicit stop-state contract: planner report keeps fine-grained states (`completed`, `blocked`, `failed`, `budget_exhausted`, `needs_clarification`) while `agent_runs.status` remains collapsed to storage enum (`completed|blocked|failed`). |
 
 ## 3. Open Blockers
 - [x] Confirm migration `20260217000006_clickup_space_skill_seed.sql` is applied.
@@ -202,7 +202,10 @@ Last updated: 2026-02-24 (C17H+ hardening landed: iterative delegate loop + stop
 - C17F mutation confirmation contract: agent-loop path now validates deterministic confirmation payloads (actor + fingerprint + expiry), re-checks mutation policy at confirm-time, and preserves retry safety by retaining pending payload on execution failure.
 - C17G context/rehydration runtime: added context skills (`lookup_client`, `lookup_brand`, `search_kb`, `resolve_brand`, `get_client_context`) and rehydration skill (`load_prior_skill_result`) to agent-loop read path with policy-gated callback dispatch, skill-event logging, and bounded evidence-note injection into prompt assembly.
 - C17H follow-up (legacy isolation + delegate alignment): legacy orchestrator/planner prompt skill blocks now use shared skill-registry filtering that excludes `delegate_planner`; delegate planner runtime now prompts with an explicit executable/proposal skill surface, executes expanded read/context skills, rejects mutation steps into `mutation_proposals`, and deterministically records unsupported-step blocks.
-- Current backend full-suite baseline after C17G completion pass + follow-up hardening: `1182 passed, 1 warning`, `0 failed`.
+- C17H+ follow-up hardening: propagated planner delegate API contract (`tool_executor`, planner budgets) through runtime/delegate boundaries and converted deferred scaffold xfails into active assertions.
+- Agent-loop runtime decomposition: extracted intent-recovery and skill-validation modules and split oversized runtime tests into focused suites, preserving behavior while reducing file-size risk.
+- Optional debug harness path added for CLI-driven Slack simulation (`/api/slack/debug/chat`) with token gate, fixed-user override, payload limit, and mutation toggle controls for safer rapid iteration.
+- Current backend full-suite baseline after C17H+ hardening + runtime decomposition: `1231 passed, 1 warning`, `0 failed`.
 
 ## 4. Validation Checklist (Per Chunk)
 - [ ] Behavior works in Slack runtime path.

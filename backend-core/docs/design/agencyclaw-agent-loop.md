@@ -2,9 +2,9 @@
 
 **Status:** Active (C17H and C17H+ implemented)
 **Author:** Jeff + Claude + Codex
-**Date:** 2026-02-24
+**Date:** 2026-02-25
 
-## Implementation Snapshot (2026-02-24)
+## Implementation Snapshot (2026-02-25)
 
 - C17A through C17G are implemented behind `AGENCYCLAW_AGENT_LOOP_ENABLED`.
 - C17H is implemented:
@@ -16,6 +16,10 @@
   - iterative planner re-planning loop (`plan -> execute -> observe -> re-plan`) with bounded budgets,
   - planner stop-state hardening including `budget_exhausted` and `needs_clarification` in report payloads,
   - child-run persistence remains on storage enum (`completed|blocked|failed`) with fine-grained states preserved in planner report.
+- Follow-up hardening landed after C17H+:
+  - legacy prompt isolation excludes `delegate_planner` from non-agent-loop paths,
+  - planner delegate API contract is propagated (`tool_executor` + explicit turn budgets),
+  - runtime decomposition extracted intent-recovery and skill-validation helpers to reduce hot-file size and test-surface drift.
 
 ## Problem Statement
 

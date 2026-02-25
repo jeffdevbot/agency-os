@@ -1,10 +1,20 @@
 # Changelog — Ecomlabs Tools
 
-_Last updated: 2025-12-18 (EST)_
+_Last updated: 2026-02-25 (EST)_
 
 > Development history for the project. For setup instructions and project overview, see [AGENTS.md](AGENTS.md).
 
 ---
+
+## 2026-02-25 (EST)
+- **AgencyClaw C17H/C17H+ stabilization:** Landed follow-up hardening for planner delegation and agent-loop reliability, including delegated planner API contract propagation (`tool_executor` + explicit turn budgets) and stricter legacy prompt isolation so `delegate_planner` remains agent-loop-only.
+- **Agent-loop runtime decomposition:** Extracted intent-recovery and skill-validation logic into dedicated service modules and split oversized runtime tests into focused suites to reduce drift risk while preserving behavior.
+- **Debug chat operator harness:** Added gated `/api/slack/debug/chat` path and CLI flow for rapid non-Slack testing, with token verification, optional fixed user override, payload size cap, and mutation toggle controls.
+
+## 2026-02-24 (EST)
+- **AgencyClaw C17H complete:** Main agent now runs bounded multi-turn tool loops and can delegate complex requests via first-class `delegate_planner`, persisting parent/child run linkage and shared trace IDs.
+- **AgencyClaw C17H+ complete:** Planner delegation upgraded to bounded iterative re-plan loop with explicit stop-state reporting (`completed`, `blocked`, `failed`, `budget_exhausted`, `needs_clarification`) while keeping DB run status on storage enum values.
+- **Slack runtime modularization progress:** Continued extraction of route-layer glue from `slack.py` into bridge/runtime modules while preserving compatibility seams and full test parity.
 
 ## 2025-12-17 (EST)
 - **Command Center UI polish:** Redesigned Clients list into a searchable, filterable table with brand chips/counts and a collapsed archived section. Refreshed Manage Client → Brands to use an "Add New Brand" modal (marketplace pill multiselect) and a visual org-chart tree with dashed support line + optimistic assignment updates for faster UX.

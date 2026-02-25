@@ -6,13 +6,15 @@ It is separate from `docs/23_agencyclaw_prd.md`:
 - PRD = product decisions and behavior.
 - Implementation plan = execution order, prompts, and acceptance gates.
 
-Status note (2026-02-24):
+Status note (2026-02-25):
 - Post-C12 runtime hardening/decomposition has completed through C16C.
 - C17A-C17G have landed (agent-loop foundation, lane serialization, reply/tool loop,
   mutation confirmation contract, context/rehydration runtime wiring).
 - See `docs/25_agencyclaw_execution_tracker.md` for commit-by-commit evidence.
 - C17H has landed (bounded main-agent multi-turn loop + `delegate_planner` delegation).
 - C17H+ has landed (iterative planner loop hardening with bounded stop-state contract).
+- Post-C17H+ hardening is in place (delegate contract propagation, recovery hardening,
+  and runtime/test decomposition of oversized agent-loop modules).
 
 ## 2. Working Rules
 - Work one chunk at a time.
@@ -101,7 +103,8 @@ Status note (2026-02-24):
 46. C17E: Skill-result loop v1 (read-only skill end-to-end)
 47. C17F: Mutation confirmation contract (natural language + buttons)
 48. C17G: Context skills + retention summaries + result rehydration
-49. C17H: Planner sub-agent integration (child runs + report-back)
+49. C17H: Main-agent multi-turn loop + planner sub-agent delegation
+50. C17H+: Planner loop hardening (iterative sub-agent)
 
 ## 5. Chunk Details
 ## C1: Task List Read Path
@@ -497,6 +500,12 @@ Required for Slack + LLM + ClickUp orchestration:
 Optional (recommended for spend visibility):
 - `OPENAI_ADMIN_API_KEY`
 - `OPENAI_ORG_ID`
+
+Optional (debug harness, non-prod testing path):
+- `AGENCYCLAW_DEBUG_CHAT_ENABLED`
+- `AGENCYCLAW_DEBUG_CHAT_TOKEN`
+- `AGENCYCLAW_DEBUG_CHAT_USER_ID`
+- `AGENCYCLAW_DEBUG_CHAT_ALLOW_MUTATIONS`
 
 Notes:
 - Do not store secret values in repo docs; only document key names.
