@@ -10,6 +10,7 @@ Source run:
 - local transcript (planner fix pass): `/tmp/claw_gauntlet_transcript_contract_v16_local_linked_reset.json`
 - local transcript (novice recovery pass): `/tmp/claw_gauntlet_transcript_contract_v19_local_linked_reset.json`
 - render transcript (deployed check): `/tmp/claw_gauntlet_transcript_contract_v20_render_linked_reset.json`
+- render transcript (deployed check, post-deploy pass): `/tmp/claw_gauntlet_transcript_contract_v21_render_linked_reset.json`
 
 ## Open issues
 
@@ -58,13 +59,13 @@ Source run:
    - Fix landed: added `backend-core/scripts/claw_gauntlet_assert.py` for transcript contract checks.
    - Validation: `python backend-core/scripts/claw_gauntlet_assert.py /tmp/claw_gauntlet_transcript_contract_v19_local_linked_reset.json` passes.
 
-11. `partially_fixed` Session context over-anchoring after meeting turns is reduced.
+11. `fixed` Session context over-anchoring after meeting turns is reduced.
    - Symptom (older runs): novice/mutation/planner prompts sometimes continued meeting-task framing instead of re-centering on new user intent.
    - Fix landed: meeting-note exchanges are filtered from LLM prompt context on non-meeting turns.
    - Additional hardening landed: debug route supports `reset_session=true` to force clean-run harness state.
    - Local status: clean-reset local runs (`v16`, `v19`) no longer show meeting-turn bleed into planner/mutation paths.
-   - Render status (2026-02-25): deployed run (`v20`) is reachable, but assertion contract fails on novice turns (`novice_1`, `novice_3`) while planner/mutation paths pass.
-   - Residual: deploy latest branch to Render, then rerun gauntlet assertion for closure.
+   - Render status (2026-02-25): initial deployed check (`v20`) failed novice assertions; post-deploy check (`v21`) passes full gauntlet assertion contract.
+   - Validation: `python backend-core/scripts/claw_gauntlet_assert.py /tmp/claw_gauntlet_transcript_contract_v21_render_linked_reset.json` passes.
 
 12. `fixed` Baseline capabilities prompt now returns deterministic help scope.
    - Symptom: first gauntlet prompt sometimes drifted into unrelated planner replies.
@@ -81,4 +82,4 @@ Source run:
 
 ## Proposed fix order
 
-1. Render clean-run confirmation (`#11`)
+1. None (all tracked gauntlet issues are currently closed)
