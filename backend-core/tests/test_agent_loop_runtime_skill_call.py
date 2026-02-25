@@ -1455,6 +1455,148 @@ async def test_brand_action_promise_reply_after_tool_call_triggers_recovery(monk
 
 
 @pytest.mark.asyncio
+async def test_task_list_postprocess_enforces_top_n_and_priority(monkeypatch):
+    class FakeStore:
+        def __init__(self, _db):
+            pass
+
+        def list_recent_run_messages(self, run_id: str, limit: int = 20):
+            return []
+
+    class FakeTurnLogger:
+        def __init__(self, _store):
+            pass
+
+        def start_main_run(self, session_id: str):
+            return {"id": "run-1", "status": "running"}
+
+        def log_user_message(self, run_id: str, text: str):
+            return {"id": "m1"}
+
+        def log_skill_call(self, run_id: str, skill_id: str, payload: dict):
+            return {"id": "e1"}
+
+        def log_skill_result(self, run_id: str, skill_id: str, payload: dict):
+            return {"id": "e2"}
+
+        def log_assistant_message(self, run_id: str, text: str):
+            return {"id": "m2"}
+
+        def complete_run(self, run_id: str, status: str):
+            return None
+
+    async def _fake_completion(*args, **kwargs):
+        _ = args, kwargs
+        return {
+            "content": '{"mode":"reply","text":"I couldn\'t complete that flow. Could you rephrase and try again?"}',
+            "tokens_in": 10,
+            "tokens_out": 5,
+            "tokens_total": 15,
+            "model": "gpt-4o-mini",
+            "duration_ms": 10,
+        }
+
+    async def _execute_read_skill(**kwargs):
+        _ = kwargs
+        return {
+            "response_text": (
+                "*Tasks for Distex* (this week, 6 tasks):\n"
+                "• <https://app.clickup.com/t/1|Task A> [in progress] (Owner 1)\n"
+                "• <https://app.clickup.com/t/2|Task B> [review] (Owner 2)\n"
+                "• <https://app.clickup.com/t/3|Task C> [in progress] (Owner 3)\n"
+                "• <https://app.clickup.com/t/4|Task D> [in progress] (Owner 4)\n"
+                "• <https://app.clickup.com/t/5|Task E> [in progress] (Owner 5)\n"
+                "• <https://app.clickup.com/t/6|Task F> [in progress] (Owner 6)"
+            )
+        }
+
+    monkeypatch.setattr("app.services.agencyclaw.agent_loop_runtime.AgentLoopStore", FakeStore)
+    monkeypatch.setattr("app.services.agencyclaw.agent_loop_runtime.AgentLoopTurnLogger", FakeTurnLogger)
+
+    session = _FakeSession()
+    slack = _FakeSlack()
+    handled = await run_reply_only_agent_loop_turn(
+        text="For Distex, what are the top 5 tasks due this week, and what should I prioritize first?",
+        session=session,
+        slack_user_id="U123",
+        session_service=_FakeSessionService(session),
+        channel="D1",
+        slack=slack,
+        supabase_client=MagicMock(),
+        execute_read_skill_fn=_execute_read_skill,
+        call_chat_completion_fn=_fake_completion,
+    )
+
+    assert handled is True
+    output = slack.messages[-1]["text"]
+    bullet_lines = [line for line in output.splitlines() if line.strip().startswith("• ")]
+    assert len(bullet_lines) == 5
+    assert "Priority first:" in output
+
+
+@pytest.mark.asyncio
+async def test_sop_draft_request_always_includes_title_and_description(monkeypatch):
+    class FakeStore:
+        def __init__(self, _db):
+            pass
+
+        def list_recent_run_messages(self, run_id: str, limit: int = 20):
+            return []
+
+    class FakeTurnLogger:
+        def __init__(self, _store):
+            pass
+
+        def start_main_run(self, session_id: str):
+            return {"id": "run-1", "status": "running"}
+
+        def log_user_message(self, run_id: str, text: str):
+            return {"id": "m1"}
+
+        def log_assistant_message(self, run_id: str, text: str):
+            return {"id": "m2"}
+
+        def complete_run(self, run_id: str, status: str):
+            return None
+
+    async def _fake_completion(*args, **kwargs):
+        _ = args, kwargs
+        return {
+            "content": (
+                '{"mode":"reply","text":"I found the SOP and summarized the steps. '
+                "Now let's draft a task for your approval.\"}"
+            ),
+            "tokens_in": 10,
+            "tokens_out": 5,
+            "tokens_total": 15,
+            "model": "gpt-4o-mini",
+            "duration_ms": 10,
+        }
+
+    monkeypatch.setattr("app.services.agencyclaw.agent_loop_runtime.AgentLoopStore", FakeStore)
+    monkeypatch.setattr("app.services.agencyclaw.agent_loop_runtime.AgentLoopTurnLogger", FakeTurnLogger)
+
+    session = _FakeSession()
+    slack = _FakeSlack()
+    handled = await run_reply_only_agent_loop_turn(
+        text="Find SOP for launching an Amazon coupon for Thorinox, then draft task title and description.",
+        session=session,
+        slack_user_id="U123",
+        session_service=_FakeSessionService(session),
+        channel="D1",
+        slack=slack,
+        supabase_client=MagicMock(),
+        call_chat_completion_fn=_fake_completion,
+    )
+
+    assert handled is True
+    output = slack.messages[-1]["text"]
+    assert "Task Title:" in output
+    assert "Task Description:" in output
+    assert "Thorinox" in output
+
+
+@pytest.mark.asyncio
 async def test_c17f_failed_create_keeps_pending_for_retry(monkeypatch):
     class FakeStore:
         def __init__(self, _db):

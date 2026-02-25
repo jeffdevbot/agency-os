@@ -92,6 +92,8 @@ _SKILL_ID_ALIASES = {
     "brand_mapping_audit": "cc_brand_clickup_mapping_audit",
 }
 _CLIENT_HINT_PATTERN = re.compile(r"\bfor\s+([^,\n\.]+)", re.IGNORECASE)
+_TOP_N_PATTERN = re.compile(r"\btop\s+(\d+)\b", re.IGNORECASE)
+_TASK_LINK_TITLE_PATTERN = re.compile(r"\|([^>]+)>")
 
 
 def _build_session_rows(session: Any) -> list[dict[str, Any]]:
@@ -291,6 +293,115 @@ def _is_non_answer_action_promise(text: str) -> bool:
             "i will find",
         )
     )
+
+
+def _requested_top_n(text: str) -> int | None:
+    match = _TOP_N_PATTERN.search(text or "")
+    if not match:
+        return None
+    try:
+        value = int(match.group(1))
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
+
+
+def _task_bullet_indices(lines: list[str]) -> list[int]:
+    return [idx for idx, line in enumerate(lines) if line.strip().startswith("• ")]
+
+
+def _extract_task_title_from_bullet(line: str) -> str:
+    match = _TASK_LINK_TITLE_PATTERN.search(line)
+    if match:
+        return (match.group(1) or "").strip()
+    return line.replace("•", "").strip()
+
+
+def _postprocess_task_list_answer(user_text: str, assistant_text: str) -> str:
+    if not _looks_like_task_list_request(user_text):
+        return assistant_text
+    if "*Tasks" not in assistant_text:
+        return assistant_text
+
+    lines = assistant_text.splitlines()
+    bullet_idxs = _task_bullet_indices(lines)
+    if not bullet_idxs:
+        return assistant_text
+
+    top_n = _requested_top_n(user_text)
+    if top_n is not None and len(bullet_idxs) > top_n:
+        keep = set(bullet_idxs[:top_n])
+        lines = [line for idx, line in enumerate(lines) if idx not in bullet_idxs or idx in keep]
+        bullet_idxs = _task_bullet_indices(lines)
+
+    lowered_user = (user_text or "").lower()
+    lowered_answer = (assistant_text or "").lower()
+    wants_priority = "priorit" in lowered_user
+    has_priority_already = "priority first" in lowered_answer or "priority suggestion" in lowered_answer
+    if wants_priority and not has_priority_already and bullet_idxs:
+        chosen_idx = bullet_idxs[0]
+        for idx in bullet_idxs:
+            line_lower = lines[idx].lower()
+            if "[review]" in line_lower:
+                chosen_idx = idx
+                break
+        chosen_title = _extract_task_title_from_bullet(lines[chosen_idx])
+        lines.append("")
+        lines.append(
+            f"Priority first: {chosen_title} — start with this because it appears closest to completion."
+        )
+
+    return "\n".join(lines).strip()
+
+
+def _looks_like_sop_draft_request(text: str) -> bool:
+    lowered = (text or "").strip().lower()
+    if not lowered:
+        return False
+    has_sop = "sop" in lowered or "procedure" in lowered
+    has_draft = "draft" in lowered
+    wants_title = "task title" in lowered
+    wants_description = "description" in lowered
+    return has_sop and has_draft and wants_title and wants_description
+
+
+def _has_concrete_task_draft(text: str) -> bool:
+    lowered = (text or "").strip().lower()
+    return "task title:" in lowered and "task description:" in lowered
+
+
+def _infer_brand_hint(text: str) -> str:
+    hint = _extract_client_hint_from_text(text)
+    if hint:
+        return hint
+    lowered = text or ""
+    match = re.search(r"\bfor\s+([A-Za-z0-9][A-Za-z0-9 _-]{1,60})", lowered)
+    if not match:
+        return ""
+    candidate = (match.group(1) or "").strip(" .,:;")
+    candidate = re.sub(r"^(client|brand)\s+", "", candidate, flags=re.IGNORECASE)
+    return candidate
+
+
+def _ensure_sop_draft_payload(user_text: str, assistant_text: str) -> str:
+    if not _looks_like_sop_draft_request(user_text):
+        return assistant_text
+    if _has_concrete_task_draft(assistant_text):
+        return assistant_text
+
+    brand = _infer_brand_hint(user_text) or "Target Brand"
+    title = f"Launch Amazon Coupon for {brand}"
+    draft = (
+        "\n\nTask Title: "
+        + title
+        + "\n"
+        + "Task Description:\n"
+        + "- Objective: Execute the coupon launch SOP for this brand on Amazon.\n"
+        + "- SOP Basis: Use the standard coupon workflow (settings, timing, targeting, budget).\n"
+        + "- Deliverables: Coupon created, validation checks completed, and launch details documented.\n"
+        + "- Open Inputs: Confirm discount amount, ASIN scope, and campaign dates before launch."
+    )
+    return assistant_text.rstrip() + draft
 
 
 def _validate_task_list_args(args: dict[str, Any]) -> dict[str, Any]:
@@ -925,6 +1036,9 @@ async def run_reply_only_agent_loop_turn(
                     assistant_text = recovered_text
             except Exception as recovery_exc:  # noqa: BLE001
                 logger.info("Action-promise recovery failed: %s", recovery_exc, exc_info=True)
+
+        assistant_text = _postprocess_task_list_answer(text, assistant_text)
+        assistant_text = _ensure_sop_draft_payload(text, assistant_text)
 
         await slack.post_message(channel=channel, text=assistant_text)
         await _safe_log_method("log_assistant_message", run_id, assistant_text)
