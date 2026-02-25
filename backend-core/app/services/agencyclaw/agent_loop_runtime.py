@@ -275,6 +275,24 @@ def _is_generic_failure_reply(text: str) -> bool:
     )
 
 
+def _is_non_answer_action_promise(text: str) -> bool:
+    lowered = (text or "").strip().lower()
+    if not lowered:
+        return False
+    return any(
+        phrase in lowered
+        for phrase in (
+            "let me ",
+            "i'll proceed",
+            "i will proceed",
+            "i'll check",
+            "i will check",
+            "i'll find",
+            "i will find",
+        )
+    )
+
+
 def _validate_task_list_args(args: dict[str, Any]) -> dict[str, Any]:
     normalized: dict[str, Any] = {}
     client_name = args.get("client_name")
@@ -900,6 +918,13 @@ async def run_reply_only_agent_loop_turn(
                     assistant_text = recovered_text
             except Exception as recovery_exc:  # noqa: BLE001
                 logger.info("Generic-fallback recovery failed: %s", recovery_exc, exc_info=True)
+        elif _looks_like_brand_list_request(text) and _is_non_answer_action_promise(assistant_text):
+            try:
+                recovered_text = await _recover_from_natural_read_request()
+                if recovered_text:
+                    assistant_text = recovered_text
+            except Exception as recovery_exc:  # noqa: BLE001
+                logger.info("Action-promise recovery failed: %s", recovery_exc, exc_info=True)
 
         await slack.post_message(channel=channel, text=assistant_text)
         await _safe_log_method("log_assistant_message", run_id, assistant_text)

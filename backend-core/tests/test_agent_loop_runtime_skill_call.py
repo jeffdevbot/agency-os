@@ -1364,6 +1364,97 @@ async def test_no_skill_reply_for_brand_request_triggers_recovery(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_brand_action_promise_reply_after_tool_call_triggers_recovery(monkeypatch):
+    class FakeStore:
+        def __init__(self, _db):
+            pass
+
+        def list_recent_run_messages(self, run_id: str, limit: int = 20):
+            return []
+
+    class FakeTurnLogger:
+        def __init__(self, _store):
+            pass
+
+        def start_main_run(self, session_id: str):
+            return {"id": "run-1", "status": "running"}
+
+        def log_user_message(self, run_id: str, text: str):
+            return {"id": "m1"}
+
+        def log_skill_call(self, run_id: str, skill_id: str, payload: dict):
+            return {"id": "e1"}
+
+        def log_skill_result(self, run_id: str, skill_id: str, payload: dict):
+            return {"id": "e2"}
+
+        def log_assistant_message(self, run_id: str, text: str):
+            return {"id": "m2"}
+
+        def complete_run(self, run_id: str, status: str):
+            return None
+
+    completions = iter(
+        [
+            {
+                "content": '{"mode":"tool_call","skill_id":"lookup_client","args":{"query":"Distex"}}',
+                "tokens_in": 10,
+                "tokens_out": 5,
+                "tokens_total": 15,
+                "model": "gpt-4o-mini",
+                "duration_ms": 10,
+            },
+            {
+                "content": '{"mode":"reply","text":"It looks like there are multiple entries for Distex. I will proceed with checking the brands."}',
+                "tokens_in": 10,
+                "tokens_out": 5,
+                "tokens_total": 15,
+                "model": "gpt-4o-mini",
+                "duration_ms": 10,
+            },
+        ]
+    )
+
+    async def _fake_completion(*args, **kwargs):
+        _ = args, kwargs
+        return next(completions)
+
+    executed: list[tuple[str, dict]] = []
+
+    async def _execute_read_skill(**kwargs):
+        executed.append((kwargs["skill_id"], kwargs["args"]))
+        if kwargs["skill_id"] == "lookup_client":
+            return {"response_text": "Multiple clients: Distex A, Distex B"}
+        if kwargs["skill_id"] == "cc_brand_list_all":
+            return {"response_text": "Recovered brand list from action-promise reply."}
+        raise AssertionError("unexpected skill")
+
+    monkeypatch.setattr("app.services.agencyclaw.agent_loop_runtime.AgentLoopStore", FakeStore)
+    monkeypatch.setattr("app.services.agencyclaw.agent_loop_runtime.AgentLoopTurnLogger", FakeTurnLogger)
+
+    session = _FakeSession()
+    slack = _FakeSlack()
+    handled = await run_reply_only_agent_loop_turn(
+        text="Show brands for Distex.",
+        session=session,
+        slack_user_id="U123",
+        session_service=_FakeSessionService(session),
+        channel="D1",
+        slack=slack,
+        supabase_client=MagicMock(),
+        execute_read_skill_fn=_execute_read_skill,
+        call_chat_completion_fn=_fake_completion,
+    )
+
+    assert handled is True
+    assert executed == [
+        ("lookup_client", {"query": "Distex"}),
+        ("cc_brand_list_all", {"client_name": "Distex"}),
+    ]
+    assert slack.messages[-1]["text"] == "Recovered brand list from action-promise reply."
+
+
+@pytest.mark.asyncio
 async def test_c17f_failed_create_keeps_pending_for_retry(monkeypatch):
     class FakeStore:
         def __init__(self, _db):
