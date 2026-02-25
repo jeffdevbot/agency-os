@@ -21,7 +21,7 @@ Ecomlabs Tools is the internal platform that consolidates our ad analytics, SOP 
 - **ClickUp Service (backend-core)** — shared backend integration layer for ClickUp API calls (task creation + future sync). Routes live under `backend-core/app/routers/clickup.py`. Spec: `docs/08_clickup_service_prd.md`.
 
 ### In Flight / Upcoming
-- **AgencyClaw** — Slack assistant for agency operations (task creation, weekly status, command-center skills, SOP-grounded drafting). Specs: `docs/23_agencyclaw_prd.md`, implementation: `docs/24_agencyclaw_implementation_plan.md`, tracker: `docs/25_agencyclaw_execution_tracker.md`.
+- **AgencyClaw** — Slack assistant for agency operations (task creation, weekly status, command-center skills, SOP-grounded drafting). Docs index: `docs/agencyclaw/README.md`, architecture: `backend-core/docs/design/agencyclaw-architecture-map.md`.
 - More tools planned; follow the docs folder for new PRDs and plans as they land.
 
 ### Other Specs
@@ -61,7 +61,7 @@ It provides:
 - Command Center chat skills (client/brand lookup, mapping audit, remediation).
 - Policy enforcement by actor/surface context (fail-closed on denied actions).
 
-**Primary docs:** `docs/23_agencyclaw_prd.md`, `docs/24_agencyclaw_implementation_plan.md`, `docs/25_agencyclaw_execution_tracker.md`.
+**Primary docs:** `docs/agencyclaw/README.md`, `backend-core/docs/design/agencyclaw-architecture-map.md`, `backend-core/docs/design/agencyclaw-agent-loop.md`.
 
 **Key integration points:**
 - Slack API (events + interactions) → `backend-core/app/api/routes/slack.py` (`/api/slack/events`, `/api/slack/interactions`)

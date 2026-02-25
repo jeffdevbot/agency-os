@@ -89,5 +89,5 @@ Still optional (not release blockers):
 
 ## 5) Next Non-Conflicting Follow-up
 - Keep this runbook focused on onboarding model and optional runtime hardening only.
-- Source of truth for chunk-level delivery and commits: `docs/25_agencyclaw_execution_tracker.md`.
+- Source of truth for chunk-level delivery and commits: `docs/agencyclaw/archive/25_agencyclaw_execution_tracker.md`.
 - Recommended next product-focused work should be planned as new chunks (not added to this historical cleanup runbook).

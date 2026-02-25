@@ -3,7 +3,7 @@
 Last updated: 2026-02-25 (C17H+ hardening stabilized; runtime decomposition + debug harness documented)
 
 ## 1. Baseline Status
-- [x] PRD updated to v1.19 (`docs/23_agencyclaw_prd.md`)
+- [x] PRD updated to v1.19 (`docs/agencyclaw/archive/23_agencyclaw_prd.md`)
 - [x] `20260217000001_agencyclaw_skill_catalog_and_csl_role.sql` applied
 - [x] `20260217000002_agencyclaw_runtime_isolation.sql` applied
 - [x] `20260217000003_client_brand_context_and_kpi_targets.sql` applied
@@ -42,7 +42,7 @@ Last updated: 2026-02-25 (C17H+ hardening stabilized; runtime decomposition + de
 | C11F-A | Conversational runtime cleanup (LLM-first) | Claude | done | merged (`d0d7328`) | Removed command-style fallback in LLM-first mode; tightened orchestrator prompt for natural replies; 11 tests + 314-test regression suite green |
 | C12A | Command Center assignment mutation skills | Claude | done | merged (`cdd6749`) | Admin-only `cc_assignment_upsert` + `cc_assignment_remove` skills; service layer with fuzzy person resolve, role aliases, brand-scoped slots; classifier + handler + dual dispatcher wiring; 63 integration tests (incl. follow-up fixes: active-client fallback, bm/brand_manager alias, atomic upsert) |
 | C12B | Brand CRUD chat mutations | Claude | done | merged (`cdd6749`) | Admin-only `cc_brand_create` + `cc_brand_update` skills; duplicate-safe create, partial-patch update, marketplace support; classifier + handler + dual dispatcher wiring; casing-preserving classifier capture fix included |
-| C12C-prep | Catalog lookup contract/docs scaffolding | Codex | done | merged (`2036d19`) | Contract + fixtures only (`docs/29_catalog_lookup_contract.md`, `catalog_lookup_contract.py`, isolated tests); no Slack runtime wiring |
+| C12C-prep | Catalog lookup contract/docs scaffolding | Codex | done | merged (`2036d19`) | Contract + fixtures only (`docs/agencyclaw/current/29_catalog_lookup_contract.md`, `catalog_lookup_contract.py`, isolated tests); no Slack runtime wiring |
 | C12C | Product identifier guardrail (Path-1, no catalog dependency) | Claude + Codex | done | merged (`0509cb7`) | Runtime fail-closed clarify/pending flow wired with deterministic identifier extraction and no lookup/guessing; explicit pending cues expanded; targeted guardrail tests passing |
 | C13A | Strict LLM-first deterministic gating | Claude | done | merged (`e939160`) | In strict LLM mode (orchestrator on, legacy fallback off), deterministic classifier now allows only control intents (`switch_client`, `set_default_client`, `clear_defaults`). Non-control intents (`create_task`, `weekly_tasks`, `cc_*`) no longer execute via deterministic fallback. |
 | C14A | Slack runtime decomposition phase 1 (helper extraction) | Codex | done | merged (`14cd21b`) | Extracted pure routing/helpers (`slack_helpers.py`) while keeping endpoint handlers in `slack.py`; no behavior change. |
@@ -135,7 +135,7 @@ Last updated: 2026-02-25 (C17H+ hardening stabilized; runtime decomposition + de
 - C10C implementation: `backend-core/tests/test_kb_retrieval.py` + `backend-core/tests/test_grounded_task_draft.py` passing (38 tests).
 - C10C targeted check (C9B-C10C): `223 passed, 0 failed`.
 - C10C full-suite check: `351 passed, 3 failed` (same pre-existing unrelated failures in `test_ngram_analytics.py`, `test_root_services.py`, `test_str_parser_spend.py`).
-- Task brief standard documented in `docs/26_agencyclaw_task_brief_standard.md` and linked in PRD/implementation plan (includes bucketed templates + generic unclassified fallback).
+- Task brief standard documented in `docs/agencyclaw/current/26_agencyclaw_task_brief_standard.md` and linked in PRD/implementation plan (includes bucketed templates + generic unclassified fallback).
 - ASIN ambiguity guardrail documented: no identifier guessing; clarify for ASIN/SKU or explicit pending fields in draft output.
 - C10D planner suites: `backend-core/tests/test_planner.py` + `backend-core/tests/test_plan_executor.py` passing (27 tests).
 - C10E targeted checks: `backend-core/tests/test_preference_memory.py` + `backend-core/tests/test_task_create.py` + `backend-core/tests/test_c10b_clarify_persistence.py` passing (97 tests).
@@ -160,7 +160,7 @@ Last updated: 2026-02-25 (C17H+ hardening stabilized; runtime decomposition + de
 - C12A: `test_c12a_assignment_integration.py` (53 passed). Full regression suite: 674 passed, 3 failed (same pre-existing unrelated failures in `test_ngram_analytics.py`, `test_root_services.py`, `test_str_parser_spend.py`).
 - C12A follow-up fixes: `test_c12a_assignment_integration.py` (63 passed, up from 53). Added active-client fallback, bm/brand_manager -> CSL alias, atomic update-in-place for slot replacement. Full suite: 684 passed, 3 failed (pre-existing).
 - C12B: `test_c12b_brand_mutation_integration.py` (52 passed). Targeted regression suite: 414 passed, 0 failed. Full suite: 740 passed, 3 failed (same pre-existing unrelated failures).
-- C12C prep (docs/scaffolding only): added `docs/29_catalog_lookup_contract.md`, tightened PRD/plan acceptance wording, and added isolated contract tests (`backend-core/tests/test_catalog_lookup_contract.py`) with no Slack runtime wiring changes.
+- C12C prep (docs/scaffolding only): added `docs/agencyclaw/current/29_catalog_lookup_contract.md`, tightened PRD/plan acceptance wording, and added isolated contract tests (`backend-core/tests/test_catalog_lookup_contract.py`) with no Slack runtime wiring changes.
 - C12A/C12B merge + classifier casing fix (`cdd6749`): targeted suites (`test_c11a_command_center_integration.py`, `test_c12a_assignment_integration.py`, `test_c12b_brand_mutation_integration.py`, `test_catalog_lookup_contract.py`) passing (`155 passed`).
 - C12C Path-1 runtime: `backend-core/tests/test_task_create.py`, `backend-core/tests/test_c12c_identifier_guardrail.py`, and `backend-core/tests/test_c10b_clarify_persistence.py` passing (`93 passed`).
 - C13A LLM-first hardening: in strict LLM mode (orchestrator on, legacy fallback off), deterministic classifier now allows only control intents (`switch_client`, `set_default_client`, `clear_defaults`). Non-control intents (`create_task`, `weekly_tasks`, `cc_*`) no longer execute via deterministic fallback. Targeted suites: `test_c11f_conversational_cleanup.py`, `test_c9b_integration.py`, `test_task_create.py`, `test_task_list.py` passing (`148 passed`).

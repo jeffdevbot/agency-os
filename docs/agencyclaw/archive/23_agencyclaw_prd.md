@@ -867,7 +867,7 @@ Suggested skills:
 
 ### 13.16.1 Task Brief Composition Standard
 - For recurring operations, AgencyClaw should produce a concise Task Brief and link the canonical SOP, rather than pasting the full SOP body by default.
-- Task Brief generation should follow `docs/26_agencyclaw_task_brief_standard.md`.
+- Task Brief generation should follow `docs/agencyclaw/current/26_agencyclaw_task_brief_standard.md`.
 - Preferred task-type buckets:
   - `ppc_optimization`
   - `promotions`

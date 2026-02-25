@@ -2,7 +2,7 @@
 
 ## 1. Purpose
 This document is the execution blueprint for AgencyClaw implementation.
-It is separate from `docs/23_agencyclaw_prd.md`:
+It is separate from `docs/agencyclaw/archive/23_agencyclaw_prd.md`:
 - PRD = product decisions and behavior.
 - Implementation plan = execution order, prompts, and acceptance gates.
 
@@ -10,7 +10,7 @@ Status note (2026-02-25):
 - Post-C12 runtime hardening/decomposition has completed through C16C.
 - C17A-C17G have landed (agent-loop foundation, lane serialization, reply/tool loop,
   mutation confirmation contract, context/rehydration runtime wiring).
-- See `docs/25_agencyclaw_execution_tracker.md` for commit-by-commit evidence.
+- See `docs/agencyclaw/archive/25_agencyclaw_execution_tracker.md` for commit-by-commit evidence.
 - C17H has landed (bounded main-agent multi-turn loop + `delegate_planner` delegation).
 - C17H+ has landed (iterative planner loop hardening with bounded stop-state contract).
 - Post-C17H+ hardening is in place (delegate contract propagation, recovery hardening,
@@ -25,7 +25,7 @@ Status note (2026-02-25):
 - Actor + surface context (`who` + `where`) must be available before mutation execution.
 - Clarify loops for mutation workflows must persist pending slot state until confirm/cancel.
 - Task drafts should be source-grounded where possible (SOP/internal docs/similar tasks).
-- Task draft/body formatting should follow `docs/26_agencyclaw_task_brief_standard.md`, including generic fallback templates when classification is uncertain.
+- Task draft/body formatting should follow `docs/agencyclaw/current/26_agencyclaw_task_brief_standard.md`, including generic fallback templates when classification is uncertain.
 - Keep runtime-vs-skill separation strict:
   runtime owns conversation/policy/confirmation/fallback; skills own typed business execution.
 - New capabilities should default to new modular skills, not new hardcoded intent branches.
@@ -52,7 +52,7 @@ Status note (2026-02-25):
 - Idempotency and concurrency requirements handled where applicable.
 - Tests added for happy path and key failure/ambiguity paths.
 - `skill_catalog` row updated to `implemented_in_code=true` and enabled only when ready.
-- Tracker updated (`docs/25_agencyclaw_execution_tracker.md`).
+- Tracker updated (`docs/agencyclaw/archive/25_agencyclaw_execution_tracker.md`).
 
 ## 4. Chunk Roadmap
 1. C1: Task list read path (`clickup_task_list_weekly`, later canonicalized to `clickup_task_list`)
@@ -260,7 +260,7 @@ Locked regression fixtures for C10B:
   - Implement retrieval cascade:
     SOP -> internal docs/playbooks -> similar historical tasks -> external docs.
   - Compose task drafts with citations + confidence tier.
-  - Emit task descriptions using task-type templates from `docs/26_agencyclaw_task_brief_standard.md` with generic fallback support.
+  - Emit task descriptions using task-type templates from `docs/agencyclaw/current/26_agencyclaw_task_brief_standard.md` with generic fallback support.
   - If no high-quality source found, ask focused clarify questions instead of inventing.
 - Acceptance:
   - “Coupon code task” style prompt produces source-cited draft when data exists.
@@ -333,7 +333,7 @@ Locked regression fixtures for C10B:
   - For product-scoped task mutations with missing identifier:
     require explicit ASIN/SKU or explicit "identifier pending" confirmation.
   - Preserve deterministic no-guessing behavior for ambiguous/unknown product references.
-  - Keep `docs/29_catalog_lookup_contract.md` and `catalog_lookup_contract.py` as optional future integration contract.
+  - Keep `docs/agencyclaw/current/29_catalog_lookup_contract.md` and `catalog_lookup_contract.py` as optional future integration contract.
 - Acceptance:
   - Product-scoped requests without ASIN/SKU do not auto-create as fully resolved tasks.
   - Runtime asks focused clarify prompt for ASIN/SKU or explicit pending flow.
@@ -350,8 +350,8 @@ Locked regression fixtures for C10B:
     - `delegate_planner` was a future path until C17H (now implemented).
   - Define chunk-by-chunk acceptance/rollback guidance for C17A-H.
 - Acceptance:
-  - `docs/24_agencyclaw_implementation_plan.md` includes C17 roadmap + details.
-  - `docs/25_agencyclaw_execution_tracker.md` has placeholder rows for C17A-H.
+  - `docs/agencyclaw/archive/24_agencyclaw_implementation_plan.md` includes C17 roadmap + details.
+  - `docs/agencyclaw/archive/25_agencyclaw_execution_tracker.md` has placeholder rows for C17A-H.
   - No code behavior changes.
 
 ## C17B: Agent Storage Foundation (Schema Only)
@@ -527,7 +527,7 @@ Implement Chunk <ID> in repo `agency-os`.
 
 Rules:
 - Work only within this chunk scope.
-- Use PRD `docs/23_agencyclaw_prd.md` (v1.19) as source of truth.
+- Use PRD `docs/agencyclaw/archive/23_agencyclaw_prd.md` (v1.19) as source of truth.
 - No extra features.
 - Add/update tests.
 - Keep migration changes separate unless this chunk requires schema.

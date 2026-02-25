@@ -45,7 +45,7 @@ Expected:
 
 ## 4) Meeting-Notes Extraction Test
 
-Paste contents of `docs/31_agencyclaw_test_meeting_fixture.md` as one message (under 2000 chars), then send:
+Paste contents of `docs/agencyclaw/current/31_agencyclaw_test_meeting_fixture.md` as one message (under 2000 chars), then send:
 
 `Please convert this into the top 4 tasks, map SOPs, and present draft tasks for approval only.`
 
@@ -90,7 +90,7 @@ Expected:
 
 If you repeatedly get `I hit an issue while processing that. Could you rephrase and try again?`:
 1. Check Render logs for traceback around `/api/slack/debug/chat`.
-2. Run SQL checks from `docs/32_agencyclaw_supabase_debug_queries.sql`.
+2. Run SQL checks from `docs/agencyclaw/current/32_agencyclaw_supabase_debug_queries.sql`.
 3. Confirm `AGENCYCLAW_AGENT_LOOP_ENABLED=true` on backend.
 4. Confirm request payload text length is <= 2000 chars.
 

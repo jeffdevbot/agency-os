@@ -14,8 +14,8 @@ Use this as the first read when you need to understand:
 - where to make focused, low-risk changes.
 
 Related docs:
-- Product/behavior intent: `docs/23_agencyclaw_prd.md`
-- Implementation history and chunk evidence: `docs/25_agencyclaw_execution_tracker.md`
+- Product/behavior intent: `docs/agencyclaw/archive/23_agencyclaw_prd.md`
+- Implementation history and chunk evidence: `docs/agencyclaw/archive/25_agencyclaw_execution_tracker.md`
 - Agent-loop deep design: `backend-core/docs/design/agencyclaw-agent-loop.md`
 
 ## 2. Entry Points
@@ -145,7 +145,7 @@ Practical rule:
 6. `backend-core/app/services/agencyclaw/slack_cc_bridge_runtime.py`
 7. `backend-core/app/services/agencyclaw/policy_gate.py`
 8. `backend-core/app/services/agencyclaw/skill_registry.py`
-9. `docs/25_agencyclaw_execution_tracker.md` (for chunk history/context)
+9. `docs/agencyclaw/archive/25_agencyclaw_execution_tracker.md` (for chunk history/context)
 
 ## 7. Where To Change What
 
