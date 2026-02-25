@@ -1,21 +1,25 @@
 import asyncio
 import os
+from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query
 from supabase import create_client, Client
 
 from ..auth import require_admin_user
 from ..config import settings
 from ..services.sop_sync import SOPSyncService
-from ..services.agencyclaw.identity_sync_runtime import run_identity_sync
-from ..services.agencyclaw.clickup_space_registry import (
+from ..services.clickup_space_registry import (
     classify_clickup_space,
     list_clickup_spaces,
     map_clickup_space_to_brand,
     sync_clickup_spaces,
 )
 from ..services.clickup import get_clickup_service
-from pydantic import BaseModel
-from typing import List, Optional
+from ..services.wbr.windsor_section1_ingest import (
+    WindsorSection1IngestError,
+    WindsorSection1IngestService,
+)
+from pydantic import BaseModel, Field
+from typing import Optional
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -45,54 +49,6 @@ async def sync_sops(user=Depends(require_admin_user)):
         raise HTTPException(status_code=500, detail=f"Sync failed: {str(e)}")
 
 
-# Pydantic models for request validation
-class SlackUserRequest(BaseModel):
-    slack_user_id: str
-    email: Optional[str] = None
-    real_name: Optional[str] = None
-
-class ClickUpUserRequest(BaseModel):
-    clickup_user_id: str
-    email: Optional[str] = None
-    username: Optional[str] = None
-
-class IdentitySyncRequest(BaseModel):
-    dry_run: bool = True
-    slack_users: List[SlackUserRequest]
-    clickup_users: List[ClickUpUserRequest]
-
-@router.post("/identity-sync/run")
-async def run_identity_sync_endpoint(
-    request: IdentitySyncRequest,
-    user=Depends(require_admin_user)
-):
-    """
-    Run identity reconciliation and sync.
-    """
-    if not settings.supabase_url or not settings.supabase_service_role:
-        raise HTTPException(status_code=500, detail="Supabase credentials not configured")
-        
-    try:
-        supabase: Client = create_client(settings.supabase_url, settings.supabase_service_role)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to initialize Supabase client: {e}")
-
-    # Convert Pydantic models to dicts for the service layer
-    slack_dicts = [u.model_dump() for u in request.slack_users]
-    clickup_dicts = [u.model_dump() for u in request.clickup_users]
-
-    try:
-        results = run_identity_sync(
-            supabase,
-            slack_users=slack_dicts,
-            clickup_users=clickup_dicts,
-            dry_run=request.dry_run
-        )
-        return results
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Identity sync failed: {str(e)}")
-
-
 # ---------------------------------------------------------------------------
 # C6A: ClickUp Space Registry
 # ---------------------------------------------------------------------------
@@ -106,6 +62,19 @@ class ClassifySpaceRequest(BaseModel):
 class MapBrandRequest(BaseModel):
     space_id: str
     brand_id: Optional[str] = None
+
+
+class WBRSection1IngestRangeRequest(BaseModel):
+    client_id: str = Field(..., min_length=1)
+    account_id: str = Field(..., min_length=1)
+    date_from: date
+    date_to: date
+
+
+class WBRSection1BackfillRequest(BaseModel):
+    client_id: str = Field(..., min_length=1)
+    account_id: str = Field(..., min_length=1)
+    weeks: int = Field(4, ge=1, le=52)
 
 
 def _get_supabase() -> Client:
@@ -189,3 +158,51 @@ async def map_brand_endpoint(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Brand mapping failed: {e}")
+
+
+@router.post("/wbr/section1/ingest-range")
+async def wbr_section1_ingest_range(
+    request: WBRSection1IngestRangeRequest,
+    user=Depends(require_admin_user),
+):
+    """Ingest Windsor Section 1 data for an explicit date range."""
+    db = _get_supabase()
+    service = WindsorSection1IngestService(db)
+    try:
+        result = await service.ingest_range(
+            client_id=request.client_id,
+            account_id=request.account_id,
+            date_from=request.date_from,
+            date_to=request.date_to,
+            initiated_by=str(user.get("sub")) if isinstance(user, dict) else None,
+        )
+        return result
+    except WindsorSection1IngestError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"WBR Section 1 ingest failed: {e}")
+
+
+@router.post("/wbr/section1/backfill-last-full-weeks")
+async def wbr_section1_backfill_last_full_weeks(
+    request: WBRSection1BackfillRequest,
+    user=Depends(require_admin_user),
+):
+    """Ingest previous full Sunday-Saturday weeks, most-recent first."""
+    if request.weeks <= 0:
+        raise HTTPException(status_code=400, detail="weeks must be > 0")
+
+    db = _get_supabase()
+    service = WindsorSection1IngestService(db)
+    try:
+        result = await service.ingest_previous_full_weeks(
+            client_id=request.client_id,
+            account_id=request.account_id,
+            weeks=request.weeks,
+            initiated_by=str(user.get("sub")) if isinstance(user, dict) else None,
+        )
+        return result
+    except WindsorSection1IngestError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"WBR Section 1 backfill failed: {e}")

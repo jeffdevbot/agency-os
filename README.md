@@ -21,8 +21,8 @@ Ecomlabs Tools is the internal platform that consolidates our ad analytics, SOP 
 - **ClickUp Service (backend-core)** — shared backend integration layer for ClickUp API calls (task creation + future sync). Routes live under `backend-core/app/routers/clickup.py`. Spec: `docs/archive/non_agencyclaw/08_clickup_service_prd.md`.
 
 ### In Flight / Upcoming
-- **AgencyClaw** — Slack assistant for agency operations (task creation, weekly status, command-center skills, SOP-grounded drafting). Docs index: `docs/agencyclaw/README.md`, architecture: `backend-core/docs/design/agencyclaw-architecture-map.md`.
-- **Non-AgencyClaw historical docs** — archived at `docs/archive/non_agencyclaw/` (index: `docs/archive/non_agencyclaw/README.md`).
+- **The Claw** — Slack assistant reboot for agency operations. Current plan/docs: `docs/theclaw/current/01_theclaw_reboot_implementation_plan.md`, `docs/theclaw/current/02_theclaw_architecture.md`.
+- **Historical docs (non-The-Claw)** — archived at `docs/archive/non_agencyclaw/` (index: `docs/archive/non_agencyclaw/README.md`).
 - More tools planned; follow the docs folder for new PRDs and plans as they land.
 
 ### Database Schema
@@ -31,6 +31,7 @@ Ecomlabs Tools is the internal platform that consolidates our ad analytics, SOP 
 
 ### Dev Operations
 - `docs/mcp_setup.md` — MCP workspace setup and verification (Supabase MCP server config, read-only connectivity checks, and `401 Unauthorized` re-auth recovery).
+- `docs/windsor_wbr_ingestion_runbook.md` — Windsor Amazon SP ingestion operations for WBR (account scoping, date windows, scaling guardrails, and batching strategy).
 
 ### Other Specs
 - `docs/archive/non_agencyclaw/05_creative_brief_prd.md` — Creative Brief tool that maps Composer copy + uploaded assets into designer-ready storyboards.
@@ -57,75 +58,21 @@ Each doc includes the UX and backend contracts for its domain. Use `docs/db/sche
 
 All services are deployed on Render. See `docs/archive/non_agencyclaw/00_agency_os_architecture.md` for details.
 
-## AgencyClaw (Slack Assistant)
+## The Claw (Slack Assistant)
 
-AgencyClaw is the successor to the legacy Vara/Playbook bot and is the active Slack runtime for agency operations workflows.
+The Claw is the rebooted Slack assistant for agency operations.
 
-It provides:
-- Natural-language DM conversation (LLM-first orchestration, with deterministic execution rails).
-- ClickUp task operations (task-list reads with flexible windows + task creation with confirmation/reliability guards).
-- SOP-grounded drafting via retrieval cascade.
-- Command Center chat skills (client/brand lookup, mapping audit, remediation).
-- Policy enforcement by actor/surface context (fail-closed on denied actions).
+Current state:
+- Slack runtime is simplified and LLM-first.
+- Focus is reliability and progressive skill rollout, starting with basic DM assistance.
+- Legacy Slack runtime and test surface have been removed.
 
-**Primary docs:** `docs/agencyclaw/README.md`, `backend-core/docs/design/agencyclaw-architecture-map.md`, `backend-core/docs/design/agencyclaw-agent-loop.md`.
+Current Slack entrypoints:
+- `backend-core/app/api/routes/slack.py` (`/api/slack/events`, `/api/slack/interactions`)
 
-**Key integration points:**
-- Slack API (events + interactions) → `backend-core/app/api/routes/slack.py` (`/api/slack/events`, `/api/slack/interactions`)
-- SOP sync from ClickUp Docs → `worker-sync/` (TBD; Render service exists but code is not in this repo yet)
-- Session storage → Supabase `playbook_slack_sessions` table (legacy table name retained)
-- AI chat → OpenAI (`OPENAI_API_KEY`, models: gpt-4o / gpt-4o-mini)
-- Task creation → existing `backend-core/app/services/clickup.py`
-
-**Existing schema (no migration needed):**
-- `profiles.slack_user_id` — links Slack users to profiles
-- `profiles.clickup_user_id` — for task assignment
-- `brands.clickup_space_id` / `clickup_list_id` — where to create tasks
-- `ai_token_usage` — token logging (use `tool='agencyclaw'` + stage labels)
-
-### AgencyClaw Mental Model
-
-```text
-[User in Slack DM]
-        |
-        v
-[AgencyClaw Runtime]
-  - session/pending state
-  - actor+surface policy gate
-  - LLM orchestrator (primary)
-  - planner (delegated only on explicit plan_request)
-  - deterministic skill execution rails
-        |
-        +------------------> [Knowledge Layer]
-        |                     - SOP + KB retrieval cascade
-        |                     - grounded draft composer
-        |
-        +------------------> [Command Center Data (Supabase)]
-        |                     - clients, brands, assignments, roles
-        |                     - default user preferences
-        |
-        +------------------> [ClickUp API]
-        |                     - task list reads (default weekly, flexible windows)
-        |                     - task create (confirm + idempotency/retries)
-        |                     - mapping/space sync support paths
-        |
-        +------------------> [Slack responses]
-                              - reply / clarify / confirm / result
-
-[Observability]
-  - ai_token_usage telemetry
-  - idempotency receipts / runtime logs
-```
-
-What is true now:
-- AgencyClaw can converse naturally in Slack DM and decide when to invoke skills.
-- AgencyClaw can read SOP/KB context to ground task drafts.
-- AgencyClaw can read/update operational data through Command Center skills.
-- AgencyClaw can retrieve and create ClickUp tasks with reliability guards.
-
-What is not fully formalized yet:
-- A dedicated skill that acts as a "tool catalog router" for all web tools (`/ngram`, `/adscope`, etc.).
-- Today it can still point users to tools conversationally, but this is not yet a strict, first-class routing contract.
+Primary docs:
+- `docs/theclaw/current/01_theclaw_reboot_implementation_plan.md`
+- `docs/theclaw/current/02_theclaw_architecture.md`
 
 ## Local quickstarts
 
