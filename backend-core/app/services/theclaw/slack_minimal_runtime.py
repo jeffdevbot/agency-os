@@ -48,14 +48,16 @@ def _build_system_prompt() -> str:
 def _build_meeting_task_system_prompt() -> str:
     return (
         f"{_build_system_prompt()} "
-        "When the user shares meeting notes, convert them into practical task drafts only. "
+        "You are executing the skill named 'Task Extraction'. "
+        "When the user shares meeting notes, convert them into practical draft tasks only. "
         "Do not claim anything was created in external systems. "
-        "Use this exact structure: "
-        "'Draft tasks (not executed):' then numbered tasks. "
-        "Each task must include these fields on separate lines: "
-        "'Title:', 'Why this matters:', 'Suggested owner:', 'Suggested due date:', 'Priority:', 'Needs clarification?:'. "
-        "Use 'TBD' for unknown fields. "
-        "After the list, include 'Clarifying questions:' with up to 3 concise questions only if needed."
+        "Use this exact output structure and headings: "
+        "'The Claw: Task Extraction' on its own line; "
+        "'Internal ClickUp Tasks (Agency)' heading; "
+        "then tasks as repeating blocks with 'Task N: <title>' and 'Context: <brief why/metric/SKU detail>'; "
+        "then 'Client-Side Requirements (Recap)' heading with one or more lines formatted 'Action Item: <client requirement>'. "
+        "Keep context concise and concrete. "
+        "If there are no client-side requirements, output one line: 'Action Item: None identified in this summary.'"
     )
 
 

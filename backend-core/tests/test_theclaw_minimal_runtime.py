@@ -60,10 +60,12 @@ def test_build_system_prompt_contains_phase1_behavior_contract():
 
 def test_build_meeting_task_prompt_contains_draft_contract():
     prompt = _build_meeting_task_system_prompt().lower()
-    assert "draft tasks (not executed)" in prompt
-    assert "title:" in prompt
-    assert "why this matters:" in prompt
-    assert "needs clarification?:" in prompt
+    assert "task extraction" in prompt
+    assert "internal clickup tasks (agency)" in prompt
+    assert "task n: <title>" in prompt
+    assert "context: <brief why/metric/sku detail>" in prompt
+    assert "client-side requirements (recap)" in prompt
+    assert "action item: <client requirement>" in prompt
 
 
 @pytest.mark.parametrize(
@@ -230,7 +232,7 @@ async def test_run_theclaw_minimal_dm_turn_uses_meeting_prompt_when_detected(mon
     async def _fake_call_chat_completion(**kwargs):
         captured.update(kwargs)
         return {
-            "content": "Draft tasks (not executed):\n1. Title: ...",
+            "content": "The Claw: Task Extraction\nInternal ClickUp Tasks (Agency)\nTask 1: ...",
             "tokens_in": 10,
             "tokens_out": 11,
             "tokens_total": 21,
@@ -259,7 +261,9 @@ async def test_run_theclaw_minimal_dm_turn_uses_meeting_prompt_when_detected(mon
 
     messages = captured["messages"]
     assert isinstance(messages, list)
-    assert "draft tasks (not executed)" in messages[0]["content"].lower()
+    prompt_text = messages[0]["content"].lower()
+    assert "the claw: task extraction" in prompt_text
+    assert "internal clickup tasks (agency)" in prompt_text
 
 
 @pytest.mark.asyncio

@@ -55,6 +55,48 @@ Execution philosophy:
 - Replace internals behind Slack route with new The Claw runtime modules.
 - Remove legacy AgencyClaw runtime paths as replacements land.
 
+## 4A) Code Organization Guardrails
+
+To avoid repeating the previous monolith pattern:
+
+1. `backend-core/app/api/routes/slack.py` is an adapter only.
+2. `slack.py` must only do request wiring, auth/signature validation handoff, and runtime dispatch.
+3. No business logic, prompt logic, policy logic, skill logic, or session mutation logic lives in `slack.py`.
+4. `slack.py` line budget target is <= 150 lines.
+5. `slack.py` warning threshold is > 200 lines.
+6. `slack.py` hard stop is > 250 lines; extraction is required before merge.
+
+Required The Claw service topology (non-flat):
+- `backend-core/app/services/theclaw/runtime/` for Slack/event runtime orchestration
+- `backend-core/app/services/theclaw/memory/` for session memory and context state
+- `backend-core/app/services/theclaw/skills/` one folder per skill
+- `backend-core/app/services/theclaw/policy/` for allow/deny rails
+- `backend-core/app/services/theclaw/prompts/` for prompt contracts/templates
+- `backend-core/app/services/theclaw/integrations/` for external API adapters
+
+Skill module rule:
+- One skill = one folder with explicit entrypoint, prompt contract, output contract, tests.
+
+PR guardrail:
+- Any PR that adds behavior to Slack must include new/updated module placement under the topology above.
+- If extraction is not yet possible, PR must include explicit rationale.
+
+## 4B) Data Persistence Contract
+
+Current memory persistence:
+- Store location: Supabase `public.playbook_slack_sessions`
+- Field: `context` JSONB
+- The Claw key: `theclaw_history_v1`
+- History cap: 25 turns (25 user + 25 assistant messages max)
+
+Session behavior:
+- Session is considered active for ~30 minutes based on `last_message_at`.
+- `new session` command clears active session context and starts fresh memory.
+
+Schema reference:
+- Canonical DB reference: `docs/db/schema_master.md`
+- Relevant table section: `public.playbook_slack_sessions`
+
 ## 5) Phase Plan (Baby Steps)
 
 ## Phase 0 - Baseline and Freeze
@@ -84,9 +126,12 @@ Gate:
 ## Phase 2 - Meeting Notes -> Task Suggestions (Draft Only)
 
 Deliverables:
-- Add first real skill: parse meeting notes and output structured draft tasks.
+- Add first real skill: `Task Extraction` (parse meeting notes and output structured draft tasks).
 - Strictly draft mode only (no ClickUp writes).
-- Response format is deterministic and readable.
+- Response format contract:
+  - `The Claw: Task Extraction`
+  - `Internal ClickUp Tasks (Agency)` with `Task N` + `Context`
+  - `Client-Side Requirements (Recap)` with `Action Item`
 
 Gate:
 - Unit tests for parser/formatter + manual Slack transcript check.
