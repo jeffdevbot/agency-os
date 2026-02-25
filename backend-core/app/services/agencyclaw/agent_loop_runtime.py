@@ -19,6 +19,23 @@ import re
 from typing import Any, Awaitable, Callable
 
 from .agent_loop_context_assembler import assemble_prompt_context
+from .agent_loop_intent_recovery import (
+    ensure_sop_draft_payload as _ensure_sop_draft_payload,
+    extract_client_hint_from_text as _extract_client_hint_from_text,
+    infer_window_from_text as _infer_window_from_text,
+    is_generic_failure_reply as _is_generic_failure_reply,
+    is_non_answer_action_promise as _is_non_answer_action_promise,
+    looks_like_brand_list_request as _looks_like_brand_list_request,
+    looks_like_task_list_request as _looks_like_task_list_request,
+    postprocess_task_list_answer as _postprocess_task_list_answer,
+    response_text_from_tool_result as _response_text_from_tool_result,
+)
+from .agent_loop_skill_validation import (
+    canonical_skill_id as _canonical_skill_id,
+    validate_delegate_planner_args as _validate_delegate_planner_args,
+    validate_read_skill_args as _validate_read_skill_args,
+    validate_task_create_args as _validate_task_create_args,
+)
 from .agent_loop_store import AgentLoopStore
 from .agent_loop_turn_logger import AgentLoopTurnLogger
 from .openai_client import ChatCompletionResult, OpenAIError, call_chat_completion, parse_json_response
@@ -74,24 +91,7 @@ _MUTATION_SKILLS = {
     "cc_brand_update",
     "cc_brand_mapping_remediation_apply",
 }
-_REHYDRATION_KEY_PATTERN = re.compile(r"^ev:[^/\s]+(?:/[^/\s]+)?$")
 _MAX_LOOP_TURNS = 6
-_SKILL_ID_ALIASES = {
-    "task_list": "clickup_task_list",
-    "weekly_tasks": "clickup_task_list_weekly",
-    "list_tasks": "clickup_task_list",
-    "task_priority": "clickup_task_list",
-    "task_priorities": "clickup_task_list",
-    "task_due_list": "clickup_task_list",
-    "client_lookup": "cc_client_lookup",
-    "list_clients": "cc_client_lookup",
-    "brand_list": "cc_brand_list_all",
-    "list_brands": "cc_brand_list_all",
-    "get_brands": "cc_brand_list_all",
-    "brand_lookup": "lookup_brand",
-    "brand_mapping_audit": "cc_brand_clickup_mapping_audit",
-}
-_CLIENT_HINT_PATTERN = re.compile(r"\bfor\s+([^,\n\.]+)", re.IGNORECASE)
 _TOP_N_PATTERN = re.compile(r"\btop\s+(\d+)\b", re.IGNORECASE)
 _TASK_LINK_TITLE_PATTERN = re.compile(r"\|([^>]+)>")
 
@@ -156,11 +156,6 @@ def _extract_mode_payload(content: str) -> dict[str, Any]:
     return {"mode": "reply", "text": content.strip() or "How can I help?"}
 
 
-def _canonical_skill_id(skill_id: str) -> str:
-    normalized = (skill_id or "").strip()
-    return _SKILL_ID_ALIASES.get(normalized, normalized)
-
-
 def _clean_assistant_text(text: str) -> str:
     cleaned = (text or "").strip()
     if not cleaned:
@@ -193,382 +188,6 @@ def _clean_assistant_text(text: str) -> str:
 def _error_code(exc: Exception) -> str:
     raw = f"{type(exc).__name__}:{exc}"
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:8]
-
-
-def _extract_client_hint_from_text(text: str) -> str:
-    match = _CLIENT_HINT_PATTERN.search(text or "")
-    if not match:
-        return ""
-    hint = (match.group(1) or "").strip()
-    normalized = re.sub(r"\s+", " ", hint).strip(" .,:;")
-    normalized = re.sub(r"^(client|brand)\s+", "", normalized, flags=re.IGNORECASE)
-    return normalized.strip(" .,:;")
-
-
-def _looks_like_task_list_request(text: str) -> bool:
-    lowered = (text or "").strip().lower()
-    if not lowered:
-        return False
-    if any(phrase in lowered for phrase in ("create task", "new task", "make task", "draft task")):
-        return False
-    if "task" not in lowered:
-        return False
-    return any(
-        phrase in lowered
-        for phrase in (
-            "top ",
-            "due ",
-            "this week",
-            "this month",
-            "priority",
-            "prioritize",
-            "open tasks",
-            "what should i prioritize",
-            "list tasks",
-        )
-    )
-
-
-def _looks_like_brand_list_request(text: str) -> bool:
-    lowered = (text or "").strip().lower()
-    if not lowered:
-        return False
-    if "brand" not in lowered:
-        return False
-    return any(
-        phrase in lowered
-        for phrase in (
-            "show",
-            "list",
-            "what brands",
-            "which brands",
-            "brands for",
-        )
-    )
-
-
-def _infer_window_from_text(text: str) -> str:
-    lowered = (text or "").strip().lower()
-    if "this week" in lowered or "weekly" in lowered:
-        return "this_week"
-    if "this month" in lowered or "monthly" in lowered:
-        return "this_month"
-    return ""
-
-
-def _response_text_from_tool_result(tool_result: dict[str, Any]) -> str:
-    raw = tool_result.get("response_text")
-    if isinstance(raw, str) and raw.strip():
-        return raw.strip()
-    return json.dumps(tool_result, ensure_ascii=True, separators=(",", ":"))
-
-
-def _is_generic_failure_reply(text: str) -> bool:
-    lowered = (text or "").strip().lower()
-    if not lowered:
-        return False
-    return any(
-        phrase in lowered
-        for phrase in (
-            "could you rephrase and try again",
-            "couldn't complete that flow",
-            "i hit an issue while processing",
-        )
-    )
-
-
-def _is_non_answer_action_promise(text: str) -> bool:
-    lowered = (text or "").strip().lower()
-    if not lowered:
-        return False
-    return any(
-        phrase in lowered
-        for phrase in (
-            "let me ",
-            "i'll proceed",
-            "i will proceed",
-            "i'll check",
-            "i will check",
-            "i'll find",
-            "i will find",
-        )
-    )
-
-
-def _requested_top_n(text: str) -> int | None:
-    match = _TOP_N_PATTERN.search(text or "")
-    if not match:
-        return None
-    try:
-        value = int(match.group(1))
-    except (TypeError, ValueError):
-        return None
-    return value if value > 0 else None
-
-
-def _task_bullet_indices(lines: list[str]) -> list[int]:
-    return [idx for idx, line in enumerate(lines) if line.strip().startswith("• ")]
-
-
-def _extract_task_title_from_bullet(line: str) -> str:
-    match = _TASK_LINK_TITLE_PATTERN.search(line)
-    if match:
-        return (match.group(1) or "").strip()
-    return line.replace("•", "").strip()
-
-
-def _postprocess_task_list_answer(user_text: str, assistant_text: str) -> str:
-    if not _looks_like_task_list_request(user_text):
-        return assistant_text
-    if "*Tasks" not in assistant_text:
-        return assistant_text
-
-    lines = assistant_text.splitlines()
-    bullet_idxs = _task_bullet_indices(lines)
-    if not bullet_idxs:
-        return assistant_text
-
-    top_n = _requested_top_n(user_text)
-    if top_n is not None and len(bullet_idxs) > top_n:
-        keep = set(bullet_idxs[:top_n])
-        lines = [line for idx, line in enumerate(lines) if idx not in bullet_idxs or idx in keep]
-        bullet_idxs = _task_bullet_indices(lines)
-
-    lowered_user = (user_text or "").lower()
-    lowered_answer = (assistant_text or "").lower()
-    wants_priority = "priorit" in lowered_user
-    has_priority_already = "priority first" in lowered_answer or "priority suggestion" in lowered_answer
-    if wants_priority and not has_priority_already and bullet_idxs:
-        chosen_idx = bullet_idxs[0]
-        for idx in bullet_idxs:
-            line_lower = lines[idx].lower()
-            if "[review]" in line_lower:
-                chosen_idx = idx
-                break
-        chosen_title = _extract_task_title_from_bullet(lines[chosen_idx])
-        lines.append("")
-        lines.append(
-            f"Priority first: {chosen_title} — start with this because it appears closest to completion."
-        )
-
-    return "\n".join(lines).strip()
-
-
-def _looks_like_sop_draft_request(text: str) -> bool:
-    lowered = (text or "").strip().lower()
-    if not lowered:
-        return False
-    has_sop = "sop" in lowered or "procedure" in lowered
-    has_draft = "draft" in lowered
-    wants_title = "task title" in lowered
-    wants_description = "description" in lowered
-    return has_sop and has_draft and wants_title and wants_description
-
-
-def _has_concrete_task_draft(text: str) -> bool:
-    lowered = (text or "").strip().lower()
-    return "task title:" in lowered and "task description:" in lowered
-
-
-def _infer_brand_hint(text: str) -> str:
-    hint = _extract_client_hint_from_text(text)
-    if hint:
-        return hint
-    lowered = text or ""
-    match = re.search(r"\bfor\s+([A-Za-z0-9][A-Za-z0-9 _-]{1,60})", lowered)
-    if not match:
-        return ""
-    candidate = (match.group(1) or "").strip(" .,:;")
-    candidate = re.sub(r"^(client|brand)\s+", "", candidate, flags=re.IGNORECASE)
-    return candidate
-
-
-def _ensure_sop_draft_payload(user_text: str, assistant_text: str) -> str:
-    if not _looks_like_sop_draft_request(user_text):
-        return assistant_text
-    if _has_concrete_task_draft(assistant_text):
-        return assistant_text
-
-    brand = _infer_brand_hint(user_text) or "Target Brand"
-    title = f"Launch Amazon Coupon for {brand}"
-    draft = (
-        "\n\nTask Title: "
-        + title
-        + "\n"
-        + "Task Description:\n"
-        + "- Objective: Execute the coupon launch SOP for this brand on Amazon.\n"
-        + "- SOP Basis: Use the standard coupon workflow (settings, timing, targeting, budget).\n"
-        + "- Deliverables: Coupon created, validation checks completed, and launch details documented.\n"
-        + "- Open Inputs: Confirm discount amount, ASIN scope, and campaign dates before launch."
-    )
-    return assistant_text.rstrip() + draft
-
-
-def _validate_task_list_args(args: dict[str, Any]) -> dict[str, Any]:
-    normalized: dict[str, Any] = {}
-    client_name = args.get("client_name")
-    if client_name is None:
-        client_name = args.get("client")
-    if client_name is None:
-        client_name = args.get("client_hint")
-    if client_name is not None:
-        normalized["client_name"] = str(client_name)
-    raw_window = args.get("window")
-    if raw_window is None:
-        raw_window = args.get("timeframe")
-    if raw_window is None:
-        raw_window = args.get("period")
-    if raw_window is not None:
-        window = str(raw_window).strip().lower().replace("-", "_").replace(" ", "_")
-        if window in {"week", "weekly"}:
-            window = "this_week"
-        elif window in {"month", "monthly"}:
-            window = "this_month"
-        elif window in {"thisweek"}:
-            window = "this_week"
-        elif window in {"thismonth"}:
-            window = "this_month"
-        normalized["window"] = window
-    if "window_days" in args and args["window_days"] is not None:
-        value = args["window_days"]
-        if isinstance(value, bool):
-            raise ValueError("window_days must be int-like")
-        if isinstance(value, (int, float, str)):
-            try:
-                normalized["window_days"] = int(value)
-            except (TypeError, ValueError) as exc:
-                raise ValueError("window_days must be int-like") from exc
-        else:
-            raise ValueError("window_days must be int-like")
-    if "date_from" in args and args["date_from"] is not None:
-        normalized["date_from"] = str(args["date_from"])
-    if "date_to" in args and args["date_to"] is not None:
-        normalized["date_to"] = str(args["date_to"])
-    return normalized
-
-
-def _validate_task_create_args(args: dict[str, Any]) -> dict[str, Any]:
-    allowed = {"client_name", "task_title", "task_description", "brand_name"}
-    for key in args:
-        if key not in allowed:
-            raise ValueError(f"unsupported arg: {key}")
-
-    task_title = str(args.get("task_title") or "").strip()
-    if not task_title:
-        raise ValueError("task_title is required")
-
-    normalized: dict[str, Any] = {"task_title": task_title}
-    client_name = str(args.get("client_name") or "").strip()
-    if client_name:
-        normalized["client_name"] = client_name
-    task_description = args.get("task_description")
-    if task_description is not None:
-        normalized["task_description"] = str(task_description)
-    brand_name = str(args.get("brand_name") or "").strip()
-    if brand_name:
-        normalized["brand_name"] = brand_name
-    return normalized
-
-
-def _validate_read_skill_args(skill_id: str, args: dict[str, Any]) -> dict[str, Any]:
-    if skill_id in {"clickup_task_list", "clickup_task_list_weekly"}:
-        return _validate_task_list_args(args)
-    if skill_id == "cc_client_lookup":
-        if "query" not in args or args.get("query") is None:
-            return {}
-        return {"query": str(args.get("query") or "").strip()}
-    if skill_id == "lookup_client":
-        allowed = {"query"}
-        for key in args:
-            if key not in allowed:
-                raise ValueError(f"unsupported arg: {key}")
-        if "query" not in args or args.get("query") is None:
-            return {}
-        return {"query": str(args.get("query") or "").strip()}
-    if skill_id == "cc_brand_list_all":
-        # Tolerate common arg-shape drift for client filter.
-        # Be tolerant to model arg-shape drift: map query -> client_name.
-        client_name = str(
-            args.get("client_name")
-            or args.get("query")
-            or args.get("client")
-            or args.get("client_hint")
-            or ""
-        ).strip()
-        return {"client_name": client_name} if client_name else {}
-    if skill_id == "lookup_brand":
-        client_name = str(args.get("client_name") or args.get("client") or "").strip()
-        brand_name = str(args.get("brand_name") or "").strip()
-        normalized: dict[str, Any] = {}
-        if client_name:
-            normalized["client_name"] = client_name
-        if brand_name:
-            normalized["brand_name"] = brand_name
-        return normalized
-    if skill_id == "cc_brand_clickup_mapping_audit":
-        return {}
-    if skill_id == "search_kb":
-        allowed = {"query", "client_name", "brand_name"}
-        for key in args:
-            if key not in allowed:
-                raise ValueError(f"unsupported arg: {key}")
-        query = str(args.get("query") or "").strip()
-        if not query:
-            raise ValueError("query is required")
-        normalized = {"query": query}
-        client_name = str(args.get("client_name") or "").strip()
-        brand_name = str(args.get("brand_name") or "").strip()
-        if client_name:
-            normalized["client_name"] = client_name
-        if brand_name:
-            normalized["brand_name"] = brand_name
-        return normalized
-    if skill_id == "resolve_brand":
-        allowed = {"task_text", "client_name", "brand_hint"}
-        for key in args:
-            if key not in allowed:
-                raise ValueError(f"unsupported arg: {key}")
-        task_text = str(args.get("task_text") or "").strip()
-        if not task_text:
-            raise ValueError("task_text is required")
-        normalized = {"task_text": task_text}
-        client_name = str(args.get("client_name") or "").strip()
-        brand_hint = str(args.get("brand_hint") or "").strip()
-        if client_name:
-            normalized["client_name"] = client_name
-        if brand_hint:
-            normalized["brand_hint"] = brand_hint
-        return normalized
-    if skill_id == "get_client_context":
-        allowed = {"client_name"}
-        for key in args:
-            if key not in allowed:
-                raise ValueError(f"unsupported arg: {key}")
-        client_name = str(args.get("client_name") or "").strip()
-        if not client_name:
-            raise ValueError("client_name is required")
-        return {"client_name": client_name}
-    if skill_id == "load_prior_skill_result":
-        allowed = {"key"}
-        for key in args:
-            if key not in allowed:
-                raise ValueError(f"unsupported arg: {key}")
-        evidence_key = str(args.get("key") or "").strip()
-        if not evidence_key:
-            raise ValueError("key is required")
-        if not _REHYDRATION_KEY_PATTERN.match(evidence_key):
-            raise ValueError("invalid evidence key format")
-        return {"key": evidence_key}
-    raise ValueError(f"disallowed read skill: {skill_id}")
-
-
-def _validate_delegate_planner_args(args: dict[str, Any]) -> dict[str, Any]:
-    allowed = {"request_text"}
-    for key in args:
-        if key not in allowed:
-            raise ValueError(f"unsupported arg: {key}")
-    request_text = str(args.get("request_text") or "").strip()
-    return {"request_text": request_text} if request_text else {}
 
 
 async def run_reply_only_agent_loop_turn(
@@ -771,7 +390,11 @@ async def run_reply_only_agent_loop_turn(
             if not inferred_skill_id:
                 return None
 
-            normalized_args = _validate_read_skill_args(inferred_skill_id, inferred_args)
+            normalized_args = _validate_read_skill_args(
+                inferred_skill_id,
+                inferred_args,
+                read_only_skills=_READ_ONLY_SKILLS,
+            )
             await _safe_log_call(turn_logger.log_skill_call, run_id, inferred_skill_id, normalized_args)
             tool_result = await _execute_read_skill(inferred_skill_id, normalized_args)
             await _safe_log_call(turn_logger.log_skill_result, run_id, inferred_skill_id, tool_result)
@@ -799,7 +422,11 @@ async def run_reply_only_agent_loop_turn(
 
             try:
                 if skill_id in _READ_ONLY_SKILLS:
-                    args = _validate_read_skill_args(skill_id, raw_args)
+                    args = _validate_read_skill_args(
+                        skill_id,
+                        raw_args,
+                        read_only_skills=_READ_ONLY_SKILLS,
+                    )
                     await _safe_log_call(turn_logger.log_skill_call, run_id, skill_id, args)
                     tool_result = await _execute_read_skill(skill_id, args)
                     await _safe_log_call(turn_logger.log_skill_result, run_id, skill_id, tool_result)
@@ -877,7 +504,11 @@ async def run_reply_only_agent_loop_turn(
                         if normalized_skill not in _READ_ONLY_SKILLS:
                             raise ValueError(f"disallowed planner skill: {normalized_skill}")
 
-                        normalized_args = _validate_read_skill_args(normalized_skill, raw_tool_args)
+                        normalized_args = _validate_read_skill_args(
+                            normalized_skill,
+                            raw_tool_args,
+                            read_only_skills=_READ_ONLY_SKILLS,
+                        )
                         return await _execute_read_skill(normalized_skill, normalized_args)
 
                     planner_report = await execute_delegate_planner_fn(
