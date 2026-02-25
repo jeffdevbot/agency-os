@@ -64,6 +64,9 @@ Before/after behavior changes, run at least:
 Then run full backend tests:
 - `backend-core/.venv/bin/pytest -q backend-core`
 
+Terminal E2E suite name:
+- `Claw Gauntlet` (runbook: `docs/agencyclaw/current/30_agencyclaw_debug_chat_runbook.md`)
+
 ## Reorg Plan
 Folder reorg is planned and documented in:
 - `backend-core/docs/design/agencyclaw-architecture-map.md` (Section: Folder Reorg Blueprint)

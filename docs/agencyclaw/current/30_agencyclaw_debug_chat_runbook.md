@@ -1,4 +1,6 @@
-# AgencyClaw Debug Chat Runbook
+# AgencyClaw Claw Gauntlet Runbook
+
+Canonical name: `Claw Gauntlet`.
 
 This runbook is for fast end-to-end testing through:
 - `POST /api/slack/debug/chat`
