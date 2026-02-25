@@ -182,6 +182,24 @@ export default function Home() {
                       Launch <span aria-hidden="true">→</span>
                     </Link>
                   </div>
+
+                  <div className="rounded-2xl bg-white/50 backdrop-blur border border-white/40 shadow-md hover:shadow-xl transition-all hover:-translate-y-0.5 p-8 flex flex-col gap-5 text-left">
+                    <div className="flex items-start gap-3">
+                      <span className="text-2xl">📈</span>
+                      <div className="space-y-1">
+                        <p className="text-lg font-semibold text-[#0f172a]">Reports</p>
+                        <p className="text-base leading-relaxed text-[#4c576f]">
+                          Open the reporting hub to run WBR workflows and onboard new client report setups.
+                        </p>
+                      </div>
+                    </div>
+                    <Link
+                      href="/reports"
+                      className="flex items-center justify-between rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-[#0a6fd6] shadow transition hover:-translate-y-0.5 hover:shadow-lg"
+                    >
+                      Launch <span aria-hidden="true">→</span>
+                    </Link>
+                  </div>
                 </div>
               </div>
 
