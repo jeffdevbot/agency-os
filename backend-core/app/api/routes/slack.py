@@ -1,8 +1,6 @@
 import asyncio
 import json
 import logging
-import os
-import secrets
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
@@ -83,6 +81,9 @@ from ...services.agencyclaw.slack_route_runtime import (
     SlackRouteRuntimeDeps,
     handle_dm_event_route_runtime,
     handle_interaction_route_runtime,
+)
+from ...services.agencyclaw.slack_debug_route_runtime import (
+    handle_debug_chat_route_runtime,
 )
 from ...services.agencyclaw.slack_route_deps_runtime import build_route_runtime_deps_runtime
 from ...services.agencyclaw.slack_route_deps_runtime import (
@@ -701,40 +702,8 @@ async def slack_interactions(request: Request, background_tasks: BackgroundTasks
 
 @router.post("/debug/chat")
 async def debug_chat(request: Request):
-    """Terminal-accessible endpoint that reuses the full DM pipeline.
-
-    Gated by AGENCYCLAW_DEBUG_CHAT_ENABLED + AGENCYCLAW_DEBUG_CHAT_TOKEN env vars.
-    """
-    enabled = os.environ.get("AGENCYCLAW_DEBUG_CHAT_ENABLED", "").strip().lower()
-    if enabled not in {"1", "true", "yes", "on"}:
-        raise HTTPException(status_code=404, detail="Not found")
-
-    token = os.environ.get("AGENCYCLAW_DEBUG_CHAT_TOKEN", "").strip()
-    header_token = request.headers.get("X-Debug-Token") or ""
-    if not token or not secrets.compare_digest(token, header_token):
-        raise HTTPException(status_code=401, detail="Unauthorized")
-
-    body = await request.json()
-    text = str(body.get("text") or "").strip()
-    if not text:
-        raise HTTPException(status_code=400, detail="text is required")
-    if len(text) > 2000:
-        raise HTTPException(status_code=400, detail="text exceeds 2000 char limit")
-
-    # Server-side user_id override — ignore client-provided value if env var is set.
-    user_id_override = os.environ.get("AGENCYCLAW_DEBUG_CHAT_USER_ID", "").strip()
-    user_id = user_id_override or str(body.get("user_id") or "U_DEBUG_TERMINAL").strip()
-
-    allow_mutations = os.environ.get(
-        "AGENCYCLAW_DEBUG_CHAT_ALLOW_MUTATIONS", "false"
-    ).strip().lower() in {"1", "true", "yes", "on"}
-
-    from ...services.agencyclaw.debug_chat import handle_debug_chat
-
-    result = await handle_debug_chat(
-        text=text,
+    result = await handle_debug_chat_route_runtime(
+        request=request,
         deps=_build_route_runtime_deps(),
-        user_id=user_id,
-        allow_mutations=allow_mutations,
     )
     return JSONResponse(result)
