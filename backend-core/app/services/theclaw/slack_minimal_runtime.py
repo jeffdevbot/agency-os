@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from typing import Any
@@ -9,6 +10,7 @@ from typing import Any
 from ..playbook_session import get_playbook_session_service
 from ..slack import get_slack_service
 from .openai_client import OpenAIConfigurationError, OpenAIError, call_chat_completion
+from .skill_registry import TheClawSkill, build_available_skills_xml, get_skill_by_id, load_skills
 
 _logger = logging.getLogger(__name__)
 
@@ -23,18 +25,20 @@ _MUTATION_REQUEST_RE = re.compile(
     r"|\b(task|clickup|email|campaign|message)\b.*\b(create|add|update|delete|remove|assign|send|post|publish|launch)\b",
     re.IGNORECASE,
 )
-_MEETING_KEYWORD_RE = re.compile(r"\bmeeting\b", re.IGNORECASE)
-_MEETING_NOTES_KEYWORD_RE = re.compile(
-    r"\b(notes?|summary|transcript|minutes|recap|follow[- ]?up)\b",
-    re.IGNORECASE,
-)
-_TASK_KEYWORD_RE = re.compile(r"\b(task|action items?|next steps?)\b", re.IGNORECASE)
 _SESSION_HISTORY_KEY = "theclaw_history_v1"
 _MAX_HISTORY_TURNS = 25
+_SKILL_SELECTION_JSON_RE = re.compile(r"\{.*\}", re.DOTALL)
+_SKILL_SELECTION_PROMPT = (
+    "You are the The Claw skill router. Select at most one skill for this user turn. "
+    "Use intent and context, not keyword matching. If no skill is needed, choose 'none'. "
+    "Return strict JSON only with this schema: "
+    '{"skill_id":"<skill id or none>","confidence":<0.0-1.0>,"reason":"<brief reason>"}. '
+    "Do not include markdown, prose, or code fences."
+)
 
 
-def _build_system_prompt() -> str:
-    return (
+def _build_system_prompt(*, selected_skill: TheClawSkill | None = None) -> str:
+    prompt = (
         "You are The Claw, an agency operations copilot for Amazon-focused client work. "
         "Keep answers concise, clear, and action-oriented, and avoid generic marketing fluff. "
         "In this minimal mode, you can advise and draft text only. "
@@ -43,22 +47,17 @@ def _build_system_prompt() -> str:
         "For task drafting, if key fields are missing (client/brand, owner, due date, priority), ask up to 2 clarifying questions before finalizing the draft. "
         "When using lists, use plain numbered format like '1.' and do not use bold-number bullets."
     )
+    if selected_skill is not None:
+        prompt = (
+            f"{prompt} You are executing skill '{selected_skill.name}' "
+            f"(id: {selected_skill.skill_id}). Follow this skill contract exactly: "
+            f"{selected_skill.system_prompt}"
+        )
+    return prompt
 
 
-def _build_meeting_task_system_prompt() -> str:
-    return (
-        f"{_build_system_prompt()} "
-        "You are executing the skill named 'Task Extraction'. "
-        "When the user shares meeting notes, convert them into practical draft tasks only. "
-        "Do not claim anything was created in external systems. "
-        "Use this exact output structure and headings: "
-        "'The Claw: Task Extraction' on its own line; "
-        "'Internal ClickUp Tasks (Agency)' heading; "
-        "then tasks as repeating blocks with 'Task N: <title>' and 'Context: <brief why/metric/SKU detail>'; "
-        "then 'Client-Side Requirements (Recap)' heading with one or more lines formatted 'Action Item: <client requirement>'. "
-        "Keep context concise and concrete. "
-        "If there are no client-side requirements, output one line: 'Action Item: None identified in this summary.'"
-    )
+def _build_skill_selection_system_prompt(*, available_skills_xml: str) -> str:
+    return f"{_SKILL_SELECTION_PROMPT}\n\n{available_skills_xml}"
 
 
 def _get_session_service():
@@ -70,18 +69,6 @@ def _trim_reply(content: str) -> str:
     if not reply:
         return _FALLBACK_REPLY
     return reply
-
-
-def _is_meeting_to_task_request(text: str) -> bool:
-    if not text:
-        return False
-    has_meeting = bool(_MEETING_KEYWORD_RE.search(text))
-    has_notes = bool(_MEETING_NOTES_KEYWORD_RE.search(text))
-    has_tasking = bool(_TASK_KEYWORD_RE.search(text))
-    looks_like_pasted_notes = len(text) >= 350 and "\n" in text
-    return (has_meeting and has_tasking and (has_notes or looks_like_pasted_notes)) or (
-        has_notes and has_tasking and looks_like_pasted_notes
-    )
 
 
 def _is_mutation_request(text: str) -> bool:
@@ -140,6 +127,85 @@ def _append_turn_and_cap_history(
     return updated
 
 
+def _parse_skill_selection(raw_text: str) -> tuple[str | None, float]:
+    text = (raw_text or "").strip()
+    if text.startswith("```"):
+        text = text.strip("`").strip()
+        if text.lower().startswith("json"):
+            text = text[4:].strip()
+
+    payload: dict[str, Any] | None = None
+    try:
+        decoded = json.loads(text)
+        if isinstance(decoded, dict):
+            payload = decoded
+    except json.JSONDecodeError:
+        match = _SKILL_SELECTION_JSON_RE.search(text)
+        if match:
+            try:
+                decoded = json.loads(match.group(0))
+                if isinstance(decoded, dict):
+                    payload = decoded
+            except json.JSONDecodeError:
+                payload = None
+
+    if not payload:
+        return None, 0.0
+
+    skill_id_value = str(payload.get("skill_id") or "").strip().lower()
+    confidence_raw = payload.get("confidence", 0)
+    try:
+        confidence = float(confidence_raw)
+    except (TypeError, ValueError):
+        confidence = 0.0
+
+    if skill_id_value in {"", "none", "null"}:
+        return None, max(0.0, min(1.0, confidence))
+    return skill_id_value, max(0.0, min(1.0, confidence))
+
+
+async def _select_skill_for_turn(
+    *,
+    user_text: str,
+    history_messages: list[dict[str, str]],
+) -> TheClawSkill | None:
+    skills = load_skills()
+    if not skills:
+        return None
+
+    available_skills_xml = build_available_skills_xml(skills=skills)
+    try:
+        selection_response = await call_chat_completion(
+            messages=[
+                {"role": "system", "content": _build_skill_selection_system_prompt(available_skills_xml=available_skills_xml)},
+                *history_messages[-8:],
+                {"role": "user", "content": user_text},
+            ],
+            temperature=0.0,
+            max_tokens=160,
+        )
+    except OpenAIError as exc:
+        _logger.warning("The Claw skill selection failed, falling back to no skill: %s", exc)
+        return None
+
+    selected_skill_id, confidence = _parse_skill_selection(selection_response["content"])
+    if not selected_skill_id:
+        return None
+
+    selected_skill = get_skill_by_id(selected_skill_id)
+    if selected_skill is None:
+        _logger.warning("The Claw selected unknown skill id '%s'", selected_skill_id)
+        return None
+
+    if confidence < 0.45:
+        _logger.info(
+            "The Claw skill selection confidence too low; skipping skill",
+            extra={"skill_id": selected_skill_id, "confidence": confidence},
+        )
+        return None
+    return selected_skill
+
+
 async def run_theclaw_minimal_dm_turn(*, slack_user_id: str, channel: str, text: str) -> None:
     user_text = (text or "").strip()
     if not user_text:
@@ -178,9 +244,11 @@ async def run_theclaw_minimal_dm_turn(*, slack_user_id: str, channel: str, text:
             session = None
             history_messages = []
 
-    system_prompt = _build_system_prompt()
-    if _is_meeting_to_task_request(user_text):
-        system_prompt = _build_meeting_task_system_prompt()
+    selected_skill = await _select_skill_for_turn(
+        user_text=user_text,
+        history_messages=history_messages,
+    )
+    system_prompt = _build_system_prompt(selected_skill=selected_skill)
 
     slack = get_slack_service()
     try:

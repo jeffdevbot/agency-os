@@ -3,13 +3,14 @@ from __future__ import annotations
 import pytest
 
 from app.services.theclaw.openai_client import OpenAIError
+from app.services.theclaw.skill_registry import get_skill_by_id
 from app.services.theclaw.slack_minimal_runtime import (
     _apply_mutation_disclaimer,
     _append_turn_and_cap_history,
-    _build_meeting_task_system_prompt,
+    _build_skill_selection_system_prompt,
     _build_system_prompt,
-    _is_meeting_to_task_request,
     _is_mutation_request,
+    _parse_skill_selection,
     handle_theclaw_minimal_interaction,
     run_theclaw_minimal_dm_turn,
 )
@@ -58,38 +59,35 @@ def test_build_system_prompt_contains_phase1_behavior_contract():
     assert "plain numbered format" in prompt
 
 
-def test_build_meeting_task_prompt_contains_draft_contract():
-    prompt = _build_meeting_task_system_prompt().lower()
+def test_build_system_prompt_includes_selected_skill_contract():
+    skill = get_skill_by_id("task_extraction")
+    assert skill is not None
+    prompt = _build_system_prompt(selected_skill=skill).lower()
+    assert "executing skill" in prompt
     assert "task extraction" in prompt
     assert "internal clickup tasks (agency)" in prompt
-    assert "task n: <title>" in prompt
-    assert "context: <brief why/metric/sku detail>" in prompt
-    assert "client-side requirements (recap)" in prompt
-    assert "action item: <client requirement>" in prompt
+
+
+def test_build_skill_selection_prompt_includes_available_skills_xml():
+    prompt = _build_skill_selection_system_prompt(
+        available_skills_xml="<available_skills><skill><id>task_extraction</id></skill></available_skills>"
+    )
+    assert "strict json only" in prompt.lower()
+    assert "<available_skills>" in prompt
 
 
 @pytest.mark.parametrize(
-    ("text", "expected"),
+    ("text", "expected_skill", "expected_confidence"),
     [
-        (
-            "Here are my meeting notes summary. Please draft task action items.\n- owner: TBD\n- due: TBD\n",
-            True,
-        ),
-        (
-            "I had a meeting and pasted notes below. Please create task action items.\n"
-            + ("line\n" * 120),
-            True,
-        ),
-        (
-            "meeting notes summary with action items and next steps:\n"
-            + ("line\n" * 80),
-            True,
-        ),
-        ("Give me five task ideas for PPC.", False),
+        ('{"skill_id":"task_extraction","confidence":0.8,"reason":"meeting notes"}', "task_extraction", 0.8),
+        ("```json\n{\"skill_id\":\"none\",\"confidence\":0.31,\"reason\":\"none\"}\n```", None, 0.31),
+        ("not-json", None, 0.0),
     ],
 )
-def test_is_meeting_to_task_request(text: str, expected: bool):
-    assert _is_meeting_to_task_request(text) is expected
+def test_parse_skill_selection(text: str, expected_skill: str | None, expected_confidence: float):
+    skill_id, confidence = _parse_skill_selection(text)
+    assert skill_id == expected_skill
+    assert confidence == expected_confidence
 
 
 @pytest.mark.parametrize(
@@ -141,10 +139,19 @@ def test_append_turn_and_cap_history_limits_to_25_turns():
 async def test_run_theclaw_minimal_dm_turn_posts_model_reply(monkeypatch):
     fake_slack = _FakeSlackService()
     fake_session_service = _FakeSessionService()
-    captured: dict[str, object] = {}
+    calls: list[dict[str, object]] = []
 
     async def _fake_call_chat_completion(**kwargs):
-        captured.update(kwargs)
+        calls.append(kwargs)
+        if len(calls) == 1:
+            return {
+                "content": '{"skill_id":"none","confidence":0.92,"reason":"general chat"}',
+                "tokens_in": 10,
+                "tokens_out": 11,
+                "tokens_total": 21,
+                "model": "gpt-4o-mini",
+                "duration_ms": 5,
+            }
         return {
             "content": "Reply from The Claw",
             "tokens_in": 10,
@@ -169,9 +176,14 @@ async def test_run_theclaw_minimal_dm_turn_posts_model_reply(monkeypatch):
 
     await run_theclaw_minimal_dm_turn(slack_user_id="U1", channel="D1", text="Help me with amazon ads")
 
-    assert captured["temperature"] == 0.2
-    assert captured["max_tokens"] == 500
-    messages = captured["messages"]
+    assert len(calls) == 2
+    assert calls[0]["temperature"] == 0.0
+    assert calls[0]["max_tokens"] == 160
+    assert "<available_skills>" in calls[0]["messages"][0]["content"]
+
+    assert calls[1]["temperature"] == 0.2
+    assert calls[1]["max_tokens"] == 500
+    messages = calls[1]["messages"]
     assert isinstance(messages, list)
     assert len(messages) == 2
     assert messages[1]["content"] == "Help me with amazon ads"
@@ -188,8 +200,20 @@ async def test_run_theclaw_minimal_dm_turn_posts_model_reply(monkeypatch):
 async def test_run_theclaw_minimal_dm_turn_forces_mutation_disclaimer(monkeypatch):
     fake_slack = _FakeSlackService()
     fake_session_service = _FakeSessionService()
+    call_count = 0
 
     async def _fake_call_chat_completion(**kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return {
+                "content": '{"skill_id":"none","confidence":0.8,"reason":"general"}',
+                "tokens_in": 10,
+                "tokens_out": 11,
+                "tokens_total": 21,
+                "model": "gpt-4o-mini",
+                "duration_ms": 5,
+            }
         return {
             "content": "Task created successfully.",
             "tokens_in": 10,
@@ -224,13 +248,22 @@ async def test_run_theclaw_minimal_dm_turn_forces_mutation_disclaimer(monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_run_theclaw_minimal_dm_turn_uses_meeting_prompt_when_detected(monkeypatch):
+async def test_run_theclaw_minimal_dm_turn_uses_selected_skill_prompt(monkeypatch):
     fake_slack = _FakeSlackService()
     fake_session_service = _FakeSessionService()
-    captured: dict[str, object] = {}
+    calls: list[dict[str, object]] = []
 
     async def _fake_call_chat_completion(**kwargs):
-        captured.update(kwargs)
+        calls.append(kwargs)
+        if len(calls) == 1:
+            return {
+                "content": '{"skill_id":"task_extraction","confidence":0.93,"reason":"meeting recap"}',
+                "tokens_in": 10,
+                "tokens_out": 11,
+                "tokens_total": 21,
+                "model": "gpt-4o-mini",
+                "duration_ms": 5,
+            }
         return {
             "content": "The Claw: Task Extraction\nInternal ClickUp Tasks (Agency)\nTask 1: ...",
             "tokens_in": 10,
@@ -259,19 +292,67 @@ async def test_run_theclaw_minimal_dm_turn_uses_meeting_prompt_when_detected(mon
         text="meeting notes summary with action items and next steps:\n" + ("line\n" * 80),
     )
 
-    messages = captured["messages"]
-    assert isinstance(messages, list)
-    prompt_text = messages[0]["content"].lower()
-    assert "the claw: task extraction" in prompt_text
-    assert "internal clickup tasks (agency)" in prompt_text
+    response_prompt = calls[1]["messages"][0]["content"].lower()
+    assert "executing skill 'task extraction'" in response_prompt
+    assert "internal clickup tasks (agency)" in response_prompt
+
+
+@pytest.mark.asyncio
+async def test_run_theclaw_minimal_dm_turn_skill_selection_error_falls_back_to_no_skill(monkeypatch):
+    fake_slack = _FakeSlackService()
+    fake_session_service = _FakeSessionService()
+    call_count = 0
+
+    async def _fake_call_chat_completion(**kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise OpenAIError("router boom")
+        return {
+            "content": "Router failed but assistant still replied.",
+            "tokens_in": 10,
+            "tokens_out": 11,
+            "tokens_total": 21,
+            "model": "gpt-4o-mini",
+            "duration_ms": 5,
+        }
+
+    monkeypatch.setattr(
+        "app.services.theclaw.slack_minimal_runtime.get_slack_service",
+        lambda: fake_slack,
+    )
+    monkeypatch.setattr(
+        "app.services.theclaw.slack_minimal_runtime.call_chat_completion",
+        _fake_call_chat_completion,
+    )
+    monkeypatch.setattr(
+        "app.services.theclaw.slack_minimal_runtime._get_session_service",
+        lambda: fake_session_service,
+    )
+
+    await run_theclaw_minimal_dm_turn(slack_user_id="U5", channel="D5", text="hello")
+
+    assert fake_slack.messages == [{"channel": "D5", "text": "Router failed but assistant still replied."}]
 
 
 @pytest.mark.asyncio
 async def test_run_theclaw_minimal_dm_turn_openai_error_posts_fallback(monkeypatch):
     fake_slack = _FakeSlackService()
     fake_session_service = _FakeSessionService()
+    call_count = 0
 
     async def _fake_call_chat_completion(**kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return {
+                "content": '{"skill_id":"none","confidence":0.9,"reason":"general"}',
+                "tokens_in": 10,
+                "tokens_out": 11,
+                "tokens_total": 21,
+                "model": "gpt-4o-mini",
+                "duration_ms": 5,
+            }
         raise OpenAIError("boom")
 
     monkeypatch.setattr(
@@ -337,10 +418,19 @@ async def test_run_theclaw_minimal_dm_turn_includes_prior_history_messages(monke
         }
     )
     fake_session_service = _FakeSessionService(session=fake_session)
-    captured: dict[str, object] = {}
+    calls: list[dict[str, object]] = []
 
     async def _fake_call_chat_completion(**kwargs):
-        captured.update(kwargs)
+        calls.append(kwargs)
+        if len(calls) == 1:
+            return {
+                "content": '{"skill_id":"none","confidence":0.7,"reason":"general"}',
+                "tokens_in": 10,
+                "tokens_out": 11,
+                "tokens_total": 21,
+                "model": "gpt-4o-mini",
+                "duration_ms": 5,
+            }
         return {
             "content": "Using prior context now.",
             "tokens_in": 10,
@@ -365,7 +455,7 @@ async def test_run_theclaw_minimal_dm_turn_includes_prior_history_messages(monke
 
     await run_theclaw_minimal_dm_turn(slack_user_id="U10", channel="D10", text="What should I do next?")
 
-    messages = captured["messages"]
+    messages = calls[1]["messages"]
     assert isinstance(messages, list)
     assert messages[1] == {"role": "user", "content": "Client is TestBrand."}
     assert messages[2] == {"role": "assistant", "content": "Got it."}

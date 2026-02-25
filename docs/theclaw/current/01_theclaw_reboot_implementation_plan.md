@@ -97,6 +97,33 @@ Schema reference:
 - Canonical DB reference: `docs/db/schema_master.md`
 - Relevant table section: `public.playbook_slack_sessions`
 
+## 4C) Skill Registry + Router Categories
+
+Skill model (OpenClaw-style, markdown-first):
+- Each skill lives under `backend-core/app/services/theclaw/skills/<category>/<skill_id>/SKILL.md`.
+- `SKILL.md` is the source of truth for:
+  - metadata (`id`, `name`, `category`, optional `categories`, trigger hints),
+  - the skill prompt contract,
+  - output contract notes.
+- Runtime loads skills via a registry module, not hardcoded prompt blocks in `slack_minimal_runtime.py`.
+
+Router category lanes for phase rollout:
+1. `ppc`
+2. `catalog`
+3. `p&l`
+4. `replenishment`
+5. `wbr`
+
+Routing strategy (multi-level to prevent skill explosion):
+1. Build a compact `<available_skills>` XML menu (id, name, description, location) and inject it into a skill-router prompt.
+2. Let the model choose `skill_id` (or `none`) for the turn in strict JSON.
+3. Runtime loads only the selected `SKILL.md` contract and augments the response prompt with that skill.
+4. Invoke one skill by default unless explicit multi-skill orchestration is required.
+5. Deterministic checks remain only for safety rails (auth, policy, confirmations, idempotency, auditability).
+
+Guardrail:
+- Do not append large per-skill prompt logic directly in runtime code; add/modify `SKILL.md` contracts and registry metadata instead.
+
 ## 5) Phase Plan (Baby Steps)
 
 ## Phase 0 - Baseline and Freeze
