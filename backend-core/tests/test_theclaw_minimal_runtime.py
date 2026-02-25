@@ -4,6 +4,9 @@ import pytest
 
 from app.services.theclaw.openai_client import OpenAIError
 from app.services.theclaw.slack_minimal_runtime import (
+    _apply_mutation_disclaimer,
+    _build_system_prompt,
+    _is_mutation_request,
     handle_theclaw_minimal_interaction,
     run_theclaw_minimal_dm_turn,
 )
@@ -19,6 +22,42 @@ class _FakeSlackService:
 
     async def aclose(self) -> None:
         self.closed = True
+
+
+def test_build_system_prompt_contains_phase1_behavior_contract():
+    prompt = _build_system_prompt().lower()
+    assert "cannot execute system actions" in prompt
+    assert "clarifying questions" in prompt
+    assert "plain numbered format" in prompt
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("create a clickup task for test space", True),
+        ("send this follow-up email", True),
+        ("give me five ppc action items", False),
+    ],
+)
+def test_is_mutation_request(text: str, expected: bool):
+    assert _is_mutation_request(text) is expected
+
+
+def test_apply_mutation_disclaimer_prepends_for_mutation_requests():
+    output = _apply_mutation_disclaimer(
+        user_text="create a clickup task for this",
+        reply_text="Here is a suggested draft task.",
+    )
+    assert output.startswith("I can draft and advise")
+    assert "suggested draft task" in output
+
+
+def test_apply_mutation_disclaimer_respects_existing_limitation_language():
+    output = _apply_mutation_disclaimer(
+        user_text="create a clickup task for this",
+        reply_text="I cannot execute actions yet, but here is the draft.",
+    )
+    assert output == "I cannot execute actions yet, but here is the draft."
 
 
 @pytest.mark.asyncio
@@ -56,6 +95,40 @@ async def test_run_theclaw_minimal_dm_turn_posts_model_reply(monkeypatch):
     assert messages[1]["content"] == "Help me with amazon ads"
     assert fake_slack.messages == [{"channel": "D1", "text": "Reply from The Claw"}]
     assert fake_slack.closed is True
+
+
+@pytest.mark.asyncio
+async def test_run_theclaw_minimal_dm_turn_forces_mutation_disclaimer(monkeypatch):
+    fake_slack = _FakeSlackService()
+
+    async def _fake_call_chat_completion(**kwargs):
+        return {
+            "content": "Task created successfully.",
+            "tokens_in": 10,
+            "tokens_out": 11,
+            "tokens_total": 21,
+            "model": "gpt-4o-mini",
+            "duration_ms": 5,
+        }
+
+    monkeypatch.setattr(
+        "app.services.theclaw.slack_minimal_runtime.get_slack_service",
+        lambda: fake_slack,
+    )
+    monkeypatch.setattr(
+        "app.services.theclaw.slack_minimal_runtime.call_chat_completion",
+        _fake_call_chat_completion,
+    )
+
+    await run_theclaw_minimal_dm_turn(
+        slack_user_id="U3",
+        channel="D3",
+        text="create a clickup task in test space",
+    )
+
+    assert len(fake_slack.messages) == 1
+    assert fake_slack.messages[0]["channel"] == "D3"
+    assert "cannot execute actions" in fake_slack.messages[0]["text"].lower()
 
 
 @pytest.mark.asyncio

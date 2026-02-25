@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from ..slack import get_slack_service
@@ -11,15 +12,25 @@ from .openai_client import OpenAIConfigurationError, OpenAIError, call_chat_comp
 _logger = logging.getLogger(__name__)
 
 _FALLBACK_REPLY = "I ran into a temporary issue generating a reply. Please retry."
+_MUTATION_DISCLAIMER = (
+    "I can draft and advise, but I cannot execute actions in ClickUp or other systems yet."
+)
+_MUTATION_REQUEST_RE = re.compile(
+    r"\b(create|add|update|delete|remove|assign|send|post|publish|launch)\b.*\b(task|clickup|email|campaign|message)\b"
+    r"|\b(task|clickup|email|campaign|message)\b.*\b(create|add|update|delete|remove|assign|send|post|publish|launch)\b",
+    re.IGNORECASE,
+)
 
 
 def _build_system_prompt() -> str:
     return (
-        "You are The Claw, a practical assistant for running an Amazon agency. "
-        "Keep answers concise, clear, and action-oriented. "
+        "You are The Claw, an agency operations copilot for Amazon-focused client work. "
+        "Keep answers concise, clear, and action-oriented, and avoid generic marketing fluff. "
         "In this minimal mode, you can advise and draft text only. "
-        "Do not claim to have created tasks, changed systems, or performed external actions. "
-        "If asked to execute something, explain the limitation briefly and provide the next best draft."
+        "Do not claim to have created tasks, changed systems, sent messages, or performed external actions. "
+        "If asked to execute an action, explicitly state that you cannot execute system actions yet, then provide the best draft. "
+        "For task drafting, if key fields are missing (client/brand, owner, due date, priority), ask up to 2 clarifying questions before finalizing the draft. "
+        "When using lists, use plain numbered format like '1.' and do not use bold-number bullets."
     )
 
 
@@ -28,6 +39,19 @@ def _trim_reply(content: str) -> str:
     if not reply:
         return _FALLBACK_REPLY
     return reply
+
+
+def _is_mutation_request(text: str) -> bool:
+    return bool(_MUTATION_REQUEST_RE.search(text or ""))
+
+
+def _apply_mutation_disclaimer(*, user_text: str, reply_text: str) -> str:
+    if not _is_mutation_request(user_text):
+        return reply_text
+    normalized_reply = (reply_text or "").lower()
+    if "cannot execute" in normalized_reply or "can't create" in normalized_reply:
+        return reply_text
+    return f"{_MUTATION_DISCLAIMER}\n\n{reply_text}"
 
 
 async def run_theclaw_minimal_dm_turn(*, slack_user_id: str, channel: str, text: str) -> None:
@@ -47,6 +71,7 @@ async def run_theclaw_minimal_dm_turn(*, slack_user_id: str, channel: str, text:
                 max_tokens=500,
             )
             reply_text = _trim_reply(response["content"])
+            reply_text = _apply_mutation_disclaimer(user_text=user_text, reply_text=reply_text)
         except OpenAIConfigurationError:
             reply_text = "The Claw is not configured yet. Please set OPENAI_API_KEY and try again."
         except OpenAIError as exc:
