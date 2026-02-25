@@ -23,6 +23,18 @@ _BRAND_MAPPING_AUDIT_PATTERN = re.compile(r"\b(audit|check|review)\b[\w\s]{0,60}
 _PLAN_WORD_PATTERN = re.compile(r"\b(plan|roadmap|schedule)\b", re.IGNORECASE)
 _TWO_SPRINTS_PATTERN = re.compile(r"\b(two|2)\s+sprints?\b", re.IGNORECASE)
 _OPEN_QUESTIONS_PATTERN = re.compile(r"\bopen questions?\b", re.IGNORECASE)
+_NOVICE_GUIDANCE_PATTERN = re.compile(
+    r"\b(not sure|what should i do first|walk me through|as if i am new|i am new|first step)\b",
+    re.IGNORECASE,
+)
+_MISSING_ONLY_PATTERN = re.compile(
+    r"\b(ask me only what is missing|only what is missing|figure out the rest)\b",
+    re.IGNORECASE,
+)
+_BRAND_NAME_HINT_PATTERN = re.compile(
+    r"\bbrand name\s+(.+?)(?=(?:[,\.\?!]|$))",
+    re.IGNORECASE,
+)
 _EXECUTION_READINESS_PATTERN = re.compile(
     r"\b(execution[- ]ready|what info is missing|what's missing|missing before this task)\b",
     re.IGNORECASE,
@@ -136,6 +148,36 @@ def looks_like_two_sprint_plan_request(text: str) -> bool:
     )
 
 
+def looks_like_novice_guidance_request(text: str) -> bool:
+    lowered = (text or "").strip().lower()
+    if not lowered:
+        return False
+    if "ask me only what is missing" in lowered:
+        return True
+    if "not sure how to launch" in lowered:
+        return True
+    return bool(_NOVICE_GUIDANCE_PATTERN.search(lowered))
+
+
+def looks_like_missing_only_request(text: str) -> bool:
+    lowered = (text or "").strip().lower()
+    if not lowered:
+        return False
+    return bool(_MISSING_ONLY_PATTERN.search(lowered))
+
+
+def infer_brand_hint_for_novice_prompt(text: str) -> str:
+    normalized = " ".join((text or "").strip().split())
+    if not normalized:
+        return ""
+    match = _BRAND_NAME_HINT_PATTERN.search(normalized)
+    if match:
+        candidate = _clean_natural_arg(match.group(1))
+        if candidate:
+            return candidate
+    return ""
+
+
 def looks_like_execution_readiness_request(text: str) -> bool:
     lowered = (text or "").strip().lower()
     if not lowered:
@@ -217,6 +259,34 @@ def build_two_sprint_plan_response(*, target_label: str = "", audit_evidence: st
             "3. What due dates/priority should we assign for Sprint 1 and Sprint 2?",
         ]
     )
+    return "\n".join(lines)
+
+
+def build_novice_guidance_response(*, brand_name: str = "", missing_only: bool = False) -> str:
+    brand = brand_name.strip()
+    if missing_only:
+        scope = f" for *{brand}*" if brand else ""
+        lines = [f"I can draft this{scope}. I only need these missing inputs:"]
+        lines.extend(
+            [
+                "1. Owner/assignee",
+                "2. Discount amount/offer terms",
+                "3. ASIN/SKU scope",
+                "4. Start and end dates",
+                "5. ClickUp destination (space/list) if not the default for this brand",
+                "Reply with what you know and I will draft the task for approval only.",
+            ]
+        )
+        return "\n".join(lines)
+
+    scope = f" for *{brand}*" if brand else ""
+    lines = [
+        f"Start with this first{scope}:",
+        "1. Confirm your launch goal.",
+        "2. Gather the required inputs: owner, discount terms, ASIN/SKU scope, and dates.",
+        "3. I will draft an SOP-aligned task for approval only (no execution).",
+        "Share those inputs and I will draft it now.",
+    ]
     return "\n".join(lines)
 
 

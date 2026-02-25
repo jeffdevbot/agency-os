@@ -20,6 +20,7 @@ from typing import Any, Awaitable, Callable
 
 from .agent_loop_context_assembler import assemble_prompt_context
 from .agent_loop_intent_recovery import (
+    build_novice_guidance_response as _build_novice_guidance_response,
     build_two_sprint_plan_response as _build_two_sprint_plan_response,
     build_execution_readiness_response as _build_execution_readiness_response,
     capabilities_help_text as _capabilities_help_text,
@@ -32,6 +33,7 @@ from .agent_loop_intent_recovery import (
     is_create_clarification_reply as _is_create_clarification_reply,
     is_generic_failure_reply as _is_generic_failure_reply,
     is_non_answer_action_promise as _is_non_answer_action_promise,
+    infer_brand_hint_for_novice_prompt as _infer_brand_hint_for_novice_prompt,
     looks_like_brand_list_request as _looks_like_brand_list_request,
     looks_like_brand_mapping_audit_request as _looks_like_brand_mapping_audit_request,
     looks_like_capabilities_request as _looks_like_capabilities_request,
@@ -42,6 +44,8 @@ from .agent_loop_intent_recovery import (
     looks_like_task_create_request as _looks_like_task_create_request,
     looks_like_task_list_request as _looks_like_task_list_request,
     looks_like_two_sprint_plan_request as _looks_like_two_sprint_plan_request,
+    looks_like_missing_only_request as _looks_like_missing_only_request,
+    looks_like_novice_guidance_request as _looks_like_novice_guidance_request,
     meeting_sop_query_for_candidate as _meeting_sop_query_for_candidate,
     postprocess_task_list_answer as _postprocess_task_list_answer,
     response_text_from_tool_result as _response_text_from_tool_result,
@@ -620,6 +624,50 @@ async def run_reply_only_agent_loop_turn(
                         break
             return _build_two_sprint_plan_response(target_label=scope, audit_evidence=evidence)
 
+        async def _recover_from_novice_guidance_request() -> str | None:
+            if not _looks_like_novice_guidance_request(text):
+                return None
+
+            def _sanitize_novice_scope_hint(value: str) -> str:
+                cleaned = str(value or "").strip(" \t\r\n.,:;!?")
+                lowered = cleaned.lower()
+                if not cleaned:
+                    return ""
+                invalid_exact = {
+                    "me",
+                    "you",
+                    "us",
+                    "them",
+                    "it",
+                    "this",
+                    "that",
+                    "task",
+                    "campaign",
+                    "approval only",
+                    "for approval only",
+                }
+                if lowered in invalid_exact:
+                    return ""
+                if any(token in lowered for token in ("approval only", "for me")):
+                    return ""
+                if len(lowered) < 3:
+                    return ""
+                return cleaned
+
+            brand_hint = _sanitize_novice_scope_hint(_infer_brand_hint_for_novice_prompt(text))
+            if not brand_hint and _looks_like_missing_only_request(text):
+                recent = _recent_exchanges_from_context(getattr(session, "context", {}))
+                for item in reversed(recent):
+                    user_text = str(item.get("user") or "")
+                    candidate = _sanitize_novice_scope_hint(_infer_brand_hint_for_novice_prompt(user_text))
+                    if candidate:
+                        brand_hint = candidate
+                        break
+            return _build_novice_guidance_response(
+                brand_name=brand_hint,
+                missing_only=_looks_like_missing_only_request(text),
+            )
+
         def _get_meeting_notes_source_text() -> str:
             current = (text or "").strip()
             if _looks_like_meeting_notes_blob(current):
@@ -940,6 +988,13 @@ async def run_reply_only_agent_loop_turn(
         assistant_text = _clean_assistant_text(assistant_text)
         if _looks_like_capabilities_request(text):
             assistant_text = _capabilities_help_text()
+        if _looks_like_novice_guidance_request(text):
+            try:
+                recovered_text = await _recover_from_novice_guidance_request()
+                if recovered_text:
+                    assistant_text = recovered_text
+            except Exception as recovery_exc:  # noqa: BLE001
+                logger.info("Novice-guidance recovery failed: %s", recovery_exc, exc_info=True)
         if _looks_like_execution_readiness_request(text):
             try:
                 recovered_text = await _recover_from_execution_readiness_request()

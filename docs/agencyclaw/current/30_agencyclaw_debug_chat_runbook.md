@@ -107,3 +107,8 @@ Minimum pass before wider use:
 - Client/brand resolution is correct for test entities.
 - Mutation confirmation and idempotency behave correctly.
 - No repeated generic fallback across the core test set.
+
+Machine-checkable assertion command:
+```bash
+python backend-core/scripts/claw_gauntlet_assert.py /tmp/claw_gauntlet_transcript_contract_v19_local_linked_reset.json
+```

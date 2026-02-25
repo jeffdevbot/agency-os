@@ -382,6 +382,193 @@ async def test_execution_readiness_request_uses_draft_grounding(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_novice_guidance_request_returns_first_step_plan(monkeypatch):
+    class FakeStore:
+        def __init__(self, _db):
+            pass
+
+        def list_recent_run_messages(self, run_id: str, limit: int = 20):
+            return []
+
+    class FakeTurnLogger:
+        def __init__(self, _store):
+            pass
+
+        def start_main_run(self, session_id: str):
+            return {"id": "run-1", "status": "running"}
+
+        def log_user_message(self, run_id: str, text: str):
+            return {"id": "m1"}
+
+        def log_assistant_message(self, run_id: str, text: str):
+            return {"id": "m2"}
+
+        def complete_run(self, run_id: str, status: str):
+            return None
+
+    async def _fake_completion(*args, **kwargs):
+        _ = args, kwargs
+        return {
+            "content": '{"mode":"reply","text":"I need more details to proceed."}',
+            "tokens_in": 10,
+            "tokens_out": 5,
+            "tokens_total": 15,
+            "model": "gpt-4o-mini",
+            "duration_ms": 10,
+        }
+
+    monkeypatch.setattr("app.services.agencyclaw.agent_loop_runtime.AgentLoopStore", FakeStore)
+    monkeypatch.setattr("app.services.agencyclaw.agent_loop_runtime.AgentLoopTurnLogger", FakeTurnLogger)
+
+    session = _FakeSession()
+    slack = _FakeSlack()
+    handled = await run_reply_only_agent_loop_turn(
+        text="I am not sure how to launch this campaign safely. What should I do first?",
+        session=session,
+        slack_user_id="U123",
+        session_service=_FakeSessionService(session),
+        channel="D1",
+        slack=slack,
+        supabase_client=MagicMock(),
+        call_chat_completion_fn=_fake_completion,
+    )
+
+    assert handled is True
+    answer = slack.messages[-1]["text"]
+    assert "Start with this first" in answer
+    assert "Confirm your launch goal" in answer
+    assert "SOP-aligned task for approval only" in answer
+
+
+@pytest.mark.asyncio
+async def test_novice_missing_only_request_is_brand_scoped(monkeypatch):
+    class FakeStore:
+        def __init__(self, _db):
+            pass
+
+        def list_recent_run_messages(self, run_id: str, limit: int = 20):
+            return []
+
+    class FakeTurnLogger:
+        def __init__(self, _store):
+            pass
+
+        def start_main_run(self, session_id: str):
+            return {"id": "run-1", "status": "running"}
+
+        def log_user_message(self, run_id: str, text: str):
+            return {"id": "m1"}
+
+        def log_assistant_message(self, run_id: str, text: str):
+            return {"id": "m2"}
+
+        def complete_run(self, run_id: str, status: str):
+            return None
+
+    async def _fake_completion(*args, **kwargs):
+        _ = args, kwargs
+        return {
+            "content": '{"mode":"reply","text":"Let me walk you through Seller Central setup."}',
+            "tokens_in": 10,
+            "tokens_out": 5,
+            "tokens_total": 15,
+            "model": "gpt-4o-mini",
+            "duration_ms": 10,
+        }
+
+    monkeypatch.setattr("app.services.agencyclaw.agent_loop_runtime.AgentLoopStore", FakeStore)
+    monkeypatch.setattr("app.services.agencyclaw.agent_loop_runtime.AgentLoopTurnLogger", FakeTurnLogger)
+
+    session = _FakeSession()
+    slack = _FakeSlack()
+    handled = await run_reply_only_agent_loop_turn(
+        text="I only know the brand name Test. Please figure out the rest and ask me only what is missing.",
+        session=session,
+        slack_user_id="U123",
+        session_service=_FakeSessionService(session),
+        channel="D1",
+        slack=slack,
+        supabase_client=MagicMock(),
+        call_chat_completion_fn=_fake_completion,
+    )
+
+    assert handled is True
+    answer = slack.messages[-1]["text"]
+    assert "I can draft this for *Test*" in answer
+    assert "I only need these missing inputs" in answer
+    assert "Owner/assignee" in answer
+    assert "ASIN/SKU scope" in answer
+    assert "Start with this first" not in answer
+
+
+@pytest.mark.asyncio
+async def test_novice_guidance_ignores_non_scope_hints_from_context_and_pronouns(monkeypatch):
+    class FakeStore:
+        def __init__(self, _db):
+            pass
+
+        def list_recent_run_messages(self, run_id: str, limit: int = 20):
+            return []
+
+    class FakeTurnLogger:
+        def __init__(self, _store):
+            pass
+
+        def start_main_run(self, session_id: str):
+            return {"id": "run-1", "status": "running"}
+
+        def log_user_message(self, run_id: str, text: str):
+            return {"id": "m1"}
+
+        def log_assistant_message(self, run_id: str, text: str):
+            return {"id": "m2"}
+
+        def complete_run(self, run_id: str, status: str):
+            return None
+
+    async def _fake_completion(*args, **kwargs):
+        _ = args, kwargs
+        return {
+            "content": '{"mode":"reply","text":"Let me walk you through this."}',
+            "tokens_in": 10,
+            "tokens_out": 5,
+            "tokens_total": 15,
+            "model": "gpt-4o-mini",
+            "duration_ms": 10,
+        }
+
+    monkeypatch.setattr("app.services.agencyclaw.agent_loop_runtime.AgentLoopStore", FakeStore)
+    monkeypatch.setattr("app.services.agencyclaw.agent_loop_runtime.AgentLoopTurnLogger", FakeTurnLogger)
+
+    session = _FakeSession(
+        context={
+            "recent_exchanges": [
+                {
+                    "user": "Please extract actionable draft tasks and present drafts for approval only.",
+                    "assistant": "Draft tasks ready.",
+                }
+            ]
+        }
+    )
+    slack = _FakeSlack()
+    handled = await run_reply_only_agent_loop_turn(
+        text="Can you walk me through this as if I am new, then draft the task for me?",
+        session=session,
+        slack_user_id="U123",
+        session_service=_FakeSessionService(session),
+        channel="D1",
+        slack=slack,
+        supabase_client=MagicMock(),
+        call_chat_completion_fn=_fake_completion,
+    )
+
+    assert handled is True
+    answer = slack.messages[-1]["text"]
+    assert "Start with this first:" in answer
+    assert "for *" not in answer
+
+
+@pytest.mark.asyncio
 async def test_brand_mapping_audit_request_action_promise_recovers_with_audit_skill(monkeypatch):
     class FakeStore:
         def __init__(self, _db):

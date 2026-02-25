@@ -7,6 +7,9 @@ Source run:
 - local transcript (latest runtime): `/tmp/claw_gauntlet_transcript_contract_v5_latest.json`
 - local transcript (linked user + reset): `/tmp/claw_gauntlet_transcript_contract_v11_local_linked_reset.json`
 - focused SOP follow-up check: `/tmp/claw_gauntlet_sop_followup_focus_v12.json`
+- local transcript (planner fix pass): `/tmp/claw_gauntlet_transcript_contract_v16_local_linked_reset.json`
+- local transcript (novice recovery pass): `/tmp/claw_gauntlet_transcript_contract_v19_local_linked_reset.json`
+- render transcript (deployed check): `/tmp/claw_gauntlet_transcript_contract_v20_render_linked_reset.json`
 
 ## Open issues
 
@@ -35,25 +38,33 @@ Source run:
    - Symptom: `"client Test and brand Test"` interpreted as a single client hint.
    - Fix landed: deterministic parser extracts `client_name`, `brand_name`, `task_title`, `task_description`.
 
-7. `open` Novice guidance flow asks avoidable clarification after successful brand lookup.
-   - Symptom: brand resolved (`lookup_brand`) but still returns generic "rephrase with client and target outcome."
+7. `fixed` Novice guidance now returns deterministic first-step coaching and missing-only prompts.
+   - Prior symptom: novice prompts drifted into generic SOP tutorials or weak clarification loops.
+   - Fix landed: novice-intent recovery emits a stable "start first" plan and a brand-scoped "only missing inputs" response when user says "ask only what is missing."
+   - Validation: local run (`v19`) shows stable outputs for `novice_1`, `novice_2`, and `novice_3`.
 
-8. `open` Planner follow-up quality is weak for "two sprints + open questions".
-   - Symptom: planner returns `needs_clarification` despite context from prior audit turn.
+8. `fixed` Planner follow-up now returns deterministic two-sprint plan with open questions.
+   - Prior symptom: planner returned `needs_clarification` despite context from prior audit turn.
+   - Fix landed: deterministic planner-intent recovery for mapping audit + two-sprint follow-up, grounded on recent audit evidence when available.
+   - Validation: local runs (`v16`, `v19`) show stable `planner_1` audit output and structured `planner_2` response.
 
 9. `fixed` SOP-draft missing-info prompt now asks explicit execution-ready fields.
    - Prior symptom: generic follow-up without concrete readiness fields.
    - Fix landed: execution-readiness intent emits deterministic checklist (owner, discount terms, ASIN/SKU scope, dates, ClickUp destination) and uses latest task draft context.
    - Validation: focused run (`v12`) confirms checklist output.
 
-10. `open` Test runbook lacks machine-checkable assertions.
-   - Symptom: pass/fail requires manual inspection; regressions can slip across core prompts.
+10. `fixed` Test runbook now has machine-checkable assertions.
+   - Symptom: pass/fail required manual inspection; regressions could slip across core prompts.
+   - Fix landed: added `backend-core/scripts/claw_gauntlet_assert.py` for transcript contract checks.
+   - Validation: `python backend-core/scripts/claw_gauntlet_assert.py /tmp/claw_gauntlet_transcript_contract_v19_local_linked_reset.json` passes.
 
 11. `partially_fixed` Session context over-anchoring after meeting turns is reduced.
-   - Symptom (latest run): novice/mutation/planner prompts sometimes continue meeting-task framing instead of re-centering on new user intent.
+   - Symptom (older runs): novice/mutation/planner prompts sometimes continued meeting-task framing instead of re-centering on new user intent.
    - Fix landed: meeting-note exchanges are filtered from LLM prompt context on non-meeting turns.
    - Additional hardening landed: debug route supports `reset_session=true` to force clean-run harness state.
-   - Residual: deployed-Render confirmation still needed.
+   - Local status: clean-reset local runs (`v16`, `v19`) no longer show meeting-turn bleed into planner/mutation paths.
+   - Render status (2026-02-25): deployed run (`v20`) is reachable, but assertion contract fails on novice turns (`novice_1`, `novice_3`) while planner/mutation paths pass.
+   - Residual: deploy latest branch to Render, then rerun gauntlet assertion for closure.
 
 12. `fixed` Baseline capabilities prompt now returns deterministic help scope.
    - Symptom: first gauntlet prompt sometimes drifted into unrelated planner replies.
@@ -70,7 +81,4 @@ Source run:
 
 ## Proposed fix order
 
-1. Planner follow-up quality (`#8`)
-2. Novice/context grounding quality (`#7`)
-3. Gauntlet automation assertions (`#10`)
-4. Render clean-run confirmation (`#11`)
+1. Render clean-run confirmation (`#11`)
