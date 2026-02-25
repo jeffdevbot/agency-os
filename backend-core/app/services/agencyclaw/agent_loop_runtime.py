@@ -198,7 +198,9 @@ def _extract_client_hint_from_text(text: str) -> str:
     if not match:
         return ""
     hint = (match.group(1) or "").strip()
-    return re.sub(r"\s+", " ", hint).strip(" .,:;")
+    normalized = re.sub(r"\s+", " ", hint).strip(" .,:;")
+    normalized = re.sub(r"^(client|brand)\s+", "", normalized, flags=re.IGNORECASE)
+    return normalized.strip(" .,:;")
 
 
 def _looks_like_task_list_request(text: str) -> bool:
@@ -588,6 +590,7 @@ async def run_reply_only_agent_loop_turn(
         loop_messages = list(prompt_messages)
         assistant_text: str | None = None
         last_tool_error: str | None = None
+        executed_skill_count = 0
 
         async def _execute_read_skill(
             skill_id: str,
@@ -619,6 +622,7 @@ async def run_reply_only_agent_loop_turn(
             return tool_result
 
         async def _recover_from_natural_read_request() -> str | None:
+            nonlocal executed_skill_count
             inferred_skill_id = ""
             inferred_args: dict[str, Any] = {}
             client_hint = _extract_client_hint_from_text(text)
@@ -642,6 +646,7 @@ async def run_reply_only_agent_loop_turn(
             await _safe_log_call(turn_logger.log_skill_call, run_id, inferred_skill_id, normalized_args)
             tool_result = await _execute_read_skill(inferred_skill_id, normalized_args)
             await _safe_log_call(turn_logger.log_skill_result, run_id, inferred_skill_id, tool_result)
+            executed_skill_count += 1
             return _response_text_from_tool_result(tool_result)
 
         for _turn in range(_MAX_LOOP_TURNS):
@@ -669,6 +674,7 @@ async def run_reply_only_agent_loop_turn(
                     await _safe_log_call(turn_logger.log_skill_call, run_id, skill_id, args)
                     tool_result = await _execute_read_skill(skill_id, args)
                     await _safe_log_call(turn_logger.log_skill_result, run_id, skill_id, tool_result)
+                    executed_skill_count += 1
 
                     tool_context = json.dumps(tool_result, ensure_ascii=True, separators=(",", ":"))
                     loop_messages.append(
@@ -762,6 +768,7 @@ async def run_reply_only_agent_loop_turn(
                     if not isinstance(planner_report, dict):
                         raise ValueError("planner delegate report must be dict")
                     await _safe_log_call(turn_logger.log_skill_result, run_id, skill_id, planner_report)
+                    executed_skill_count += 1
 
                     planner_status = str(planner_report.get("status") or "").strip().lower()
                     if planner_status not in {
@@ -877,6 +884,15 @@ async def run_reply_only_agent_loop_turn(
                 assistant_text = "I couldn't complete that flow. Could you rephrase and try again?"
 
         assistant_text = _clean_assistant_text(assistant_text)
+        if executed_skill_count == 0 and (
+            _looks_like_task_list_request(text) or _looks_like_brand_list_request(text)
+        ):
+            try:
+                recovered_text = await _recover_from_natural_read_request()
+                if recovered_text:
+                    assistant_text = recovered_text
+            except Exception as recovery_exc:  # noqa: BLE001
+                logger.info("No-skill natural-read recovery failed: %s", recovery_exc, exc_info=True)
         if _is_generic_failure_reply(assistant_text):
             try:
                 recovered_text = await _recover_from_natural_read_request()
