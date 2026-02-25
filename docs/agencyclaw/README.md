@@ -30,3 +30,6 @@ For canonical live database structure, use `docs/db/schema_master.md`.
 
 ## Test Naming
 - The canonical name for the terminal E2E debug test suite is `Claw Gauntlet`.
+- Track naming under that suite:
+  - `Core Track` (existing baseline runbook: `30_agencyclaw_debug_chat_runbook.md`)
+  - `Meeting-to-Motion` (meeting summary -> tasks + follow-up flow)

@@ -1,4 +1,4 @@
-# Claw Gauntlet Issue List (2026-02-25)
+# Claw Gauntlet Core Track Issue List (2026-02-25)
 
 Source run:
 - `docs/agencyclaw/current/30_agencyclaw_debug_chat_runbook.md`

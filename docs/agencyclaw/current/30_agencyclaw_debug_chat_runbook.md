@@ -1,6 +1,11 @@
-# AgencyClaw Claw Gauntlet Runbook
+# AgencyClaw Claw Gauntlet Runbook (Core Track)
 
-Canonical name: `Claw Gauntlet`.
+Suite name: `Claw Gauntlet`.
+Track name: `Core Track`.
+
+Track registry:
+- `Core Track` (this runbook)
+- `Meeting-to-Motion` (next track; meeting summary -> task + follow-up execution flow)
 
 This runbook is for fast end-to-end testing through:
 - `POST /api/slack/debug/chat`
