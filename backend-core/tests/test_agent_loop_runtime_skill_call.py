@@ -1084,6 +1084,146 @@ async def test_c17g_lookup_client_unknown_arg_fails_safe(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_natural_task_list_request_recovers_after_unusable_tool_loop(monkeypatch):
+    class FakeStore:
+        def __init__(self, _db):
+            pass
+
+        def list_recent_run_messages(self, run_id: str, limit: int = 20):
+            return []
+
+    class FakeTurnLogger:
+        def __init__(self, _store):
+            pass
+
+        def start_main_run(self, session_id: str):
+            return {"id": "run-1", "status": "running"}
+
+        def log_user_message(self, run_id: str, text: str):
+            return {"id": "m1"}
+
+        def log_skill_call(self, run_id: str, skill_id: str, payload: dict):
+            return {"id": "e1"}
+
+        def log_skill_result(self, run_id: str, skill_id: str, payload: dict):
+            return {"id": "e2"}
+
+        def log_assistant_message(self, run_id: str, text: str):
+            return {"id": "m2"}
+
+        def complete_run(self, run_id: str, status: str):
+            return None
+
+    async def _fake_completion(*args, **kwargs):
+        _ = args, kwargs
+        return {
+            "content": '{"mode":"tool_call","skill_id":"unknown_tool","args":{}}',
+            "tokens_in": 10,
+            "tokens_out": 5,
+            "tokens_total": 15,
+            "model": "gpt-4o-mini",
+            "duration_ms": 10,
+        }
+
+    executed: list[tuple[str, dict]] = []
+
+    async def _execute_read_skill(**kwargs):
+        executed.append((kwargs["skill_id"], kwargs["args"]))
+        return {"response_text": "Recovered task list response."}
+
+    monkeypatch.setattr("app.services.agencyclaw.agent_loop_runtime.AgentLoopStore", FakeStore)
+    monkeypatch.setattr("app.services.agencyclaw.agent_loop_runtime.AgentLoopTurnLogger", FakeTurnLogger)
+
+    session = _FakeSession()
+    slack = _FakeSlack()
+    handled = await run_reply_only_agent_loop_turn(
+        text="For Distex, what are the top 5 tasks due this week?",
+        session=session,
+        slack_user_id="U123",
+        session_service=_FakeSessionService(session),
+        channel="D1",
+        slack=slack,
+        supabase_client=MagicMock(),
+        execute_read_skill_fn=_execute_read_skill,
+        call_chat_completion_fn=_fake_completion,
+    )
+
+    assert handled is True
+    assert executed == [("clickup_task_list", {"client_name": "Distex", "window": "this_week"})]
+    assert slack.messages[-1]["text"] == "Recovered task list response."
+
+
+@pytest.mark.asyncio
+async def test_natural_brand_list_request_recovers_after_unusable_tool_loop(monkeypatch):
+    class FakeStore:
+        def __init__(self, _db):
+            pass
+
+        def list_recent_run_messages(self, run_id: str, limit: int = 20):
+            return []
+
+    class FakeTurnLogger:
+        def __init__(self, _store):
+            pass
+
+        def start_main_run(self, session_id: str):
+            return {"id": "run-1", "status": "running"}
+
+        def log_user_message(self, run_id: str, text: str):
+            return {"id": "m1"}
+
+        def log_skill_call(self, run_id: str, skill_id: str, payload: dict):
+            return {"id": "e1"}
+
+        def log_skill_result(self, run_id: str, skill_id: str, payload: dict):
+            return {"id": "e2"}
+
+        def log_assistant_message(self, run_id: str, text: str):
+            return {"id": "m2"}
+
+        def complete_run(self, run_id: str, status: str):
+            return None
+
+    async def _fake_completion(*args, **kwargs):
+        _ = args, kwargs
+        return {
+            "content": '{"mode":"tool_call","skill_id":"unknown_tool","args":{}}',
+            "tokens_in": 10,
+            "tokens_out": 5,
+            "tokens_total": 15,
+            "model": "gpt-4o-mini",
+            "duration_ms": 10,
+        }
+
+    executed: list[tuple[str, dict]] = []
+
+    async def _execute_read_skill(**kwargs):
+        executed.append((kwargs["skill_id"], kwargs["args"]))
+        return {"response_text": "Recovered brand list response."}
+
+    monkeypatch.setattr("app.services.agencyclaw.agent_loop_runtime.AgentLoopStore", FakeStore)
+    monkeypatch.setattr("app.services.agencyclaw.agent_loop_runtime.AgentLoopTurnLogger", FakeTurnLogger)
+
+    session = _FakeSession()
+    slack = _FakeSlack()
+    handled = await run_reply_only_agent_loop_turn(
+        text="Show brands for Distex.",
+        session=session,
+        slack_user_id="U123",
+        session_service=_FakeSessionService(session),
+        channel="D1",
+        slack=slack,
+        supabase_client=MagicMock(),
+        execute_read_skill_fn=_execute_read_skill,
+        call_chat_completion_fn=_fake_completion,
+    )
+
+    assert handled is True
+    assert executed == [("cc_brand_list_all", {"client_name": "Distex"})]
+    assert slack.messages[-1]["text"] == "Recovered brand list response."
+
+
+@pytest.mark.asyncio
 async def test_c17f_failed_create_keeps_pending_for_retry(monkeypatch):
     class FakeStore:
         def __init__(self, _db):

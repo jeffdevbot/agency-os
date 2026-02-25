@@ -91,6 +91,7 @@ _SKILL_ID_ALIASES = {
     "brand_lookup": "lookup_brand",
     "brand_mapping_audit": "cc_brand_clickup_mapping_audit",
 }
+_CLIENT_HINT_PATTERN = re.compile(r"\bfor\s+([^,\n\.]+)", re.IGNORECASE)
 
 
 def _build_session_rows(session: Any) -> list[dict[str, Any]]:
@@ -190,6 +191,72 @@ def _clean_assistant_text(text: str) -> str:
 def _error_code(exc: Exception) -> str:
     raw = f"{type(exc).__name__}:{exc}"
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:8]
+
+
+def _extract_client_hint_from_text(text: str) -> str:
+    match = _CLIENT_HINT_PATTERN.search(text or "")
+    if not match:
+        return ""
+    hint = (match.group(1) or "").strip()
+    return re.sub(r"\s+", " ", hint).strip(" .,:;")
+
+
+def _looks_like_task_list_request(text: str) -> bool:
+    lowered = (text or "").strip().lower()
+    if not lowered:
+        return False
+    if any(phrase in lowered for phrase in ("create task", "new task", "make task", "draft task")):
+        return False
+    if "task" not in lowered:
+        return False
+    return any(
+        phrase in lowered
+        for phrase in (
+            "top ",
+            "due ",
+            "this week",
+            "this month",
+            "priority",
+            "prioritize",
+            "open tasks",
+            "what should i prioritize",
+            "list tasks",
+        )
+    )
+
+
+def _looks_like_brand_list_request(text: str) -> bool:
+    lowered = (text or "").strip().lower()
+    if not lowered:
+        return False
+    if "brand" not in lowered:
+        return False
+    return any(
+        phrase in lowered
+        for phrase in (
+            "show",
+            "list",
+            "what brands",
+            "which brands",
+            "brands for",
+        )
+    )
+
+
+def _infer_window_from_text(text: str) -> str:
+    lowered = (text or "").strip().lower()
+    if "this week" in lowered or "weekly" in lowered:
+        return "this_week"
+    if "this month" in lowered or "monthly" in lowered:
+        return "this_month"
+    return ""
+
+
+def _response_text_from_tool_result(tool_result: dict[str, Any]) -> str:
+    raw = tool_result.get("response_text")
+    if isinstance(raw, str) and raw.strip():
+        return raw.strip()
+    return json.dumps(tool_result, ensure_ascii=True, separators=(",", ":"))
 
 
 def _validate_task_list_args(args: dict[str, Any]) -> dict[str, Any]:
@@ -537,6 +604,32 @@ async def run_reply_only_agent_loop_turn(
                 raise ValueError("tool result must be dict")
             return tool_result
 
+        async def _recover_from_natural_read_request() -> str | None:
+            inferred_skill_id = ""
+            inferred_args: dict[str, Any] = {}
+            client_hint = _extract_client_hint_from_text(text)
+
+            if _looks_like_task_list_request(text):
+                inferred_skill_id = "clickup_task_list"
+                if client_hint:
+                    inferred_args["client_name"] = client_hint
+                window = _infer_window_from_text(text)
+                if window:
+                    inferred_args["window"] = window
+            elif _looks_like_brand_list_request(text):
+                inferred_skill_id = "cc_brand_list_all"
+                if client_hint:
+                    inferred_args["client_name"] = client_hint
+
+            if not inferred_skill_id:
+                return None
+
+            normalized_args = _validate_read_skill_args(inferred_skill_id, inferred_args)
+            await _safe_log_call(turn_logger.log_skill_call, run_id, inferred_skill_id, normalized_args)
+            tool_result = await _execute_read_skill(inferred_skill_id, normalized_args)
+            await _safe_log_call(turn_logger.log_skill_result, run_id, inferred_skill_id, tool_result)
+            return _response_text_from_tool_result(tool_result)
+
         for _turn in range(_MAX_LOOP_TURNS):
             try:
                 completion = await call_chat_completion_fn(
@@ -750,6 +843,15 @@ async def run_reply_only_agent_loop_turn(
                     }
                 )
                 continue
+
+        if not assistant_text:
+            try:
+                recovered_text = await _recover_from_natural_read_request()
+                if recovered_text:
+                    assistant_text = recovered_text
+            except Exception as recovery_exc:  # noqa: BLE001
+                logger.info("Natural read-intent recovery failed: %s", recovery_exc, exc_info=True)
+                last_tool_error = last_tool_error or f"recovery: {recovery_exc}"
 
         if not assistant_text:
             if last_tool_error:
