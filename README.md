@@ -29,6 +29,9 @@ Ecomlabs Tools is the internal platform that consolidates our ad analytics, SOP 
 - `docs/db/schema_master.md` — Canonical live Supabase schema snapshot (generated).
 - `docs/db/README.md` — Schema docs policy + regeneration workflow.
 
+### Dev Operations
+- `docs/mcp_setup.md` — MCP workspace setup and verification (Supabase MCP server config, read-only connectivity checks, and `401 Unauthorized` re-auth recovery).
+
 ### Other Specs
 - `docs/archive/non_agencyclaw/05_creative_brief_prd.md` — Creative Brief tool that maps Composer copy + uploaded assets into designer-ready storyboards.
 
