@@ -259,6 +259,20 @@ def _response_text_from_tool_result(tool_result: dict[str, Any]) -> str:
     return json.dumps(tool_result, ensure_ascii=True, separators=(",", ":"))
 
 
+def _is_generic_failure_reply(text: str) -> bool:
+    lowered = (text or "").strip().lower()
+    if not lowered:
+        return False
+    return any(
+        phrase in lowered
+        for phrase in (
+            "could you rephrase and try again",
+            "couldn't complete that flow",
+            "i hit an issue while processing",
+        )
+    )
+
+
 def _validate_task_list_args(args: dict[str, Any]) -> dict[str, Any]:
     normalized: dict[str, Any] = {}
     client_name = args.get("client_name")
@@ -863,6 +877,13 @@ async def run_reply_only_agent_loop_turn(
                 assistant_text = "I couldn't complete that flow. Could you rephrase and try again?"
 
         assistant_text = _clean_assistant_text(assistant_text)
+        if _is_generic_failure_reply(assistant_text):
+            try:
+                recovered_text = await _recover_from_natural_read_request()
+                if recovered_text:
+                    assistant_text = recovered_text
+            except Exception as recovery_exc:  # noqa: BLE001
+                logger.info("Generic-fallback recovery failed: %s", recovery_exc, exc_info=True)
 
         await slack.post_message(channel=channel, text=assistant_text)
         await _safe_log_method("log_assistant_message", run_id, assistant_text)
