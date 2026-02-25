@@ -20,6 +20,12 @@ _MUTATION_REQUEST_RE = re.compile(
     r"|\b(task|clickup|email|campaign|message)\b.*\b(create|add|update|delete|remove|assign|send|post|publish|launch)\b",
     re.IGNORECASE,
 )
+_MEETING_KEYWORD_RE = re.compile(r"\bmeeting\b", re.IGNORECASE)
+_MEETING_NOTES_KEYWORD_RE = re.compile(
+    r"\b(notes?|summary|transcript|minutes|recap|follow[- ]?up)\b",
+    re.IGNORECASE,
+)
+_TASK_KEYWORD_RE = re.compile(r"\b(task|action items?|next steps?)\b", re.IGNORECASE)
 
 
 def _build_system_prompt() -> str:
@@ -34,11 +40,37 @@ def _build_system_prompt() -> str:
     )
 
 
+def _build_meeting_task_system_prompt() -> str:
+    return (
+        f"{_build_system_prompt()} "
+        "When the user shares meeting notes, convert them into practical task drafts only. "
+        "Do not claim anything was created in external systems. "
+        "Use this exact structure: "
+        "'Draft tasks (not executed):' then numbered tasks. "
+        "Each task must include these fields on separate lines: "
+        "'Title:', 'Why this matters:', 'Suggested owner:', 'Suggested due date:', 'Priority:', 'Needs clarification?:'. "
+        "Use 'TBD' for unknown fields. "
+        "After the list, include 'Clarifying questions:' with up to 3 concise questions only if needed."
+    )
+
+
 def _trim_reply(content: str) -> str:
     reply = (content or "").strip()
     if not reply:
         return _FALLBACK_REPLY
     return reply
+
+
+def _is_meeting_to_task_request(text: str) -> bool:
+    if not text:
+        return False
+    has_meeting = bool(_MEETING_KEYWORD_RE.search(text))
+    has_notes = bool(_MEETING_NOTES_KEYWORD_RE.search(text))
+    has_tasking = bool(_TASK_KEYWORD_RE.search(text))
+    looks_like_pasted_notes = len(text) >= 350 and "\n" in text
+    return (has_meeting and has_tasking and (has_notes or looks_like_pasted_notes)) or (
+        has_notes and has_tasking and looks_like_pasted_notes
+    )
 
 
 def _is_mutation_request(text: str) -> bool:
@@ -59,12 +91,16 @@ async def run_theclaw_minimal_dm_turn(*, slack_user_id: str, channel: str, text:
     if not user_text:
         return
 
+    system_prompt = _build_system_prompt()
+    if _is_meeting_to_task_request(user_text):
+        system_prompt = _build_meeting_task_system_prompt()
+
     slack = get_slack_service()
     try:
         try:
             response = await call_chat_completion(
                 messages=[
-                    {"role": "system", "content": _build_system_prompt()},
+                    {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_text},
                 ],
                 temperature=0.2,

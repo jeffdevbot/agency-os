@@ -5,7 +5,9 @@ import pytest
 from app.services.theclaw.openai_client import OpenAIError
 from app.services.theclaw.slack_minimal_runtime import (
     _apply_mutation_disclaimer,
+    _build_meeting_task_system_prompt,
     _build_system_prompt,
+    _is_meeting_to_task_request,
     _is_mutation_request,
     handle_theclaw_minimal_interaction,
     run_theclaw_minimal_dm_turn,
@@ -29,6 +31,38 @@ def test_build_system_prompt_contains_phase1_behavior_contract():
     assert "cannot execute system actions" in prompt
     assert "clarifying questions" in prompt
     assert "plain numbered format" in prompt
+
+
+def test_build_meeting_task_prompt_contains_draft_contract():
+    prompt = _build_meeting_task_system_prompt().lower()
+    assert "draft tasks (not executed)" in prompt
+    assert "title:" in prompt
+    assert "why this matters:" in prompt
+    assert "needs clarification?:" in prompt
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        (
+            "Here are my meeting notes summary. Please draft task action items.\n- owner: TBD\n- due: TBD\n",
+            True,
+        ),
+        (
+            "I had a meeting and pasted notes below. Please create task action items.\n"
+            + ("line\n" * 120),
+            True,
+        ),
+        (
+            "meeting notes summary with action items and next steps:\n"
+            + ("line\n" * 80),
+            True,
+        ),
+        ("Give me five task ideas for PPC.", False),
+    ],
+)
+def test_is_meeting_to_task_request(text: str, expected: bool):
+    assert _is_meeting_to_task_request(text) is expected
 
 
 @pytest.mark.parametrize(
@@ -129,6 +163,42 @@ async def test_run_theclaw_minimal_dm_turn_forces_mutation_disclaimer(monkeypatc
     assert len(fake_slack.messages) == 1
     assert fake_slack.messages[0]["channel"] == "D3"
     assert "cannot execute actions" in fake_slack.messages[0]["text"].lower()
+
+
+@pytest.mark.asyncio
+async def test_run_theclaw_minimal_dm_turn_uses_meeting_prompt_when_detected(monkeypatch):
+    fake_slack = _FakeSlackService()
+    captured: dict[str, object] = {}
+
+    async def _fake_call_chat_completion(**kwargs):
+        captured.update(kwargs)
+        return {
+            "content": "Draft tasks (not executed):\n1. Title: ...",
+            "tokens_in": 10,
+            "tokens_out": 11,
+            "tokens_total": 21,
+            "model": "gpt-4o-mini",
+            "duration_ms": 5,
+        }
+
+    monkeypatch.setattr(
+        "app.services.theclaw.slack_minimal_runtime.get_slack_service",
+        lambda: fake_slack,
+    )
+    monkeypatch.setattr(
+        "app.services.theclaw.slack_minimal_runtime.call_chat_completion",
+        _fake_call_chat_completion,
+    )
+
+    await run_theclaw_minimal_dm_turn(
+        slack_user_id="U4",
+        channel="D4",
+        text="meeting notes summary with action items and next steps:\n" + ("line\n" * 80),
+    )
+
+    messages = captured["messages"]
+    assert isinstance(messages, list)
+    assert "draft tasks (not executed)" in messages[0]["content"].lower()
 
 
 @pytest.mark.asyncio
