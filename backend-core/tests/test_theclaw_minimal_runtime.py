@@ -5,6 +5,7 @@ import pytest
 from app.services.theclaw.openai_client import OpenAIError
 from app.services.theclaw.slack_minimal_runtime import (
     _apply_mutation_disclaimer,
+    _append_turn_and_cap_history,
     _build_meeting_task_system_prompt,
     _build_system_prompt,
     _is_meeting_to_task_request,
@@ -24,6 +25,30 @@ class _FakeSlackService:
 
     async def aclose(self) -> None:
         self.closed = True
+
+
+class _FakeSession:
+    def __init__(self, *, session_id: str = "S1", context: dict | None = None) -> None:
+        self.id = session_id
+        self.context = context or {}
+
+
+class _FakeSessionService:
+    def __init__(self, *, session: _FakeSession | None = None) -> None:
+        self._session = session or _FakeSession()
+        self.cleared_users: list[str] = []
+        self.updated: list[tuple[str, dict]] = []
+
+    def clear_active_session(self, slack_user_id: str) -> None:
+        self.cleared_users.append(slack_user_id)
+
+    def get_or_create_session(self, slack_user_id: str) -> _FakeSession:
+        _ = slack_user_id
+        return self._session
+
+    def update_context(self, session_id: str, context_updates: dict) -> None:
+        self.updated.append((session_id, context_updates))
+        self._session.context.update(context_updates)
 
 
 def test_build_system_prompt_contains_phase1_behavior_contract():
@@ -94,9 +119,26 @@ def test_apply_mutation_disclaimer_respects_existing_limitation_language():
     assert output == "I cannot execute actions yet, but here is the draft."
 
 
+def test_append_turn_and_cap_history_limits_to_25_turns():
+    history = []
+    for i in range(25):
+        history.append({"role": "user", "content": f"user-{i}"})
+        history.append({"role": "assistant", "content": f"assistant-{i}"})
+
+    updated = _append_turn_and_cap_history(
+        history,
+        user_text="user-25",
+        assistant_text="assistant-25",
+    )
+    assert len(updated) == 50
+    assert updated[0]["content"] == "user-1"
+    assert updated[-1]["content"] == "assistant-25"
+
+
 @pytest.mark.asyncio
 async def test_run_theclaw_minimal_dm_turn_posts_model_reply(monkeypatch):
     fake_slack = _FakeSlackService()
+    fake_session_service = _FakeSessionService()
     captured: dict[str, object] = {}
 
     async def _fake_call_chat_completion(**kwargs):
@@ -118,6 +160,10 @@ async def test_run_theclaw_minimal_dm_turn_posts_model_reply(monkeypatch):
         "app.services.theclaw.slack_minimal_runtime.call_chat_completion",
         _fake_call_chat_completion,
     )
+    monkeypatch.setattr(
+        "app.services.theclaw.slack_minimal_runtime._get_session_service",
+        lambda: fake_session_service,
+    )
 
     await run_theclaw_minimal_dm_turn(slack_user_id="U1", channel="D1", text="Help me with amazon ads")
 
@@ -129,11 +175,17 @@ async def test_run_theclaw_minimal_dm_turn_posts_model_reply(monkeypatch):
     assert messages[1]["content"] == "Help me with amazon ads"
     assert fake_slack.messages == [{"channel": "D1", "text": "Reply from The Claw"}]
     assert fake_slack.closed is True
+    assert len(fake_session_service.updated) == 1
+    session_id, updates = fake_session_service.updated[0]
+    assert session_id == "S1"
+    assert "theclaw_history_v1" in updates
+    assert len(updates["theclaw_history_v1"]) == 2
 
 
 @pytest.mark.asyncio
 async def test_run_theclaw_minimal_dm_turn_forces_mutation_disclaimer(monkeypatch):
     fake_slack = _FakeSlackService()
+    fake_session_service = _FakeSessionService()
 
     async def _fake_call_chat_completion(**kwargs):
         return {
@@ -153,6 +205,10 @@ async def test_run_theclaw_minimal_dm_turn_forces_mutation_disclaimer(monkeypatc
         "app.services.theclaw.slack_minimal_runtime.call_chat_completion",
         _fake_call_chat_completion,
     )
+    monkeypatch.setattr(
+        "app.services.theclaw.slack_minimal_runtime._get_session_service",
+        lambda: fake_session_service,
+    )
 
     await run_theclaw_minimal_dm_turn(
         slack_user_id="U3",
@@ -168,6 +224,7 @@ async def test_run_theclaw_minimal_dm_turn_forces_mutation_disclaimer(monkeypatc
 @pytest.mark.asyncio
 async def test_run_theclaw_minimal_dm_turn_uses_meeting_prompt_when_detected(monkeypatch):
     fake_slack = _FakeSlackService()
+    fake_session_service = _FakeSessionService()
     captured: dict[str, object] = {}
 
     async def _fake_call_chat_completion(**kwargs):
@@ -189,6 +246,10 @@ async def test_run_theclaw_minimal_dm_turn_uses_meeting_prompt_when_detected(mon
         "app.services.theclaw.slack_minimal_runtime.call_chat_completion",
         _fake_call_chat_completion,
     )
+    monkeypatch.setattr(
+        "app.services.theclaw.slack_minimal_runtime._get_session_service",
+        lambda: fake_session_service,
+    )
 
     await run_theclaw_minimal_dm_turn(
         slack_user_id="U4",
@@ -204,6 +265,7 @@ async def test_run_theclaw_minimal_dm_turn_uses_meeting_prompt_when_detected(mon
 @pytest.mark.asyncio
 async def test_run_theclaw_minimal_dm_turn_openai_error_posts_fallback(monkeypatch):
     fake_slack = _FakeSlackService()
+    fake_session_service = _FakeSessionService()
 
     async def _fake_call_chat_completion(**kwargs):
         raise OpenAIError("boom")
@@ -216,6 +278,10 @@ async def test_run_theclaw_minimal_dm_turn_openai_error_posts_fallback(monkeypat
         "app.services.theclaw.slack_minimal_runtime.call_chat_completion",
         _fake_call_chat_completion,
     )
+    monkeypatch.setattr(
+        "app.services.theclaw.slack_minimal_runtime._get_session_service",
+        lambda: fake_session_service,
+    )
 
     await run_theclaw_minimal_dm_turn(slack_user_id="U2", channel="D2", text="hello")
 
@@ -223,6 +289,82 @@ async def test_run_theclaw_minimal_dm_turn_openai_error_posts_fallback(monkeypat
     assert fake_slack.messages[0]["channel"] == "D2"
     assert "temporary issue" in fake_slack.messages[0]["text"].lower()
     assert fake_slack.closed is True
+
+
+@pytest.mark.asyncio
+async def test_run_theclaw_minimal_dm_turn_new_session_command_clears_context(monkeypatch):
+    fake_slack = _FakeSlackService()
+    fake_session_service = _FakeSessionService()
+
+    async def _fake_call_chat_completion(**kwargs):
+        raise AssertionError("OpenAI should not be called for new session")
+
+    monkeypatch.setattr(
+        "app.services.theclaw.slack_minimal_runtime.get_slack_service",
+        lambda: fake_slack,
+    )
+    monkeypatch.setattr(
+        "app.services.theclaw.slack_minimal_runtime.call_chat_completion",
+        _fake_call_chat_completion,
+    )
+    monkeypatch.setattr(
+        "app.services.theclaw.slack_minimal_runtime._get_session_service",
+        lambda: fake_session_service,
+    )
+
+    await run_theclaw_minimal_dm_turn(slack_user_id="U9", channel="D9", text="new session")
+
+    assert fake_session_service.cleared_users == ["U9"]
+    assert fake_slack.messages == [
+        {"channel": "D9", "text": "Started a new session. I cleared prior conversation context."}
+    ]
+    assert fake_slack.closed is True
+
+
+@pytest.mark.asyncio
+async def test_run_theclaw_minimal_dm_turn_includes_prior_history_messages(monkeypatch):
+    fake_slack = _FakeSlackService()
+    fake_session = _FakeSession(
+        context={
+            "theclaw_history_v1": [
+                {"role": "user", "content": "Client is TestBrand."},
+                {"role": "assistant", "content": "Got it."},
+            ]
+        }
+    )
+    fake_session_service = _FakeSessionService(session=fake_session)
+    captured: dict[str, object] = {}
+
+    async def _fake_call_chat_completion(**kwargs):
+        captured.update(kwargs)
+        return {
+            "content": "Using prior context now.",
+            "tokens_in": 10,
+            "tokens_out": 11,
+            "tokens_total": 21,
+            "model": "gpt-4o-mini",
+            "duration_ms": 5,
+        }
+
+    monkeypatch.setattr(
+        "app.services.theclaw.slack_minimal_runtime.get_slack_service",
+        lambda: fake_slack,
+    )
+    monkeypatch.setattr(
+        "app.services.theclaw.slack_minimal_runtime.call_chat_completion",
+        _fake_call_chat_completion,
+    )
+    monkeypatch.setattr(
+        "app.services.theclaw.slack_minimal_runtime._get_session_service",
+        lambda: fake_session_service,
+    )
+
+    await run_theclaw_minimal_dm_turn(slack_user_id="U10", channel="D10", text="What should I do next?")
+
+    messages = captured["messages"]
+    assert isinstance(messages, list)
+    assert messages[1] == {"role": "user", "content": "Client is TestBrand."}
+    assert messages[2] == {"role": "assistant", "content": "Got it."}
 
 
 @pytest.mark.asyncio
