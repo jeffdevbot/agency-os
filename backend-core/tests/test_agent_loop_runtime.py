@@ -243,6 +243,97 @@ async def test_main_agent_multi_turn_skill_chain_single_turn(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_mode_as_skill_id_payload_shape_executes_tool_call(monkeypatch):
+    calls: list[tuple[str, tuple, dict]] = []
+
+    class FakeStore:
+        def __init__(self, _db):
+            pass
+
+        def list_recent_run_messages(self, run_id: str, limit: int = 20):
+            return []
+
+    class FakeTurnLogger:
+        def __init__(self, _store):
+            pass
+
+        def start_main_run(self, session_id: str):
+            return {"id": "run-1", "status": "running"}
+
+        def log_user_message(self, run_id: str, text: str):
+            return {"id": "m1"}
+
+        def log_skill_call(self, run_id: str, skill_id: str, payload: dict):
+            calls.append(("log_skill_call", (run_id, skill_id, payload), {}))
+            return {"id": "e1"}
+
+        def log_skill_result(self, run_id: str, skill_id: str, payload: dict):
+            calls.append(("log_skill_result", (run_id, skill_id, payload), {}))
+            return {"id": "e2"}
+
+        def log_assistant_message(self, run_id: str, text: str):
+            calls.append(("log_assistant_message", (run_id, text), {}))
+            return {"id": "m2"}
+
+        def complete_run(self, run_id: str, status: str):
+            calls.append(("complete_run", (run_id, status), {}))
+            return None
+
+    completions = iter(
+        [
+            {
+                "content": '{"mode":"search_kb","args":{"query":"coupon launch sop"}}',
+                "tokens_in": 10,
+                "tokens_out": 5,
+                "tokens_total": 15,
+                "model": "gpt-4o-mini",
+                "duration_ms": 10,
+            },
+            {
+                "content": '{"mode":"reply","text":"Here is your SOP summary."}',
+                "tokens_in": 10,
+                "tokens_out": 5,
+                "tokens_total": 15,
+                "model": "gpt-4o-mini",
+                "duration_ms": 10,
+            },
+        ]
+    )
+
+    async def _fake_completion(*args, **kwargs):
+        _ = args, kwargs
+        return next(completions)
+
+    async def _execute_read_skill(**kwargs):
+        if kwargs["skill_id"] != "search_kb":
+            raise AssertionError("unexpected skill")
+        if kwargs["args"] != {"query": "coupon launch sop"}:
+            raise AssertionError("unexpected args")
+        return {"response_text": "KB summary"}
+
+    monkeypatch.setattr("app.services.agencyclaw.agent_loop_runtime.AgentLoopStore", FakeStore)
+    monkeypatch.setattr("app.services.agencyclaw.agent_loop_runtime.AgentLoopTurnLogger", FakeTurnLogger)
+
+    slack = _FakeSlack()
+    handled = await run_reply_only_agent_loop_turn(
+        text="Find coupon SOP and summarize it",
+        session=_FakeSession(),
+        slack_user_id="U123",
+        session_service=MagicMock(),
+        channel="D1",
+        slack=slack,
+        supabase_client=MagicMock(),
+        execute_read_skill_fn=_execute_read_skill,
+        call_chat_completion_fn=_fake_completion,
+    )
+
+    assert handled is True
+    assert slack.messages == [{"channel": "D1", "text": "Here is your SOP summary."}]
+    assert ("log_skill_call", ("run-1", "search_kb", {"query": "coupon launch sop"}), {}) in calls
+    assert ("complete_run", ("run-1", "completed"), {}) in calls
+
+
+@pytest.mark.asyncio
 async def test_reply_cleanup_unwraps_malformed_reply_json(monkeypatch):
     class FakeStore:
         def __init__(self, _db):
@@ -511,3 +602,147 @@ async def test_delegate_planner_unavailable_returns_safe_reply_and_marks_child_b
     assert slack.messages == [{"channel": "D1", "text": "I couldn't run planning right now. Could you try again?"}]
     assert ("complete_run", ("run-child", "blocked"), {}) in calls
     assert ("complete_run", ("run-main", "completed"), {}) in calls
+
+
+@pytest.mark.asyncio
+async def test_non_meeting_turn_filters_meeting_recent_exchanges_from_prompt(monkeypatch):
+    prompts: list[list[dict[str, str]]] = []
+
+    class FakeStore:
+        def __init__(self, _db):
+            pass
+
+        def list_recent_run_messages(self, run_id: str, limit: int = 20):
+            return []
+
+    class FakeTurnLogger:
+        def __init__(self, _store):
+            pass
+
+        def start_main_run(self, session_id: str):
+            return {"id": "run-1", "status": "running"}
+
+        def log_user_message(self, run_id: str, text: str):
+            return {"id": "m1"}
+
+        def log_assistant_message(self, run_id: str, text: str):
+            return {"id": "m2"}
+
+        def complete_run(self, run_id: str, status: str):
+            return None
+
+    async def _fake_completion(*args, **kwargs):
+        prompts.append(args[0])
+        _ = kwargs
+        return {
+            "content": '{"mode":"reply","text":"ok"}',
+            "tokens_in": 10,
+            "tokens_out": 5,
+            "tokens_total": 15,
+            "model": "gpt-4o-mini",
+            "duration_ms": 10,
+        }
+
+    monkeypatch.setattr("app.services.agencyclaw.agent_loop_runtime.AgentLoopStore", FakeStore)
+    monkeypatch.setattr("app.services.agencyclaw.agent_loop_runtime.AgentLoopTurnLogger", FakeTurnLogger)
+
+    session = _FakeSession()
+    session.context = {
+        "recent_exchanges": [
+            {
+                "user": "# AgencyClaw Test Fixture: Meeting Notes (Sanitized)\n## Action Candidates\n- Create PPC launch task...",
+                "assistant": "Draft tasks (approval only) with SOP mapping: ...",
+            },
+            {
+                "user": "List the clients you can access.",
+                "assistant": "Clients: A29, Test",
+            },
+        ]
+    }
+    slack = _FakeSlack()
+    handled = await run_reply_only_agent_loop_turn(
+        text="I am not sure how to launch this campaign safely. What should I do first?",
+        session=session,
+        slack_user_id="U123",
+        session_service=MagicMock(),
+        channel="D1",
+        slack=slack,
+        supabase_client=MagicMock(),
+        call_chat_completion_fn=_fake_completion,
+    )
+
+    assert handled is True
+    assert prompts
+    flattened = "\n".join(str(msg.get("content") or "") for msg in prompts[0])
+    assert "draft tasks (approval only) with sop mapping" not in flattened.lower()
+    assert "meeting notes" not in flattened.lower()
+    assert "list the clients you can access." in flattened.lower()
+
+
+@pytest.mark.asyncio
+async def test_meeting_turn_keeps_meeting_recent_exchanges_in_prompt(monkeypatch):
+    prompts: list[list[dict[str, str]]] = []
+
+    class FakeStore:
+        def __init__(self, _db):
+            pass
+
+        def list_recent_run_messages(self, run_id: str, limit: int = 20):
+            return []
+
+    class FakeTurnLogger:
+        def __init__(self, _store):
+            pass
+
+        def start_main_run(self, session_id: str):
+            return {"id": "run-1", "status": "running"}
+
+        def log_user_message(self, run_id: str, text: str):
+            return {"id": "m1"}
+
+        def log_assistant_message(self, run_id: str, text: str):
+            return {"id": "m2"}
+
+        def complete_run(self, run_id: str, status: str):
+            return None
+
+    async def _fake_completion(*args, **kwargs):
+        prompts.append(args[0])
+        _ = kwargs
+        return {
+            "content": '{"mode":"reply","text":"ok"}',
+            "tokens_in": 10,
+            "tokens_out": 5,
+            "tokens_total": 15,
+            "model": "gpt-4o-mini",
+            "duration_ms": 10,
+        }
+
+    monkeypatch.setattr("app.services.agencyclaw.agent_loop_runtime.AgentLoopStore", FakeStore)
+    monkeypatch.setattr("app.services.agencyclaw.agent_loop_runtime.AgentLoopTurnLogger", FakeTurnLogger)
+
+    session = _FakeSession()
+    session.context = {
+        "recent_exchanges": [
+            {
+                "user": "# AgencyClaw Test Fixture: Meeting Notes (Sanitized)\n## Action Candidates\n- Create PPC launch task...",
+                "assistant": "Draft tasks (approval only) with SOP mapping: ...",
+            }
+        ]
+    }
+    slack = _FakeSlack()
+    handled = await run_reply_only_agent_loop_turn(
+        text="Please extract actionable draft tasks, map each to relevant SOPs when available, and present drafts for approval only.",
+        session=session,
+        slack_user_id="U123",
+        session_service=MagicMock(),
+        channel="D1",
+        slack=slack,
+        supabase_client=MagicMock(),
+        call_chat_completion_fn=_fake_completion,
+    )
+
+    assert handled is True
+    assert prompts
+    flattened = "\n".join(str(msg.get("content") or "") for msg in prompts[0]).lower()
+    assert "meeting notes" in flattened

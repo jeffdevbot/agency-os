@@ -1,5 +1,7 @@
 # AdScope File Schema Reference (Amazon Exports)
 
+> ⚠️ Historical document: this archived file may drift from production. For current live schema, use `docs/db/schema_master.md` (generated via `scripts/db/generate-schema-master.sh`).
+
 Use this as the canonical reference for the raw Amazon export structures we’ve seen. The PRD should link here so we don’t lose track of tab names and headers.
 
 ---

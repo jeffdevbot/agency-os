@@ -9,6 +9,8 @@ Use this folder as the top-level navigation for AgencyClaw documentation.
 - `docs/agencyclaw/current/31_agencyclaw_test_meeting_fixture.md`
 - `docs/agencyclaw/current/32_agencyclaw_supabase_debug_queries.sql`
 
+For canonical live database structure, use `docs/db/schema_master.md`.
+
 ## Historical Planning/Execution Docs (Archived)
 - `docs/agencyclaw/archive/23_agencyclaw_prd.md`
 - `docs/agencyclaw/archive/24_agencyclaw_implementation_plan.md`

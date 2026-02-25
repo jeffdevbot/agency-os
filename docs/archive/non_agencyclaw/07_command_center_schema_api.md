@@ -1,5 +1,7 @@
 # Command Center — Schema & API Reference (Canonical)
 
+> ⚠️ Historical document: this archived file may drift from production. For current live schema, use `docs/db/schema_master.md` (generated via `scripts/db/generate-schema-master.sh`).
+
 Status (2025-12-15): draft for implementation. Source of truth for the engineering contract (tables + API routes) for `docs/07_command_center_prd.md`.
 
 Scope: Command Center is **single-tenant** (Ecomlabs internal), **admin-only** for MVP. ClickUp sync is **deferred**; we store mappings manually.

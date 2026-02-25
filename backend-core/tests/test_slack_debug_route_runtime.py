@@ -86,3 +86,40 @@ async def test_debug_route_runtime_happy_path_calls_debug_chat(monkeypatch):
     assert called["user_id"] == "U_SERVER"
     assert called["allow_mutations"] is True
     assert result == {"messages": [{"text": "ok"}], "user_id": "U_SERVER"}
+
+
+@pytest.mark.asyncio
+async def test_debug_route_runtime_reset_session_calls_session_service(monkeypatch):
+    monkeypatch.setenv("AGENCYCLAW_DEBUG_CHAT_ENABLED", "true")
+    monkeypatch.setenv("AGENCYCLAW_DEBUG_CHAT_TOKEN", "expected")
+
+    called: dict = {}
+
+    async def _fake_handle_debug_chat(**kwargs):
+        called.update(kwargs)
+        return {"messages": [{"text": "ok"}], "user_id": kwargs.get("user_id")}
+
+    monkeypatch.setattr(
+        "app.services.agencyclaw.slack_debug_route_runtime.handle_debug_chat",
+        _fake_handle_debug_chat,
+    )
+
+    class _FakeSessionService:
+        def __init__(self) -> None:
+            self.cleared: list[str] = []
+
+        def clear_active_session(self, slack_user_id: str) -> None:
+            self.cleared.append(slack_user_id)
+
+    session_service = _FakeSessionService()
+    deps = SimpleNamespace(get_session_service_fn=lambda: session_service)
+    request = _FakeRequest(
+        headers={"X-Debug-Token": "expected"},
+        body={"text": "hello world", "user_id": "U_CLIENT", "reset_session": True},
+    )
+
+    result = await handle_debug_chat_route_runtime(request=request, deps=deps)
+
+    assert session_service.cleared == ["U_CLIENT"]
+    assert called["user_id"] == "U_CLIENT"
+    assert result == {"messages": [{"text": "ok"}], "user_id": "U_CLIENT"}

@@ -1,0 +1,7 @@
+{
+    "chat.mcp.serverSampling": {
+        "agency-os/.vscode/mcp.json: supabase": {
+            "allowedModels": []
+        }
+    }
+}

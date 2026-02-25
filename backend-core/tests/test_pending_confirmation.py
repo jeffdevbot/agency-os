@@ -50,8 +50,11 @@ def test_is_expired_behavior():
 def test_affirmative_negative_phrase_sets():
     assert is_affirmative("confirm")
     assert is_affirmative("go ahead")
+    assert is_affirmative("Yes, create it.")
+    assert is_affirmative("please create it")
     assert is_negative("cancel")
     assert is_negative("no")
+    assert is_negative("No, don't")
     assert not is_affirmative("maybe")
     assert not is_negative("maybe")
 

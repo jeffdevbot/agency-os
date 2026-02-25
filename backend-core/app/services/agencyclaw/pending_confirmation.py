@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal, TypedDict
 
@@ -36,10 +37,17 @@ _AFFIRMATIVE = {
     "do it",
     "go ahead",
     "create it",
+    "yes create it",
+    "yes create",
+    "yes do it",
+    "please create it",
+    "please create",
 }
 
 _NEGATIVE = {
     "no",
+    "no dont",
+    "no don't",
     "n",
     "cancel",
     "stop",
@@ -49,6 +57,17 @@ _NEGATIVE = {
     "don't",
     "abort",
 }
+
+_NON_ALNUM_RE = re.compile(r"[^a-z0-9\s']")
+
+
+def _normalize_confirmation_text(text: str) -> str:
+    value = (text or "").strip().lower()
+    if not value:
+        return ""
+    value = _NON_ALNUM_RE.sub(" ", value)
+    value = re.sub(r"\s+", " ", value).strip()
+    return value
 
 
 def build_pending_confirmation(
@@ -141,12 +160,12 @@ def is_expired(payload: dict[str, Any], now: datetime | None = None) -> bool:
 
 
 def is_affirmative(text: str) -> bool:
-    value = (text or "").strip().lower()
+    value = _normalize_confirmation_text(text)
     return value in _AFFIRMATIVE
 
 
 def is_negative(text: str) -> bool:
-    value = (text or "").strip().lower()
+    value = _normalize_confirmation_text(text)
     return value in _NEGATIVE
 
 

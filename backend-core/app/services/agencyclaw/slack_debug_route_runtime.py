@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import secrets
 from typing import Any
@@ -36,6 +37,16 @@ async def handle_debug_chat_route_runtime(
 
     user_id_override = os.environ.get("AGENCYCLAW_DEBUG_CHAT_USER_ID", "").strip()
     user_id = user_id_override or str(body.get("user_id") or "U_DEBUG_TERMINAL").strip()
+    reset_session = bool(body.get("reset_session"))
+    if reset_session:
+        session_service = deps.get_session_service_fn()
+        clear_fn = getattr(session_service, "clear_active_session", None)
+        if not callable(clear_fn):
+            raise HTTPException(status_code=500, detail="reset_session is not supported by session service")
+        try:
+            await asyncio.to_thread(clear_fn, user_id)
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=500, detail="failed to reset debug session") from exc
     allow_mutations = os.environ.get(
         "AGENCYCLAW_DEBUG_CHAT_ALLOW_MUTATIONS", "false"
     ).strip().lower() in {"1", "true", "yes", "on"}

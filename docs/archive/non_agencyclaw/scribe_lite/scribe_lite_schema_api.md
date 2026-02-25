@@ -1,5 +1,7 @@
 # Scribe Lite — Canonical Schema & API Reference
 
+> ⚠️ Historical document: this archived file may drift from production. For current live schema, use `docs/db/schema_master.md` (generated via `scripts/db/generate-schema-master.sh`).
+
 **Purpose:** This document serves as the source of truth for the Scribe Lite data model and API contract. All implementation should strictly adhere to these definitions to ensure consistency and prevent "reinventing the wheel."
 
 ---

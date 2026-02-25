@@ -13,3 +13,5 @@ Typical contents:
 - historical composer/scribe/debrief/command-center design notes.
 
 If any non-AgencyClaw initiative is reactivated, move only the relevant docs back to an active location and update links accordingly.
+
+For database truth, do not rely on archive schema snapshots; use `docs/db/schema_master.md`.

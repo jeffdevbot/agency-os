@@ -8,6 +8,8 @@ This runbook is for fast end-to-end testing through:
 
 It validates natural-language behavior, skill routing, SOP retrieval, client/brand resolution, and safe task creation in your Test ClickUp space.
 
+For reproducible runs, send `{"reset_session": true}` on the first debug-chat request to clear active session context for the debug user.
+
 ## 1) Prerequisites
 
 Render env vars:
@@ -49,11 +51,11 @@ Expected:
 
 Paste contents of `docs/agencyclaw/current/31_agencyclaw_test_meeting_fixture.md` as one message (under 2000 chars), then send:
 
-`Please convert this into the top 4 tasks, map SOPs, and present draft tasks for approval only.`
+`Please extract actionable draft tasks, map each to relevant SOPs when available, and present drafts for approval only.`
 
 Expected:
 - Extracted tasks map to meeting decisions.
-- Suggested SOP linkage where available.
+- Suggested SOP linkage where available (required signal).
 - No direct mutation unless explicitly requested and confirmed.
 
 ## 5) Team-User (Novice) Tests
@@ -101,6 +103,7 @@ If you repeatedly get `I hit an issue while processing that. Could you rephrase 
 Minimum pass before wider use:
 - Baseline smoke passes.
 - SOP + meeting-notes tasks draft correctly.
+- Meeting-notes flow includes SOP mapping where relevant (not just generic task bullets).
 - Client/brand resolution is correct for test entities.
 - Mutation confirmation and idempotency behave correctly.
 - No repeated generic fallback across the core test set.

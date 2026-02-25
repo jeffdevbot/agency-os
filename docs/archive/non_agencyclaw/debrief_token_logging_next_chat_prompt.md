@@ -23,7 +23,7 @@ You are joining an existing repo (`agency-os`) that already shipped **Command Ce
 4) `docs/debrief_prd.md`
 5) `docs/debrief_implementation_plan.md`
 6) `docs/08_clickup_service_prd.md` (future phase)
-7) `docs/11_usage_events_schema.md` (logging schema reference)
+7) `docs/db/schema_master.md` (canonical logging/schema reference)
 
 ## Relevant code + migrations (jump points)
 
@@ -71,4 +71,3 @@ Add **reliable, best-effort** token usage logging for Debrief extraction (and op
 - Brand-level assignments are the source of truth; client-wide assignments exist in schema but are not used in the UX.
 - Debrief extraction tries to focus on “Suggested Next Steps” sections when present, otherwise uses the whole doc text.
 - The repo uses Supabase Auth (Google SSO); server-side route handlers should use verified user identity (`supabase.auth.getUser()`).
-

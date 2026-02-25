@@ -1,5 +1,7 @@
 # Scribe — Schema & API Reference (Canonical)
 
+> ⚠️ Historical document: this archived file may drift from production. For current live schema, use `docs/db/schema_master.md` (generated via `scripts/db/generate-schema-master.sh`).
+
 _Status (2025-11-28, EST): Stage A/B/C backend routes and Stage C UI are live; attribute preferences are stored/passed but the overrides UI is minimal and slated for polish._
 
 Scribe canonical schema and endpoints for Stages A–C. Use this as the single source of truth for field names, statuses, and routes.

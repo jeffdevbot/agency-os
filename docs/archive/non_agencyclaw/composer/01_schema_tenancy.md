@@ -1,5 +1,7 @@
 # Schema & Tenancy — Micro-Spec
 
+> ⚠️ Historical document: this archived file may drift from production. For current live schema, use `docs/db/schema_master.md` (generated via `scripts/db/generate-schema-master.sh`).
+
 ## Scope
 
 This micro-spec defines the **database layer** for Composer:

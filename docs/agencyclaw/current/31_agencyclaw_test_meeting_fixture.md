@@ -26,6 +26,6 @@ The team reviewed launch readiness for a new product and agreed to start with au
 
 ## Prompt To Paste In Debug Chat
 Please read these meeting notes and do three things:
-1) extract the top 4 actionable tasks,
-2) map each to the most relevant SOP if available,
+1) extract actionable draft tasks from these notes,
+2) map each task to the most relevant SOP if available,
 3) draft task titles/descriptions for approval (do not execute yet).

@@ -113,6 +113,19 @@ class PlaybookSessionService:
             "id", session_id
         ).execute()
 
+    def clear_active_session(self, slack_user_id: str) -> None:
+        """Expire active sessions for a Slack user and clear transient context."""
+        slack_user_id = (slack_user_id or "").strip()
+        if not slack_user_id:
+            return
+        self.db.table("playbook_slack_sessions").update(
+            {
+                "last_message_at": _cutoff_iso(60),
+                "active_client_id": None,
+                "context": {},
+            }
+        ).eq("slack_user_id", slack_user_id).gt("last_message_at", _cutoff_iso(30)).execute()
+
     def set_active_client(self, session_id: str, client_id: str) -> None:
         session_id = (session_id or "").strip()
         client_id = (client_id or "").strip()

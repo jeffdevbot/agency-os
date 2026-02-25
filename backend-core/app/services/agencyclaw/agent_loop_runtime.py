@@ -20,16 +20,33 @@ from typing import Any, Awaitable, Callable
 
 from .agent_loop_context_assembler import assemble_prompt_context
 from .agent_loop_intent_recovery import (
+    build_two_sprint_plan_response as _build_two_sprint_plan_response,
+    build_execution_readiness_response as _build_execution_readiness_response,
+    capabilities_help_text as _capabilities_help_text,
+    extract_action_candidates_from_text as _extract_action_candidates_from_text,
     ensure_sop_draft_payload as _ensure_sop_draft_payload,
     extract_client_hint_from_text as _extract_client_hint_from_text,
+    infer_sop_summary_query as _infer_sop_summary_query,
+    infer_task_create_args_from_text as _infer_task_create_args_from_text,
     infer_window_from_text as _infer_window_from_text,
+    is_create_clarification_reply as _is_create_clarification_reply,
     is_generic_failure_reply as _is_generic_failure_reply,
     is_non_answer_action_promise as _is_non_answer_action_promise,
     looks_like_brand_list_request as _looks_like_brand_list_request,
+    looks_like_brand_mapping_audit_request as _looks_like_brand_mapping_audit_request,
+    looks_like_capabilities_request as _looks_like_capabilities_request,
+    looks_like_execution_readiness_request as _looks_like_execution_readiness_request,
+    looks_like_meeting_notes_blob as _looks_like_meeting_notes_blob,
+    looks_like_meeting_sop_mapping_request as _looks_like_meeting_sop_mapping_request,
+    looks_like_sop_summary_request as _looks_like_sop_summary_request,
+    looks_like_task_create_request as _looks_like_task_create_request,
     looks_like_task_list_request as _looks_like_task_list_request,
+    looks_like_two_sprint_plan_request as _looks_like_two_sprint_plan_request,
+    meeting_sop_query_for_candidate as _meeting_sop_query_for_candidate,
     postprocess_task_list_answer as _postprocess_task_list_answer,
     response_text_from_tool_result as _response_text_from_tool_result,
 )
+from .conversation_buffer import append_exchange, compact_exchanges
 from .agent_loop_skill_validation import (
     canonical_skill_id as _canonical_skill_id,
     validate_delegate_planner_args as _validate_delegate_planner_args,
@@ -94,18 +111,41 @@ _MUTATION_SKILLS = {
 _MAX_LOOP_TURNS = 6
 _TOP_N_PATTERN = re.compile(r"\btop\s+(\d+)\b", re.IGNORECASE)
 _TASK_LINK_TITLE_PATTERN = re.compile(r"\|([^>]+)>")
+_PENDING_CONTROL_PATTERN = re.compile(
+    r"^\s*(confirm|cancel|create it|yes[, ]+create it|yes[, ]+create)\W*\s*$",
+    re.IGNORECASE,
+)
+_MEETING_HISTORY_MARKERS = (
+    "meeting notes",
+    "action candidates",
+    "draft tasks (approval only) with sop mapping",
+)
 
 
-def _build_session_rows(session: Any) -> list[dict[str, Any]]:
+def _is_meeting_related_turn(text: str) -> bool:
+    return _looks_like_meeting_notes_blob(text) or _looks_like_meeting_sop_mapping_request(text)
+
+
+def _is_meeting_exchange(entry: dict[str, Any]) -> bool:
+    user_text = str(entry.get("user") or "").strip().lower()
+    assistant_text = str(entry.get("assistant") or "").strip().lower()
+    combined = f"{user_text}\n{assistant_text}"
+    return any(marker in combined for marker in _MEETING_HISTORY_MARKERS)
+
+
+def _build_session_rows(session: Any, *, current_text: str = "") -> list[dict[str, Any]]:
     """Convert legacy recent_exchanges session context into message rows."""
     context = getattr(session, "context", {}) or {}
     exchanges = context.get("recent_exchanges")
     if not isinstance(exchanges, list):
         return []
 
+    filter_meeting_history = bool(current_text.strip()) and not _is_meeting_related_turn(current_text)
     rows: list[dict[str, Any]] = []
     for idx, exchange in enumerate(exchanges):
         if not isinstance(exchange, dict):
+            continue
+        if filter_meeting_history and _is_meeting_exchange(exchange):
             continue
         user_text = exchange.get("user")
         if isinstance(user_text, str) and user_text.strip():
@@ -137,17 +177,28 @@ def _extract_mode_payload(content: str) -> dict[str, Any]:
         return {"mode": "reply", "text": text or "How can I help?"}
 
     mode = str(payload.get("mode") or "").strip()
+    skill_id = str(payload.get("skill_id") or "").strip()
+    args = payload.get("args") if isinstance(payload.get("args"), dict) else {}
+
     if mode == "tool_call":
         return {
             "mode": "tool_call",
-            "skill_id": str(payload.get("skill_id") or "").strip(),
-            "args": payload.get("args") if isinstance(payload.get("args"), dict) else {},
+            "skill_id": skill_id,
+            "args": args,
         }
     if mode == "delegate_planner":
         return {
             "mode": "tool_call",
             "skill_id": "delegate_planner",
-            "args": payload.get("args") if isinstance(payload.get("args"), dict) else {},
+            "args": args,
+        }
+    # Backward-compatible shape emitted by some model turns:
+    # {"mode":"search_kb","args":{...}} (no explicit skill_id field).
+    if mode and mode not in {"reply"} and not skill_id:
+        return {
+            "mode": "tool_call",
+            "skill_id": mode,
+            "args": args,
         }
 
     text = payload.get("text")
@@ -188,6 +239,24 @@ def _clean_assistant_text(text: str) -> str:
 def _error_code(exc: Exception) -> str:
     raw = f"{type(exc).__name__}:{exc}"
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:8]
+
+
+def _recent_exchanges_from_context(context: Any) -> list[dict[str, str]]:
+    if not isinstance(context, dict):
+        return []
+    raw = context.get("recent_exchanges")
+    if not isinstance(raw, list):
+        return []
+    normalized: list[dict[str, str]] = []
+    for row in raw:
+        if not isinstance(row, dict):
+            continue
+        user = str(row.get("user") or "").strip()
+        assistant = str(row.get("assistant") or "").strip()
+        if not user or not assistant:
+            continue
+        normalized.append({"user": user, "assistant": assistant})
+    return compact_exchanges(normalized)
 
 
 async def run_reply_only_agent_loop_turn(
@@ -232,6 +301,20 @@ async def run_reply_only_agent_loop_turn(
             return None
         return await _safe_log_call(method, *args)
 
+    async def _persist_recent_exchange(user_text: str, assistant_text: str) -> None:
+        try:
+            existing = _recent_exchanges_from_context(getattr(session, "context", {}))
+            updated = compact_exchanges(append_exchange(existing, user_text, assistant_text))
+            await asyncio.to_thread(
+                session_service.update_context,
+                session.id,
+                {"recent_exchanges": updated},
+            )
+            if isinstance(getattr(session, "context", None), dict):
+                session.context["recent_exchanges"] = updated
+        except Exception as exc:  # noqa: BLE001
+            logger.info("Recent-exchange persistence skipped: %s", exc, exc_info=True)
+
     try:
         run: dict[str, Any] = {}
         try:
@@ -254,6 +337,16 @@ async def run_reply_only_agent_loop_turn(
                 text=text,
                 lane_key=slack_user_id,
             )
+        elif _PENDING_CONTROL_PATTERN.match(text or ""):
+            assistant_text = (
+                "There isn't a pending task proposal to confirm right now. "
+                "Ask me to draft or create a task first."
+            )
+            await slack.post_message(channel=channel, text=assistant_text)
+            await _safe_log_method("log_assistant_message", run_id, assistant_text)
+            await _persist_recent_exchange(text, assistant_text)
+            await _safe_log_method("complete_run", run_id, "completed")
+            return True
         if decision["state"] in {"expired", "cancel", "wrong_actor", "invalid", "confirm"}:
             if decision["state"] in {"expired", "cancel", "invalid"}:
                 await asyncio.to_thread(session_service.update_context, session.id, {_PENDING_KEY: None})
@@ -287,6 +380,7 @@ async def run_reply_only_agent_loop_turn(
                     assistant_text = str(policy.get("user_message") or "That action is not allowed.")
                     await slack.post_message(channel=channel, text=assistant_text)
                     await _safe_log_method("log_assistant_message", run_id, assistant_text)
+                    await _persist_recent_exchange(text, assistant_text)
                     await _safe_log_method("complete_run", run_id, "completed")
                     return True
                 await _safe_log_call(turn_logger.log_skill_call, run_id, skill_id, args)
@@ -305,10 +399,11 @@ async def run_reply_only_agent_loop_turn(
 
             await slack.post_message(channel=channel, text=assistant_text)
             await _safe_log_method("log_assistant_message", run_id, assistant_text)
+            await _persist_recent_exchange(text, assistant_text)
             await _safe_log_method("complete_run", run_id, "completed")
             return True
 
-        session_rows = _build_session_rows(session)
+        session_rows = _build_session_rows(session, current_text=text)
         run_rows = await asyncio.to_thread(store.list_recent_run_messages, run_id, 20) if run_id else []
         if run_id and hasattr(store, "list_recent_skill_events"):
             run_skill_events = await asyncio.to_thread(store.list_recent_skill_events, run_id, 12)
@@ -339,6 +434,7 @@ async def run_reply_only_agent_loop_turn(
         assistant_text: str | None = None
         last_tool_error: str | None = None
         executed_skill_count = 0
+        meeting_prompt = _looks_like_meeting_notes_blob(text) or _looks_like_meeting_sop_mapping_request(text)
 
         async def _execute_read_skill(
             skill_id: str,
@@ -401,6 +497,184 @@ async def run_reply_only_agent_loop_turn(
             executed_skill_count += 1
             return _response_text_from_tool_result(tool_result)
 
+        async def _recover_from_natural_create_request() -> str | None:
+            if not _looks_like_task_create_request(text):
+                return None
+            if execute_create_task_fn is None or check_mutation_policy_fn is None:
+                return None
+            if isinstance(session.context.get(_PENDING_KEY), dict):
+                return None
+
+            inferred_args = _infer_task_create_args_from_text(text)
+            if not inferred_args.get("task_title"):
+                return None
+
+            args = _validate_task_create_args(inferred_args)
+            policy = await check_mutation_policy_fn(
+                slack_user_id=slack_user_id,
+                session=session,
+                channel=channel,
+                skill_id="clickup_task_create",
+                args=args,
+            )
+            if not policy.get("allowed"):
+                return str(policy.get("user_message") or "That action is not allowed.")
+
+            proposal = build_pending_confirmation(
+                action_type="mutation",
+                skill_id="clickup_task_create",
+                args=args,
+                requested_by=slack_user_id,
+                lane_key=slack_user_id,
+            )
+            await asyncio.to_thread(session_service.update_context, session.id, {_PENDING_KEY: proposal})
+            title = str(args.get("task_title") or "this task")
+            return (
+                f"Ready to create task *{title}*. "
+                "Reply `confirm` to proceed or `cancel` to discard."
+            )
+
+        async def _recover_from_sop_summary_request() -> str | None:
+            nonlocal executed_skill_count
+            if not _looks_like_sop_summary_request(text):
+                return None
+            query = _infer_sop_summary_query(text)
+            if not query:
+                return None
+            args = _validate_read_skill_args(
+                "search_kb",
+                {"query": query},
+                read_only_skills=_READ_ONLY_SKILLS,
+            )
+            await _safe_log_call(turn_logger.log_skill_call, run_id, "search_kb", args)
+            tool_result = await _execute_read_skill("search_kb", args)
+            await _safe_log_call(turn_logger.log_skill_result, run_id, "search_kb", tool_result)
+            executed_skill_count += 1
+            return _response_text_from_tool_result(tool_result)
+
+        async def _recover_from_brand_mapping_audit_request() -> str | None:
+            nonlocal executed_skill_count
+            if not _looks_like_brand_mapping_audit_request(text):
+                return None
+            args = _validate_read_skill_args(
+                "cc_brand_clickup_mapping_audit",
+                {},
+                read_only_skills=_READ_ONLY_SKILLS,
+            )
+            await _safe_log_call(turn_logger.log_skill_call, run_id, "cc_brand_clickup_mapping_audit", args)
+            tool_result = await _execute_read_skill("cc_brand_clickup_mapping_audit", args)
+            await _safe_log_call(
+                turn_logger.log_skill_result,
+                run_id,
+                "cc_brand_clickup_mapping_audit",
+                tool_result,
+            )
+            executed_skill_count += 1
+            return _response_text_from_tool_result(tool_result)
+
+        def _latest_task_draft_from_context() -> str:
+            recent = _recent_exchanges_from_context(getattr(session, "context", {}))
+            for item in reversed(recent):
+                assistant = str(item.get("assistant") or "").strip()
+                if not assistant:
+                    continue
+                lowered = assistant.lower()
+                if "task title:" in lowered and "task description:" in lowered:
+                    return assistant
+            return ""
+
+        async def _recover_from_execution_readiness_request() -> str | None:
+            if not _looks_like_execution_readiness_request(text):
+                return None
+            draft_text = _latest_task_draft_from_context()
+            return _build_execution_readiness_response(draft_text=draft_text)
+
+        def _latest_brand_mapping_audit_text_from_context() -> str:
+            recent = _recent_exchanges_from_context(getattr(session, "context", {}))
+            for item in reversed(recent):
+                assistant = str(item.get("assistant") or "").strip()
+                if not assistant:
+                    continue
+                lowered = assistant.lower()
+                if "clickup" in lowered and ("mapping" in lowered or "audit" in lowered):
+                    return assistant
+            return ""
+
+        async def _recover_from_two_sprint_plan_request() -> str | None:
+            if not _looks_like_two_sprint_plan_request(text):
+                return None
+            scope = _extract_client_hint_from_text(text)
+            if not scope:
+                recent = _recent_exchanges_from_context(getattr(session, "context", {}))
+                for item in reversed(recent):
+                    candidate = _extract_client_hint_from_text(str(item.get("user") or ""))
+                    if candidate:
+                        scope = candidate
+                        break
+            audit_text = _latest_brand_mapping_audit_text_from_context()
+            evidence = ""
+            if audit_text:
+                for line in audit_text.splitlines():
+                    if "missing" in line.lower() and "clickup" in line.lower():
+                        evidence = line.strip(" -*")
+                        break
+            return _build_two_sprint_plan_response(target_label=scope, audit_evidence=evidence)
+
+        def _get_meeting_notes_source_text() -> str:
+            current = (text or "").strip()
+            if _looks_like_meeting_notes_blob(current):
+                return current
+            if not _looks_like_meeting_sop_mapping_request(current):
+                return ""
+            recent = _recent_exchanges_from_context(getattr(session, "context", {}))
+            for item in reversed(recent):
+                user_text = str(item.get("user") or "").strip()
+                if user_text and _looks_like_meeting_notes_blob(user_text):
+                    return user_text
+            return ""
+
+        async def _recover_from_meeting_notes_request() -> str | None:
+            notes_text = _get_meeting_notes_source_text()
+            if not notes_text:
+                return None
+
+            candidates = _extract_action_candidates_from_text(notes_text, max_items=6)
+            if not candidates:
+                return None
+
+            lines: list[str] = []
+            lines.append("Draft tasks (approval only) with SOP mapping:")
+            for idx, candidate in enumerate(candidates, start=1):
+                sop_query = _meeting_sop_query_for_candidate(candidate)
+                sop_map_label = sop_query
+                evidence_note = ""
+                try:
+                    kb_args = _validate_read_skill_args(
+                        "search_kb",
+                        {"query": sop_query},
+                        read_only_skills=_READ_ONLY_SKILLS,
+                    )
+                    await _safe_log_call(turn_logger.log_skill_call, run_id, "search_kb", kb_args)
+                    kb_result = await _execute_read_skill("search_kb", kb_args)
+                    await _safe_log_call(turn_logger.log_skill_result, run_id, "search_kb", kb_result)
+                    sources = kb_result.get("kb_sources") if isinstance(kb_result, dict) else None
+                    if isinstance(sources, list) and sources:
+                        first = sources[0]
+                        if isinstance(first, dict):
+                            first_title = str(first.get("title") or "").strip()
+                            if first_title:
+                                evidence_note = first_title
+                except Exception as exc:  # noqa: BLE001
+                    logger.info("Meeting SOP lookup failed for candidate %s: %s", idx, exc, exc_info=True)
+
+                lines.append(f"{idx}. {candidate}")
+                lines.append(f"   SOP map: {sop_map_label}")
+                if evidence_note:
+                    lines.append(f"   SOP evidence: {evidence_note}")
+                lines.append("   Status: draft only (awaiting your approval)")
+
+            return "\n".join(lines).strip()
+
         for _turn in range(_MAX_LOOP_TURNS):
             try:
                 completion = await call_chat_completion_fn(
@@ -421,6 +695,18 @@ async def run_reply_only_agent_loop_turn(
             raw_args = payload.get("args") if isinstance(payload.get("args"), dict) else {}
 
             try:
+                if meeting_prompt and skill_id in _MUTATION_SKILLS:
+                    loop_messages.append(
+                        {
+                            "role": "system",
+                            "content": (
+                                "Meeting-note extraction mode is draft-only. "
+                                "Do not execute mutations. Provide SOP-mapped draft tasks for approval."
+                            ),
+                        }
+                    )
+                    continue
+
                 if skill_id in _READ_ONLY_SKILLS:
                     args = _validate_read_skill_args(
                         skill_id,
@@ -633,6 +919,14 @@ async def run_reply_only_agent_loop_turn(
             except Exception as recovery_exc:  # noqa: BLE001
                 logger.info("Natural read-intent recovery failed: %s", recovery_exc, exc_info=True)
                 last_tool_error = last_tool_error or f"recovery: {recovery_exc}"
+        if not assistant_text:
+            try:
+                recovered_text = await _recover_from_natural_create_request()
+                if recovered_text:
+                    assistant_text = recovered_text
+            except Exception as recovery_exc:  # noqa: BLE001
+                logger.info("Natural create-intent recovery failed: %s", recovery_exc, exc_info=True)
+                last_tool_error = last_tool_error or f"recovery: {recovery_exc}"
 
         if not assistant_text:
             if last_tool_error:
@@ -644,6 +938,29 @@ async def run_reply_only_agent_loop_turn(
                 assistant_text = "I couldn't complete that flow. Could you rephrase and try again?"
 
         assistant_text = _clean_assistant_text(assistant_text)
+        if _looks_like_capabilities_request(text):
+            assistant_text = _capabilities_help_text()
+        if _looks_like_execution_readiness_request(text):
+            try:
+                recovered_text = await _recover_from_execution_readiness_request()
+                if recovered_text:
+                    assistant_text = recovered_text
+            except Exception as recovery_exc:  # noqa: BLE001
+                logger.info("Execution-readiness recovery failed: %s", recovery_exc, exc_info=True)
+        if _looks_like_two_sprint_plan_request(text):
+            try:
+                recovered_text = await _recover_from_two_sprint_plan_request()
+                if recovered_text:
+                    assistant_text = recovered_text
+            except Exception as recovery_exc:  # noqa: BLE001
+                logger.info("Two-sprint plan recovery failed: %s", recovery_exc, exc_info=True)
+        if _looks_like_brand_mapping_audit_request(text):
+            try:
+                recovered_text = await _recover_from_brand_mapping_audit_request()
+                if recovered_text:
+                    assistant_text = recovered_text
+            except Exception as recovery_exc:  # noqa: BLE001
+                logger.info("Brand-mapping audit recovery failed: %s", recovery_exc, exc_info=True)
         if executed_skill_count == 0 and (
             _looks_like_task_list_request(text) or _looks_like_brand_list_request(text)
         ):
@@ -667,12 +984,39 @@ async def run_reply_only_agent_loop_turn(
                     assistant_text = recovered_text
             except Exception as recovery_exc:  # noqa: BLE001
                 logger.info("Action-promise recovery failed: %s", recovery_exc, exc_info=True)
+        if _looks_like_sop_summary_request(text) and _is_non_answer_action_promise(assistant_text):
+            try:
+                recovered_text = await _recover_from_sop_summary_request()
+                if recovered_text:
+                    assistant_text = recovered_text
+            except Exception as recovery_exc:  # noqa: BLE001
+                logger.info("SOP summary recovery failed: %s", recovery_exc, exc_info=True)
+        if _looks_like_task_create_request(text) and (
+            _is_create_clarification_reply(assistant_text)
+            or _is_non_answer_action_promise(assistant_text)
+        ):
+            try:
+                recovered_text = await _recover_from_natural_create_request()
+                if recovered_text:
+                    assistant_text = recovered_text
+            except Exception as recovery_exc:  # noqa: BLE001
+                logger.info("Create-clarification recovery failed: %s", recovery_exc, exc_info=True)
+
+        if _looks_like_meeting_notes_blob(text) or _looks_like_meeting_sop_mapping_request(text):
+            try:
+                recovered_text = await _recover_from_meeting_notes_request()
+                if recovered_text:
+                    assistant_text = recovered_text
+            except Exception as recovery_exc:  # noqa: BLE001
+                logger.info("Meeting-notes recovery failed: %s", recovery_exc, exc_info=True)
 
         assistant_text = _postprocess_task_list_answer(text, assistant_text)
-        assistant_text = _ensure_sop_draft_payload(text, assistant_text)
+        if not (_looks_like_meeting_notes_blob(text) or _looks_like_meeting_sop_mapping_request(text)):
+            assistant_text = _ensure_sop_draft_payload(text, assistant_text)
 
         await slack.post_message(channel=channel, text=assistant_text)
         await _safe_log_method("log_assistant_message", run_id, assistant_text)
+        await _persist_recent_exchange(text, assistant_text)
         await _safe_log_method("complete_run", run_id, "completed")
         return True
     except Exception as exc:  # noqa: BLE001
@@ -692,5 +1036,9 @@ async def run_reply_only_agent_loop_turn(
         await slack.post_message(
             channel=channel,
             text=f"{_FAILURE_FALLBACK_TEXT} (ref: {short_ref}, code: {code})",
+        )
+        await _persist_recent_exchange(
+            text,
+            f"{_FAILURE_FALLBACK_TEXT} (ref: {short_ref}, code: {code})",
         )
         return True
