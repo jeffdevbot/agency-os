@@ -6,7 +6,9 @@ from typing import Any, Awaitable, Callable
 
 from .slack_cc_bridge_runtime import build_cc_bridge_runtime_deps
 from .slack_planner_delegate_runtime import SlackPlannerDelegateRuntimeDeps
+from .slack_policy_bridge_runtime import SlackPolicyBridgeRuntimeDeps
 from .slack_route_runtime import SlackRouteRuntimeDeps
+from .slack_runtime_deps import SlackOrchestratorRuntimeDeps, SlackPlannerRuntimeDeps
 from .slack_task_bridge_runtime import build_task_bridge_runtime_deps
 
 
@@ -170,4 +172,134 @@ def build_cc_bridge_deps_from_bindings_runtime(
         format_brand_ambiguous_fn=bindings["format_brand_ambiguous"],
         update_brand_fn=bindings["update_brand"],
         format_brand_update_result_fn=bindings["format_brand_update_result"],
+    )
+
+
+def build_policy_bridge_deps_from_bindings_runtime(
+    *,
+    bindings: dict[str, Any],
+) -> SlackPolicyBridgeRuntimeDeps:
+    return SlackPolicyBridgeRuntimeDeps(
+        get_supabase_admin_client_fn=bindings["get_supabase_admin_client"],
+        resolve_actor_context_fn=bindings["resolve_actor_context"],
+        resolve_surface_context_fn=bindings["resolve_surface_context"],
+        evaluate_skill_policy_fn=bindings["evaluate_skill_policy"],
+        is_llm_orchestrator_enabled_fn=bindings["_is_llm_orchestrator_enabled"],
+        is_legacy_intent_fallback_enabled_fn=bindings["_is_legacy_intent_fallback_enabled"],
+        is_deterministic_control_intent_fn=bindings["_is_deterministic_control_intent"],
+    )
+
+
+def build_task_bridge_deps_for_route_runtime(
+    *,
+    bindings: dict[str, Any],
+    inflight_lock: Any,
+    inflight_set: set[str],
+    logger: Any,
+) -> Any:
+    return build_task_bridge_deps_from_bindings_runtime(
+        bindings=bindings,
+        inflight_lock=inflight_lock,
+        inflight_set=inflight_set,
+        logger=logger,
+        build_client_picker_blocks_fn=bindings["_build_client_picker_blocks"],
+        get_supabase_admin_client_fn=bindings["get_supabase_admin_client"],
+        resolve_client_for_task_fn=bindings["_resolve_client_for_task"],
+        resolve_brand_for_task_fn=bindings["_resolve_brand_for_task"],
+    )
+
+
+def build_cc_bridge_deps_for_route_runtime(*, bindings: dict[str, Any]) -> Any:
+    return build_cc_bridge_deps_from_bindings_runtime(
+        bindings=bindings,
+        build_client_picker_blocks_fn=bindings["_build_client_picker_blocks"],
+    )
+
+
+def build_planner_runtime_deps_from_bindings_runtime(
+    *,
+    bindings: dict[str, Any],
+    logger: Any,
+) -> SlackPlannerRuntimeDeps:
+    return SlackPlannerRuntimeDeps(
+        logger=logger,
+        is_planner_enabled_fn=bindings["_is_planner_enabled"],
+        get_supabase_admin_client_fn=bindings["get_supabase_admin_client"],
+        retrieve_kb_context_fn=bindings["retrieve_kb_context"],
+        generate_plan_fn=bindings["generate_plan"],
+        execute_plan_fn=bindings["execute_plan"],
+        check_skill_policy_fn=bindings["_check_skill_policy"],
+        handle_create_task_fn=bindings["_handle_create_task"],
+        handle_task_list_fn=bindings["_handle_task_list"],
+        handle_cc_skill_fn=bindings["_handle_cc_skill"],
+        append_exchange_fn=bindings["append_exchange"],
+        compact_exchanges_fn=bindings["compact_exchanges"],
+    )
+
+
+def build_orchestrator_runtime_deps_from_bindings_runtime(
+    *,
+    bindings: dict[str, Any],
+    logger: Any,
+) -> SlackOrchestratorRuntimeDeps:
+    return SlackOrchestratorRuntimeDeps(
+        logger=logger,
+        orchestrate_dm_message_fn=bindings["orchestrate_dm_message"],
+        log_ai_token_usage_fn=bindings["log_ai_token_usage"],
+        check_skill_policy_fn=bindings["_check_skill_policy"],
+        handle_task_list_fn=bindings["_handle_task_list"],
+        handle_create_task_fn=bindings["_handle_create_task"],
+        handle_cc_skill_fn=bindings["_handle_cc_skill"],
+        resolve_client_for_task_fn=bindings["_resolve_client_for_task"],
+        resolve_brand_for_task_fn=bindings["_resolve_brand_for_task"],
+        preference_memory_service_factory=bindings["PreferenceMemoryService"],
+        try_planner_fn=bindings["_try_planner"],
+        classify_message_fn=bindings["_classify_message"],
+        is_deterministic_control_intent_fn=bindings["_is_deterministic_control_intent"],
+    )
+
+
+def build_route_runtime_deps_from_bindings_runtime(
+    *,
+    bindings: dict[str, Any],
+    logger: Any,
+) -> SlackRouteRuntimeDeps:
+    return build_route_runtime_deps_runtime(
+        logger=logger,
+        get_supabase_admin_client_fn=bindings["get_supabase_admin_client"],
+        runtime_run_reply_only_agent_loop_turn_fn=bindings["_runtime_run_reply_only_agent_loop_turn"],
+        check_skill_policy_fn=bindings["_check_skill_policy"],
+        handle_task_list_fn=bindings["_handle_task_list"],
+        handle_cc_skill_fn=bindings["_handle_cc_skill"],
+        lookup_clients_fn=bindings["lookup_clients"],
+        format_client_list_fn=bindings["format_client_list"],
+        list_brands_fn=bindings["list_brands"],
+        format_brand_list_fn=bindings["format_brand_list"],
+        retrieve_kb_context_fn=bindings["retrieve_kb_context"],
+        preference_memory_service_cls=bindings["PreferenceMemoryService"],
+        resolve_client_for_task_fn=bindings["_resolve_client_for_task"],
+        resolve_brand_for_task_fn=bindings["_resolve_brand_for_task"],
+        build_client_context_pack_fn=bindings["build_client_context_pack"],
+        read_evidence_fn=bindings["read_evidence"],
+        agent_loop_store_cls=bindings["AgentLoopStore"],
+        enrich_task_draft_fn=bindings["_enrich_task_draft"],
+        execute_task_create_fn=bindings["_execute_task_create"],
+        execute_planner_delegate_runtime_fn=bindings["execute_planner_delegate_for_agent_loop_runtime"],
+        generate_plan_fn=bindings["generate_plan"],
+        execute_plan_fn=bindings["execute_plan"],
+        get_skill_descriptions_for_prompt_fn=bindings["get_skill_descriptions_for_prompt"],
+        agent_loop_turn_logger_cls=bindings["AgentLoopTurnLogger"],
+        get_session_service_fn=bindings["get_playbook_session_service"],
+        get_slack_service_fn=bindings["get_slack_service"],
+        is_agent_loop_enabled_fn=bindings["_is_agent_loop_enabled"],
+        handle_pending_task_continuation_fn=bindings["_handle_pending_task_continuation"],
+        is_llm_orchestrator_enabled_fn=bindings["_is_llm_orchestrator_enabled"],
+        try_llm_orchestrator_fn=bindings["_try_llm_orchestrator"],
+        classify_message_fn=bindings["_classify_message"],
+        should_block_deterministic_intent_fn=bindings["_should_block_deterministic_intent"],
+        handle_create_task_fn=bindings["_handle_create_task"],
+        help_text_fn=bindings["_help_text"],
+        build_client_picker_blocks_fn=bindings["_build_client_picker_blocks"],
+        slack_api_error_cls=bindings["SlackAPIError"],
+        get_receipt_service_fn=bindings["_get_receipt_service"],
     )

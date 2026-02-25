@@ -3,7 +3,7 @@ import json
 import logging
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Request
 from fastapi.responses import JSONResponse
 
 from ...services.agencyclaw import orchestrate_dm_message
@@ -73,9 +73,10 @@ from ...services.agencyclaw.slack_resolution_runtime import (
 from ...services.agencyclaw.slack_route_helpers import (
     build_brand_picker_blocks as _build_brand_picker_blocks,
     build_client_picker_blocks as _build_client_picker_blocks,
-    parse_interaction_payload as _parse_interaction_payload,
-    parse_json_payload as _parse_json,
-    verify_request_or_401 as _verify_request_or_401,
+)
+from ...services.agencyclaw.slack_http_route_runtime import (
+    handle_slack_events_http_runtime,
+    handle_slack_interactions_http_runtime,
 )
 from ...services.agencyclaw.slack_route_runtime import (
     SlackRouteRuntimeDeps,
@@ -85,10 +86,13 @@ from ...services.agencyclaw.slack_route_runtime import (
 from ...services.agencyclaw.slack_debug_route_runtime import (
     handle_debug_chat_route_runtime,
 )
-from ...services.agencyclaw.slack_route_deps_runtime import build_route_runtime_deps_runtime
 from ...services.agencyclaw.slack_route_deps_runtime import (
-    build_cc_bridge_deps_from_bindings_runtime,
-    build_task_bridge_deps_from_bindings_runtime,
+    build_cc_bridge_deps_for_route_runtime,
+    build_orchestrator_runtime_deps_from_bindings_runtime,
+    build_planner_runtime_deps_from_bindings_runtime,
+    build_policy_bridge_deps_from_bindings_runtime,
+    build_route_runtime_deps_from_bindings_runtime,
+    build_task_bridge_deps_for_route_runtime,
 )
 from ...services.agencyclaw.slack_policy_bridge_runtime import (
     SlackPolicyBridgeRuntimeDeps,
@@ -96,10 +100,6 @@ from ...services.agencyclaw.slack_policy_bridge_runtime import (
     is_agent_loop_enabled_runtime,
     is_llm_strict_mode_runtime,
     is_planner_enabled_runtime,
-)
-from ...services.agencyclaw.slack_runtime_deps import (
-    SlackOrchestratorRuntimeDeps,
-    SlackPlannerRuntimeDeps,
 )
 from ...services.agencyclaw.plan_executor import execute_plan
 from ...services.agencyclaw.planner import generate_plan
@@ -147,7 +147,6 @@ from ...services.slack import (
     SlackAPIError,
     SlackReceiptService,
     get_slack_service,
-    get_slack_signing_secret,
 )
 
 _logger = logging.getLogger(__name__)
@@ -161,15 +160,7 @@ _task_create_inflight_lock = asyncio.Lock()
 router = APIRouter(prefix="/slack", tags=["slack"])
 
 def _build_policy_bridge_deps() -> SlackPolicyBridgeRuntimeDeps:
-    return SlackPolicyBridgeRuntimeDeps(
-        get_supabase_admin_client_fn=get_supabase_admin_client,
-        resolve_actor_context_fn=resolve_actor_context,
-        resolve_surface_context_fn=resolve_surface_context,
-        evaluate_skill_policy_fn=evaluate_skill_policy,
-        is_llm_orchestrator_enabled_fn=_is_llm_orchestrator_enabled,
-        is_legacy_intent_fallback_enabled_fn=_is_legacy_intent_fallback_enabled,
-        is_deterministic_control_intent_fn=_is_deterministic_control_intent,
-    )
+    return build_policy_bridge_deps_from_bindings_runtime(bindings=globals())
 
 
 def _is_llm_orchestrator_enabled() -> bool:
@@ -205,22 +196,15 @@ def _get_receipt_service() -> SlackReceiptService:
     return SlackReceiptService(get_supabase_admin_client())
 
 def _build_task_bridge_deps():
-    return build_task_bridge_deps_from_bindings_runtime(
+    return build_task_bridge_deps_for_route_runtime(
         bindings=globals(),
         inflight_lock=_task_create_inflight_lock,
         inflight_set=_task_create_inflight,
         logger=_logger,
-        build_client_picker_blocks_fn=_build_client_picker_blocks,
-        get_supabase_admin_client_fn=get_supabase_admin_client,
-        resolve_client_for_task_fn=_resolve_client_for_task,
-        resolve_brand_for_task_fn=_resolve_brand_for_task,
     )
 
 def _build_cc_bridge_deps():
-    return build_cc_bridge_deps_from_bindings_runtime(
-        bindings=globals(),
-        build_client_picker_blocks_fn=_build_client_picker_blocks,
-    )
+    return build_cc_bridge_deps_for_route_runtime(bindings=globals())
 
 
 async def _handle_task_list(
@@ -454,19 +438,9 @@ async def _try_planner(
     session_service: Any,
     slack: Any,
 ) -> bool:
-    planner_deps = SlackPlannerRuntimeDeps(
+    planner_deps = build_planner_runtime_deps_from_bindings_runtime(
+        bindings=globals(),
         logger=_logger,
-        is_planner_enabled_fn=_is_planner_enabled,
-        get_supabase_admin_client_fn=get_supabase_admin_client,
-        retrieve_kb_context_fn=retrieve_kb_context,
-        generate_plan_fn=generate_plan,
-        execute_plan_fn=execute_plan,
-        check_skill_policy_fn=_check_skill_policy,
-        handle_create_task_fn=_handle_create_task,
-        handle_task_list_fn=_handle_task_list,
-        handle_cc_skill_fn=_handle_cc_skill,
-        append_exchange_fn=append_exchange,
-        compact_exchanges_fn=compact_exchanges,
     )
     return await _runtime_try_planner(
         text=text,
@@ -530,20 +504,9 @@ async def _try_llm_orchestrator(
     session_service: Any,
     slack: Any,
 ) -> bool:
-    orchestrator_deps = SlackOrchestratorRuntimeDeps(
+    orchestrator_deps = build_orchestrator_runtime_deps_from_bindings_runtime(
+        bindings=globals(),
         logger=_logger,
-        orchestrate_dm_message_fn=orchestrate_dm_message,
-        log_ai_token_usage_fn=log_ai_token_usage,
-        check_skill_policy_fn=_check_skill_policy,
-        handle_task_list_fn=_handle_task_list,
-        handle_create_task_fn=_handle_create_task,
-        handle_cc_skill_fn=_handle_cc_skill,
-        resolve_client_for_task_fn=_resolve_client_for_task,
-        resolve_brand_for_task_fn=_resolve_brand_for_task,
-        preference_memory_service_factory=PreferenceMemoryService,
-        try_planner_fn=_try_planner,
-        classify_message_fn=_classify_message,
-        is_deterministic_control_intent_fn=_is_deterministic_control_intent,
     )
     return await _runtime_try_llm_orchestrator(
         text=text,
@@ -579,44 +542,9 @@ async def _check_skill_policy(
     )
 
 def _build_route_runtime_deps() -> SlackRouteRuntimeDeps:
-    return build_route_runtime_deps_runtime(
+    return build_route_runtime_deps_from_bindings_runtime(
+        bindings=globals(),
         logger=_logger,
-        get_supabase_admin_client_fn=get_supabase_admin_client,
-        runtime_run_reply_only_agent_loop_turn_fn=_runtime_run_reply_only_agent_loop_turn,
-        check_skill_policy_fn=_check_skill_policy,
-        handle_task_list_fn=_handle_task_list,
-        handle_cc_skill_fn=_handle_cc_skill,
-        lookup_clients_fn=lookup_clients,
-        format_client_list_fn=format_client_list,
-        list_brands_fn=list_brands,
-        format_brand_list_fn=format_brand_list,
-        retrieve_kb_context_fn=retrieve_kb_context,
-        preference_memory_service_cls=PreferenceMemoryService,
-        resolve_client_for_task_fn=_resolve_client_for_task,
-        resolve_brand_for_task_fn=_resolve_brand_for_task,
-        build_client_context_pack_fn=build_client_context_pack,
-        read_evidence_fn=read_evidence,
-        agent_loop_store_cls=AgentLoopStore,
-        enrich_task_draft_fn=_enrich_task_draft,
-        execute_task_create_fn=_execute_task_create,
-        execute_planner_delegate_runtime_fn=execute_planner_delegate_for_agent_loop_runtime,
-        generate_plan_fn=generate_plan,
-        execute_plan_fn=execute_plan,
-        get_skill_descriptions_for_prompt_fn=get_skill_descriptions_for_prompt,
-        agent_loop_turn_logger_cls=AgentLoopTurnLogger,
-        get_session_service_fn=get_playbook_session_service,
-        get_slack_service_fn=get_slack_service,
-        is_agent_loop_enabled_fn=_is_agent_loop_enabled,
-        handle_pending_task_continuation_fn=_handle_pending_task_continuation,
-        is_llm_orchestrator_enabled_fn=_is_llm_orchestrator_enabled,
-        try_llm_orchestrator_fn=_try_llm_orchestrator,
-        classify_message_fn=_classify_message,
-        should_block_deterministic_intent_fn=_should_block_deterministic_intent,
-        handle_create_task_fn=_handle_create_task,
-        help_text_fn=_help_text,
-        build_client_picker_blocks_fn=_build_client_picker_blocks,
-        slack_api_error_cls=SlackAPIError,
-        get_receipt_service_fn=_get_receipt_service,
     )
 
 
@@ -638,61 +566,22 @@ async def _handle_interaction(payload: dict[str, Any]) -> None:
 
 @router.post("/events")
 async def slack_events(request: Request, background_tasks: BackgroundTasks):
-    signing_secret = get_slack_signing_secret().strip()
-    if not signing_secret:
-        raise HTTPException(status_code=500, detail="SLACK_SIGNING_SECRET not set")
-
-    body = await request.body()
-    _verify_request_or_401(signing_secret=signing_secret, request=request, body=body)
-
-    # If Slack retries a delivery, avoid duplicating side effects.
-    if request.headers.get("X-Slack-Retry-Num"):
-        return JSONResponse({"ok": True})
-
-    payload = _parse_json(body)
-
-    if payload.get("type") == "url_verification":
-        challenge = payload.get("challenge")
-        if not isinstance(challenge, str) or not challenge:
-            raise HTTPException(status_code=400, detail="Missing Slack challenge")
-        return JSONResponse({"challenge": challenge})
-
-    if payload.get("type") == "event_callback":
-        event = payload.get("event") if isinstance(payload.get("event"), dict) else {}
-        if (
-            event.get("type") == "message"
-            and event.get("channel_type") == "im"
-            and not event.get("bot_id")
-            and not event.get("subtype")
-        ):
-            channel = str(event.get("channel") or "").strip()
-            text = str(event.get("text") or "")
-            slack_user_id = str(event.get("user") or "").strip()
-            if channel and text and slack_user_id:
-                background_tasks.add_task(
-                    _handle_dm_event,
-                    slack_user_id=slack_user_id,
-                    channel=channel,
-                    text=text,
-                )
-
-    return JSONResponse({"ok": True})
+    result = await handle_slack_events_http_runtime(
+        request=request,
+        background_tasks=background_tasks,
+        handle_dm_event_fn=_handle_dm_event,
+    )
+    return JSONResponse(result)
 
 
 @router.post("/interactions")
 async def slack_interactions(request: Request, background_tasks: BackgroundTasks):
-    signing_secret = get_slack_signing_secret().strip()
-    if not signing_secret:
-        raise HTTPException(status_code=500, detail="SLACK_SIGNING_SECRET not set")
-
-    body = await request.body()
-    _verify_request_or_401(signing_secret=signing_secret, request=request, body=body)
-
-    interaction = _parse_interaction_payload(body)
-    if interaction:
-        background_tasks.add_task(_handle_interaction, interaction)
-
-    return JSONResponse({"ok": True})
+    result = await handle_slack_interactions_http_runtime(
+        request=request,
+        background_tasks=background_tasks,
+        handle_interaction_fn=_handle_interaction,
+    )
+    return JSONResponse(result)
 
 
 # ---------------------------------------------------------------------------
