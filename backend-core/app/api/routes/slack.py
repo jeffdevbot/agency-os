@@ -159,33 +159,19 @@ _task_create_inflight_lock = asyncio.Lock()
 
 router = APIRouter(prefix="/slack", tags=["slack"])
 
+
 def _build_policy_bridge_deps() -> SlackPolicyBridgeRuntimeDeps:
     return build_policy_bridge_deps_from_bindings_runtime(bindings=globals())
 
 
-def _is_llm_orchestrator_enabled() -> bool:
-    return _helpers_is_llm_orchestrator_enabled()
-
-
-def _is_agent_loop_enabled() -> bool:
-    return is_agent_loop_enabled_runtime()
-
-
-def _is_planner_enabled() -> bool:
-    """Check if the C10D planner feature flag is enabled."""
-    return is_planner_enabled_runtime()
-
-
-def _is_legacy_intent_fallback_enabled() -> bool:
-    return _helpers_is_legacy_intent_fallback_enabled()
-
+_is_llm_orchestrator_enabled = _helpers_is_llm_orchestrator_enabled
+_is_agent_loop_enabled = is_agent_loop_enabled_runtime
+_is_planner_enabled = is_planner_enabled_runtime
+_is_legacy_intent_fallback_enabled = _helpers_is_legacy_intent_fallback_enabled
+_is_deterministic_control_intent = _helpers_is_deterministic_control_intent
 
 def _is_llm_strict_mode() -> bool:
     return is_llm_strict_mode_runtime(_build_policy_bridge_deps())
-
-
-def _is_deterministic_control_intent(intent: str) -> bool:
-    return _helpers_is_deterministic_control_intent(intent)
 
 
 def _should_block_deterministic_intent(intent: str) -> bool:
@@ -195,13 +181,10 @@ def _should_block_deterministic_intent(intent: str) -> bool:
 def _get_receipt_service() -> SlackReceiptService:
     return SlackReceiptService(get_supabase_admin_client())
 
+
 def _build_task_bridge_deps():
-    return build_task_bridge_deps_for_route_runtime(
-        bindings=globals(),
-        inflight_lock=_task_create_inflight_lock,
-        inflight_set=_task_create_inflight,
-        logger=_logger,
-    )
+    return build_task_bridge_deps_for_route_runtime(bindings=globals(), inflight_lock=_task_create_inflight_lock, inflight_set=_task_create_inflight, logger=_logger)
+
 
 def _build_cc_bridge_deps():
     return build_cc_bridge_deps_for_route_runtime(bindings=globals())
@@ -278,12 +261,6 @@ async def _resolve_client_for_task(
         build_client_picker_blocks_fn=_build_client_picker_blocks,
     )
 
-
-# ---------------------------------------------------------------------------
-# C11D: Brand context resolution helper
-# ---------------------------------------------------------------------------
-
-
 async def _resolve_brand_for_task(
     *,
     client_id: str,
@@ -306,12 +283,6 @@ async def _resolve_brand_for_task(
         slack=slack,
         build_brand_picker_blocks_fn=_build_brand_picker_blocks,
     )
-
-
-# ---------------------------------------------------------------------------
-# C11A: Command Center read-only skill handler
-# ---------------------------------------------------------------------------
-
 
 async def _resolve_cc_client_hint(
     *,
@@ -351,12 +322,8 @@ async def _resolve_assignment_client(
     )
 
 
-def _format_remediation_preview(plan: list[dict[str, Any]]) -> str:
-    return format_remediation_preview_bridge_runtime(plan)
-
-
-def _format_remediation_apply_result(result: dict[str, Any]) -> str:
-    return format_remediation_apply_result_bridge_runtime(result)
+_format_remediation_preview = format_remediation_preview_bridge_runtime
+_format_remediation_apply_result = format_remediation_apply_result_bridge_runtime
 
 
 async def _handle_cc_skill(
@@ -438,10 +405,7 @@ async def _try_planner(
     session_service: Any,
     slack: Any,
 ) -> bool:
-    planner_deps = build_planner_runtime_deps_from_bindings_runtime(
-        bindings=globals(),
-        logger=_logger,
-    )
+    planner_deps = build_planner_runtime_deps_from_bindings_runtime(bindings=globals(), logger=_logger)
     return await _runtime_try_planner(
         text=text,
         slack_user_id=slack_user_id,
@@ -467,8 +431,7 @@ async def _enrich_task_draft(
     )
 
 
-def _compose_asin_pending_description(stashed_draft: dict[str, Any] | None) -> str:
-    return _pending_flow_compose_asin_pending_description(stashed_draft)
+_compose_asin_pending_description = _pending_flow_compose_asin_pending_description
 
 
 async def _handle_pending_task_continuation(
@@ -504,10 +467,7 @@ async def _try_llm_orchestrator(
     session_service: Any,
     slack: Any,
 ) -> bool:
-    orchestrator_deps = build_orchestrator_runtime_deps_from_bindings_runtime(
-        bindings=globals(),
-        logger=_logger,
-    )
+    orchestrator_deps = build_orchestrator_runtime_deps_from_bindings_runtime(bindings=globals(), logger=_logger)
     return await _runtime_try_llm_orchestrator(
         text=text,
         slack_user_id=slack_user_id,
@@ -527,11 +487,6 @@ async def _check_skill_policy(
     skill_id: str,
     args: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """C10A: Resolve actor/surface and evaluate skill policy.
-
-    Returns the PolicyDecision dict.  Caller should check ``allowed`` and
-    post ``user_message`` on deny.
-    """
     return await check_skill_policy_runtime(
         slack_user_id=slack_user_id,
         session=session,
@@ -542,57 +497,28 @@ async def _check_skill_policy(
     )
 
 def _build_route_runtime_deps() -> SlackRouteRuntimeDeps:
-    return build_route_runtime_deps_from_bindings_runtime(
-        bindings=globals(),
-        logger=_logger,
-    )
+    return build_route_runtime_deps_from_bindings_runtime(bindings=globals(), logger=_logger)
 
 
 async def _handle_dm_event(*, slack_user_id: str, channel: str, text: str) -> None:
-    await handle_dm_event_route_runtime(
-        slack_user_id=slack_user_id,
-        channel=channel,
-        text=text,
-        deps=_build_route_runtime_deps(),
-    )
+    await handle_dm_event_route_runtime(slack_user_id=slack_user_id, channel=channel, text=text, deps=_build_route_runtime_deps())
 
 
 async def _handle_interaction(payload: dict[str, Any]) -> None:
-    await handle_interaction_route_runtime(
-        payload,
-        deps=_build_route_runtime_deps(),
-    )
+    await handle_interaction_route_runtime(payload, deps=_build_route_runtime_deps())
 
 
 @router.post("/events")
 async def slack_events(request: Request, background_tasks: BackgroundTasks):
-    result = await handle_slack_events_http_runtime(
-        request=request,
-        background_tasks=background_tasks,
-        handle_dm_event_fn=_handle_dm_event,
-    )
+    result = await handle_slack_events_http_runtime(request=request, background_tasks=background_tasks, handle_dm_event_fn=_handle_dm_event)
     return JSONResponse(result)
 
 
 @router.post("/interactions")
 async def slack_interactions(request: Request, background_tasks: BackgroundTasks):
-    result = await handle_slack_interactions_http_runtime(
-        request=request,
-        background_tasks=background_tasks,
-        handle_interaction_fn=_handle_interaction,
-    )
+    result = await handle_slack_interactions_http_runtime(request=request, background_tasks=background_tasks, handle_interaction_fn=_handle_interaction)
     return JSONResponse(result)
-
-
-# ---------------------------------------------------------------------------
-# Debug chat endpoint (terminal-based testing against deployed instance)
-# ---------------------------------------------------------------------------
-
-
 @router.post("/debug/chat")
 async def debug_chat(request: Request):
-    result = await handle_debug_chat_route_runtime(
-        request=request,
-        deps=_build_route_runtime_deps(),
-    )
+    result = await handle_debug_chat_route_runtime(request=request, deps=_build_route_runtime_deps())
     return JSONResponse(result)
