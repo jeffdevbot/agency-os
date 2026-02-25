@@ -1,4 +1,8 @@
 {
-	"inputs": [],
-	"servers": {}
+  "inputs": [],
+  "servers": {
+    "supabase": {
+      "url": "https://mcp.supabase.com/mcp?project_ref=iqkmygvncovwdxagewal"
+    }
+  }
 }
