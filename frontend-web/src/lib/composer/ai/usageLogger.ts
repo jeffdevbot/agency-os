@@ -2,7 +2,7 @@ import type { UsageAction } from "@agency/lib/composer/types";
 
 export interface LogUsageParams {
   // Supabase client typed as `any` to avoid cross-package type resolution issues with Next.js Turbopack.
-  // Runtime validation ensures correct response structure. See docs/composer/slice_02_staged_plan.md for Option B (type-only import).
+  // Runtime validation ensures correct response structure. See docs/archive/non_agencyclaw/composer/slice_02_staged_plan.md for Option B (type-only import).
   supabase: any;
   organizationId: string;
   projectId?: string | null;

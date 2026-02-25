@@ -5,32 +5,33 @@ Ecomlabs Tools is the internal platform that consolidates our ad analytics, SOP 
 ## Documentation map
 
 ### Core Architecture
-- `docs/00_agency_os_architecture.md` — master architecture: Render services (`frontend-web`, `backend-core`, `worker-sync`), Supabase auth, and the migration path off of `ngram.ecomlabs.ca`. Notes the “Agency OS” codename but current branding is Ecomlabs Tools.
-- `docs/01_ngram_migration.md` — the "Split and Lift" plan for porting the existing Ngram analyzer into the Ecomlabs Tools frontend/backend pattern.
+- `docs/archive/non_agencyclaw/00_agency_os_architecture.md` — master architecture: Render services (`frontend-web`, `backend-core`, `worker-sync`), Supabase auth, and the migration path off of `ngram.ecomlabs.ca`. Notes the “Agency OS” codename but current branding is Ecomlabs Tools.
+- `docs/archive/non_agencyclaw/01_ngram_migration.md` — the "Split and Lift" plan for porting the existing Ngram analyzer into the Ecomlabs Tools frontend/backend pattern.
 
 ### Shipped Tools (Web UI)
 - **N-Gram Processor** — `/ngram` (two-step flow: generate workbook, then upload filled workbook to download a formatted negatives summary).
-- **N-PAT (Negative Product Attribute Targeting)** — `/npat` (ASIN-only inverse of N-Gram with Helium10 enrichment). Specs: `docs/03_npat_prd.md`, plan: `docs/03_npat_plan.md`.
-- **AdScope** — `/adscope` (Amazon Ads audit workspace: upload Bulk + STR; views + chat). Specs: `docs/20_adscope_prd.md`, schema: `docs/21_adscope_schema.md`.
-- **Scribe** — `/scribe` (Amazon listing copy generation: project → SKUs → topics → copy). Current specs live under `docs/scribe_lite/`.
-- **Root Keyword Analysis** — `/root-keywords` (4-week hierarchical campaign rollup). Specs: `docs/18_root_keyword_analysis_prd.md`, plan: `docs/19_root_keyword_analysis_plan.md`.
-- **Command Center (MVP)** — `/command-center` (admin-only; clients → brands → role slots; team roster; Ghost Profiles merge-on-login). Specs: `docs/07_command_center_prd.md`, API: `docs/07_command_center_schema_api.md`.
-- **Debrief (MVP)** — `/debrief` (admin-only; sync Meet “Notes by Gemini” into Supabase; manually extract tasks; edit/remove; send to ClickUp once IDs are mapped). Specs: `docs/debrief_prd.md`, plan: `docs/debrief_implementation_plan.md`.
+- **N-PAT (Negative Product Attribute Targeting)** — `/npat` (ASIN-only inverse of N-Gram with Helium10 enrichment). Specs: `docs/archive/non_agencyclaw/03_npat_prd.md`, plan: `docs/archive/non_agencyclaw/03_npat_plan.md`.
+- **AdScope** — `/adscope` (Amazon Ads audit workspace: upload Bulk + STR; views + chat). Specs: `docs/archive/non_agencyclaw/20_adscope_prd.md`, schema: `docs/archive/non_agencyclaw/21_adscope_schema.md`.
+- **Scribe** — `/scribe` (Amazon listing copy generation: project → SKUs → topics → copy). Current specs live under `docs/archive/non_agencyclaw/scribe_lite/`.
+- **Root Keyword Analysis** — `/root-keywords` (4-week hierarchical campaign rollup). Specs: `docs/archive/non_agencyclaw/18_root_keyword_analysis_prd.md`, plan: `docs/archive/non_agencyclaw/19_root_keyword_analysis_plan.md`.
+- **Command Center (MVP)** — `/command-center` (admin-only; clients → brands → role slots; team roster; Ghost Profiles merge-on-login). Specs: `docs/archive/non_agencyclaw/07_command_center_prd.md`, API: `docs/archive/non_agencyclaw/07_command_center_schema_api.md`.
+- **Debrief (MVP)** — `/debrief` (admin-only; sync Meet “Notes by Gemini” into Supabase; manually extract tasks; edit/remove; send to ClickUp once IDs are mapped). Specs: `docs/archive/non_agencyclaw/debrief_prd.md`, plan: `docs/archive/non_agencyclaw/debrief_implementation_plan.md`.
 
 ### Shipped Services (Internal / No UI)
-- **ClickUp Service (backend-core)** — shared backend integration layer for ClickUp API calls (task creation + future sync). Routes live under `backend-core/app/routers/clickup.py`. Spec: `docs/08_clickup_service_prd.md`.
+- **ClickUp Service (backend-core)** — shared backend integration layer for ClickUp API calls (task creation + future sync). Routes live under `backend-core/app/routers/clickup.py`. Spec: `docs/archive/non_agencyclaw/08_clickup_service_prd.md`.
 
 ### In Flight / Upcoming
 - **AgencyClaw** — Slack assistant for agency operations (task creation, weekly status, command-center skills, SOP-grounded drafting). Docs index: `docs/agencyclaw/README.md`, architecture: `backend-core/docs/design/agencyclaw-architecture-map.md`.
+- **Non-AgencyClaw historical docs** — archived at `docs/archive/non_agencyclaw/` (index: `docs/archive/non_agencyclaw/README.md`).
 - More tools planned; follow the docs folder for new PRDs and plans as they land.
 
 ### Other Specs
-- `docs/05_creative_brief_prd.md` — Creative Brief tool that maps Composer copy + uploaded assets into designer-ready storyboards.
-- `docs/11_usage_events_schema.md` — Usage + token logging schema reference (token usage lives in `ai_token_usage` for Scribe, AdScope, Debrief).
+- `docs/archive/non_agencyclaw/05_creative_brief_prd.md` — Creative Brief tool that maps Composer copy + uploaded assets into designer-ready storyboards.
+- `docs/archive/non_agencyclaw/11_usage_events_schema.md` — Usage + token logging schema reference (token usage lives in `ai_token_usage` for Scribe, AdScope, Debrief).
 
 ### Deprecated
-- `docs/04_amazon_composer_prd.md` — **[DEPRECATED]** Amazon listing composer. **Replaced by Scribe.** Code will be removed after Scribe stabilizes.
-- `docs/02_the_operator_prd.md` — **[DEPRECATED]** The Operator concept PRD (superseded by Debrief + ClickUp Service).
+- `docs/archive/non_agencyclaw/04_amazon_composer_prd.md` — **[DEPRECATED]** Amazon listing composer. **Replaced by Scribe.** Code will be removed after Scribe stabilizes.
+- `docs/archive/non_agencyclaw/02_the_operator_prd.md` — **[DEPRECATED]** The Operator concept PRD (superseded by Debrief + ClickUp Service).
 
 Each doc includes the UX, backend contracts, and Supabase schema changes needed for its domain. Treat them as living specs; update them before or alongside any code changes that affect scope or interfaces.
 
@@ -48,7 +49,7 @@ Each doc includes the UX, backend contracts, and Supabase schema changes needed 
 | `backend-core` | FastAPI | API endpoints, integrations |
 | `worker-sync` | Background | Render background worker (planned; no code in this repo yet) |
 
-All services are deployed on Render. See `docs/00_agency_os_architecture.md` for details.
+All services are deployed on Render. See `docs/archive/non_agencyclaw/00_agency_os_architecture.md` for details.
 
 ## AgencyClaw (Slack Assistant)
 

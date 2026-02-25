@@ -2,7 +2,7 @@
 
 > **⚠️ ARCHIVED - 2025-11-21**
 >
-> This PRD has been superseded by the Team Central PRD ([docs/07_team_central_prd.md](../07_team_central_prd.md)).
+> This PRD has been superseded by the Team Central PRD ([docs/archive/non_agencyclaw/07_team_central_prd.md](../non_agencyclaw/07_team_central_prd.md)).
 >
 > Team Central expands on the concepts in this document with:
 > - Comprehensive 7-role hierarchy (vs simple role enum)
