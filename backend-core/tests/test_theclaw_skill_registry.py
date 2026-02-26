@@ -41,7 +41,7 @@ def test_load_skills_includes_task_extraction_markdown_skill():
     assert "wbr" in task_extraction.categories
     assert "meeting summaries" in task_extraction.description.lower()
     assert "the claw: task extraction" in task_extraction.system_prompt.lower()
-    assert "task template:" in task_extraction.system_prompt.lower()
+    assert "task n:" in task_extraction.system_prompt.lower()
     assert "marketplace:" in task_extraction.system_prompt.lower()
     assert "deliverables / requirements" in task_extraction.system_prompt.lower()
 

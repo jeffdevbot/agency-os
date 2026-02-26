@@ -38,9 +38,23 @@ _SKILL_SELECTION_PROMPT = (
     "Do not include markdown, prose, or code fences."
 )
 _ENTITY_RESOLVER_FIELD_RE = re.compile(r"^\s*([a-zA-Z ]+)\s*:\s*(.+?)\s*$")
+_IDENTITY_TRIGGER_KEYS = frozenset({"client", "brand", "clickup space", "market scope"})
+_UNKNOWN_CONTEXT_VALUES = frozenset({"unknown", ""})
+_CONTEXT_FIELD_MAX_LEN = 120
+_REPLY_MAX_TOKENS = 1600
 
 
-def _build_system_prompt(*, selected_skill: TheClawSkill | None = None) -> str:
+def _sanitize_context_field(value: object) -> str:
+    text = str(value) if value is not None else ""
+    sanitized = re.sub(r"[\x00-\x1f\x7f]", " ", text).strip()
+    return sanitized[:_CONTEXT_FIELD_MAX_LEN]
+
+
+def _build_system_prompt(
+    *,
+    selected_skill: TheClawSkill | None = None,
+    resolved_context: dict[str, Any] | None = None,
+) -> str:
     prompt = (
         "You are The Claw, an agency operations copilot for Amazon-focused client work. "
         "Keep answers concise, clear, and action-oriented, and avoid generic marketing fluff. "
@@ -50,6 +64,18 @@ def _build_system_prompt(*, selected_skill: TheClawSkill | None = None) -> str:
         "For task drafting, if key fields are missing (client/brand, owner, due date, priority), ask up to 2 clarifying questions before finalizing the draft. "
         "When using lists, use plain numbered format like '1.' and do not use bold-number bullets."
     )
+    if resolved_context:
+        parts = []
+        if resolved_context.get("client"):
+            parts.append(f"Client: {_sanitize_context_field(resolved_context['client'])}")
+        if resolved_context.get("brand"):
+            parts.append(f"Brand: {_sanitize_context_field(resolved_context['brand'])}")
+        if resolved_context.get("clickup_space"):
+            parts.append(f"ClickUp Space: {_sanitize_context_field(resolved_context['clickup_space'])}")
+        if resolved_context.get("market_scope"):
+            parts.append(f"Market: {_sanitize_context_field(resolved_context['market_scope'])}")
+        if parts:
+            prompt = f"{prompt} Active context: {', '.join(parts)}."
     if selected_skill is not None:
         prompt = (
             f"{prompt} You are executing skill '{selected_skill.name}' "
@@ -113,6 +139,15 @@ def _history_from_session_context(context: Any) -> list[dict[str, str]]:
     return _normalize_history_messages(context.get(_SESSION_HISTORY_KEY))
 
 
+def _resolved_context_from_session_context(context: Any) -> dict[str, Any] | None:
+    if not isinstance(context, dict):
+        return None
+    raw = context.get(_SESSION_RESOLVED_CONTEXT_KEY)
+    if not isinstance(raw, dict):
+        return None
+    return raw
+
+
 def _append_turn_and_cap_history(
     history_messages: list[dict[str, str]],
     *,
@@ -149,10 +184,7 @@ def _parse_entity_resolver_response(reply_text: str) -> dict[str, Any] | None:
         if value:
             field_map[key] = value
 
-    if has_resolved_header or any(
-        key in field_map
-        for key in ("client", "brand", "clickup space", "market scope", "confidence", "notes")
-    ):
+    if has_resolved_header or any(key in field_map for key in _IDENTITY_TRIGGER_KEYS):
         context_payload = {
             "client": field_map.get("client"),
             "brand": field_map.get("brand"),
@@ -161,7 +193,11 @@ def _parse_entity_resolver_response(reply_text: str) -> dict[str, Any] | None:
             "confidence": field_map.get("confidence"),
             "notes": field_map.get("notes"),
         }
-        if any(value for value in context_payload.values()):
+        has_identity = any(
+            context_payload.get(f) and (context_payload[f] or "").strip().lower() not in _UNKNOWN_CONTEXT_VALUES
+            for f in ("client", "brand", "clickup_space", "market_scope")
+        )
+        if has_identity:
             return {"mode": "resolved", "context": context_payload}
         return None
 
@@ -277,6 +313,7 @@ async def run_theclaw_minimal_dm_turn(*, slack_user_id: str, channel: str, text:
 
     session = None
     history_messages: list[dict[str, str]] = []
+    resolved_context: dict[str, Any] | None = None
     session_service = None
     try:
         session_service = _get_session_service()
@@ -302,17 +339,20 @@ async def run_theclaw_minimal_dm_turn(*, slack_user_id: str, channel: str, text:
     if session_service is not None:
         try:
             session = session_service.get_or_create_session(slack_user_id)
-            history_messages = _history_from_session_context(getattr(session, "context", {}))
+            ctx = getattr(session, "context", {})
+            history_messages = _history_from_session_context(ctx)
+            resolved_context = _resolved_context_from_session_context(ctx)
         except Exception as exc:  # noqa: BLE001
             _logger.warning("The Claw session retrieval failed: %s", exc)
             session = None
             history_messages = []
+            resolved_context = None
 
     selected_skill = await _select_skill_for_turn(
         user_text=user_text,
         history_messages=history_messages,
     )
-    system_prompt = _build_system_prompt(selected_skill=selected_skill)
+    system_prompt = _build_system_prompt(selected_skill=selected_skill, resolved_context=resolved_context)
 
     slack = get_slack_service()
     try:
@@ -324,7 +364,7 @@ async def run_theclaw_minimal_dm_turn(*, slack_user_id: str, channel: str, text:
                     {"role": "user", "content": user_text},
                 ],
                 temperature=0.2,
-                max_tokens=500,
+                max_tokens=_REPLY_MAX_TOKENS,
             )
             reply_text = _trim_reply(response["content"])
             reply_text = _apply_mutation_disclaimer(user_text=user_text, reply_text=reply_text)

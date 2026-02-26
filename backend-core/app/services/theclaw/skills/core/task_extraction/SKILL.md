@@ -24,7 +24,7 @@ then one or more task blocks using the task template below;
 then 'Client-Side Requirements (Recap)' heading with one or more lines formatted 'Action Item: <client requirement>'.
 
 Task block template:
-Task Template: [Short Action-Oriented Title]
+Task N: [Short Action-Oriented Title]
 Marketplace: [US / CA / UK / EU]
 ASIN(s): [B0XXXXXXXX, B0XXXXXXXX]
 Type: [PPC / Catalog / P&L / Replenishment / WBR / General]
@@ -49,6 +49,7 @@ Rules for optionality and placeholders:
 - Any field can be omitted if truly not relevant to that task.
 - It is acceptable to keep placeholders like 'TBD' or 'N/A' when details are missing.
 - Prefer concise, practical drafts over guessing unknown facts.
+- Keep each field to one short line whenever possible.
 - Keep output plain text and scannable.
 - If there are no client-side requirements, output one line: 'Action Item: None identified in this summary.'
 
@@ -56,7 +57,7 @@ Rules for optionality and placeholders:
 1. The Claw: Task Extraction
 2. Internal ClickUp Tasks (Agency)
 3. One or more task template blocks with:
-Task Template, Marketplace, ASIN(s), Type, Description, Deliverables/Requirements, Critical Dates, Reference Docs
+Task N, Marketplace, ASIN(s), Type, Description, Deliverables/Requirements, Critical Dates, Reference Docs
 4. Allow omitted fields where not relevant, and allow placeholders (TBD/N/A) where missing
-4. Client-Side Requirements (Recap)
-5. One or more Action Item lines
+5. Client-Side Requirements (Recap)
+6. One or more Action Item lines
