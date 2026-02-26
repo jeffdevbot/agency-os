@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+import threading
+import time
 
 import app.services.theclaw.skill_registry as skill_registry
 from app.services.theclaw.skill_registry import (
@@ -88,4 +90,36 @@ def test_load_skills_zero_ttl_disables_cache(monkeypatch):
     _ = load_skills()
 
     assert calls["count"] == 2
+    invalidate_skills_cache()
+
+
+def test_load_skills_concurrent_calls_only_load_once(monkeypatch):
+    invalidate_skills_cache()
+    calls = {"count": 0}
+    fake = _fake_skill()
+    start_barrier = threading.Barrier(2)
+
+    def _fake_load() -> tuple[TheClawSkill, ...]:
+        calls["count"] += 1
+        time.sleep(0.05)
+        return (fake,)
+
+    monkeypatch.setenv("THECLAW_SKILL_CACHE_TTL_SECONDS", "999")
+    monkeypatch.setattr(skill_registry, "_load_skills_from_disk", _fake_load)
+
+    results: list[tuple[TheClawSkill, ...] | None] = [None, None]
+
+    def _runner(index: int) -> None:
+        start_barrier.wait()
+        results[index] = load_skills()
+
+    threads = [threading.Thread(target=_runner, args=(0,)), threading.Thread(target=_runner, args=(1,))]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert calls["count"] == 1
+    assert results[0] == (fake,)
+    assert results[1] == (fake,)
     invalidate_skills_cache()

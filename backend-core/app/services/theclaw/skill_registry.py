@@ -180,8 +180,8 @@ def load_skills(*, force_reload: bool = False) -> tuple[TheClawSkill, ...]:
     global _skill_cache, _skill_cache_loaded_at  # noqa: PLW0603
 
     ttl_seconds = _get_skill_cache_ttl_seconds()
-    now = time.monotonic()
     with _skill_cache_lock:
+        now = time.monotonic()
         cache_valid = (
             _skill_cache is not None
             and ttl_seconds > 0
@@ -190,8 +190,7 @@ def load_skills(*, force_reload: bool = False) -> tuple[TheClawSkill, ...]:
         if not force_reload and cache_valid:
             return _skill_cache
 
-    loaded = _load_skills_from_disk()
-    with _skill_cache_lock:
+        loaded = _load_skills_from_disk()
         _skill_cache = loaded
         _skill_cache_loaded_at = time.monotonic()
         return _skill_cache
