@@ -6,6 +6,7 @@ category: core
 categories: core,ppc,catalog,p&l,replenishment,wbr
 when_to_use: User shares meeting notes, an email, a Slack message, or other source material and asks for tasks/action items/next steps.
 trigger_hints: meeting,notes,summary,transcript,minutes,recap,follow-up,task,action items,next steps,email,slack message,report,phone call
+needs_context: draft_tasks
 ---
 
 # Skill: Task Extraction

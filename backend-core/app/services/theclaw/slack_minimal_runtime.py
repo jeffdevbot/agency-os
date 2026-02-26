@@ -81,12 +81,8 @@ def _build_system_prompt(
             f"{selected_skill.system_prompt}"
         )
 
-    if (
-        selected_skill is not None
-        and selected_skill.skill_id.lower() == "task_extraction"
-        and isinstance(draft_tasks, list)
-        and draft_tasks
-    ):
+    required_context = set(selected_skill.needs_context) if selected_skill is not None else set()
+    if "draft_tasks" in required_context and isinstance(draft_tasks, list) and draft_tasks:
         compact_tasks = []
         for task in draft_tasks[:25]:
             if not isinstance(task, dict):

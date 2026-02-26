@@ -33,6 +33,7 @@ class TheClawSkill:
     trigger_hints: tuple[str, ...]
     system_prompt: str
     path: Path
+    needs_context: tuple[str, ...] = tuple()
 
 
 def _normalize_category(value: str) -> str:
@@ -130,6 +131,11 @@ def _load_skill_file(path: Path) -> TheClawSkill | None:
         for hint in _parse_csv(metadata.get("trigger_hints", ""))
         if hint.strip()
     )
+    needs_context = tuple(
+        context_key.lower()
+        for context_key in _parse_csv(metadata.get("needs_context", ""))
+        if context_key.strip()
+    )
     system_prompt = (sections.get("system prompt") or "").strip()
 
     if not skill_id or not system_prompt:
@@ -146,6 +152,7 @@ def _load_skill_file(path: Path) -> TheClawSkill | None:
         trigger_hints=trigger_hints,
         system_prompt=system_prompt,
         path=path,
+        needs_context=needs_context,
     )
 
 

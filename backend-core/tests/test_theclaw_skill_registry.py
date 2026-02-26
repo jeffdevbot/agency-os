@@ -45,6 +45,7 @@ def test_load_skills_includes_task_extraction_markdown_skill():
     assert "marketplace:" in task_extraction.system_prompt.lower()
     assert "deliverables / requirements" in task_extraction.system_prompt.lower()
     assert "---theclaw_state_json---" in task_extraction.system_prompt.lower()
+    assert "draft_tasks" in task_extraction.needs_context
 
 
 def test_build_available_skills_xml_contains_expected_tags():
