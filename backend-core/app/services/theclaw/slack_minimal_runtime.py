@@ -10,6 +10,14 @@ from typing import Any
 from ..playbook_session import get_playbook_session_service
 from ..slack import get_slack_service
 from .openai_client import OpenAIConfigurationError, OpenAIError, call_chat_completion
+from .runtime_state import (
+    coerce_runtime_context_updates as _coerce_runtime_context_updates,
+    extract_reply_and_context_updates as _extract_reply_and_context_updates,
+    finalize_reply_text as _finalize_reply_text_base,
+    finalize_state_updates_for_turn as _finalize_state_updates_for_turn,
+    resolved_context_from_session_context as _resolved_context_from_session_context,
+    sanitize_context_field as _sanitize_context_field,
+)
 from .skill_registry import TheClawSkill, build_available_skills_xml, get_skill_by_id, load_skills
 
 _logger = logging.getLogger(__name__)
@@ -26,9 +34,7 @@ _MUTATION_REQUEST_RE = re.compile(
     re.IGNORECASE,
 )
 _SESSION_HISTORY_KEY = "theclaw_history_v1"
-_SESSION_RESOLVED_CONTEXT_KEY = "theclaw_resolved_context_v1"
 _MAX_HISTORY_TURNS = 25
-_ENTITY_RESOLVER_SKILL_ID = "entity_resolver"
 _SKILL_SELECTION_JSON_RE = re.compile(r"\{.*\}", re.DOTALL)
 _SKILL_SELECTION_PROMPT = (
     "You are the The Claw skill router. Select at most one skill for this user turn. "
@@ -37,17 +43,7 @@ _SKILL_SELECTION_PROMPT = (
     '{"skill_id":"<skill id or none>","confidence":<0.0-1.0>,"reason":"<brief reason>"}. '
     "Do not include markdown, prose, or code fences."
 )
-_ENTITY_RESOLVER_FIELD_RE = re.compile(r"^\s*([a-zA-Z ]+)\s*:\s*(.+?)\s*$")
-_IDENTITY_TRIGGER_KEYS = frozenset({"client", "brand", "clickup space", "market scope"})
-_UNKNOWN_CONTEXT_VALUES = frozenset({"unknown", ""})
-_CONTEXT_FIELD_MAX_LEN = 120
 _REPLY_MAX_TOKENS = 1600
-
-
-def _sanitize_context_field(value: object) -> str:
-    text = str(value) if value is not None else ""
-    sanitized = re.sub(r"[\x00-\x1f\x7f]", " ", text).strip()
-    return sanitized[:_CONTEXT_FIELD_MAX_LEN]
 
 
 def _build_system_prompt(
@@ -93,13 +89,6 @@ def _get_session_service():
     return get_playbook_session_service()
 
 
-def _trim_reply(content: str) -> str:
-    reply = (content or "").strip()
-    if not reply:
-        return _FALLBACK_REPLY
-    return reply
-
-
 def _is_mutation_request(text: str) -> bool:
     return bool(_MUTATION_REQUEST_RE.search(text or ""))
 
@@ -139,15 +128,6 @@ def _history_from_session_context(context: Any) -> list[dict[str, str]]:
     return _normalize_history_messages(context.get(_SESSION_HISTORY_KEY))
 
 
-def _resolved_context_from_session_context(context: Any) -> dict[str, Any] | None:
-    if not isinstance(context, dict):
-        return None
-    raw = context.get(_SESSION_RESOLVED_CONTEXT_KEY)
-    if not isinstance(raw, dict):
-        return None
-    return raw
-
-
 def _append_turn_and_cap_history(
     history_messages: list[dict[str, str]],
     *,
@@ -165,66 +145,32 @@ def _append_turn_and_cap_history(
     return updated
 
 
-def _parse_entity_resolver_response(reply_text: str) -> dict[str, Any] | None:
-    text = (reply_text or "").strip()
-    if not text:
-        return None
-
-    lower_text = text.lower()
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-    has_resolved_header = "resolved context" in lower_text
-
-    field_map: dict[str, str] = {}
-    for line in lines:
-        match = _ENTITY_RESOLVER_FIELD_RE.match(line)
-        if not match:
-            continue
-        key = match.group(1).strip().lower()
-        value = match.group(2).strip()
-        if value:
-            field_map[key] = value
-
-    if has_resolved_header or any(key in field_map for key in _IDENTITY_TRIGGER_KEYS):
-        context_payload = {
-            "client": field_map.get("client"),
-            "brand": field_map.get("brand"),
-            "clickup_space": field_map.get("clickup space"),
-            "market_scope": field_map.get("market scope"),
-            "confidence": field_map.get("confidence"),
-            "notes": field_map.get("notes"),
-        }
-        has_identity = any(
-            context_payload.get(f) and (context_payload[f] or "").strip().lower() not in _UNKNOWN_CONTEXT_VALUES
-            for f in ("client", "brand", "clickup_space", "market_scope")
-        )
-        if has_identity:
-            return {"mode": "resolved", "context": context_payload}
-        return None
-
-    question = next((line for line in lines if "?" in line), "")
-    if question:
-        return {"mode": "clarification", "question": question}
-    return None
+def _finalize_reply_text(reply_text: str) -> str:
+    return _finalize_reply_text_base(reply_text, fallback_text=_FALLBACK_REPLY)
 
 
-def _extract_entity_resolver_context_updates(
+def _build_context_updates_for_turn(
     *,
-    selected_skill: TheClawSkill | None,
-    reply_text: str,
+    history_messages: list[dict[str, str]],
+    user_text: str,
+    assistant_text: str,
+    state_updates: dict[str, Any],
 ) -> dict[str, Any]:
-    if selected_skill is None or selected_skill.skill_id.lower() != _ENTITY_RESOLVER_SKILL_ID:
-        return {}
+    updated_history = _append_turn_and_cap_history(
+        history_messages,
+        user_text=user_text,
+        assistant_text=assistant_text,
+    )
+    context_updates: dict[str, Any] = {_SESSION_HISTORY_KEY: updated_history}
+    context_updates.update(state_updates)
+    return context_updates
 
-    parsed = _parse_entity_resolver_response(reply_text)
-    if not parsed:
-        return {}
 
-    mode = str(parsed.get("mode") or "").strip().lower()
-    if mode == "resolved":
-        context_payload = parsed.get("context")
-        if isinstance(context_payload, dict):
-            return {_SESSION_RESOLVED_CONTEXT_KEY: context_payload}
-    return {}
+def _process_model_reply_for_turn(*, user_text: str, model_reply_text: str) -> tuple[str, dict[str, Any]]:
+    visible_reply, state_updates = _extract_reply_and_context_updates(model_reply_text)
+    finalized_reply = _finalize_reply_text(visible_reply)
+    finalized_reply = _apply_mutation_disclaimer(user_text=user_text, reply_text=finalized_reply)
+    return finalized_reply, state_updates
 
 
 def _parse_skill_selection(raw_text: str) -> tuple[str | None, float]:
@@ -312,6 +258,7 @@ async def run_theclaw_minimal_dm_turn(*, slack_user_id: str, channel: str, text:
         return
 
     session = None
+    session_context: dict[str, Any] = {}
     history_messages: list[dict[str, str]] = []
     resolved_context: dict[str, Any] | None = None
     session_service = None
@@ -339,12 +286,13 @@ async def run_theclaw_minimal_dm_turn(*, slack_user_id: str, channel: str, text:
     if session_service is not None:
         try:
             session = session_service.get_or_create_session(slack_user_id)
-            ctx = getattr(session, "context", {})
-            history_messages = _history_from_session_context(ctx)
-            resolved_context = _resolved_context_from_session_context(ctx)
+            session_context = getattr(session, "context", {})
+            history_messages = _history_from_session_context(session_context)
+            resolved_context = _resolved_context_from_session_context(session_context)
         except Exception as exc:  # noqa: BLE001
             _logger.warning("The Claw session retrieval failed: %s", exc)
             session = None
+            session_context = {}
             history_messages = []
             resolved_context = None
 
@@ -366,27 +314,29 @@ async def run_theclaw_minimal_dm_turn(*, slack_user_id: str, channel: str, text:
                 temperature=0.2,
                 max_tokens=_REPLY_MAX_TOKENS,
             )
-            reply_text = _trim_reply(response["content"])
-            reply_text = _apply_mutation_disclaimer(user_text=user_text, reply_text=reply_text)
+            reply_text, state_updates = _process_model_reply_for_turn(
+                user_text=user_text,
+                model_reply_text=response["content"],
+            )
+            state_updates = _finalize_state_updates_for_turn(
+                state_updates=state_updates,
+                session_context=session_context,
+            )
         except OpenAIConfigurationError:
             reply_text = "The Claw is not configured yet. Please set OPENAI_API_KEY and try again."
+            state_updates = {}
         except OpenAIError as exc:
             _logger.warning("The Claw minimal runtime OpenAI error: %s", exc)
             reply_text = _FALLBACK_REPLY
+            state_updates = {}
 
         if session_service is not None and session is not None:
             try:
-                updated_history = _append_turn_and_cap_history(
-                    history_messages,
+                context_updates = _build_context_updates_for_turn(
+                    history_messages=history_messages,
                     user_text=user_text,
                     assistant_text=reply_text,
-                )
-                context_updates: dict[str, Any] = {_SESSION_HISTORY_KEY: updated_history}
-                context_updates.update(
-                    _extract_entity_resolver_context_updates(
-                        selected_skill=selected_skill,
-                        reply_text=reply_text,
-                    )
+                    state_updates=state_updates,
                 )
                 session_service.update_context(
                     session.id,

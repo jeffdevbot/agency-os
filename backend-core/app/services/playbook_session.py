@@ -27,6 +27,9 @@ class PlaybookSession:
     last_message_at: Optional[str] = None
 
 
+_SESSION_ACTIVE_WINDOW_MINUTES = 60
+
+
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -59,7 +62,7 @@ class PlaybookSessionService:
             self.db.table("playbook_slack_sessions")
             .select("*")
             .eq("slack_user_id", slack_user_id)
-            .gt("last_message_at", _cutoff_iso(30))
+            .gt("last_message_at", _cutoff_iso(_SESSION_ACTIVE_WINDOW_MINUTES))
             .order("last_message_at", desc=True)
             .limit(1)
             .execute()
@@ -120,11 +123,12 @@ class PlaybookSessionService:
             return
         self.db.table("playbook_slack_sessions").update(
             {
-                "last_message_at": _cutoff_iso(60),
+                # Use active-window + 1 to ensure the session is outside active scope.
+                "last_message_at": _cutoff_iso(_SESSION_ACTIVE_WINDOW_MINUTES + 1),
                 "active_client_id": None,
                 "context": {},
             }
-        ).eq("slack_user_id", slack_user_id).gt("last_message_at", _cutoff_iso(30)).execute()
+        ).eq("slack_user_id", slack_user_id).gt("last_message_at", _cutoff_iso(_SESSION_ACTIVE_WINDOW_MINUTES)).execute()
 
     def set_active_client(self, session_id: str, client_id: str) -> None:
         session_id = (session_id or "").strip()

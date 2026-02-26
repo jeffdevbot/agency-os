@@ -1,19 +1,18 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from app.services.theclaw.openai_client import OpenAIError
-from app.services.theclaw.skill_registry import TheClawSkill, get_skill_by_id
+from app.services.theclaw.skill_registry import get_skill_by_id
 from app.services.theclaw.slack_minimal_runtime import (
     _apply_mutation_disclaimer,
     _append_turn_and_cap_history,
     _build_skill_selection_system_prompt,
     _build_system_prompt,
-    _extract_entity_resolver_context_updates,
+    _coerce_runtime_context_updates,
+    _extract_reply_and_context_updates,
+    _finalize_state_updates_for_turn,
     _is_mutation_request,
-    _parse_entity_resolver_response,
     _parse_skill_selection,
     _resolved_context_from_session_context,
     _sanitize_context_field,
@@ -82,49 +81,96 @@ def test_build_skill_selection_prompt_includes_available_skills_xml():
     assert "<available_skills>" in prompt
 
 
-@pytest.mark.parametrize(
-    ("text", "expected_mode"),
-    [
-        (
-            "Resolved Context\nClient: Whoosh\nBrand: Whoosh\nClickUp Space: Whoosh\nMarket Scope: CA\nConfidence: high\nNotes: from thread",
-            "resolved",
-        ),
-        ("Which Whoosh did you mean: Basari World [Whoosh] or Whoosh?", "clarification"),
-    ],
-)
-def test_parse_entity_resolver_response_modes(text: str, expected_mode: str):
-    parsed = _parse_entity_resolver_response(text)
-    assert parsed is not None
-    assert parsed["mode"] == expected_mode
-
-
-def test_extract_entity_resolver_context_updates_returns_resolved_context():
-    selected_skill = TheClawSkill(
-        skill_id="entity_resolver",
-        name="Entity Resolver",
-        description="Resolves context",
-        primary_category="core",
-        categories=("core",),
-        when_to_use="Resolve entity context",
-        trigger_hints=("client", "brand"),
-        system_prompt="Resolve context",
-        path=Path("/tmp/entity/SKILL.md"),
+def test_extract_reply_and_context_updates_handles_entity_state_block():
+    visible, updates = _extract_reply_and_context_updates(
+        "Resolved Context\nClient: Whoosh\n\n"
+        "---THECLAW_STATE_JSON---\n"
+        '{"context_updates":{"theclaw_resolved_context_v1":{"client":"Whoosh","brand":"Whoosh","clickup_space":"Whoosh","market_scope":"CA","confidence":"high","notes":"from thread"}}}\n'
+        "---END_THECLAW_STATE_JSON---"
     )
-    updates = _extract_entity_resolver_context_updates(
-        selected_skill=selected_skill,
-        reply_text=(
-            "Resolved Context\n"
-            "Client: Whoosh\n"
-            "Brand: Whoosh\n"
-            "ClickUp Space: Whoosh\n"
-            "Market Scope: CA\n"
-            "Confidence: high\n"
-            "Notes: from thread"
-        ),
-    )
-    assert "theclaw_resolved_context_v1" in updates
+    assert visible == "Resolved Context\nClient: Whoosh"
     assert updates["theclaw_resolved_context_v1"]["client"] == "Whoosh"
     assert updates["theclaw_resolved_context_v1"]["market_scope"] == "CA"
+
+
+def test_extract_reply_and_context_updates_handles_task_drafts_state_block():
+    visible, updates = _extract_reply_and_context_updates(
+        "Internal ClickUp Tasks (Agency)\nTask 1: Launch campaign\n\n"
+        "---THECLAW_STATE_JSON---\n"
+        '{"context_updates":{"theclaw_draft_tasks_v1":[{"title":"Launch campaign","source":"meeting_notes","status":"draft","asin_list":["B0ABC"]}]}}\n'
+        "---END_THECLAW_STATE_JSON---"
+    )
+    assert "Internal ClickUp Tasks (Agency)" in visible
+    assert len(updates["theclaw_draft_tasks_v1"]) == 1
+    assert updates["theclaw_draft_tasks_v1"][0]["title"] == "Launch campaign"
+    assert updates["theclaw_draft_tasks_v1"][0]["status"] == "draft"
+
+
+def test_coerce_runtime_context_updates_rejects_invalid_payload():
+    assert _coerce_runtime_context_updates(None) == {}
+    assert _coerce_runtime_context_updates({"context_updates": "nope"}) == {}
+    assert (
+        _coerce_runtime_context_updates(
+            {"context_updates": {"theclaw_resolved_context_v1": {"client": "Unknown", "brand": "Unknown"}}}
+        )
+        == {}
+    )
+
+
+def test_finalize_state_updates_assigns_id_for_new_draft_task():
+    finalized = _finalize_state_updates_for_turn(
+        state_updates={
+            "theclaw_draft_tasks_v1": [
+                {"title": "Launch campaign", "source": "meeting_notes", "status": "draft", "asin_list": []}
+            ]
+        },
+        session_context={},
+    )
+    task = finalized["theclaw_draft_tasks_v1"][0]
+    assert task["id"]
+    assert task["status"] == "draft"
+
+
+def test_finalize_state_updates_preserves_id_by_semantic_match():
+    session_context = {
+        "theclaw_draft_tasks_v1": [
+            {
+                "id": "task-123",
+                "title": "Launch campaign",
+                "source": "meeting_notes",
+                "action": "Launch",
+                "asin_list": ["B0ABC"],
+                "status": "draft",
+            }
+        ]
+    }
+    finalized = _finalize_state_updates_for_turn(
+        state_updates={
+            "theclaw_draft_tasks_v1": [
+                {
+                    "title": "Launch campaign",
+                    "source": "meeting_notes",
+                    "action": "Launch",
+                    "asin_list": ["B0ABC"],
+                    "status": "draft",
+                }
+            ]
+        },
+        session_context=session_context,
+    )
+    assert finalized["theclaw_draft_tasks_v1"][0]["id"] == "task-123"
+
+
+def test_finalize_state_updates_ignores_unknown_model_id():
+    finalized = _finalize_state_updates_for_turn(
+        state_updates={
+            "theclaw_draft_tasks_v1": [
+                {"id": "fake-model-id", "title": "New task", "source": "ad_hoc", "status": "draft"}
+            ]
+        },
+        session_context={},
+    )
+    assert finalized["theclaw_draft_tasks_v1"][0]["id"] != "fake-model-id"
 
 
 @pytest.mark.parametrize(
@@ -516,28 +562,27 @@ async def test_run_theclaw_minimal_dm_turn_includes_prior_history_messages(monke
 async def test_run_theclaw_minimal_dm_turn_persists_entity_resolved_context(monkeypatch):
     fake_slack = _FakeSlackService()
     fake_session_service = _FakeSessionService()
-    selected_skill = TheClawSkill(
-        skill_id="entity_resolver",
-        name="Entity Resolver",
-        description="Resolves context",
-        primary_category="core",
-        categories=("core",),
-        when_to_use="Resolve entity context",
-        trigger_hints=("client", "brand"),
-        system_prompt="Resolve context",
-        path=Path("/tmp/entity/SKILL.md"),
-    )
+    call_count = 0
 
     async def _fake_call_chat_completion(**kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return {
+                "content": '{"skill_id":"none","confidence":0.9,"reason":"general"}',
+                "tokens_in": 10,
+                "tokens_out": 11,
+                "tokens_total": 21,
+                "model": "gpt-4o-mini",
+                "duration_ms": 5,
+            }
         return {
             "content": (
                 "Resolved Context\n"
                 "Client: Whoosh\n"
-                "Brand: Whoosh\n"
-                "ClickUp Space: Whoosh\n"
-                "Market Scope: CA\n"
-                "Confidence: high\n"
-                "Notes: from thread"
+                "---THECLAW_STATE_JSON---\n"
+                '{"context_updates":{"theclaw_resolved_context_v1":{"client":"Whoosh","brand":"Whoosh","clickup_space":"Whoosh","market_scope":"CA","confidence":"high","notes":"from thread"}}}\n'
+                "---END_THECLAW_STATE_JSON---"
             ),
             "tokens_in": 10,
             "tokens_out": 11,
@@ -546,16 +591,9 @@ async def test_run_theclaw_minimal_dm_turn_persists_entity_resolved_context(monk
             "duration_ms": 5,
         }
 
-    async def _fake_select_skill_for_turn(**kwargs):  # noqa: ARG001
-        return selected_skill
-
     monkeypatch.setattr(
         "app.services.theclaw.slack_minimal_runtime.get_slack_service",
         lambda: fake_slack,
-    )
-    monkeypatch.setattr(
-        "app.services.theclaw.slack_minimal_runtime._select_skill_for_turn",
-        _fake_select_skill_for_turn,
     )
     monkeypatch.setattr(
         "app.services.theclaw.slack_minimal_runtime.call_chat_completion",
@@ -575,34 +613,78 @@ async def test_run_theclaw_minimal_dm_turn_persists_entity_resolved_context(monk
     assert updates["theclaw_resolved_context_v1"]["market_scope"] == "CA"
 
 
-def test_parse_entity_resolver_response_empty_returns_none():
-    assert _parse_entity_resolver_response("") is None
-    assert _parse_entity_resolver_response("   ") is None
+@pytest.mark.asyncio
+async def test_run_theclaw_minimal_dm_turn_persists_draft_tasks_with_runtime_id(monkeypatch):
+    fake_slack = _FakeSlackService()
+    fake_session_service = _FakeSessionService()
+    call_count = 0
 
+    async def _fake_call_chat_completion(**kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return {
+                "content": '{"skill_id":"task_extraction","confidence":0.93,"reason":"source material"}',
+                "tokens_in": 10,
+                "tokens_out": 11,
+                "tokens_total": 21,
+                "model": "gpt-4o-mini",
+                "duration_ms": 5,
+            }
+        return {
+            "content": (
+                "Internal ClickUp Tasks (Agency)\n"
+                "Task 1: Launch campaign\n\n"
+                "---THECLAW_STATE_JSON---\n"
+                '{"context_updates":{"theclaw_draft_tasks_v1":[{"title":"Launch campaign","source":"meeting_notes","status":"draft","asin_list":["B0ABC"]}]}}\n'
+                "---END_THECLAW_STATE_JSON---"
+            ),
+            "tokens_in": 10,
+            "tokens_out": 11,
+            "tokens_total": 21,
+            "model": "gpt-4o-mini",
+            "duration_ms": 5,
+        }
 
-def test_parse_entity_resolver_response_garbage_returns_none():
-    assert _parse_entity_resolver_response("some random text with no structure") is None
-
-
-def test_parse_entity_resolver_response_confidence_only_returns_none():
-    assert _parse_entity_resolver_response("Confidence: high") is None
-
-
-def test_parse_entity_resolver_response_notes_only_returns_none():
-    assert _parse_entity_resolver_response("Notes: meeting discussed Whoosh CA scope") is None
-
-
-def test_parse_entity_resolver_response_all_unknown_returns_none():
-    reply = (
-        "Resolved Context\n"
-        "Client: Unknown\n"
-        "Brand: Unknown\n"
-        "ClickUp Space: Unknown\n"
-        "Market Scope: Unknown\n"
-        "Confidence: low\n"
-        "Notes: could not resolve"
+    monkeypatch.setattr(
+        "app.services.theclaw.slack_minimal_runtime.get_slack_service",
+        lambda: fake_slack,
     )
-    assert _parse_entity_resolver_response(reply) is None
+    monkeypatch.setattr(
+        "app.services.theclaw.slack_minimal_runtime.call_chat_completion",
+        _fake_call_chat_completion,
+    )
+    monkeypatch.setattr(
+        "app.services.theclaw.slack_minimal_runtime._get_session_service",
+        lambda: fake_session_service,
+    )
+
+    await run_theclaw_minimal_dm_turn(slack_user_id="U13", channel="D13", text="extract tasks from this email")
+
+    assert len(fake_session_service.updated) == 1
+    _, updates = fake_session_service.updated[0]
+    tasks = updates["theclaw_draft_tasks_v1"]
+    assert len(tasks) == 1
+    assert tasks[0]["title"] == "Launch campaign"
+    assert tasks[0]["id"]
+    assert tasks[0]["id"] != "fake-model-id"
+
+
+def test_extract_reply_and_context_updates_invalid_state_json_returns_no_updates():
+    visible, updates = _extract_reply_and_context_updates(
+        "Internal ClickUp Tasks (Agency)\n"
+        "---THECLAW_STATE_JSON---\n"
+        "{not-json}\n"
+        "---END_THECLAW_STATE_JSON---"
+    )
+    assert visible == "Internal ClickUp Tasks (Agency)"
+    assert updates == {}
+
+
+def test_extract_reply_and_context_updates_without_state_block_is_passthrough():
+    visible, updates = _extract_reply_and_context_updates("hello world")
+    assert visible == "hello world"
+    assert updates == {}
 
 
 def test_sanitize_context_field_strips_control_chars():
@@ -630,41 +712,23 @@ def test_build_system_prompt_sanitizes_newline_injection():
     assert "Active context:" in prompt
 
 
-def test_parse_entity_resolver_response_resolved_fields_extracted():
-    reply = (
-        "Resolved Context\n"
-        "Client: Whoosh\n"
-        "Brand: Whoosh\n"
-        "ClickUp Space: Whoosh\n"
-        "Market Scope: CA\n"
-        "Confidence: high\n"
-        "Notes: explicit from thread"
+def test_coerce_runtime_context_updates_normalizes_invalid_status_and_source():
+    updates = _coerce_runtime_context_updates(
+        {
+            "context_updates": {
+                "theclaw_draft_tasks_v1": [
+                    {
+                        "id": "x1",
+                        "title": "Task A",
+                        "source": "weird_source",
+                        "status": "unknown_status",
+                    }
+                ]
+            }
+        }
     )
-    parsed = _parse_entity_resolver_response(reply)
-    assert parsed is not None
-    assert parsed["mode"] == "resolved"
-    ctx = parsed["context"]
-    assert ctx["client"] == "Whoosh"
-    assert ctx["brand"] == "Whoosh"
-    assert ctx["clickup_space"] == "Whoosh"
-    assert ctx["market_scope"] == "CA"
-    assert ctx["confidence"] == "high"
-
-
-def test_parse_entity_resolver_response_resolved_wins_when_both_present():
-    reply = (
-        "Resolved Context\n"
-        "Client: Whoosh\n"
-        "Brand: Whoosh\n"
-        "ClickUp Space: Whoosh\n"
-        "Market Scope: CA\n"
-        "Confidence: high\n"
-        "Notes: ok\n"
-        "Which Whoosh do you mean?"
-    )
-    parsed = _parse_entity_resolver_response(reply)
-    assert parsed is not None
-    assert parsed["mode"] == "resolved"
+    assert updates["theclaw_draft_tasks_v1"][0]["source"] == "ad_hoc"
+    assert updates["theclaw_draft_tasks_v1"][0]["status"] == "draft"
 
 
 def test_resolved_context_from_session_context_extracts_correctly():

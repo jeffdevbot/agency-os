@@ -39,11 +39,12 @@ def test_load_skills_includes_task_extraction_markdown_skill():
     assert "core" in task_extraction.categories
     assert "ppc" in task_extraction.categories
     assert "wbr" in task_extraction.categories
-    assert "meeting summaries" in task_extraction.description.lower()
-    assert "the claw: task extraction" in task_extraction.system_prompt.lower()
+    assert "converts source material" in task_extraction.description.lower()
+    assert "internal clickup tasks (agency)" in task_extraction.system_prompt.lower()
     assert "task n:" in task_extraction.system_prompt.lower()
     assert "marketplace:" in task_extraction.system_prompt.lower()
     assert "deliverables / requirements" in task_extraction.system_prompt.lower()
+    assert "---theclaw_state_json---" in task_extraction.system_prompt.lower()
 
 
 def test_build_available_skills_xml_contains_expected_tags():
@@ -55,6 +56,13 @@ def test_build_available_skills_xml_contains_expected_tags():
     assert "<trigger_hints>" in xml
     assert "<hint>" in xml
     assert "<location>" in xml
+
+
+def test_load_skills_includes_entity_resolver_state_block_contract():
+    entity_resolver = get_skill_by_id("entity_resolver")
+    assert entity_resolver is not None
+    assert "---theclaw_state_json---" in entity_resolver.system_prompt.lower()
+    assert "theclaw_resolved_context_v1" in entity_resolver.system_prompt
 
 
 def test_load_skills_uses_ttl_cache(monkeypatch):

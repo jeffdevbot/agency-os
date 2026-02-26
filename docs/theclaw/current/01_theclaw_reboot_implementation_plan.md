@@ -90,7 +90,7 @@ Current memory persistence:
 - History cap: 25 turns (25 user + 25 assistant messages max)
 
 Session behavior:
-- Session is considered active for ~30 minutes based on `last_message_at`.
+- Session is considered active for ~60 minutes based on `last_message_at`.
 - `new session` command clears active session context and starts fresh memory.
 
 Schema reference:
@@ -152,14 +152,13 @@ Gate:
 - Assistant handles basic Q&A without crashes.
 - Existing non-Slack route tests still pass.
 
-## Phase 2 - Meeting Notes -> Task Suggestions (Draft Only)
+## Phase 2 - Source Material -> Task Suggestions (Draft Only)
 
 Deliverables:
-- Add first real skill: `Task Extraction` (parse meeting notes and output structured draft tasks).
+- Add first real skill: `Task Extraction` (parse source material and output structured draft tasks).
 - Strictly draft mode only (no ClickUp writes).
 - Response format contract:
-  - `The Claw: Task Extraction`
-  - `Internal ClickUp Tasks (Agency)` with `Task N` + `Context`
+  - `Internal ClickUp Tasks (Agency)` with task-template blocks
   - `Client-Side Requirements (Recap)` with `Action Item`
 
 Gate:
@@ -172,6 +171,32 @@ Deliverables:
 - Add ClickUp create skill with explicit confirmation per task.
 - Enforce one-by-one task creation, not bulk firehose.
 - Idempotency and duplicate guard for retries.
+- Add `theclaw_draft_tasks_v1` session key (JSON array) as staging area before any ClickUp write.
+- After task extraction (or any source), use the same model response to return:
+  - visible Slack output, and
+  - a delimited machine JSON state block (`THECLAW_STATE_JSON`) for `theclaw_draft_tasks_v1`.
+- Runtime extracts, validates, and stores machine state updates generically.
+- Runtime appends "N tasks ready" prompt when draft tasks are pending, after any reply.
+
+Draft task schema (per task object):
+- `id`: stable UUID assigned at extraction time — never changes even if list is reordered or tasks are removed
+- `index`: display number (1, 2, 3…) — recomputed from list position, not stored
+- `title`, `marketplace`, `asin_list`, `type`, `description`, `action`, `start_date`, `deadline`
+- `source`: one of `meeting_notes`, `email`, `slack_message`, `ad_hoc` — used in confirmation phrasing
+- `status`: `draft` → `confirmed` → `sent`
+
+Design constraints:
+- Task references always use stable `id`, never display index — "task 3" maps to id at selection time, then id is used for all subsequent operations.
+- Idempotency enforced by ClickUp dedup key tied to task `id` — not session state alone.
+- "Send all" only targets `status == "draft"` tasks.
+- Vague confirmation ("yes", "do it") must always restate the specific task before acting.
+- If entity context (`theclaw_resolved_context_v1`) is not set, resolve it before any write.
+- On ClickUp API failure, do not mark task as `sent` — preserve `draft` status for retry.
+
+Multiple ingestion paths (all feed `theclaw_draft_tasks_v1`):
+- Meeting notes, email, Slack message, report → `task_extraction` skill
+- Ad-hoc ("create a task to fix X") → inline task construction, 1-2 clarifying questions if required fields missing, then same staging flow
+- All paths use the same confirmation and creation flow downstream.
 
 Gate:
 - Integration tests for successful create, duplicate prevention, and reject paths.
@@ -372,17 +397,31 @@ Suggested storage model:
 ### 11E) Task Creation Skills (Near-Term Focus)
 
 1. `task_extraction` (implemented):
-- Meeting notes -> internal task drafts + client action recap.
+- Source material (meeting notes, email, Slack message, report) -> internal task drafts + client action recap.
+- Source is not limited to meeting notes; the skill handles any pasted text.
+- After extraction, runtime reads the structured state block from the same response and updates `theclaw_draft_tasks_v1`.
 
 2. `task_draft_refiner`:
 - Tighten task titles, owners, due dates, and acceptance criteria.
+- Does not own list mutations (add/remove/reorder). Keep this skill focused on field-quality tightening only.
+
+Task list mutation path (no separate broad refiner behavior):
+- Mid-flow edits like "forget task 3", "add this as a new task", "change task 1 title" are handled by re-running `task_extraction` with:
+  1. current `theclaw_draft_tasks_v1` as context, and
+  2. the user's edit instruction.
+- Runtime overwrites `theclaw_draft_tasks_v1` with the new structured output.
+- Stable task `id` values are preserved unless a task is truly removed and replaced.
 
 3. `task_confirmation_to_create`:
 - Convert approved draft task into mutation-ready payload for ClickUp create.
+- Reads from `theclaw_draft_tasks_v1` by stable task `id`.
+- Always restates task fields before accepting confirmation.
 
 4. `clickup_task_create_one_by_one`:
 - Create one ClickUp task at a time only after explicit confirmation.
 - Use resolved client/brand/space context from resolver skills.
+- Sets `status: sent` only on confirmed API success.
+- Uses ClickUp dedup key tied to task `id` for idempotency.
 
 ### 11F) Sub-Agent Use Cases (Near-Term)
 
@@ -436,3 +475,11 @@ Deferred domain skill lanes:
 
 Deferred sub-agent expansion:
 1. `meeting_execution_subagent`
+
+## 13) Deferred Hardening Addendum
+
+Tracked, intentionally deferred:
+1. Prompt-context hardening for resolved entity context injection.
+- Current state: resolved context fields are sanitized (control chars removed) and length-capped before inclusion in the system prompt.
+- Deferred improvement: move injected context to a constrained structured block (for example, tagged JSON/XML segment) with stricter field allow-listing.
+- Reason deferred: current controls are sufficient for the present reboot scope; priority remains core flow reliability (entity resolution + one-by-one ClickUp task creation).
