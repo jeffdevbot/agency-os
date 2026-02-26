@@ -26,7 +26,9 @@ _MUTATION_REQUEST_RE = re.compile(
     re.IGNORECASE,
 )
 _SESSION_HISTORY_KEY = "theclaw_history_v1"
+_SESSION_RESOLVED_CONTEXT_KEY = "theclaw_resolved_context_v1"
 _MAX_HISTORY_TURNS = 25
+_ENTITY_RESOLVER_SKILL_ID = "entity_resolver"
 _SKILL_SELECTION_JSON_RE = re.compile(r"\{.*\}", re.DOTALL)
 _SKILL_SELECTION_PROMPT = (
     "You are the The Claw skill router. Select at most one skill for this user turn. "
@@ -35,6 +37,7 @@ _SKILL_SELECTION_PROMPT = (
     '{"skill_id":"<skill id or none>","confidence":<0.0-1.0>,"reason":"<brief reason>"}. '
     "Do not include markdown, prose, or code fences."
 )
+_ENTITY_RESOLVER_FIELD_RE = re.compile(r"^\s*([a-zA-Z ]+)\s*:\s*(.+?)\s*$")
 
 
 def _build_system_prompt(*, selected_skill: TheClawSkill | None = None) -> str:
@@ -125,6 +128,67 @@ def _append_turn_and_cap_history(
     if len(updated) > max_messages:
         updated = updated[-max_messages:]
     return updated
+
+
+def _parse_entity_resolver_response(reply_text: str) -> dict[str, Any] | None:
+    text = (reply_text or "").strip()
+    if not text:
+        return None
+
+    lower_text = text.lower()
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    has_resolved_header = "resolved context" in lower_text
+
+    field_map: dict[str, str] = {}
+    for line in lines:
+        match = _ENTITY_RESOLVER_FIELD_RE.match(line)
+        if not match:
+            continue
+        key = match.group(1).strip().lower()
+        value = match.group(2).strip()
+        if value:
+            field_map[key] = value
+
+    if has_resolved_header or any(
+        key in field_map
+        for key in ("client", "brand", "clickup space", "market scope", "confidence", "notes")
+    ):
+        context_payload = {
+            "client": field_map.get("client"),
+            "brand": field_map.get("brand"),
+            "clickup_space": field_map.get("clickup space"),
+            "market_scope": field_map.get("market scope"),
+            "confidence": field_map.get("confidence"),
+            "notes": field_map.get("notes"),
+        }
+        if any(value for value in context_payload.values()):
+            return {"mode": "resolved", "context": context_payload}
+        return None
+
+    question = next((line for line in lines if "?" in line), "")
+    if question:
+        return {"mode": "clarification", "question": question}
+    return None
+
+
+def _extract_entity_resolver_context_updates(
+    *,
+    selected_skill: TheClawSkill | None,
+    reply_text: str,
+) -> dict[str, Any]:
+    if selected_skill is None or selected_skill.skill_id.lower() != _ENTITY_RESOLVER_SKILL_ID:
+        return {}
+
+    parsed = _parse_entity_resolver_response(reply_text)
+    if not parsed:
+        return {}
+
+    mode = str(parsed.get("mode") or "").strip().lower()
+    if mode == "resolved":
+        context_payload = parsed.get("context")
+        if isinstance(context_payload, dict):
+            return {_SESSION_RESOLVED_CONTEXT_KEY: context_payload}
+    return {}
 
 
 def _parse_skill_selection(raw_text: str) -> tuple[str | None, float]:
@@ -277,9 +341,16 @@ async def run_theclaw_minimal_dm_turn(*, slack_user_id: str, channel: str, text:
                     user_text=user_text,
                     assistant_text=reply_text,
                 )
+                context_updates: dict[str, Any] = {_SESSION_HISTORY_KEY: updated_history}
+                context_updates.update(
+                    _extract_entity_resolver_context_updates(
+                        selected_skill=selected_skill,
+                        reply_text=reply_text,
+                    )
+                )
                 session_service.update_context(
                     session.id,
-                    {_SESSION_HISTORY_KEY: updated_history},
+                    context_updates,
                 )
             except Exception as exc:  # noqa: BLE001
                 _logger.warning("The Claw session update failed: %s", exc)

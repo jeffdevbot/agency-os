@@ -1,15 +1,19 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from app.services.theclaw.openai_client import OpenAIError
-from app.services.theclaw.skill_registry import get_skill_by_id
+from app.services.theclaw.skill_registry import TheClawSkill, get_skill_by_id
 from app.services.theclaw.slack_minimal_runtime import (
     _apply_mutation_disclaimer,
     _append_turn_and_cap_history,
     _build_skill_selection_system_prompt,
     _build_system_prompt,
+    _extract_entity_resolver_context_updates,
     _is_mutation_request,
+    _parse_entity_resolver_response,
     _parse_skill_selection,
     handle_theclaw_minimal_interaction,
     run_theclaw_minimal_dm_turn,
@@ -74,6 +78,51 @@ def test_build_skill_selection_prompt_includes_available_skills_xml():
     )
     assert "strict json only" in prompt.lower()
     assert "<available_skills>" in prompt
+
+
+@pytest.mark.parametrize(
+    ("text", "expected_mode"),
+    [
+        (
+            "Resolved Context\nClient: Whoosh\nBrand: Whoosh\nClickUp Space: Whoosh\nMarket Scope: CA\nConfidence: high\nNotes: from thread",
+            "resolved",
+        ),
+        ("Which Whoosh did you mean: Basari World [Whoosh] or Whoosh?", "clarification"),
+    ],
+)
+def test_parse_entity_resolver_response_modes(text: str, expected_mode: str):
+    parsed = _parse_entity_resolver_response(text)
+    assert parsed is not None
+    assert parsed["mode"] == expected_mode
+
+
+def test_extract_entity_resolver_context_updates_returns_resolved_context():
+    selected_skill = TheClawSkill(
+        skill_id="entity_resolver",
+        name="Entity Resolver",
+        description="Resolves context",
+        primary_category="core",
+        categories=("core",),
+        when_to_use="Resolve entity context",
+        trigger_hints=("client", "brand"),
+        system_prompt="Resolve context",
+        path=Path("/tmp/entity/SKILL.md"),
+    )
+    updates = _extract_entity_resolver_context_updates(
+        selected_skill=selected_skill,
+        reply_text=(
+            "Resolved Context\n"
+            "Client: Whoosh\n"
+            "Brand: Whoosh\n"
+            "ClickUp Space: Whoosh\n"
+            "Market Scope: CA\n"
+            "Confidence: high\n"
+            "Notes: from thread"
+        ),
+    )
+    assert "theclaw_resolved_context_v1" in updates
+    assert updates["theclaw_resolved_context_v1"]["client"] == "Whoosh"
+    assert updates["theclaw_resolved_context_v1"]["market_scope"] == "CA"
 
 
 @pytest.mark.parametrize(
@@ -459,6 +508,69 @@ async def test_run_theclaw_minimal_dm_turn_includes_prior_history_messages(monke
     assert isinstance(messages, list)
     assert messages[1] == {"role": "user", "content": "Client is TestBrand."}
     assert messages[2] == {"role": "assistant", "content": "Got it."}
+
+
+@pytest.mark.asyncio
+async def test_run_theclaw_minimal_dm_turn_persists_entity_resolved_context(monkeypatch):
+    fake_slack = _FakeSlackService()
+    fake_session_service = _FakeSessionService()
+    selected_skill = TheClawSkill(
+        skill_id="entity_resolver",
+        name="Entity Resolver",
+        description="Resolves context",
+        primary_category="core",
+        categories=("core",),
+        when_to_use="Resolve entity context",
+        trigger_hints=("client", "brand"),
+        system_prompt="Resolve context",
+        path=Path("/tmp/entity/SKILL.md"),
+    )
+
+    async def _fake_call_chat_completion(**kwargs):
+        return {
+            "content": (
+                "Resolved Context\n"
+                "Client: Whoosh\n"
+                "Brand: Whoosh\n"
+                "ClickUp Space: Whoosh\n"
+                "Market Scope: CA\n"
+                "Confidence: high\n"
+                "Notes: from thread"
+            ),
+            "tokens_in": 10,
+            "tokens_out": 11,
+            "tokens_total": 21,
+            "model": "gpt-4o-mini",
+            "duration_ms": 5,
+        }
+
+    async def _fake_select_skill_for_turn(**kwargs):  # noqa: ARG001
+        return selected_skill
+
+    monkeypatch.setattr(
+        "app.services.theclaw.slack_minimal_runtime.get_slack_service",
+        lambda: fake_slack,
+    )
+    monkeypatch.setattr(
+        "app.services.theclaw.slack_minimal_runtime._select_skill_for_turn",
+        _fake_select_skill_for_turn,
+    )
+    monkeypatch.setattr(
+        "app.services.theclaw.slack_minimal_runtime.call_chat_completion",
+        _fake_call_chat_completion,
+    )
+    monkeypatch.setattr(
+        "app.services.theclaw.slack_minimal_runtime._get_session_service",
+        lambda: fake_session_service,
+    )
+
+    await run_theclaw_minimal_dm_turn(slack_user_id="U11", channel="D11", text="create task for whoosh ca")
+
+    assert len(fake_session_service.updated) == 1
+    _, updates = fake_session_service.updated[0]
+    assert "theclaw_resolved_context_v1" in updates
+    assert updates["theclaw_resolved_context_v1"]["client"] == "Whoosh"
+    assert updates["theclaw_resolved_context_v1"]["market_scope"] == "CA"
 
 
 @pytest.mark.asyncio
