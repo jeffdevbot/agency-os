@@ -1,10 +1,15 @@
 # Changelog — Ecomlabs Tools
 
-_Last updated: 2026-02-25 (EST)_
+_Last updated: 2026-02-26 (EST)_
 
 > Development history for the project. For setup instructions and project overview, see [AGENTS.md](AGENTS.md).
 
 ---
+
+## 2026-02-26 (EST)
+- **Reports/WBR frontend scaffold shipped:** Added `/reports` hub, `/reports/wbr`, `/reports/wbr/setup`, and `/reports/wbr/[clientId]` client workspace using existing Ecomlabs Tools UI language.
+- **WBR Section 1 backfill wiring live:** Client workspace now runs backend `backfill-last-full-weeks` and refreshes Section 1 data directly from Supabase.
+- **Weekly totals validation mode:** Main WBR table now shows Section 1 weekly totals across all groups (mapping-independent), excludes current in-progress week, and zero-fills missing full weeks so requested week count is always rendered (for example 4 rows for 4 weeks).
 
 ## 2026-02-25 (EST)
 - **AgencyClaw C17H/C17H+ stabilization:** Landed follow-up hardening for planner delegation and agent-loop reliability, including delegated planner API contract propagation (`tool_executor` + explicit turn budgets) and stricter legacy prompt isolation so `delegate_planner` remains agent-loop-only.
