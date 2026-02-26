@@ -38,7 +38,7 @@ def resolved_context_from_session_context(context: Any) -> dict[str, Any] | None
     return raw
 
 
-def _draft_tasks_from_session_context(context: Any) -> list[dict[str, Any]]:
+def draft_tasks_from_session_context(context: Any) -> list[dict[str, Any]]:
     if not isinstance(context, dict):
         return []
     raw = context.get(SESSION_DRAFT_TASKS_KEY)
@@ -198,7 +198,7 @@ def finalize_state_updates_for_turn(
     if SESSION_DRAFT_TASKS_KEY in finalized:
         incoming = finalized.get(SESSION_DRAFT_TASKS_KEY)
         if isinstance(incoming, list):
-            existing = _draft_tasks_from_session_context(session_context or {})
+            existing = draft_tasks_from_session_context(session_context or {})
             finalized[SESSION_DRAFT_TASKS_KEY] = _assign_or_preserve_draft_task_ids(
                 incoming_tasks=incoming,
                 existing_tasks=existing,

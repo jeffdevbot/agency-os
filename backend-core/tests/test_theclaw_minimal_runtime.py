@@ -73,6 +73,17 @@ def test_build_system_prompt_includes_selected_skill_contract():
     assert "internal clickup tasks (agency)" in prompt
 
 
+def test_build_system_prompt_includes_existing_draft_tasks_for_task_extraction():
+    skill = get_skill_by_id("task_extraction")
+    assert skill is not None
+    prompt = _build_system_prompt(
+        selected_skill=skill,
+        draft_tasks=[{"id": "task-123", "title": "Launch campaign", "source": "meeting_notes"}],
+    )
+    assert "Existing draft tasks context for ID preservation" in prompt
+    assert '"id":"task-123"' in prompt
+
+
 def test_build_skill_selection_prompt_includes_available_skills_xml():
     prompt = _build_skill_selection_system_prompt(
         available_skills_xml="<available_skills><skill><id>task_extraction</id></skill></available_skills>"
@@ -347,7 +358,14 @@ async def test_run_theclaw_minimal_dm_turn_forces_mutation_disclaimer(monkeypatc
 @pytest.mark.asyncio
 async def test_run_theclaw_minimal_dm_turn_uses_selected_skill_prompt(monkeypatch):
     fake_slack = _FakeSlackService()
-    fake_session_service = _FakeSessionService()
+    fake_session = _FakeSession(
+        context={
+            "theclaw_draft_tasks_v1": [
+                {"id": "task-123", "title": "Launch campaign", "source": "meeting_notes", "status": "draft"}
+            ]
+        }
+    )
+    fake_session_service = _FakeSessionService(session=fake_session)
     calls: list[dict[str, object]] = []
 
     async def _fake_call_chat_completion(**kwargs):
@@ -392,6 +410,8 @@ async def test_run_theclaw_minimal_dm_turn_uses_selected_skill_prompt(monkeypatc
     response_prompt = calls[1]["messages"][0]["content"].lower()
     assert "executing skill 'task extraction'" in response_prompt
     assert "internal clickup tasks (agency)" in response_prompt
+    assert "existing draft tasks context for id preservation" in response_prompt
+    assert '"id":"task-123"' in response_prompt
 
 
 @pytest.mark.asyncio
