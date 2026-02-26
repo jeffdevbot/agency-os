@@ -24,6 +24,16 @@ type WeeklyRow = {
   unit_conversions_pct: number;
 };
 
+type WeeklyTotalRow = {
+  week_start: string;
+  week_end: string;
+  currency_code: string;
+  page_views: number;
+  unit_sales: number;
+  sales: number;
+  unit_conversions_pct: number;
+};
+
 type Props = {
   clientId: string;
 };
@@ -53,6 +63,37 @@ export default function WbrClientWorkspace({ clientId }: Props) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [runSummary, setRunSummary] = useState<string | null>(null);
   const [rows, setRows] = useState<WeeklyRow[]>([]);
+
+  const totalRows = useMemo(() => {
+    const byWeek = new Map<string, WeeklyTotalRow>();
+    for (const row of rows) {
+      const key = `${row.week_start}|${row.week_end}|${row.currency_code}`;
+      const existing = byWeek.get(key);
+      if (!existing) {
+        byWeek.set(key, {
+          week_start: row.week_start,
+          week_end: row.week_end,
+          currency_code: row.currency_code,
+          page_views: row.page_views,
+          unit_sales: row.unit_sales,
+          sales: row.sales,
+          unit_conversions_pct: 0,
+        });
+        continue;
+      }
+      existing.page_views += row.page_views;
+      existing.unit_sales += row.unit_sales;
+      existing.sales += row.sales;
+    }
+
+    const totals = Array.from(byWeek.values());
+    for (const total of totals) {
+      total.unit_conversions_pct = total.page_views > 0 ? total.unit_sales / total.page_views : 0;
+    }
+
+    totals.sort((a, b) => b.week_start.localeCompare(a.week_start));
+    return totals;
+  }, [rows]);
 
   const loadWeeklyRows = useCallback(async () => {
     setIsLoadingRows(true);
@@ -208,7 +249,6 @@ export default function WbrClientWorkspace({ clientId }: Props) {
             <thead className="bg-[#f7faff]">
               <tr className="text-xs font-semibold uppercase tracking-wide text-[#4c576f]">
                 <th className="px-4 py-3">Week</th>
-                <th className="px-4 py-3">Group</th>
                 <th className="px-4 py-3">Page Views</th>
                 <th className="px-4 py-3">Unit Sales</th>
                 <th className="px-4 py-3">Unit Conv %</th>
@@ -216,19 +256,18 @@ export default function WbrClientWorkspace({ clientId }: Props) {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 bg-white">
-              {rows.length === 0 ? (
+              {totalRows.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-6 text-sm text-[#64748b]">
+                  <td colSpan={5} className="px-4 py-6 text-sm text-[#64748b]">
                     No rows yet. Run backfill and then click refresh.
                   </td>
                 </tr>
               ) : (
-                rows.map((row, index) => (
-                  <tr key={`${row.group_label}-${row.week_start}-${index}`} className="hover:bg-slate-50">
+                totalRows.map((row, index) => (
+                  <tr key={`${row.week_start}-${index}`} className="hover:bg-slate-50">
                     <td className="px-4 py-3 text-[#0f172a]">
                       {formatDate(row.week_start)} to {formatDate(row.week_end)}
                     </td>
-                    <td className="px-4 py-3 font-semibold text-[#0f172a]">{row.group_label}</td>
                     <td className="px-4 py-3 text-[#0f172a]">{row.page_views.toLocaleString()}</td>
                     <td className="px-4 py-3 text-[#0f172a]">{row.unit_sales.toLocaleString()}</td>
                     <td className="px-4 py-3 text-[#0f172a]">
