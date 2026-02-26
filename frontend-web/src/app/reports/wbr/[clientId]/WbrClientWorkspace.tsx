@@ -45,13 +45,25 @@ const asNumber = (value: unknown): number => {
 };
 
 const formatDate = (value: string): string => {
-  const d = new Date(value);
+  const parts = value.split("-").map(Number);
+  if (parts.length !== 3 || parts.some(Number.isNaN)) return value;
+  const [year, month, day] = parts;
+  const d = new Date(year, month - 1, day);
   if (Number.isNaN(d.getTime())) return value;
   return new Intl.DateTimeFormat("en-CA", {
     year: "numeric",
     month: "short",
     day: "2-digit",
   }).format(d);
+};
+
+const currentWeekStartIso = (): string => {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay());
+  const year = start.getFullYear();
+  const month = String(start.getMonth() + 1).padStart(2, "0");
+  const day = String(start.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 };
 
 export default function WbrClientWorkspace({ clientId }: Props) {
@@ -65,8 +77,12 @@ export default function WbrClientWorkspace({ clientId }: Props) {
   const [rows, setRows] = useState<WeeklyRow[]>([]);
 
   const totalRows = useMemo(() => {
+    const thisWeekStart = currentWeekStartIso();
     const byWeek = new Map<string, WeeklyTotalRow>();
     for (const row of rows) {
+      if (row.week_start >= thisWeekStart) {
+        continue;
+      }
       const key = `${row.week_start}|${row.week_end}|${row.currency_code}`;
       const existing = byWeek.get(key);
       if (!existing) {
@@ -92,8 +108,8 @@ export default function WbrClientWorkspace({ clientId }: Props) {
     }
 
     totals.sort((a, b) => b.week_start.localeCompare(a.week_start));
-    return totals;
-  }, [rows]);
+    return totals.slice(0, weeks);
+  }, [rows, weeks]);
 
   const loadWeeklyRows = useCallback(async () => {
     setIsLoadingRows(true);
