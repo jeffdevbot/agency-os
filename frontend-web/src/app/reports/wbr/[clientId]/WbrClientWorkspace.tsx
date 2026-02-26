@@ -91,6 +91,16 @@ const currentWeekStartIso = (): string => {
   return toIsoDate(start);
 };
 
+const addDays = (date: Date, days: number): Date =>
+  new Date(date.getFullYear(), date.getMonth(), date.getDate() + days);
+
+const defaultCurrencyForAccount = (accountId: string): string => {
+  const suffix = accountId.trim().split("-").pop()?.toUpperCase();
+  if (suffix === "CA") return "CAD";
+  if (suffix === "US") return "USD";
+  return "UNKNOWN";
+};
+
 export default function WbrClientWorkspace({ clientId }: Props) {
   const supabase = useMemo(() => getBrowserSupabaseClient(), []);
   const [accountId, setAccountId] = useState("A1MY3C51FMRZ3Z-CA");
@@ -110,7 +120,7 @@ export default function WbrClientWorkspace({ clientId }: Props) {
       if (!bounds) continue;
       if (bounds.weekStart >= thisWeekStart) continue;
 
-      const key = `${bounds.weekStart}|${bounds.weekEnd}|${row.currency_code}`;
+      const key = bounds.weekStart;
       const existing = byWeek.get(key);
       if (!existing) {
         byWeek.set(key, {
@@ -128,16 +138,41 @@ export default function WbrClientWorkspace({ clientId }: Props) {
       existing.page_views += row.page_views;
       existing.unit_sales += row.unit_sales;
       existing.sales += row.sales;
+      if (existing.currency_code !== row.currency_code) {
+        existing.currency_code = "MIXED";
+      }
     }
 
-    const totals = Array.from(byWeek.values());
-    for (const total of totals) {
-      total.unit_conversions_pct = total.page_views > 0 ? total.unit_sales / total.page_views : 0;
+    const currentStartDate = parseIsoToLocalDate(thisWeekStart);
+    if (!currentStartDate) return [];
+
+    const expectedRows: WeeklyTotalRow[] = [];
+    const fallbackCurrency = defaultCurrencyForAccount(accountId);
+
+    for (let i = 1; i <= weeks; i += 1) {
+      const weekStartDate = addDays(currentStartDate, -7 * i);
+      const weekEndDate = addDays(weekStartDate, 6);
+      const weekStart = toIsoDate(weekStartDate);
+      const existing = byWeek.get(weekStart);
+
+      if (existing) {
+        existing.unit_conversions_pct = existing.page_views > 0 ? existing.unit_sales / existing.page_views : 0;
+        expectedRows.push(existing);
+      } else {
+        expectedRows.push({
+          week_start: weekStart,
+          week_end: toIsoDate(weekEndDate),
+          currency_code: fallbackCurrency,
+          page_views: 0,
+          unit_sales: 0,
+          sales: 0,
+          unit_conversions_pct: 0,
+        });
+      }
     }
 
-    totals.sort((a, b) => b.week_start.localeCompare(a.week_start));
-    return totals.slice(0, weeks);
-  }, [rows, weeks]);
+    return expectedRows;
+  }, [rows, weeks, accountId]);
 
   const loadWeeklyRows = useCallback(async () => {
     setIsLoadingRows(true);
