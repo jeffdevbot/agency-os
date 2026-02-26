@@ -11,6 +11,8 @@ import re
 import threading
 import time
 
+from .context_providers import get_registered_context_keys
+
 _logger = logging.getLogger(__name__)
 
 _SKILLS_BASE_DIR = Path(__file__).resolve().parent / "skills"
@@ -176,6 +178,19 @@ def _load_skills_from_disk() -> tuple[TheClawSkill, ...]:
     return tuple(skill for skill in loaded if skill is not None)
 
 
+def _warn_unknown_needs_context(skills: tuple[TheClawSkill, ...]) -> None:
+    registered_context_keys = get_registered_context_keys()
+    for skill in skills:
+        for context_key in skill.needs_context:
+            if context_key in registered_context_keys:
+                continue
+            _logger.warning(
+                "The Claw skill '%s' declares unknown needs_context key '%s'",
+                skill.skill_id,
+                context_key,
+            )
+
+
 def invalidate_skills_cache() -> None:
     global _skill_cache, _skill_cache_loaded_at  # noqa: PLW0603
     with _skill_cache_lock:
@@ -198,6 +213,7 @@ def load_skills(*, force_reload: bool = False) -> tuple[TheClawSkill, ...]:
             return _skill_cache
 
         loaded = _load_skills_from_disk()
+        _warn_unknown_needs_context(loaded)
         _skill_cache = loaded
         _skill_cache_loaded_at = time.monotonic()
         return _skill_cache

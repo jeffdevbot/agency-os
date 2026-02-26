@@ -14,7 +14,7 @@ from app.services.theclaw.skill_registry import (
 )
 
 
-def _fake_skill(*, skill_id: str = "fake_skill") -> TheClawSkill:
+def _fake_skill(*, skill_id: str = "fake_skill", needs_context: tuple[str, ...] = tuple()) -> TheClawSkill:
     return TheClawSkill(
         skill_id=skill_id,
         name="Fake Skill",
@@ -25,6 +25,7 @@ def _fake_skill(*, skill_id: str = "fake_skill") -> TheClawSkill:
         trigger_hints=("fake", "testing"),
         system_prompt="You are fake.",
         path=Path("/tmp/fake/SKILL.md"),
+        needs_context=needs_context,
     )
 
 
@@ -134,4 +135,23 @@ def test_load_skills_concurrent_calls_only_load_once(monkeypatch):
     assert calls["count"] == 1
     assert results[0] == (fake,)
     assert results[1] == (fake,)
+    invalidate_skills_cache()
+
+
+def test_load_skills_warns_on_unknown_needs_context_key(monkeypatch, caplog):
+    invalidate_skills_cache()
+    fake = _fake_skill(needs_context=("unknown_context_key",))
+
+    def _fake_load() -> tuple[TheClawSkill, ...]:
+        return (fake,)
+
+    monkeypatch.setenv("THECLAW_SKILL_CACHE_TTL_SECONDS", "999")
+    monkeypatch.setattr(skill_registry, "_load_skills_from_disk", _fake_load)
+
+    caplog.set_level("WARNING")
+    loaded = load_skills()
+
+    assert loaded == (fake,)
+    assert "unknown needs_context key" in caplog.text
+    assert "unknown_context_key" in caplog.text
     invalidate_skills_cache()

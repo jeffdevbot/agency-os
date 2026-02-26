@@ -7,6 +7,7 @@ import logging
 import re
 from typing import Any
 
+from .context_providers import fetch_context_blobs, render_context_blobs_for_prompt
 from ..playbook_session import get_playbook_session_service
 from ..slack import get_slack_service
 from .openai_client import OpenAIConfigurationError, OpenAIError, call_chat_completion
@@ -50,8 +51,8 @@ _REPLY_MAX_TOKENS = 1600
 def _build_system_prompt(
     *,
     selected_skill: TheClawSkill | None = None,
-    resolved_context: dict[str, Any] | None = None,
-    draft_tasks: list[dict[str, Any]] | None = None,
+    context_blobs: dict[str, Any] | None = None,
+    required_context_keys: set[str] | None = None,
 ) -> str:
     prompt = (
         "You are The Claw, an agency operations copilot for Amazon-focused client work. "
@@ -62,18 +63,6 @@ def _build_system_prompt(
         "For task drafting, if key fields are missing (client/brand, owner, due date, priority), ask up to 2 clarifying questions before finalizing the draft. "
         "When using lists, use plain numbered format like '1.' and do not use bold-number bullets."
     )
-    if resolved_context:
-        parts = []
-        if resolved_context.get("client"):
-            parts.append(f"Client: {_sanitize_context_field(resolved_context['client'])}")
-        if resolved_context.get("brand"):
-            parts.append(f"Brand: {_sanitize_context_field(resolved_context['brand'])}")
-        if resolved_context.get("clickup_space"):
-            parts.append(f"ClickUp Space: {_sanitize_context_field(resolved_context['clickup_space'])}")
-        if resolved_context.get("market_scope"):
-            parts.append(f"Market: {_sanitize_context_field(resolved_context['market_scope'])}")
-        if parts:
-            prompt = f"{prompt} Active context: {', '.join(parts)}."
     if selected_skill is not None:
         prompt = (
             f"{prompt} You are executing skill '{selected_skill.name}' "
@@ -81,32 +70,12 @@ def _build_system_prompt(
             f"{selected_skill.system_prompt}"
         )
 
-    required_context = set(selected_skill.needs_context) if selected_skill is not None else set()
-    if "draft_tasks" in required_context and isinstance(draft_tasks, list) and draft_tasks:
-        compact_tasks = []
-        for task in draft_tasks[:25]:
-            if not isinstance(task, dict):
-                continue
-            compact_tasks.append(
-                {
-                    "id": _sanitize_context_field(task.get("id")),
-                    "title": _sanitize_context_field(task.get("title")),
-                    "source": _sanitize_context_field(task.get("source")),
-                    "action": _sanitize_context_field(task.get("action")),
-                    "asin_list": [
-                        _sanitize_context_field(value)
-                        for value in (task.get("asin_list") or [])[:10]
-                        if _sanitize_context_field(value)
-                    ],
-                    "status": _sanitize_context_field(task.get("status")),
-                }
-            )
-        if compact_tasks:
-            draft_tasks_json = json.dumps(compact_tasks, separators=(",", ":"), ensure_ascii=True)
-            prompt = (
-                f"{prompt} Existing draft tasks context for ID preservation: "
-                f"{draft_tasks_json}. Preserve existing IDs for matching tasks when updating drafts."
-            )
+    context_prompt = render_context_blobs_for_prompt(
+        context_blobs=context_blobs or {},
+        required_context_keys=required_context_keys or set(),
+    )
+    if context_prompt:
+        prompt = f"{prompt} {context_prompt}"
     return prompt
 
 
@@ -289,8 +258,7 @@ async def run_theclaw_minimal_dm_turn(*, slack_user_id: str, channel: str, text:
     session = None
     session_context: dict[str, Any] = {}
     history_messages: list[dict[str, str]] = []
-    resolved_context: dict[str, Any] | None = None
-    draft_tasks: list[dict[str, Any]] = []
+    context_blobs: dict[str, Any] = {}
     session_service = None
     try:
         session_service = _get_session_service()
@@ -318,24 +286,25 @@ async def run_theclaw_minimal_dm_turn(*, slack_user_id: str, channel: str, text:
             session = session_service.get_or_create_session(slack_user_id)
             session_context = getattr(session, "context", {})
             history_messages = _history_from_session_context(session_context)
-            resolved_context = _resolved_context_from_session_context(session_context)
-            draft_tasks = _draft_tasks_from_session_context(session_context)
         except Exception as exc:  # noqa: BLE001
             _logger.warning("The Claw session retrieval failed: %s", exc)
             session = None
             session_context = {}
             history_messages = []
-            resolved_context = None
-            draft_tasks = []
 
     selected_skill = await _select_skill_for_turn(
         user_text=user_text,
         history_messages=history_messages,
     )
+    required_context_keys = set(selected_skill.needs_context) if selected_skill is not None else set()
+    context_blobs = await fetch_context_blobs(
+        required_context_keys=required_context_keys,
+        session_context=session_context,
+    )
     system_prompt = _build_system_prompt(
         selected_skill=selected_skill,
-        resolved_context=resolved_context,
-        draft_tasks=draft_tasks,
+        context_blobs=context_blobs,
+        required_context_keys=required_context_keys,
     )
 
     slack = get_slack_service()
