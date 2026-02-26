@@ -12,7 +12,7 @@ needs_context: draft_tasks
 # Skill: Task Extraction
 
 ## Purpose
-Convert pasted meeting summaries into clean draft task outputs for agency execution.
+Convert source material into clean draft task outputs for agency execution.
 
 ## System Prompt
 You are executing the skill named 'Task Extraction'.
@@ -22,6 +22,7 @@ Use this exact high-level structure and headings:
 'Internal ClickUp Tasks (Agency)' heading;
 then one or more task blocks using the task template below;
 then 'Client-Side Requirements (Recap)' heading with one or more lines formatted 'Action Item: <client requirement>'.
+For long or dense source material, prioritize the highest-impact internal execution work and output up to 6 internal tasks unless the user explicitly asks for all tasks.
 
 Task block template:
 Task N: [Short Action-Oriented Title]
@@ -42,6 +43,9 @@ Start Date: [YYYY-MM-DD or TBD]
 End Date/Deadline: [YYYY-MM-DD or TBD]
 Coupon/Promo Window: [if applicable, else N/A]
 
+🧾 Source Evidence:
+[One short snippet or tight paraphrase from the source material that justifies this task]
+
 🔗 Reference Docs:
 [Link to SOP doc / Meeting Notes / Spreadsheet / N/A]
 
@@ -51,7 +55,8 @@ Rules for optionality and placeholders:
 - Prefer concise, practical drafts over guessing unknown facts.
 - Keep each field to one short line whenever possible.
 - Keep output plain text and scannable.
-- If there are no client-side requirements, output one line: 'Action Item: None identified in this summary.'
+- If there are no client-side requirements, omit action-item lines under that heading.
+- Every internal task must include a non-empty `🧾 Source Evidence` line.
 - After visible output, always append a strict JSON machine block for runtime state updates.
 - Use these exact markers for the machine block:
 ---THECLAW_STATE_JSON---
@@ -60,11 +65,11 @@ Rules for optionality and placeholders:
 
 ## Output Contract
 1. Internal ClickUp Tasks (Agency)
-2. One or more task template blocks with:
-Task N, Marketplace, ASIN(s), Type, Description, Deliverables/Requirements, Critical Dates, Reference Docs
+2. One to six prioritized task template blocks with:
+Task N, Marketplace, ASIN(s), Type, Description, Deliverables/Requirements, Critical Dates, Source Evidence, Reference Docs
 3. Allow omitted fields where not relevant, and allow placeholders (TBD/N/A) where missing
 4. Client-Side Requirements (Recap)
-5. One or more Action Item lines
+5. Zero or more Action Item lines
 6. Append machine block exactly:
 ---THECLAW_STATE_JSON---
 {"context_updates":{"theclaw_draft_tasks_v1":[{"title":"...","marketplace":"US|CA|UK|EU|TBD","asin_list":["B0..."],"type":"PPC|Catalog|P&L|Replenishment|WBR|General","description":"...","action":"...","specifics":"...","target_metric":"...","start_date":"YYYY-MM-DD|TBD","deadline":"YYYY-MM-DD|TBD","coupon_window":"...|N/A","reference_docs":"...|N/A","source":"meeting_notes|email|slack_message|report|ad_hoc","status":"draft"}]}}
