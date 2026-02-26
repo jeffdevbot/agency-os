@@ -10,18 +10,12 @@ if (!BACKEND_URL) {
   throw new Error("NEXT_PUBLIC_BACKEND_URL is not configured");
 }
 
-type WeeklyRow = {
-  account_id: string;
-  marketplace_code: string;
+type DailyRow = {
+  report_date: string;
   currency_code: string;
-  group_label: string;
-  week_start: string;
-  week_end: string;
-  week_rank: number;
   page_views: number;
   unit_sales: number;
   sales: number;
-  unit_conversions_pct: number;
 };
 
 type WeeklyTotalRow = {
@@ -44,12 +38,46 @@ const asNumber = (value: unknown): number => {
   return 0;
 };
 
-const formatDate = (value: string): string => {
+const toIsoDate = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const parseIsoToLocalDate = (value: string): Date | null => {
   const parts = value.split("-").map(Number);
-  if (parts.length !== 3 || parts.some(Number.isNaN)) return value;
+  if (parts.length !== 3 || parts.some(Number.isNaN)) return null;
   const [year, month, day] = parts;
   const d = new Date(year, month - 1, day);
-  if (Number.isNaN(d.getTime())) return value;
+  if (Number.isNaN(d.getTime())) return null;
+  return d;
+};
+
+const weekBoundsFromReportDate = (reportDateIso: string): { weekStart: string; weekEnd: string } | null => {
+  const reportDate = parseIsoToLocalDate(reportDateIso);
+  if (!reportDate) return null;
+
+  const weekStartDate = new Date(
+    reportDate.getFullYear(),
+    reportDate.getMonth(),
+    reportDate.getDate() - reportDate.getDay()
+  );
+  const weekEndDate = new Date(
+    weekStartDate.getFullYear(),
+    weekStartDate.getMonth(),
+    weekStartDate.getDate() + 6
+  );
+
+  return {
+    weekStart: toIsoDate(weekStartDate),
+    weekEnd: toIsoDate(weekEndDate),
+  };
+};
+
+const formatDate = (value: string): string => {
+  const d = parseIsoToLocalDate(value);
+  if (!d) return value;
   return new Intl.DateTimeFormat("en-CA", {
     year: "numeric",
     month: "short",
@@ -60,10 +88,7 @@ const formatDate = (value: string): string => {
 const currentWeekStartIso = (): string => {
   const now = new Date();
   const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay());
-  const year = start.getFullYear();
-  const month = String(start.getMonth() + 1).padStart(2, "0");
-  const day = String(start.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return toIsoDate(start);
 };
 
 export default function WbrClientWorkspace({ clientId }: Props) {
@@ -74,21 +99,23 @@ export default function WbrClientWorkspace({ clientId }: Props) {
   const [isLoadingRows, setIsLoadingRows] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [runSummary, setRunSummary] = useState<string | null>(null);
-  const [rows, setRows] = useState<WeeklyRow[]>([]);
+  const [rows, setRows] = useState<DailyRow[]>([]);
 
   const totalRows = useMemo(() => {
     const thisWeekStart = currentWeekStartIso();
     const byWeek = new Map<string, WeeklyTotalRow>();
+
     for (const row of rows) {
-      if (row.week_start >= thisWeekStart) {
-        continue;
-      }
-      const key = `${row.week_start}|${row.week_end}|${row.currency_code}`;
+      const bounds = weekBoundsFromReportDate(row.report_date);
+      if (!bounds) continue;
+      if (bounds.weekStart >= thisWeekStart) continue;
+
+      const key = `${bounds.weekStart}|${bounds.weekEnd}|${row.currency_code}`;
       const existing = byWeek.get(key);
       if (!existing) {
         byWeek.set(key, {
-          week_start: row.week_start,
-          week_end: row.week_end,
+          week_start: bounds.weekStart,
+          week_end: bounds.weekEnd,
           currency_code: row.currency_code,
           page_views: row.page_views,
           unit_sales: row.unit_sales,
@@ -97,6 +124,7 @@ export default function WbrClientWorkspace({ clientId }: Props) {
         });
         continue;
       }
+
       existing.page_views += row.page_views;
       existing.unit_sales += row.unit_sales;
       existing.sales += row.sales;
@@ -114,14 +142,12 @@ export default function WbrClientWorkspace({ clientId }: Props) {
   const loadWeeklyRows = useCallback(async () => {
     setIsLoadingRows(true);
     setErrorMessage(null);
+
     const query = supabase
-      .from("wbr_section1_weekly")
-      .select(
-        "account_id,marketplace_code,currency_code,group_label,week_start,week_end,week_rank,page_views,unit_sales,sales,unit_conversions_pct"
-      )
+      .from("wbr_section1_daily")
+      .select("report_date,currency_code,page_views,unit_sales,sales")
       .eq("client_id", clientId)
-      .order("week_start", { ascending: false })
-      .order("group_label", { ascending: true });
+      .order("report_date", { ascending: false });
 
     const scopedQuery = accountId.trim() ? query.eq("account_id", accountId.trim()) : query;
     const { data, error } = await scopedQuery;
@@ -132,19 +158,14 @@ export default function WbrClientWorkspace({ clientId }: Props) {
       return;
     }
 
-    const parsed: WeeklyRow[] = (data ?? []).map((row: Record<string, unknown>) => ({
-      account_id: String(row.account_id ?? ""),
-      marketplace_code: String(row.marketplace_code ?? ""),
+    const parsed: DailyRow[] = (data ?? []).map((row: Record<string, unknown>) => ({
+      report_date: String(row.report_date ?? ""),
       currency_code: String(row.currency_code ?? ""),
-      group_label: String(row.group_label ?? ""),
-      week_start: String(row.week_start ?? ""),
-      week_end: String(row.week_end ?? ""),
-      week_rank: asNumber(row.week_rank),
       page_views: asNumber(row.page_views),
       unit_sales: asNumber(row.unit_sales),
       sales: asNumber(row.sales),
-      unit_conversions_pct: asNumber(row.unit_conversions_pct),
     }));
+
     setRows(parsed);
     setIsLoadingRows(false);
   }, [accountId, clientId, supabase]);
@@ -290,7 +311,11 @@ export default function WbrClientWorkspace({ clientId }: Props) {
                       {(row.unit_conversions_pct * 100).toFixed(2)}%
                     </td>
                     <td className="px-4 py-3 text-[#0f172a]">
-                      {row.currency_code} {row.sales.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      {row.currency_code}{" "}
+                      {row.sales.toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
                     </td>
                   </tr>
                 ))
