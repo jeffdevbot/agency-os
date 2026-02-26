@@ -2,8 +2,8 @@
 id: task_extraction
 name: Task Extraction
 description: Converts meeting summaries into structured draft agency tasks and client action-item recap.
-category: ppc
-categories: ppc,catalog,p&l,replenishment,wbr
+category: core
+categories: core,ppc,catalog,p&l,replenishment,wbr
 when_to_use: User shares meeting notes and asks for tasks/action items/next steps.
 trigger_hints: meeting,notes,summary,transcript,minutes,recap,follow-up,task,action items,next steps
 ---

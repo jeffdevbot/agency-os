@@ -2,7 +2,7 @@
 
 Status: proposed
 Owner: Jeff + Codex
-Last updated: 2026-02-25
+Last updated: 2026-02-26
 
 ## 1) Goal
 
@@ -97,7 +97,7 @@ Schema reference:
 - Canonical DB reference: `docs/db/schema_master.md`
 - Relevant table section: `public.playbook_slack_sessions`
 
-## 4C) Skill Registry + Router Categories
+## 4C) Skill Registry + Organization
 
 Skill model (OpenClaw-style, markdown-first):
 - Each skill lives under `backend-core/app/services/theclaw/skills/<category>/<skill_id>/SKILL.md`.
@@ -107,15 +107,16 @@ Skill model (OpenClaw-style, markdown-first):
   - output contract notes.
 - Runtime loads skills via a registry module, not hardcoded prompt blocks in `slack_minimal_runtime.py`.
 
-Router category lanes for phase rollout:
-1. `ppc`
-2. `catalog`
-3. `p&l`
-4. `replenishment`
-5. `wbr`
+Folder taxonomy (human organization, not deterministic pre-filtering):
+1. `core`
+2. `ppc`
+3. `catalog`
+4. `p&l`
+5. `replenishment`
+6. `wbr`
 
 Routing strategy (multi-level to prevent skill explosion):
-1. Build a compact `<available_skills>` XML menu (id, name, description, location) and inject it into a skill-router prompt.
+1. Build a compact `<available_skills>` XML menu (id, name, description, when_to_use, trigger_hints, location) and inject it into a skill-router prompt.
 2. Let the model choose `skill_id` (or `none`) for the turn in strict JSON.
 3. Runtime loads only the selected `SKILL.md` contract and augments the response prompt with that skill.
 4. Invoke one skill by default unless explicit multi-skill orchestration is required.
@@ -123,6 +124,7 @@ Routing strategy (multi-level to prevent skill explosion):
 
 Guardrail:
 - Do not append large per-skill prompt logic directly in runtime code; add/modify `SKILL.md` contracts and registry metadata instead.
+- Skill registry cache should auto-refresh with TTL (`THECLAW_SKILL_CACHE_TTL_SECONDS`) so skill edits do not require restart.
 
 ## 5) Phase Plan (Baby Steps)
 
@@ -262,3 +264,175 @@ The reboot is done when:
 - follow-up draft email works reliably,
 - legacy AgencyClaw and identity sync are removed,
 - docs and tests are simple enough for fast onboarding.
+
+## 11) Skill Catalog (Organized Backlog)
+
+This section catalogs proposed skills so we can add them one-by-one without losing architecture clarity.
+
+### 11A) Identity Model: Client, Brand, ClickUp Space
+
+Canonical fields every execution-oriented skill should receive or resolve:
+1. `client_name` (human-facing)
+2. `brand_name` (human-facing)
+3. `clickup_space_name` (human-facing)
+4. `clickup_space_id` (system id, resolved before mutations)
+5. `brand_key` (stable internal slug/id to avoid name collisions)
+6. `market_scope` (optional, e.g. `CA`, `US`, `UK`, `MX`)
+
+Real-world mapping patterns to support:
+1. Client and Brand not the same:
+- `Client = Lifestyle`
+- `Brand = Home Gifts USA`
+- `ClickUp Space = Home Gifts USA`
+
+2. Client and Brand not the same, brand exists elsewhere:
+- `Client = Basari World`
+- `Brand = Whoosh`
+- `ClickUp Space = Basari World [Whoosh]`
+- Note: Basari is Whoosh's distributor in Mexico; this scope matters for routing.
+
+3. Client and Brand the same, but brand exists elsewhere:
+- `Client = Whoosh`
+- `Brand = Whoosh`
+- `ClickUp Space = Whoosh`
+- Note: this client context can span multiple markets (CA, US, UK), so market disambiguation may still be needed.
+
+4. Client with multiple brands:
+- `Client = Distex`
+- `Brands = Thorinox, New Air, Brika, Distex`
+- `ClickUp Space = Distex`
+
+Rule:
+- Skills must resolve to `clickup_space_id` before create/update calls.
+- If multiple matches exist, ask one clarification question instead of guessing.
+
+### 11B) Command Center Status (Keep or Deprecate)
+
+Current recommendation: keep Command Center as source of truth for now; do not deprecate in this phase.
+
+What Command Center already handles:
+1. `agency_clients` with nested `brands` in bootstrap payload.
+2. Per-brand ClickUp destination fields (`clickup_space_id`, `clickup_list_id`).
+3. ClickUp Space Registry with admin mapping/classification.
+4. Duplicate brand names across different clients are structurally possible because brand names are not globally unique.
+
+Current gaps to address via skills/runtime:
+1. Natural-language disambiguation ("which Whoosh?") is not handled end-to-end yet.
+2. Resolver behavior for multi-brand clients sharing one space needs explicit contract.
+3. Market-level context (CA/US/UK/MX) is not first-class in resolver flow yet.
+4. Existing helper destination picker can choose "first mapped brand"; this is not safe for ambiguous cases.
+
+### 11C) Foundation Skills (Cross-Category)
+
+1. `entity_context_resolver`:
+- Resolve client/brand/space mapping.
+- Output canonical identity packet for downstream skills.
+- Understand mentions of client name, brand name, or ClickUp space name.
+
+2. `entity_disambiguation_clarifier`:
+- Ask focused clarification when multiple matches exist (example: "Which Whoosh: Basari World [Whoosh] or Whoosh?").
+- Capture selected entity for session context.
+
+3. `clickup_destination_resolver`:
+- Resolve final `clickup_space_id` and optional `clickup_list_id`.
+- Respect one-space/multi-brand and multi-space/one-brand edge cases.
+
+4. `task_creation_guard`:
+- Validate required fields before task creation.
+- Enforce one-by-one confirmed writes.
+
+5. `session_context_manager`:
+- Maintain active client/brand context for current session.
+- Support explicit reset (`new session`).
+
+### 11D) Client Memory Skills
+
+1. `client_memory_capture`:
+- Detect important durable facts in conversation (goals, constraints, ownership rules, market scope).
+- Propose a memory entry before writing.
+
+2. `client_memory_write`:
+- Explicit write path when the user's intent is to persist memory.
+- Skill selection remains LLM-led from the available skills menu (no regex command router for memory).
+- Requires clear scope (`client`, optional `brand`, optional `market_scope`) and concise memory text.
+
+3. `client_memory_retrieve`:
+- Pull top relevant stored memory for current entity context.
+- Return compact memory blocks to keep token usage bounded.
+
+4. `client_memory_admin`:
+- List/edit/archive memory records for cleanup.
+- Keep memory quality high and prevent stale clutter.
+
+Suggested storage model:
+- Keep memory as database records keyed by `client_id` (+ optional `brand_id`, optional `market_scope`), not as local markdown files.
+- Keep skill contracts in markdown; keep mutable memory in database.
+- Keep intent routing model-led; deterministic logic is limited to policy/auth/idempotency rails.
+
+### 11E) Task Creation Skills (Near-Term Focus)
+
+1. `task_extraction` (implemented):
+- Meeting notes -> internal task drafts + client action recap.
+
+2. `task_draft_refiner`:
+- Tighten task titles, owners, due dates, and acceptance criteria.
+
+3. `task_confirmation_to_create`:
+- Convert approved draft task into mutation-ready payload for ClickUp create.
+
+4. `clickup_task_create_one_by_one`:
+- Create one ClickUp task at a time only after explicit confirmation.
+- Use resolved client/brand/space context from resolver skills.
+
+### 11F) Sub-Agent Use Cases (Near-Term)
+
+Use sub-agents only when decomposition is needed; keep simple requests in orchestrator + skill flow.
+
+1. `identity_resolution_subagent`:
+- For complex ambiguous mentions across client/brand/space/market.
+- Returns one resolved context packet plus clarification question if unresolved.
+
+### 11G) Rollout Order Recommendation (Focused)
+
+1. Lock context resolution:
+- `entity_context_resolver` + `entity_disambiguation_clarifier` + `clickup_destination_resolver`
+2. Add explicit memory writes:
+- `client_memory_capture` + `client_memory_write` + `client_memory_retrieve` + `client_memory_admin`
+3. Complete one-by-one task flow:
+- `task_extraction` hardening -> `task_draft_refiner` -> `task_confirmation_to_create` -> `clickup_task_create_one_by_one`
+
+## 12) Ice Box (Explicitly Deferred)
+
+These are valid ideas but intentionally parked. They are not part of the current execution focus.
+
+Deferred meeting extension:
+1. `followup_email_draft`
+
+Deferred domain skill lanes:
+- PPC:
+1. `ppc_task_planner`
+2. `ppc_weekly_diagnostics`
+3. `ppc_budget_shift_recommendation`
+
+- Catalog:
+1. `catalog_listing_audit`
+2. `catalog_content_brief`
+3. `variation_cleanup_plan`
+
+- P&L:
+1. `pnl_snapshot_explainer`
+2. `margin_risk_detector`
+3. `contribution_lever_planner`
+
+- Replenishment:
+1. `restock_risk_assessor`
+2. `po_recommendation_draft`
+3. `stockout_impact_brief`
+
+- WBR:
+1. `wbr_kpi_summary`
+2. `wbr_anomaly_detector`
+3. `wbr_action_plan_draft`
+
+Deferred sub-agent expansion:
+1. `meeting_execution_subagent`
