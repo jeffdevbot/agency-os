@@ -11,6 +11,7 @@ def test_get_registered_context_keys_includes_defaults():
     keys = context_providers.get_registered_context_keys()
     assert "resolved_context" in keys
     assert "draft_tasks" in keys
+    assert "pending_confirmation" in keys
 
 
 @pytest.mark.asyncio
@@ -42,6 +43,22 @@ async def test_fetch_context_blobs_includes_requested_draft_tasks():
     )
     assert "draft_tasks" in blobs
     assert blobs["draft_tasks"][0]["id"] == "task-1"
+
+
+@pytest.mark.asyncio
+async def test_fetch_context_blobs_includes_requested_pending_confirmation():
+    blobs = await context_providers.fetch_context_blobs(
+        required_context_keys={"pending_confirmation"},
+        session_context={
+            "theclaw_pending_confirmation_v1": {
+                "task_id": "task-1",
+                "task_title": "Launch campaign",
+                "status": "pending",
+            }
+        },
+    )
+    assert "pending_confirmation" in blobs
+    assert blobs["pending_confirmation"]["task_id"] == "task-1"
 
 
 @pytest.mark.asyncio

@@ -11,6 +11,7 @@ from typing import Any, Awaitable, Callable, Iterable
 
 from .runtime_state import (
     draft_tasks_from_session_context,
+    pending_confirmation_from_session_context,
     resolved_context_from_session_context,
     sanitize_context_field,
 )
@@ -110,6 +111,30 @@ def _render_draft_tasks(blob: Any) -> str:
     )
 
 
+async def _fetch_pending_confirmation(*, session_context: dict[str, Any], **_: Any) -> dict[str, Any] | None:
+    return pending_confirmation_from_session_context(session_context)
+
+
+def _render_pending_confirmation(blob: Any) -> str:
+    if not isinstance(blob, dict):
+        return ""
+    task_title = sanitize_context_field(blob.get("task_title"))
+    task_id = sanitize_context_field(blob.get("task_id"))
+    clickup_space = sanitize_context_field(blob.get("clickup_space"))
+    target = task_title or task_id
+    if not target:
+        return ""
+    if clickup_space:
+        return (
+            f"Pending confirmation context: task '{target}' is staged for ClickUp space '{clickup_space}'. "
+            "If the user responds to this pending action, require explicit 'yes' or 'no'."
+        )
+    return (
+        f"Pending confirmation context: task '{target}' is staged for creation. "
+        "If the user responds to this pending action, require explicit 'yes' or 'no'."
+    )
+
+
 _CONTEXT_PROVIDERS: dict[str, TheClawContextProvider] = {
     "resolved_context": TheClawContextProvider(
         context_key="resolved_context",
@@ -121,6 +146,12 @@ _CONTEXT_PROVIDERS: dict[str, TheClawContextProvider] = {
         context_key="draft_tasks",
         fetcher=_fetch_draft_tasks,
         prompt_renderer=_render_draft_tasks,
+        always_include=False,
+    ),
+    "pending_confirmation": TheClawContextProvider(
+        context_key="pending_confirmation",
+        fetcher=_fetch_pending_confirmation,
+        prompt_renderer=_render_pending_confirmation,
         always_include=False,
     ),
 }

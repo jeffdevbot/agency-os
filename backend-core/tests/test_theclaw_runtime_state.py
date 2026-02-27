@@ -4,6 +4,7 @@ from app.services.theclaw.slack_minimal_runtime import (
     _coerce_runtime_context_updates,
     _extract_reply_and_context_updates,
     _finalize_state_updates_for_turn,
+    _pending_confirmation_from_session_context,
     _resolved_context_from_session_context,
     _sanitize_context_field,
 )
@@ -90,6 +91,35 @@ def test_coerce_runtime_context_updates_normalizes_invalid_status_and_source():
     )
     assert updates["theclaw_draft_tasks_v1"][0]["source"] == "ad_hoc"
     assert updates["theclaw_draft_tasks_v1"][0]["status"] == "draft"
+
+
+def test_coerce_runtime_context_updates_accepts_pending_confirmation_update():
+    updates = _coerce_runtime_context_updates(
+        {
+            "context_updates": {
+                "theclaw_pending_confirmation_v1": {
+                    "task_id": "task-123",
+                    "task_title": "Launch campaign",
+                    "status": "pending",
+                }
+            }
+        }
+    )
+    assert updates["theclaw_pending_confirmation_v1"]["task_id"] == "task-123"
+    assert updates["theclaw_pending_confirmation_v1"]["task_title"] == "Launch campaign"
+    assert updates["theclaw_pending_confirmation_v1"]["status"] == "pending"
+
+
+def test_coerce_runtime_context_updates_allows_pending_confirmation_clear():
+    updates = _coerce_runtime_context_updates(
+        {
+            "context_updates": {
+                "theclaw_pending_confirmation_v1": None,
+            }
+        }
+    )
+    assert "theclaw_pending_confirmation_v1" in updates
+    assert updates["theclaw_pending_confirmation_v1"] is None
 
 
 def test_finalize_state_updates_assigns_id_for_new_draft_task():
@@ -184,3 +214,23 @@ def test_resolved_context_from_session_context_returns_none_when_absent():
     assert _resolved_context_from_session_context({}) is None
     assert _resolved_context_from_session_context(None) is None
     assert _resolved_context_from_session_context({"theclaw_resolved_context_v1": "not-a-dict"}) is None
+
+
+def test_pending_confirmation_from_session_context_extracts_correctly():
+    ctx = {
+        "theclaw_pending_confirmation_v1": {
+            "task_id": "task-123",
+            "task_title": "Launch campaign",
+            "status": "pending",
+        }
+    }
+    result = _pending_confirmation_from_session_context(ctx)
+    assert result is not None
+    assert result["task_id"] == "task-123"
+    assert result["task_title"] == "Launch campaign"
+
+
+def test_pending_confirmation_from_session_context_returns_none_when_absent():
+    assert _pending_confirmation_from_session_context({}) is None
+    assert _pending_confirmation_from_session_context(None) is None
+    assert _pending_confirmation_from_session_context({"theclaw_pending_confirmation_v1": "not-a-dict"}) is None

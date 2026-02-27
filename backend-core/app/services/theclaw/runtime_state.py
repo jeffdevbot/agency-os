@@ -12,6 +12,7 @@ _logger = logging.getLogger(__name__)
 
 SESSION_RESOLVED_CONTEXT_KEY = "theclaw_resolved_context_v1"
 SESSION_DRAFT_TASKS_KEY = "theclaw_draft_tasks_v1"
+SESSION_PENDING_CONFIRMATION_KEY = "theclaw_pending_confirmation_v1"
 STATE_BLOCK_START = "---THECLAW_STATE_JSON---"
 STATE_BLOCK_END = "---END_THECLAW_STATE_JSON---"
 STATE_BLOCK_RE = re.compile(
@@ -44,6 +45,14 @@ def draft_tasks_from_session_context(context: Any) -> list[dict[str, Any]]:
     raw = context.get(SESSION_DRAFT_TASKS_KEY)
     validated = _validate_draft_tasks_update(raw)
     return validated if isinstance(validated, list) else []
+
+
+def pending_confirmation_from_session_context(context: Any) -> dict[str, Any] | None:
+    if not isinstance(context, dict):
+        return None
+    raw = context.get(SESSION_PENDING_CONFIRMATION_KEY)
+    validated = _validate_pending_confirmation_update(raw)
+    return validated if isinstance(validated, dict) else None
 
 
 def _validate_resolved_context_update(raw_value: Any) -> dict[str, Any] | None:
@@ -117,6 +126,33 @@ def _validate_draft_tasks_update(raw_value: Any) -> list[dict[str, Any]] | None:
     if raw_value and not normalized_tasks:
         return None
     return normalized_tasks
+
+
+def _validate_pending_confirmation_update(raw_value: Any) -> dict[str, Any] | None:
+    if not isinstance(raw_value, dict):
+        return None
+
+    task_id = sanitize_context_field(raw_value.get("task_id"))
+    task_title = sanitize_context_field(raw_value.get("task_title"))
+    clickup_space_id = sanitize_context_field(raw_value.get("clickup_space_id"))
+    clickup_space = sanitize_context_field(raw_value.get("clickup_space"))
+    notes = sanitize_context_field(raw_value.get("notes"))
+
+    if not task_id and not task_title:
+        return None
+
+    status = sanitize_context_field(raw_value.get("status")).lower()
+    if status != "pending":
+        status = "pending"
+
+    return {
+        "task_id": task_id or None,
+        "task_title": task_title or None,
+        "clickup_space_id": clickup_space_id or None,
+        "clickup_space": clickup_space or None,
+        "status": status,
+        "notes": notes or None,
+    }
 
 
 def _normalize_draft_task_id(value: Any) -> str:
@@ -221,6 +257,13 @@ def coerce_runtime_context_updates(payload: Any) -> dict[str, Any]:
     draft_tasks_update = _validate_draft_tasks_update(raw_updates.get(SESSION_DRAFT_TASKS_KEY))
     if draft_tasks_update is not None:
         updates[SESSION_DRAFT_TASKS_KEY] = draft_tasks_update
+
+    if SESSION_PENDING_CONFIRMATION_KEY in raw_updates and raw_updates.get(SESSION_PENDING_CONFIRMATION_KEY) is None:
+        updates[SESSION_PENDING_CONFIRMATION_KEY] = None
+    else:
+        pending_confirmation_update = _validate_pending_confirmation_update(raw_updates.get(SESSION_PENDING_CONFIRMATION_KEY))
+        if pending_confirmation_update is not None:
+            updates[SESSION_PENDING_CONFIRMATION_KEY] = pending_confirmation_update
 
     return updates
 

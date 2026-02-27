@@ -17,8 +17,10 @@ from .runtime_state import (
     extract_reply_and_context_updates as _extract_reply_and_context_updates,
     finalize_reply_text as _finalize_reply_text_base,
     finalize_state_updates_for_turn as _finalize_state_updates_for_turn,
+    pending_confirmation_from_session_context as _pending_confirmation_from_session_context,
     resolved_context_from_session_context as _resolved_context_from_session_context,
     sanitize_context_field as _sanitize_context_field,
+    SESSION_PENDING_CONFIRMATION_KEY as _SESSION_PENDING_CONFIRMATION_KEY,
 )
 from .skill_registry import TheClawSkill, build_available_skills_xml, get_skill_by_id, load_skills
 
@@ -46,6 +48,7 @@ _SKILL_SELECTION_PROMPT = (
     "Do not include markdown, prose, or code fences."
 )
 _REPLY_MAX_TOKENS = 1600
+_PENDING_CONFIRMATION_EXPLICIT_PROMPT = "Reply with exactly 'yes' to proceed or 'no' to cancel."
 
 
 def _build_system_prompt(
@@ -102,6 +105,44 @@ def _apply_mutation_disclaimer(*, user_text: str, reply_text: str) -> str:
     if "cannot execute" in normalized_reply or "can't create" in normalized_reply:
         return reply_text
     return f"{_MUTATION_DISCLAIMER}\n\n{reply_text}"
+
+
+def _pending_confirmation_label(pending_confirmation: dict[str, Any]) -> str:
+    title = _sanitize_context_field(pending_confirmation.get("task_title"))
+    task_id = _sanitize_context_field(pending_confirmation.get("task_id"))
+    return title or task_id or "the pending draft task"
+
+
+def _parse_pending_confirmation_decision(text: str) -> str | None:
+    normalized = (text or "").strip().lower()
+    normalized = re.sub(r"\s+", " ", normalized)
+    normalized = normalized.strip(" .!?")
+    if normalized in {
+        "yes",
+        "y",
+        "confirm",
+        "confirmed",
+        "approve",
+        "approved",
+        "go ahead",
+        "proceed",
+        "do it",
+    }:
+        return "yes"
+    if normalized in {
+        "no",
+        "n",
+        "cancel",
+        "stop",
+        "do not",
+        "dont",
+        "don't",
+        "not now",
+        "hold off",
+        "never mind",
+    }:
+        return "no"
+    return None
 
 
 def _normalize_history_messages(history: Any) -> list[dict[str, str]]:
@@ -162,6 +203,35 @@ def _build_context_updates_for_turn(
     context_updates: dict[str, Any] = {_SESSION_HISTORY_KEY: updated_history}
     context_updates.update(state_updates)
     return context_updates
+
+
+async def _persist_and_post_reply(
+    *,
+    slack,
+    channel: str,
+    session_service,
+    session,
+    history_messages: list[dict[str, str]],
+    user_text: str,
+    reply_text: str,
+    state_updates: dict[str, Any],
+) -> None:
+    if session_service is not None and session is not None:
+        try:
+            context_updates = _build_context_updates_for_turn(
+                history_messages=history_messages,
+                user_text=user_text,
+                assistant_text=reply_text,
+                state_updates=state_updates,
+            )
+            session_service.update_context(
+                session.id,
+                context_updates,
+            )
+        except Exception as exc:  # noqa: BLE001
+            _logger.warning("The Claw session update failed: %s", exc)
+
+    await slack.post_message(channel=channel, text=reply_text)
 
 
 def _process_model_reply_for_turn(*, user_text: str, model_reply_text: str) -> tuple[str, dict[str, Any]]:
@@ -259,6 +329,7 @@ async def run_theclaw_minimal_dm_turn(*, slack_user_id: str, channel: str, text:
     session_context: dict[str, Any] = {}
     history_messages: list[dict[str, str]] = []
     context_blobs: dict[str, Any] = {}
+    pending_confirmation: dict[str, Any] | None = None
     session_service = None
     try:
         session_service = _get_session_service()
@@ -286,11 +357,59 @@ async def run_theclaw_minimal_dm_turn(*, slack_user_id: str, channel: str, text:
             session = session_service.get_or_create_session(slack_user_id)
             session_context = getattr(session, "context", {})
             history_messages = _history_from_session_context(session_context)
+            pending_confirmation = _pending_confirmation_from_session_context(session_context)
         except Exception as exc:  # noqa: BLE001
             _logger.warning("The Claw session retrieval failed: %s", exc)
             session = None
             session_context = {}
             history_messages = []
+            pending_confirmation = None
+
+    if pending_confirmation is not None:
+        decision = _parse_pending_confirmation_decision(user_text)
+        task_label = _pending_confirmation_label(pending_confirmation)
+
+        if decision == "yes":
+            reply_text = (
+                f"I still cannot execute ClickUp task creation yet, so I did not create '{task_label}'. "
+                "I kept it as a draft."
+            )
+            state_updates = {_SESSION_PENDING_CONFIRMATION_KEY: None}
+        elif decision == "no":
+            reply_text = f"Canceled pending creation for '{task_label}'. No external actions were executed."
+            state_updates = {_SESSION_PENDING_CONFIRMATION_KEY: None}
+        else:
+            reply_text = (
+                f"Pending confirmation for '{task_label}'. "
+                f"{_PENDING_CONFIRMATION_EXPLICIT_PROMPT}"
+            )
+            state_updates = {}
+
+        slack = get_slack_service()
+        try:
+            await _persist_and_post_reply(
+                slack=slack,
+                channel=channel,
+                session_service=session_service,
+                session=session,
+                history_messages=history_messages,
+                user_text=user_text,
+                reply_text=reply_text,
+                state_updates=state_updates,
+            )
+        except Exception as exc:  # noqa: BLE001
+            _logger.warning(
+                "The Claw minimal runtime failed to post pending confirmation reply (user=%s, channel=%s): %s",
+                slack_user_id,
+                channel,
+                exc,
+            )
+        finally:
+            try:
+                await slack.aclose()
+            except Exception:  # noqa: BLE001
+                pass
+        return
 
     selected_skill = await _select_skill_for_turn(
         user_text=user_text,
@@ -335,22 +454,16 @@ async def run_theclaw_minimal_dm_turn(*, slack_user_id: str, channel: str, text:
             reply_text = _FALLBACK_REPLY
             state_updates = {}
 
-        if session_service is not None and session is not None:
-            try:
-                context_updates = _build_context_updates_for_turn(
-                    history_messages=history_messages,
-                    user_text=user_text,
-                    assistant_text=reply_text,
-                    state_updates=state_updates,
-                )
-                session_service.update_context(
-                    session.id,
-                    context_updates,
-                )
-            except Exception as exc:  # noqa: BLE001
-                _logger.warning("The Claw session update failed: %s", exc)
-
-        await slack.post_message(channel=channel, text=reply_text)
+        await _persist_and_post_reply(
+            slack=slack,
+            channel=channel,
+            session_service=session_service,
+            session=session,
+            history_messages=history_messages,
+            user_text=user_text,
+            reply_text=reply_text,
+            state_updates=state_updates,
+        )
     except Exception as exc:  # noqa: BLE001
         _logger.warning(
             "The Claw minimal runtime failed to post reply (user=%s, channel=%s): %s",
