@@ -65,17 +65,44 @@ class ClickUpService:
         )
 
         self._space_list_cache: dict[str, tuple[float, str]] = {}
+        self._rate_limit_lock = asyncio.Lock()
+        self._next_allowed_request_at = 0.0
+        self._clock = time.monotonic
+        if self.rate_limit_per_minute > 0:
+            self._min_request_interval_s = 60.0 / float(self.rate_limit_per_minute)
+        else:
+            self._min_request_interval_s = 0.0
 
     async def aclose(self) -> None:
         await self._client.aclose()
 
-    async def _request(self, method: str, path: str, *, json: Any | None = None) -> dict[str, Any]:
+    async def _apply_rate_limit(self) -> None:
+        if self._min_request_interval_s <= 0:
+            return
+
+        async with self._rate_limit_lock:
+            now = self._clock()
+            wait_s = max(0.0, self._next_allowed_request_at - now)
+            if wait_s > 0:
+                await asyncio.sleep(wait_s)
+                now = self._clock()
+            self._next_allowed_request_at = max(now, self._next_allowed_request_at) + self._min_request_interval_s
+
+    async def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        json: Any | None = None,
+        params: dict[str, str | int | float | bool] | None = None,
+    ) -> dict[str, Any]:
         max_attempts = 5
         backoff_s = 1.0
 
         for attempt in range(1, max_attempts + 1):
             try:
-                response = await self._client.request(method, path, json=json)
+                await self._apply_rate_limit()
+                response = await self._client.request(method, path, json=json, params=params)
             except (httpx.TimeoutException, httpx.NetworkError) as exc:
                 if attempt == max_attempts:
                     raise ClickUpAPIError(f"ClickUp request failed: {exc}") from exc
@@ -187,8 +214,7 @@ class ClickUpService:
         if date_updated_lt is not None:
             params["date_updated_lt"] = str(date_updated_lt)
 
-        query = "&".join(f"{k}={v}" for k, v in params.items())
-        data = await self._request("GET", f"/list/{list_id}/task?{query}")
+        data = await self._request("GET", f"/list/{list_id}/task", params=params)
         tasks = data.get("tasks")
         if not isinstance(tasks, list):
             return []
@@ -292,4 +318,3 @@ def get_clickup_service() -> ClickUpService:
         default_list_name=default_list_name,
         default_list_id=default_list_id,
     )
-
