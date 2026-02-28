@@ -115,3 +115,4 @@ def test_render_context_blobs_for_prompt_respects_required_keys():
         required_context_keys={"draft_tasks"},
     )
     assert "Existing draft tasks context for ID preservation" in prompt_with_drafts
+    assert '"index":1' in prompt_with_drafts

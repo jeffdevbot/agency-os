@@ -235,9 +235,24 @@ async def _persist_and_post_reply(
 
 
 def _process_model_reply_for_turn(*, user_text: str, model_reply_text: str) -> tuple[str, dict[str, Any]]:
+    return _process_model_reply_for_turn_with_skill(
+        user_text=user_text,
+        model_reply_text=model_reply_text,
+        selected_skill=None,
+    )
+
+
+def _process_model_reply_for_turn_with_skill(
+    *,
+    user_text: str,
+    model_reply_text: str,
+    selected_skill: TheClawSkill | None,
+) -> tuple[str, dict[str, Any]]:
     visible_reply, state_updates = _extract_reply_and_context_updates(model_reply_text)
     finalized_reply = _finalize_reply_text(visible_reply)
-    finalized_reply = _apply_mutation_disclaimer(user_text=user_text, reply_text=finalized_reply)
+    # Phase-1 mutation disclaimer is a no-skill safety net. Skill contracts should own wording.
+    if selected_skill is None:
+        finalized_reply = _apply_mutation_disclaimer(user_text=user_text, reply_text=finalized_reply)
     return finalized_reply, state_updates
 
 
@@ -370,6 +385,7 @@ async def run_theclaw_minimal_dm_turn(*, slack_user_id: str, channel: str, text:
         task_label = _pending_confirmation_label(pending_confirmation)
 
         if decision == "yes":
+            # TODO(phase-3.5): execute ClickUp create for the staged pending task here.
             reply_text = (
                 f"I still cannot execute ClickUp task creation yet, so I did not create '{task_label}'. "
                 "I kept it as a draft."
@@ -438,9 +454,10 @@ async def run_theclaw_minimal_dm_turn(*, slack_user_id: str, channel: str, text:
                 temperature=0.2,
                 max_tokens=_REPLY_MAX_TOKENS,
             )
-            reply_text, state_updates = _process_model_reply_for_turn(
+            reply_text, state_updates = _process_model_reply_for_turn_with_skill(
                 user_text=user_text,
                 model_reply_text=response["content"],
+                selected_skill=selected_skill,
             )
             state_updates = _finalize_state_updates_for_turn(
                 state_updates=state_updates,

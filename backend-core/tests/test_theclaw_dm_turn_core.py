@@ -176,6 +176,44 @@ async def test_run_theclaw_minimal_dm_turn_uses_selected_skill_prompt(monkeypatc
 
 
 @pytest.mark.asyncio
+async def test_run_theclaw_minimal_dm_turn_does_not_prepend_mutation_disclaimer_when_skill_selected(monkeypatch):
+    fake_slack = FakeSlackService()
+    fake_session_service = FakeSessionService()
+    calls: list[dict[str, object]] = []
+
+    async def _fake_call_chat_completion(**kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            return {
+                "content": '{"skill_id":"task_confirmation_to_create","confidence":0.94,"reason":"creation confirmation"}',
+                "tokens_in": 10,
+                "tokens_out": 11,
+                "tokens_total": 21,
+                "model": "gpt-4o-mini",
+                "duration_ms": 5,
+            }
+        return {
+            "content": "Task 3 is staged for confirmation. Reply with exactly 'yes' to proceed or 'no' to cancel.",
+            "tokens_in": 10,
+            "tokens_out": 11,
+            "tokens_total": 21,
+            "model": "gpt-4o-mini",
+            "duration_ms": 5,
+        }
+
+    monkeypatch.setattr("app.services.theclaw.slack_minimal_runtime.get_slack_service", lambda: fake_slack)
+    monkeypatch.setattr("app.services.theclaw.slack_minimal_runtime.call_chat_completion", _fake_call_chat_completion)
+    monkeypatch.setattr("app.services.theclaw.slack_minimal_runtime._get_session_service", lambda: fake_session_service)
+
+    await run_theclaw_minimal_dm_turn(slack_user_id="U15", channel="D15", text="create task 3")
+
+    assert len(fake_slack.messages) == 1
+    text = fake_slack.messages[0]["text"]
+    assert "task 3 is staged for confirmation" in text.lower()
+    assert "i can draft and advise, but i cannot execute actions" not in text.lower()
+
+
+@pytest.mark.asyncio
 async def test_run_theclaw_minimal_dm_turn_injects_resolved_context_into_system_prompt(monkeypatch):
     fake_slack = FakeSlackService()
     fake_session = FakeSession(

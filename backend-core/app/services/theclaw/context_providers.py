@@ -85,11 +85,12 @@ def _render_draft_tasks(blob: Any) -> str:
     if not isinstance(blob, list) or not blob:
         return ""
     compact_tasks = []
-    for task in blob[:25]:
+    for index, task in enumerate(blob[:25], start=1):
         if not isinstance(task, dict):
             continue
         compact_tasks.append(
             {
+                "index": index,
                 "id": sanitize_context_field(task.get("id")),
                 "title": sanitize_context_field(task.get("title")),
                 "source": sanitize_context_field(task.get("source")),

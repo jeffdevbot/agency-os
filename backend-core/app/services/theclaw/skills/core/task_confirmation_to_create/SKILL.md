@@ -5,7 +5,7 @@ description: Confirms exactly one staged draft task for creation by asking for e
 category: core
 categories: core
 when_to_use: User asks to create/push/send one specific staged draft task to ClickUp and explicit confirmation is required before mutation.
-trigger_hints: create task,push to clickup,send task,confirm task,yes,no,approve,cancel
+trigger_hints: create task,push to clickup,send task,confirm task,stage task,prepare task for creation
 needs_context: draft_tasks,pending_confirmation
 ---
 
