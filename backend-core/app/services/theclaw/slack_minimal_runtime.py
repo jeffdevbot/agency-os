@@ -7,6 +7,7 @@ import logging
 import re
 from typing import Any
 
+from .clickup_execution import execute_confirmed_task_creation
 from .context_providers import fetch_context_blobs, render_context_blobs_for_prompt
 from ..playbook_session import get_playbook_session_service
 from ..slack import get_slack_service
@@ -385,12 +386,26 @@ async def run_theclaw_minimal_dm_turn(*, slack_user_id: str, channel: str, text:
         task_label = _pending_confirmation_label(pending_confirmation)
 
         if decision == "yes":
-            # TODO(phase-3.5): execute ClickUp create for the staged pending task here.
-            reply_text = (
-                f"I still cannot execute ClickUp task creation yet, so I did not create '{task_label}'. "
-                "I kept it as a draft."
-            )
-            state_updates = {_SESSION_PENDING_CONFIRMATION_KEY: None}
+            try:
+                result, state_updates = await execute_confirmed_task_creation(
+                    session_context=session_context,
+                    pending_confirmation=pending_confirmation,
+                )
+            except Exception as exc:  # noqa: BLE001
+                _logger.exception("The Claw execution unexpected error: %s", exc)
+                result = None
+                state_updates = {}
+            if result is not None and result.success:
+                if result.already_sent:
+                    url_part = f" ({result.clickup_task_url})" if result.clickup_task_url else ""
+                    reply_text = f"'{task_label}' was already created in ClickUp{url_part}. No duplicate was sent."
+                else:
+                    url_part = f"\n{result.clickup_task_url}" if result.clickup_task_url else ""
+                    reply_text = f"Created '{task_label}' in ClickUp.{url_part}"
+            elif result is not None:
+                reply_text = result.error_message or _FALLBACK_REPLY
+            else:
+                reply_text = f"Something went wrong creating '{task_label}'. Say 'yes' to retry."
         elif decision == "no":
             reply_text = f"Canceled pending creation for '{task_label}'. No external actions were executed."
             state_updates = {_SESSION_PENDING_CONFIRMATION_KEY: None}

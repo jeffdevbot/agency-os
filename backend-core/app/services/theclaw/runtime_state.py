@@ -98,6 +98,8 @@ def _validate_draft_tasks_update(raw_value: Any) -> list[dict[str, Any]] | None:
             "reference_docs",
             "source",
             "status",
+            "clickup_task_id",
+            "clickup_task_url",
         ):
             value = item.get(field)
             task[field] = sanitize_context_field(value) if value is not None else None
@@ -136,6 +138,7 @@ def _validate_pending_confirmation_update(raw_value: Any) -> dict[str, Any] | No
     task_title = sanitize_context_field(raw_value.get("task_title"))
     clickup_space_id = sanitize_context_field(raw_value.get("clickup_space_id"))
     clickup_space = sanitize_context_field(raw_value.get("clickup_space"))
+    clickup_list_id = sanitize_context_field(raw_value.get("clickup_list_id"))
     notes = sanitize_context_field(raw_value.get("notes"))
 
     if not task_id and not task_title:
@@ -150,6 +153,7 @@ def _validate_pending_confirmation_update(raw_value: Any) -> dict[str, Any] | No
         "task_title": task_title or None,
         "clickup_space_id": clickup_space_id or None,
         "clickup_space": clickup_space or None,
+        "clickup_list_id": clickup_list_id or None,
         "status": status,
         "notes": notes or None,
     }
@@ -216,6 +220,11 @@ def _assign_or_preserve_draft_task_ids(
         if existing and str(existing.get("status") or "").lower() in {"confirmed", "sent"}:
             if str(task.get("status") or "").lower() == "draft":
                 task["status"] = str(existing.get("status") or "draft").lower()
+            # Preserve ClickUp linkage from prior successful creation.
+            if existing.get("clickup_task_id"):
+                task["clickup_task_id"] = existing["clickup_task_id"]
+            if existing.get("clickup_task_url"):
+                task["clickup_task_url"] = existing["clickup_task_url"]
 
         normalized_tasks.append(task)
 

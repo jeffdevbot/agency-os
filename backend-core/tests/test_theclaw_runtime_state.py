@@ -234,3 +234,35 @@ def test_pending_confirmation_from_session_context_returns_none_when_absent():
     assert _pending_confirmation_from_session_context({}) is None
     assert _pending_confirmation_from_session_context(None) is None
     assert _pending_confirmation_from_session_context({"theclaw_pending_confirmation_v1": "not-a-dict"}) is None
+
+
+def test_pending_confirmation_preserves_clickup_list_id():
+    """clickup_list_id must survive validation round-trip for direct-list execution."""
+    ctx = {
+        "theclaw_pending_confirmation_v1": {
+            "task_id": "task-abc",
+            "task_title": "Fix PPC",
+            "clickup_list_id": "list-789",
+            "status": "pending",
+        }
+    }
+    result = _pending_confirmation_from_session_context(ctx)
+    assert result is not None
+    assert result["clickup_list_id"] == "list-789"
+
+
+def test_coerce_runtime_context_updates_preserves_clickup_list_id():
+    """clickup_list_id from LLM machine block must survive coerce round-trip."""
+    updates = _coerce_runtime_context_updates(
+        {
+            "context_updates": {
+                "theclaw_pending_confirmation_v1": {
+                    "task_id": "task-abc",
+                    "task_title": "Fix PPC",
+                    "clickup_list_id": "list-789",
+                    "status": "pending",
+                }
+            }
+        }
+    )
+    assert updates["theclaw_pending_confirmation_v1"]["clickup_list_id"] == "list-789"
