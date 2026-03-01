@@ -283,3 +283,57 @@ async def execute_confirmed_task_creation(
         ),
         state_updates,
     )
+
+
+async def enrich_pending_confirmation_destination(
+    *,
+    pending: dict[str, Any],
+    resolved_ctx: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Eagerly resolve space name → space_id on a pending confirmation dict.
+
+    Returns a *new* dict with ``clickup_space_id`` populated when possible.
+    Fail-open: any ClickUp or config error leaves the dict unchanged so the
+    reply flow is never interrupted.
+
+    Priority:
+    1. ``clickup_list_id`` already set → no-op (most specific destination).
+    2. ``clickup_space_id`` already set → no-op.
+    3. Resolve ``clickup_space`` (pending first, then resolved_ctx) via
+       ``list_spaces()`` case-insensitive exact match.
+    """
+    # Already has a direct destination — nothing to enrich.
+    if sanitize_context_field(pending.get("clickup_list_id")):
+        return pending
+    if sanitize_context_field(pending.get("clickup_space_id")):
+        return pending
+
+    # Determine the space name to look up.
+    space_name = sanitize_context_field(pending.get("clickup_space"))
+    if not space_name and resolved_ctx:
+        space_name = sanitize_context_field(resolved_ctx.get("clickup_space"))
+    if not space_name:
+        return pending
+
+    try:
+        clickup = get_clickup_service()
+    except Exception:  # noqa: BLE001
+        return pending
+
+    try:
+        spaces = await clickup.list_spaces()
+        target = space_name.strip().lower()
+        for space in spaces:
+            if str(space.get("name", "")).strip().lower() == target:
+                enriched = dict(pending)
+                enriched["clickup_space_id"] = str(space["id"])
+                return enriched
+    except Exception:  # noqa: BLE001
+        _logger.debug("The Claw pending enrichment space lookup failed", exc_info=True)
+    finally:
+        try:
+            await clickup.aclose()
+        except Exception:  # noqa: BLE001
+            pass
+
+    return pending

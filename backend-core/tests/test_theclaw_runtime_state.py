@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from app.services.theclaw.slack_minimal_runtime import (
-    _coerce_runtime_context_updates,
-    _extract_reply_and_context_updates,
-    _finalize_state_updates_for_turn,
-    _pending_confirmation_from_session_context,
-    _resolved_context_from_session_context,
-    _sanitize_context_field,
+from app.services.theclaw.runtime_state import (
+    coerce_runtime_context_updates as _coerce_runtime_context_updates,
+    extract_reply_and_context_updates as _extract_reply_and_context_updates,
+    finalize_state_updates_for_turn as _finalize_state_updates_for_turn,
+    pending_confirmation_from_session_context as _pending_confirmation_from_session_context,
+    resolved_context_from_session_context as _resolved_context_from_session_context,
+    sanitize_context_field as _sanitize_context_field,
 )
 
 

@@ -7,21 +7,19 @@ import logging
 import re
 from typing import Any
 
-from .clickup_execution import execute_confirmed_task_creation
 from .context_providers import fetch_context_blobs, render_context_blobs_for_prompt
+from .pending_confirmation_runtime import (
+    build_pending_confirmation_reply as _build_pending_confirmation_reply,
+    enrich_pending_destination_if_present as _enrich_pending_destination_if_present,
+)
 from ..playbook_session import get_playbook_session_service
 from ..slack import get_slack_service
 from .openai_client import OpenAIConfigurationError, OpenAIError, call_chat_completion
 from .runtime_state import (
-    coerce_runtime_context_updates as _coerce_runtime_context_updates,
-    draft_tasks_from_session_context as _draft_tasks_from_session_context,
     extract_reply_and_context_updates as _extract_reply_and_context_updates,
     finalize_reply_text as _finalize_reply_text_base,
     finalize_state_updates_for_turn as _finalize_state_updates_for_turn,
     pending_confirmation_from_session_context as _pending_confirmation_from_session_context,
-    resolved_context_from_session_context as _resolved_context_from_session_context,
-    sanitize_context_field as _sanitize_context_field,
-    SESSION_PENDING_CONFIRMATION_KEY as _SESSION_PENDING_CONFIRMATION_KEY,
 )
 from .skill_registry import TheClawSkill, build_available_skills_xml, get_skill_by_id, load_skills
 
@@ -49,7 +47,6 @@ _SKILL_SELECTION_PROMPT = (
     "Do not include markdown, prose, or code fences."
 )
 _REPLY_MAX_TOKENS = 1600
-_PENDING_CONFIRMATION_EXPLICIT_PROMPT = "Reply with exactly 'yes' to proceed or 'no' to cancel."
 
 
 def _build_system_prompt(
@@ -106,44 +103,6 @@ def _apply_mutation_disclaimer(*, user_text: str, reply_text: str) -> str:
     if "cannot execute" in normalized_reply or "can't create" in normalized_reply:
         return reply_text
     return f"{_MUTATION_DISCLAIMER}\n\n{reply_text}"
-
-
-def _pending_confirmation_label(pending_confirmation: dict[str, Any]) -> str:
-    title = _sanitize_context_field(pending_confirmation.get("task_title"))
-    task_id = _sanitize_context_field(pending_confirmation.get("task_id"))
-    return title or task_id or "the pending draft task"
-
-
-def _parse_pending_confirmation_decision(text: str) -> str | None:
-    normalized = (text or "").strip().lower()
-    normalized = re.sub(r"\s+", " ", normalized)
-    normalized = normalized.strip(" .!?")
-    if normalized in {
-        "yes",
-        "y",
-        "confirm",
-        "confirmed",
-        "approve",
-        "approved",
-        "go ahead",
-        "proceed",
-        "do it",
-    }:
-        return "yes"
-    if normalized in {
-        "no",
-        "n",
-        "cancel",
-        "stop",
-        "do not",
-        "dont",
-        "don't",
-        "not now",
-        "hold off",
-        "never mind",
-    }:
-        return "no"
-    return None
 
 
 def _normalize_history_messages(history: Any) -> list[dict[str, str]]:
@@ -382,39 +341,12 @@ async def run_theclaw_minimal_dm_turn(*, slack_user_id: str, channel: str, text:
             pending_confirmation = None
 
     if pending_confirmation is not None:
-        decision = _parse_pending_confirmation_decision(user_text)
-        task_label = _pending_confirmation_label(pending_confirmation)
-
-        if decision == "yes":
-            try:
-                result, state_updates = await execute_confirmed_task_creation(
-                    session_context=session_context,
-                    pending_confirmation=pending_confirmation,
-                )
-            except Exception as exc:  # noqa: BLE001
-                _logger.exception("The Claw execution unexpected error: %s", exc)
-                result = None
-                state_updates = {}
-            if result is not None and result.success:
-                if result.already_sent:
-                    url_part = f" ({result.clickup_task_url})" if result.clickup_task_url else ""
-                    reply_text = f"'{task_label}' was already created in ClickUp{url_part}. No duplicate was sent."
-                else:
-                    url_part = f"\n{result.clickup_task_url}" if result.clickup_task_url else ""
-                    reply_text = f"Created '{task_label}' in ClickUp.{url_part}"
-            elif result is not None:
-                reply_text = result.error_message or _FALLBACK_REPLY
-            else:
-                reply_text = f"Something went wrong creating '{task_label}'. Say 'yes' to retry."
-        elif decision == "no":
-            reply_text = f"Canceled pending creation for '{task_label}'. No external actions were executed."
-            state_updates = {_SESSION_PENDING_CONFIRMATION_KEY: None}
-        else:
-            reply_text = (
-                f"Pending confirmation for '{task_label}'. "
-                f"{_PENDING_CONFIRMATION_EXPLICIT_PROMPT}"
-            )
-            state_updates = {}
+        reply_text, state_updates = await _build_pending_confirmation_reply(
+            user_text=user_text,
+            pending_confirmation=pending_confirmation,
+            session_context=session_context,
+            fallback_reply=_FALLBACK_REPLY,
+        )
 
         slack = get_slack_service()
         try:
@@ -475,6 +407,10 @@ async def run_theclaw_minimal_dm_turn(*, slack_user_id: str, channel: str, text:
                 selected_skill=selected_skill,
             )
             state_updates = _finalize_state_updates_for_turn(
+                state_updates=state_updates,
+                session_context=session_context,
+            )
+            state_updates = await _enrich_pending_destination_if_present(
                 state_updates=state_updates,
                 session_context=session_context,
             )
