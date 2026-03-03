@@ -198,6 +198,9 @@ export default function NgramPage() {
               <p className="text-sm text-[#4c576f]">
                 Upload your Search Term Report to create the campaign workbook with mono/bi/tri tables and NE scratchpads.
               </p>
+              <p className="mt-1 text-xs text-[#94a3b8]">
+                Campaigns containing &quot;Ex.&quot;, &quot;SDI&quot;, or &quot;SDV&quot; are automatically excluded.
+              </p>
             </div>
             <div
               onDragOver={(e) => e.preventDefault()}
