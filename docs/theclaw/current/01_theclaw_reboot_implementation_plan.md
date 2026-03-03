@@ -192,11 +192,21 @@ Design constraints:
 - Vague confirmation ("yes", "do it") must always restate the specific task before acting.
 - If entity context (`theclaw_resolved_context_v1`) is not set, resolve it before any write.
 - On ClickUp API failure, do not mark task as `sent` — preserve `draft` status for retry.
+- `resolved_context` carries human-facing space *name*, not `clickup_space_id`. A destination resolution step (see `clickup_destination_resolver` in section 11C) is required to translate name → ID before any ClickUp write or read. This must be a Phase 3 gate condition, not discovered mid-build.
+- The Claw must never call the admin bootstrap route for data. All team member ClickUp user ID lookups use DB-level access only. Bootstrap is a frontend admin tool.
+- All ClickUp API fetches must be scoped by resolved `clickup_space_id` at the query level — display-level filtering is not sufficient for tenant isolation.
 
 Multiple ingestion paths (all feed `theclaw_draft_tasks_v1`):
 - Meeting notes, email, Slack message, report → `task_extraction` skill
 - Ad-hoc ("create a task to fix X") → inline task construction, 1-2 clarifying questions if required fields missing, then same staging flow
 - All paths use the same confirmation and creation flow downstream.
+
+ClickUp service layer requirement:
+- The ClickUp API client built for Phase 3 must be a general-purpose client, not a task-create-only wrapper.
+- Read endpoints (list tasks, filter by assignee/status/date) must be supported from the start so ClickUp read skills (Phase 3.5) can be added without a rewrite.
+- Auth, error handling, and timeout patterns should be shared between read and write paths.
+- `_request` must support a `params=` argument for query-string filters — manual query-string assembly per method will diverge and break inconsistently.
+- Rate limiting is currently stored but not enforced in `clickup.py`. Read skills will multiply API calls per turn; enforce the rate limit before Phase 3.5 ships.
 
 Gate:
 - Integration tests for successful create, duplicate prevention, and reject paths.
@@ -446,6 +456,13 @@ These are valid ideas but intentionally parked. They are not part of the current
 
 Deferred meeting extension:
 1. `followup_email_draft`
+2. `meeting_notes_save` + `meeting_notes_retrieve`:
+- Save: user triggers explicitly ("save this meeting"), The Claw stores the pasted notes and confirms. No auto-detect.
+- Retrieve: on-demand skill ("read last meeting summary") — not auto-injected every turn.
+- Storage: Supabase table, keyed by `client_id` + `recorded_at`. Team-shared (not per-user).
+- Retrieval order: client + recency (most recent first). Semantic search deferred.
+- Size/retention: Supabase storage is cheap; no hard limit set yet. Revisit if token cost becomes relevant.
+- Reason deferred: no pressing need until client_memory and task creation flow are proven.
 
 Deferred domain skill lanes:
 - PPC:
@@ -472,6 +489,20 @@ Deferred domain skill lanes:
 1. `wbr_kpi_summary`
 2. `wbr_anomaly_detector`
 3. `wbr_action_plan_draft`
+
+Deferred ClickUp read skills (Phase 3.5):
+- Prerequisite: general-purpose ClickUp service client built in Phase 3.
+- These are read-only — no confirmation flow needed.
+1. `clickup_task_query`:
+- Answer "what's happening with client X this week?" or "show me open tasks for Whoosh."
+- Filter by space, status, due date range.
+- Requires resolved entity context (`clickup_space_id`) before fetching.
+- Slack output: compact task list (title, status, assignee, due date). Cap at top 10 with "N more" note.
+2. `clickup_status_check`:
+- Answer "is Susie done her client Y tasks?" or "any overdue tasks for this client?"
+- Filter by assignee + status in a space.
+- Requires assignee resolution: Susie's name → ClickUp user ID, sourced from Command Center team data.
+- Note: `clickup_doc_search` deferred further — needs more design on search semantics and result formatting.
 
 Deferred sub-agent expansion:
 1. `meeting_execution_subagent`

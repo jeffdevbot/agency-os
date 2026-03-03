@@ -1,10 +1,16 @@
 # Changelog — Ecomlabs Tools
 
-_Last updated: 2026-02-26 (EST)_
+_Last updated: 2026-03-03 (EST)_
 
 > Development history for the project. For setup instructions and project overview, see [AGENTS.md](AGENTS.md).
 
 ---
+
+## 2026-03-03 (EST)
+- **The Claw Phase 3 pause/handoff packaged:** Added resume artifacts for clean context recovery after switching focus to N-Gram:
+  - `docs/theclaw/current/03_theclaw_phase3_handoff.md`
+  - `docs/theclaw/current/04_theclaw_phase3_resume_prompt.md`
+- **Phase 3 runtime/test modularization checkpoint recorded:** Latest relevant The Claw commits captured in handoff (`cb9d6d8`, `74c7efe`) with current baseline (`144 passed, 1 warning`) and next-tranche acceptance criteria.
 
 ## 2026-02-26 (EST)
 - **Reports/WBR frontend scaffold shipped:** Added `/reports` hub, `/reports/wbr`, `/reports/wbr/setup`, and `/reports/wbr/[clientId]` client workspace using existing Ecomlabs Tools UI language.
