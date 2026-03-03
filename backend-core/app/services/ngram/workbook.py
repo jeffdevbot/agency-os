@@ -63,10 +63,11 @@ def _build_ne_summary_formula(sheet_infos: list[tuple[str, str]]) -> str:
     return f"LET(_all,VSTACK({joined}),IF(ROWS(_all)=0,\"\",_all))"
 
 
-def make_unique_sheet_name(name: str, used_lower: set) -> str:
+def make_unique_sheet_name(name: str, used_lower: set[str]) -> str:
     name = re.sub(r"[:\\\/\?\*\[\]]", " ", str(name))
     name = re.sub(r"\s+", " ", name).strip() or "Sheet"
-    base = name[:31]
+    # Excel disallows sheet names that start/end with apostrophe.
+    base = name[:31].strip("'").strip() or "Sheet"
     candidate = base
     i = 2
     while candidate.lower() in used_lower:
