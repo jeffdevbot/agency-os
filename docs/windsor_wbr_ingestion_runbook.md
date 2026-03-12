@@ -1,5 +1,7 @@
 # Windsor Amazon SP Ingestion Runbook (WBR v1)
 
+> Broader WBR prototype planning now lives in `docs/wbr_v2_prototype_plan.md`. This runbook remains focused on Windsor business-data ingest details.
+
 This document captures operational details for ingesting Windsor Amazon Seller Central (`amazon_sp`) data into Supabase for WBR.
 
 ## Scope

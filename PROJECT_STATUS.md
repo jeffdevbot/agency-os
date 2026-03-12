@@ -1,10 +1,23 @@
 # Changelog — Ecomlabs Tools
 
-_Last updated: 2026-03-03 (EST)_
+_Last updated: 2026-03-12 (EST)_
 
 > Development history for the project. For setup instructions and project overview, see [AGENTS.md](AGENTS.md).
 
 ---
+
+## 2026-03-12 (EST)
+- **WBR v2 schema foundation applied:** Added and applied the new WBR migrations for profile/row modeling, Pacvue/listings mappings, and source fact tables:
+  - `20260312000001_wbr_profiles_and_rows.sql`
+  - `20260312000002_wbr_imports_and_mappings.sql`
+  - `20260312000003_wbr_sync_runs_and_fact_tables.sql`
+- **WBR v2 backend profile/row admin API shipped:** Added dedicated `/admin/wbr/*` management endpoints backed by `wbr_profiles` and `wbr_rows`, including admin auth, `404` vs `400` semantics, marketplace normalization, inactive-parent guards, and service-layer tests (`33 passed`).
+- **WBR frontend replaced with profile-based flow:** Replaced the old `/reports/wbr/[clientId]` Section 1 scaffold with a profile-centric flow:
+  - `/reports/wbr`
+  - `/reports/wbr/setup`
+  - `/reports/wbr/[profileId]`
+- **WBR workspace modularized before next feature tranche:** Split the new profile workspace into a thin orchestrator, dedicated hook, typed workspace module, and focused components for summary, create-row, parent rows, and leaf rows. The stale empty `[clientId]` WBR route directory was removed.
+- **Legacy WBR Section 1 backend retained temporarily:** The old Windsor-only `/admin/wbr/section1/*` endpoints and `windsor_section1_ingest.py` remain in place for now because they do not conflict with the new v2 profile-based routes.
 
 ## 2026-03-03 (EST)
 - **The Claw Phase 3 pause/handoff packaged:** Added resume artifacts for clean context recovery after switching focus to N-Gram:
