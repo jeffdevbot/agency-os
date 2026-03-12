@@ -80,6 +80,8 @@ export default function WbrProfileWorkspace({ profileId }: Props) {
           onRowSortOrderChange={(rowId, value) => workspace.updateRowField(rowId, "sort_order", value)}
           onRowActiveChange={(rowId, value) => workspace.updateRowField(rowId, "active", value)}
           onSaveRow={(row) => void workspace.handleSaveRow(row)}
+          onDeactivateRow={(row) => void workspace.handleDeactivateRow(row)}
+          onDeleteRowPermanently={(row) => void workspace.handleDeleteRowPermanently(row)}
         />
 
         <LeafRowsTable
@@ -95,6 +97,8 @@ export default function WbrProfileWorkspace({ profileId }: Props) {
           onRowSortOrderChange={(rowId, value) => workspace.updateRowField(rowId, "sort_order", value)}
           onRowActiveChange={(rowId, value) => workspace.updateRowField(rowId, "active", value)}
           onSaveRow={(row) => void workspace.handleSaveRow(row)}
+          onDeactivateRow={(row) => void workspace.handleDeactivateRow(row)}
+          onDeleteRowPermanently={(row) => void workspace.handleDeleteRowPermanently(row)}
         />
       </div>
     </main>

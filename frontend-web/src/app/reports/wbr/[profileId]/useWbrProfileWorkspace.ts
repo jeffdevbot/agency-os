@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getBrowserSupabaseClient } from "@/lib/supabaseClient";
-import { createWbrRow, getWbrProfile, listWbrRows, updateWbrRow } from "../_lib/wbrApi";
+import { createWbrRow, deleteWbrRow, getWbrProfile, listWbrRows, updateWbrRow } from "../_lib/wbrApi";
 import type { RowEditState, WbrProfile, WbrRow, WbrRowKind } from "./workspaceTypes";
 
 const sortByOrderThenLabel = (a: WbrRow, b: WbrRow): number => {
@@ -218,6 +218,53 @@ export function useWbrProfileWorkspace(profileId: string) {
     }
   };
 
+  const handleDeactivateRow = async (row: WbrRow) => {
+    if (!row.active) {
+      setErrorMessage(`"${row.row_label}" is already inactive.`);
+      return;
+    }
+
+    const confirmed = window.confirm(`Deactivate "${row.row_label}"?`);
+    if (!confirmed) return;
+
+    setSavingRows((prev) => ({ ...prev, [row.id]: true }));
+    setErrorMessage(null);
+    setSuccessMessage(null);
+
+    try {
+      const token = await getAccessToken();
+      await deleteWbrRow(token, row.id);
+      setSuccessMessage(`Deactivated "${row.row_label}".`);
+      await loadWorkspace(true);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Failed to deactivate row");
+    } finally {
+      setSavingRows((prev) => ({ ...prev, [row.id]: false }));
+    }
+  };
+
+  const handleDeleteRowPermanently = async (row: WbrRow) => {
+    const confirmed = window.confirm(
+      `Permanently delete "${row.row_label}"? This cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    setSavingRows((prev) => ({ ...prev, [row.id]: true }));
+    setErrorMessage(null);
+    setSuccessMessage(null);
+
+    try {
+      const token = await getAccessToken();
+      await deleteWbrRow(token, row.id, { permanent: true });
+      setSuccessMessage(`Deleted "${row.row_label}" permanently.`);
+      await loadWorkspace(true);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Failed to permanently delete row");
+    } finally {
+      setSavingRows((prev) => ({ ...prev, [row.id]: false }));
+    }
+  };
+
   return {
     loading,
     refreshing,
@@ -239,6 +286,8 @@ export function useWbrProfileWorkspace(profileId: string) {
     loadWorkspace,
     handleCreateRow,
     handleSaveRow,
+    handleDeactivateRow,
+    handleDeleteRowPermanently,
     setNewRowLabel,
     setCreateRowKind,
     setNewRowParentId,

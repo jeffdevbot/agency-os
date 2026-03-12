@@ -225,11 +225,15 @@ async def update_row(
 @router.delete("/rows/{row_id}")
 async def delete_row(
     row_id: str,
+    permanent: bool = Query(False),
     user=Depends(require_admin_user),
 ):
     svc = _get_service()
     try:
-        row = svc.soft_delete_row(row_id, user_id=_user_id(user))
+        if permanent:
+            row = svc.hard_delete_row(row_id)
+        else:
+            row = svc.soft_delete_row(row_id, user_id=_user_id(user))
         return {"ok": True, "row": row}
     except WBRNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))

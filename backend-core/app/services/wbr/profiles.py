@@ -257,6 +257,24 @@ class WBRProfileService:
             raise WBRValidationError("Failed to deactivate row")
         return rows[0]
 
+    def hard_delete_row(self, row_id: str) -> dict[str, Any]:
+        existing = self._get_row(row_id)
+
+        self._guard_parent_hard_delete(existing)
+        self._guard_row_not_in_use(existing["id"])
+
+        try:
+            (
+                self.db.table("wbr_rows")
+                .delete()
+                .eq("id", row_id)
+                .execute()
+            )
+        except PostgrestAPIError as exc:
+            raise _translate_pg_error(exc) from exc
+
+        return existing
+
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
@@ -298,6 +316,45 @@ class WBRProfileService:
             raise WBRValidationError(
                 f"Cannot deactivate parent row {row['id']} while it has active child rows"
             )
+
+    def _guard_parent_hard_delete(self, row: dict[str, Any]) -> None:
+        """Raise if this parent row still has any children."""
+        if row.get("row_kind") != "parent":
+            return
+        children = (
+            self.db.table("wbr_rows")
+            .select("id")
+            .eq("parent_row_id", row["id"])
+            .limit(1)
+            .execute()
+        )
+        if children.data:
+            raise WBRValidationError(
+                f"Cannot permanently delete parent row {row['id']} while it still has child rows"
+            )
+
+    def _guard_row_not_in_use(self, row_id: str) -> None:
+        asin_maps = (
+            self.db.table("wbr_asin_row_map")
+            .select("id")
+            .eq("row_id", row_id)
+            .eq("active", True)
+            .limit(1)
+            .execute()
+        )
+        if asin_maps.data:
+            raise WBRValidationError("Cannot permanently delete a row that still has active ASIN mappings")
+
+        pacvue_maps = (
+            self.db.table("wbr_pacvue_campaign_map")
+            .select("id")
+            .eq("row_id", row_id)
+            .eq("active", True)
+            .limit(1)
+            .execute()
+        )
+        if pacvue_maps.data:
+            raise WBRValidationError("Cannot permanently delete a row that still has active campaign mappings")
 
 
 # ------------------------------------------------------------------

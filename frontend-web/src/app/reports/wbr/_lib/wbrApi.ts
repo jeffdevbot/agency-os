@@ -252,3 +252,18 @@ export const updateWbrRow = async (
   });
   return parseRowItem(payload);
 };
+
+export const deleteWbrRow = async (
+  token: string,
+  rowId: string,
+  options?: { permanent?: boolean }
+): Promise<void> => {
+  const query = new URLSearchParams();
+  if (options?.permanent) {
+    query.set("permanent", "true");
+  }
+  const suffix = query.size > 0 ? `?${query.toString()}` : "";
+  await requestJson<unknown>(token, `/admin/wbr/rows/${rowId}${suffix}`, {
+    method: "DELETE",
+  });
+};

@@ -9,6 +9,8 @@ type Props = {
   onRowSortOrderChange: (rowId: string, value: string) => void;
   onRowActiveChange: (rowId: string, value: boolean) => void;
   onSaveRow: (row: WbrRow) => void;
+  onDeactivateRow: (row: WbrRow) => void;
+  onDeleteRowPermanently: (row: WbrRow) => void;
 };
 
 export default function ParentRowsTable({
@@ -20,6 +22,8 @@ export default function ParentRowsTable({
   onRowSortOrderChange,
   onRowActiveChange,
   onSaveRow,
+  onDeactivateRow,
+  onDeleteRowPermanently,
 }: Props) {
   return (
     <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5">
@@ -77,13 +81,31 @@ export default function ParentRowsTable({
                       />
                     </td>
                     <td className="px-3 py-2">
-                      <button
-                        onClick={() => onSaveRow(row)}
-                        disabled={savingRows[row.id] === true}
-                        className="rounded-xl bg-white px-3 py-2 text-xs font-semibold text-[#0a6fd6] shadow transition hover:-translate-y-0.5 hover:shadow-lg disabled:cursor-not-allowed disabled:text-slate-400"
-                      >
-                        {savingRows[row.id] ? "Saving..." : "Save"}
-                      </button>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          onClick={() => onSaveRow(row)}
+                          disabled={savingRows[row.id] === true}
+                          className="rounded-xl bg-white px-3 py-2 text-xs font-semibold text-[#0a6fd6] shadow transition hover:-translate-y-0.5 hover:shadow-lg disabled:cursor-not-allowed disabled:text-slate-400"
+                        >
+                          {savingRows[row.id] ? "Saving..." : "Save"}
+                        </button>
+                        {row.active ? (
+                          <button
+                            onClick={() => onDeactivateRow(row)}
+                            disabled={savingRows[row.id] === true}
+                            className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            Deactivate
+                          </button>
+                        ) : null}
+                        <button
+                          onClick={() => onDeleteRowPermanently(row)}
+                          disabled={savingRows[row.id] === true}
+                          className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-800 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          Delete Permanently
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
