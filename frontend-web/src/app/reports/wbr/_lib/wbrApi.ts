@@ -29,6 +29,37 @@ export type WbrRow = {
   updated_at: string | null;
 };
 
+export type WbrPacvueImportBatchStatus = "running" | "success" | "error";
+
+export type WbrPacvueImportBatch = {
+  id: string;
+  profile_id: string;
+  source_filename: string | null;
+  import_status: WbrPacvueImportBatchStatus;
+  rows_read: number;
+  rows_loaded: number;
+  error_message: string | null;
+  initiated_by: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+export type WbrPacvueImportSummary = {
+  header_row_index: number;
+  rows_read: number;
+  rows_loaded: number;
+  duplicate_rows_skipped: number;
+  created_leaf_rows: number;
+  reactivated_leaf_rows: number;
+};
+
+export type WbrPacvueImportResult = {
+  batch: WbrPacvueImportBatch;
+  summary: WbrPacvueImportSummary;
+};
+
 export type CreateWbrProfileRequest = {
   client_id: string;
   marketplace_code: string;
@@ -64,6 +95,10 @@ const getBackendUrl = (): string => {
 };
 
 const authHeaders = (token: string): Record<string, string> => ({
+  Authorization: `Bearer ${token}`,
+});
+
+const authJsonHeaders = (token: string): Record<string, string> => ({
   Authorization: `Bearer ${token}`,
   "Content-Type": "application/json",
 });
@@ -102,7 +137,7 @@ const requestJson = async <T>(token: string, path: string, init?: RequestInit): 
   const response = await fetch(`${getBackendUrl()}${path}`, {
     ...init,
     headers: {
-      ...authHeaders(token),
+      ...authJsonHeaders(token),
       ...(init?.headers ?? {}),
     },
   });
@@ -155,6 +190,44 @@ const parseRow = (value: unknown): WbrRow => {
   };
 };
 
+const parsePacvueImportBatch = (value: unknown): WbrPacvueImportBatch => {
+  if (!isRecord(value)) {
+    throw new Error("Invalid Pacvue import batch response");
+  }
+
+  const importStatus = asString(value.import_status);
+  return {
+    id: asString(value.id),
+    profile_id: asString(value.profile_id),
+    source_filename: asNullableString(value.source_filename),
+    import_status:
+      importStatus === "running" || importStatus === "error" ? importStatus : "success",
+    rows_read: asNumber(value.rows_read),
+    rows_loaded: asNumber(value.rows_loaded),
+    error_message: asNullableString(value.error_message),
+    initiated_by: asNullableString(value.initiated_by),
+    started_at: asNullableString(value.started_at),
+    finished_at: asNullableString(value.finished_at),
+    created_at: asNullableString(value.created_at),
+    updated_at: asNullableString(value.updated_at),
+  };
+};
+
+const parsePacvueImportSummary = (value: unknown): WbrPacvueImportSummary => {
+  if (!isRecord(value)) {
+    throw new Error("Invalid Pacvue import summary response");
+  }
+
+  return {
+    header_row_index: asNumber(value.header_row_index),
+    rows_read: asNumber(value.rows_read),
+    rows_loaded: asNumber(value.rows_loaded),
+    duplicate_rows_skipped: asNumber(value.duplicate_rows_skipped),
+    created_leaf_rows: asNumber(value.created_leaf_rows),
+    reactivated_leaf_rows: asNumber(value.reactivated_leaf_rows),
+  };
+};
+
 const parseProfileList = (payload: unknown): WbrProfile[] => {
   if (Array.isArray(payload)) {
     return payload.map(parseProfile);
@@ -189,6 +262,28 @@ const parseRowItem = (payload: unknown): WbrRow => {
     return parseRow(payload.row);
   }
   return parseRow(payload);
+};
+
+const parsePacvueImportBatchList = (payload: unknown): WbrPacvueImportBatch[] => {
+  if (Array.isArray(payload)) {
+    return payload.map(parsePacvueImportBatch);
+  }
+
+  if (!isRecord(payload)) return [];
+  if (Array.isArray(payload.batches)) return payload.batches.map(parsePacvueImportBatch);
+  if (Array.isArray(payload.items)) return payload.items.map(parsePacvueImportBatch);
+  return [];
+};
+
+const parsePacvueImportResult = (payload: unknown): WbrPacvueImportResult => {
+  if (!isRecord(payload) || !isRecord(payload.batch) || !isRecord(payload.summary)) {
+    throw new Error("Invalid Pacvue import response");
+  }
+
+  return {
+    batch: parsePacvueImportBatch(payload.batch),
+    summary: parsePacvueImportSummary(payload.summary),
+  };
 };
 
 export const listWbrProfiles = async (token: string, clientId: string): Promise<WbrProfile[]> => {
@@ -266,4 +361,41 @@ export const deleteWbrRow = async (
   await requestJson<unknown>(token, `/admin/wbr/rows/${rowId}${suffix}`, {
     method: "DELETE",
   });
+};
+
+export const listPacvueImportBatches = async (
+  token: string,
+  profileId: string
+): Promise<WbrPacvueImportBatch[]> => {
+  const payload = await requestJson<unknown>(
+    token,
+    `/admin/wbr/profiles/${profileId}/pacvue/import-batches`,
+    {
+      method: "GET",
+    }
+  );
+  return parsePacvueImportBatchList(payload);
+};
+
+export const importPacvueWorkbook = async (
+  token: string,
+  profileId: string,
+  file: File
+): Promise<WbrPacvueImportResult> => {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const response = await fetch(`${getBackendUrl()}/admin/wbr/profiles/${profileId}/pacvue/import`, {
+    method: "POST",
+    headers: authHeaders(token),
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const detail = await parseErrorDetail(response);
+    throw new Error(detail);
+  }
+
+  const payload = (await response.json()) as unknown;
+  return parsePacvueImportResult(payload);
 };
