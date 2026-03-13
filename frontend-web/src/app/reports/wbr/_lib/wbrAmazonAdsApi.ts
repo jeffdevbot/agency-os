@@ -109,6 +109,7 @@ const asNumber = (value: unknown): number => {
 const requestJson = async <T>(token: string, path: string, init?: RequestInit): Promise<T> => {
   const response = await fetch(`${getBackendUrl()}${path}`, {
     ...init,
+    cache: "no-store",
     headers: {
       ...authJsonHeaders(token),
       ...(init?.headers ?? {}),
