@@ -98,8 +98,8 @@ export default function AsinMappingCard({
           <div>
             <p className="text-sm font-semibold text-[#0f172a]">Bulk CSV Mapping</p>
             <p className="mt-1 text-sm text-[#4c576f]">
-              Download the current child-ASIN catalog, edit the `current_row_id` or
-              `current_row_label` columns in Excel, then upload the same CSV back.
+              Download the current child-ASIN catalog, edit the `row_label` column in Excel, then
+              upload the same CSV back.
             </p>
           </div>
           <button
@@ -138,8 +138,7 @@ export default function AsinMappingCard({
 
         <div className="mt-3 space-y-1 text-xs text-[#64748b]">
           <p>
-            Edit `current_row_id` or `current_row_label` in the exported file. Leave both blank to
-            clear a mapping.
+            Edit `row_label` in the exported file. Leave it blank to clear a mapping.
           </p>
           {selectedCsvFile ? <p>Selected: {selectedCsvFile.name}</p> : null}
         </div>

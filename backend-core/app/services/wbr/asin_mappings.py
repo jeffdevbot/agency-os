@@ -144,8 +144,7 @@ class AsinMappingService:
                 "child_asin",
                 "child_sku",
                 "child_product_name",
-                "current_row_id",
-                "current_row_label",
+                "row_label",
             ],
             lineterminator="\n",
         )
@@ -156,8 +155,7 @@ class AsinMappingService:
                     "child_asin": item.get("child_asin") or "",
                     "child_sku": item.get("child_sku") or "",
                     "child_product_name": item.get("child_product_name") or "",
-                    "current_row_id": item.get("mapped_row_id") or "",
-                    "current_row_label": item.get("mapped_row_label") or "",
+                    "row_label": item.get("mapped_row_label") or "",
                 }
             )
         return output.getvalue()

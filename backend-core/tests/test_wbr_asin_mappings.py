@@ -116,7 +116,7 @@ class TestAsinMappingService:
                 user_id="u1",
             )
 
-    def test_export_child_asin_mapping_csv_includes_current_mapping_columns(self):
+    def test_export_child_asin_mapping_csv_includes_single_row_label_column(self):
         db = _multi_table_db(
             {
                 "wbr_profiles": [_chain_table([{"id": "p1"}])],
@@ -142,8 +142,8 @@ class TestAsinMappingService:
         svc = AsinMappingService(db)
         csv_text = svc.export_child_asin_mapping_csv("p1")
 
-        assert "child_asin,child_sku,child_product_name,current_row_id,current_row_label" in csv_text
-        assert "B012345678,SKU-1,Widget A,r1,Screen Shine | Go" in csv_text
+        assert "child_asin,child_sku,child_product_name,row_label" in csv_text
+        assert "B012345678,SKU-1,Widget A,Screen Shine | Go" in csv_text
 
     def test_import_child_asin_mapping_csv_applies_updates_and_clears(self):
         csv_text = (
