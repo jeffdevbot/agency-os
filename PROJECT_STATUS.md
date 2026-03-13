@@ -1,10 +1,20 @@
 # Changelog — Ecomlabs Tools
 
-_Last updated: 2026-03-12 (EST)_
+_Last updated: 2026-03-13 (EST)_
 
 > Development history for the project. For setup instructions and project overview, see [AGENTS.md](AGENTS.md).
 
 ---
+
+## 2026-03-13 (EST)
+- **WBR client-first routing now serves real report/sync pages:** The new client/marketplace paths are live as the primary navigation shape:
+  - `/reports/[clientSlug]/[marketplaceCode]/wbr`
+  - `/reports/[clientSlug]/[marketplaceCode]/wbr/settings`
+  - `/reports/[clientSlug]/[marketplaceCode]/wbr/sync`
+  The legacy UUID route remains a compatibility redirect into settings.
+- **WBR Windsor Section 1 sync engine landed:** Added `WindsorBusinessSyncService` plus admin endpoints for Windsor business backfill, daily refresh, and sync-run history. Sync writes normalized child-ASIN daily facts into `wbr_business_asin_daily` and logs runs in `wbr_sync_runs`.
+- **WBR Section 1 report renderer landed:** Added `Section1ReportService` and the first live report UI on the primary WBR route. The page now renders rolling 4-week Page Views, Unit Sales, Sales, and Conversion Rate rollups using the configured row tree and ASIN mappings, plus QA counters for mapped/unmapped activity.
+- **WBR sync UI replaced the placeholder:** The `/sync` route now has real controls for chunked backfill and daily refresh, with Windsor account visibility and recent-run history.
 
 ## 2026-03-12 (EST)
 - **WBR v2 schema foundation applied:** Added and applied the new WBR migrations for profile/row modeling, Pacvue/listings mappings, and source fact tables:

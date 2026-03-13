@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 
+from datetime import date
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
@@ -16,6 +17,8 @@ from ..config import settings
 from ..services.wbr.listing_imports import ListingImportService
 from ..services.wbr.pacvue_imports import PacvueImportService
 from ..services.wbr.profiles import WBRNotFoundError, WBRValidationError, WBRProfileService
+from ..services.wbr.section1_report import Section1ReportService
+from ..services.wbr.windsor_business_sync import WindsorBusinessSyncService
 
 router = APIRouter(prefix="/admin/wbr", tags=["wbr-admin"])
 MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "40"))
@@ -49,6 +52,14 @@ def _get_listing_service() -> ListingImportService:
 
 def _get_asin_mapping_service() -> AsinMappingService:
     return AsinMappingService(_get_supabase())
+
+
+def _get_windsor_business_sync_service() -> WindsorBusinessSyncService:
+    return WindsorBusinessSyncService(_get_supabase())
+
+
+def _get_section1_report_service() -> Section1ReportService:
+    return Section1ReportService(_get_supabase())
 
 
 def _user_id(user: dict) -> str | None:
@@ -101,6 +112,12 @@ class UpdateRowRequest(BaseModel):
 
 class SetAsinMappingRequest(BaseModel):
     row_id: Optional[str] = None
+
+
+class RunWindsorBusinessBackfillRequest(BaseModel):
+    date_from: str
+    date_to: str
+    chunk_days: int = Field(7, ge=1, le=31)
 
 
 # ------------------------------------------------------------------
@@ -483,6 +500,85 @@ async def import_child_asin_mapping_csv(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception:
         raise HTTPException(status_code=500, detail="Failed to import ASIN mapping CSV")
+
+
+@router.get("/profiles/{profile_id}/sync-runs")
+async def list_sync_runs(
+    profile_id: str,
+    source_type: str = Query("windsor_business"),
+    user=Depends(require_admin_user),
+):
+    svc = _get_windsor_business_sync_service()
+    try:
+        runs = svc.list_sync_runs(profile_id, source_type=source_type)
+        return {"ok": True, "runs": runs}
+    except WBRNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except WBRValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to list WBR sync runs")
+
+
+@router.post("/profiles/{profile_id}/sync-runs/windsor-business/backfill")
+async def run_windsor_business_backfill(
+    profile_id: str,
+    request: RunWindsorBusinessBackfillRequest,
+    user=Depends(require_admin_user),
+):
+    svc = _get_windsor_business_sync_service()
+    try:
+        result = await svc.run_backfill(
+            profile_id=profile_id,
+            date_from=date.fromisoformat(request.date_from),
+            date_to=date.fromisoformat(request.date_to),
+            chunk_days=request.chunk_days,
+            user_id=_user_id(user),
+        )
+        return {"ok": True, **result}
+    except ValueError:
+        raise HTTPException(status_code=400, detail="date_from and date_to must be YYYY-MM-DD")
+    except WBRNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except WBRValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to run Windsor business backfill")
+
+
+@router.post("/profiles/{profile_id}/sync-runs/windsor-business/daily-refresh")
+async def run_windsor_business_daily_refresh(
+    profile_id: str,
+    user=Depends(require_admin_user),
+):
+    svc = _get_windsor_business_sync_service()
+    try:
+        result = await svc.run_daily_refresh(profile_id=profile_id, user_id=_user_id(user))
+        return {"ok": True, **result}
+    except WBRNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except WBRValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to run Windsor business daily refresh")
+
+
+@router.get("/profiles/{profile_id}/section1-report")
+async def get_section1_report(
+    profile_id: str,
+    weeks: int = Query(4, ge=1, le=12),
+    user=Depends(require_admin_user),
+):
+    svc = _get_section1_report_service()
+    try:
+        report = svc.build_report(profile_id, weeks=weeks)
+        return {"ok": True, **report}
+    except WBRNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except WBRValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to build Section 1 report")
 
 
 @router.put("/profiles/{profile_id}/child-asins/{child_asin}/mapping")
