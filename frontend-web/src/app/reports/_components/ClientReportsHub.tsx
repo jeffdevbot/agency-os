@@ -80,6 +80,12 @@ export default function ClientReportsHub({ clientSlug }: Props) {
           >
             Back to Reports
           </Link>
+          <Link
+            href="/reports/wbr/setup"
+            className="rounded-2xl bg-[#0a6fd6] px-4 py-3 text-sm font-semibold text-white shadow-[0_15px_30px_rgba(10,111,214,0.25)] transition hover:bg-[#0959ab]"
+          >
+            Add New WBR
+          </Link>
         </div>
 
         {errorMessage ? (
@@ -101,9 +107,14 @@ export default function ClientReportsHub({ clientSlug }: Props) {
             summary.profiles.map((profile) => (
               <div
                 key={profile.id}
-                className="rounded-2xl border border-slate-200 bg-white p-5 shadow"
+                className="rounded-2xl border border-slate-200 bg-white p-5 shadow transition hover:-translate-y-0.5 hover:shadow-lg"
               >
-                <p className="text-lg font-semibold text-[#0f172a]">{profile.marketplace_code}</p>
+                <Link
+                  href={`/reports/${clientSlug}/${profile.marketplace_code.toLowerCase()}/wbr`}
+                  className="inline-flex items-center rounded-lg text-lg font-semibold text-[#0f172a] transition hover:text-[#0a6fd6]"
+                >
+                  {`WBR - ${profile.marketplace_code}`}
+                </Link>
                 <p className="mt-1 text-sm text-[#4c576f]">{profile.display_name}</p>
                 <p className="mt-1 text-sm text-[#4c576f]">
                   Week start: {profile.week_start_day} • Status: {profile.status}
