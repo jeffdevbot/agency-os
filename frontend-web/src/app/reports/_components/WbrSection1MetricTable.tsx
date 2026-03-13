@@ -43,15 +43,18 @@ export default function WbrSection1MetricTable({
   const displayWeekIndexes = newestFirst ? weekIndexes.reverse() : weekIndexes;
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5">
-      <p className="text-sm font-semibold text-[#0f172a]">{title}</p>
-      <div className="mt-4 overflow-x-auto">
-        <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
+    <div className="rounded-xl border border-slate-200 bg-white px-3 py-3 md:px-4 md:py-3">
+      <p className="text-sm font-semibold leading-none text-[#0f172a]">{title}</p>
+      <div className="mt-3 overflow-x-auto">
+        <table className="min-w-full divide-y divide-slate-200 text-left text-[13px] leading-tight md:text-sm">
           <thead className="bg-[#f7faff]">
             <tr className="text-xs font-semibold uppercase tracking-wide text-[#4c576f]">
-              <th className="px-3 py-2">Row</th>
+              <th className="w-[32%] px-3 py-2">Row</th>
               {displayWeekIndexes.map((weekIndex) => (
-                <th key={`${title}-${weeks[weekIndex]?.start ?? weekIndex}`} className="px-3 py-2 text-right">
+                <th
+                  key={`${title}-${weeks[weekIndex]?.start ?? weekIndex}`}
+                  className="whitespace-nowrap px-3 py-2 text-right"
+                >
                   {weeks[weekIndex]?.label ?? ""}
                 </th>
               ))}
@@ -62,7 +65,7 @@ export default function WbrSection1MetricTable({
               <tr key={`${title}-${row.id}`} className="hover:bg-slate-50">
                 <td
                   className={`px-3 py-2 text-[#0f172a] ${
-                    row.row_kind === "parent" ? "font-semibold" : row.parent_row_id ? "pl-8" : "pl-3"
+                    row.row_kind === "parent" ? "font-semibold" : row.parent_row_id ? "pl-6" : "pl-3"
                   }`}
                 >
                   {row.row_label}
