@@ -153,7 +153,7 @@ async def update_profile(
     user=Depends(require_admin_user),
 ):
     svc = _get_service()
-    updates = request.model_dump(exclude_none=True)
+    updates = request.model_dump(exclude_unset=True)
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
     try:
@@ -216,7 +216,7 @@ async def update_row(
     user=Depends(require_admin_user),
 ):
     svc = _get_service()
-    updates = request.model_dump(exclude_none=True)
+    updates = request.model_dump(exclude_unset=True)
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
     try:
