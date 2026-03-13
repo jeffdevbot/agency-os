@@ -431,6 +431,39 @@ class TestCallbackEndpoint:
         assert fake_db.inserts[0]["amazon_ads_refresh_token"] == "Atzr|test-refresh"
         assert len(fake_db.updates) == 0
 
+    def test_callback_happy_path_accepts_api_prefixed_route(self, monkeypatch):
+        """Production redirect URI currently uses /api/amazon-ads/callback."""
+        state = create_signed_state(
+            profile_id="prof-1",
+            initiated_by="user-1",
+            return_path="/reports/test/us/wbr/sync/ads-api",
+        )
+
+        mock_exchange = AsyncMock(return_value={
+            "access_token": "Atza|test",
+            "refresh_token": "Atzr|test-refresh",
+            "token_type": "bearer",
+            "expires_in": 3600,
+        })
+        monkeypatch.setattr(
+            "app.routers.amazon_ads_oauth.exchange_authorization_code",
+            mock_exchange,
+        )
+
+        from app.routers import amazon_ads_oauth
+        fake_db = _FakeSupabase([])
+        monkeypatch.setattr(amazon_ads_oauth, "_get_supabase", lambda: fake_db)
+
+        with TestClient(app) as client:
+            resp = client.get(
+                f"/api/amazon-ads/callback?code=auth-code-789&state={state}",
+                follow_redirects=False,
+            )
+
+        assert resp.status_code == 302
+        assert len(fake_db.inserts) == 1
+        mock_exchange.assert_called_once_with("auth-code-789")
+
     def test_callback_updates_existing_connection(self, monkeypatch):
         """Re-connection: should UPDATE the existing row, not insert."""
         state = create_signed_state(

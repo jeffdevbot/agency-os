@@ -51,7 +51,7 @@ def _infer_tool_from_path(path: str) -> Optional[str]:
         return "slack"
     if path.startswith("/admin"):
         return "admin"
-    if path.startswith("/amazon-ads"):
+    if path.startswith("/amazon-ads") or path.startswith("/api/amazon-ads"):
         return "amazon-ads-oauth"
     return None
 

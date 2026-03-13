@@ -40,6 +40,7 @@ def _get_supabase() -> Client:
 
 
 @router.get("/amazon-ads/callback")
+@router.get("/api/amazon-ads/callback")
 async def amazon_ads_callback(
     code: str = Query(...),
     state: str = Query(...),
