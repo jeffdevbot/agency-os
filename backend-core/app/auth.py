@@ -42,19 +42,37 @@ def _get_supabase_admin_client() -> Client:
     return _supabase_admin_client
 
 
+def _reset_supabase_admin_client() -> None:
+    global _supabase_admin_client  # noqa: PLW0603
+    _supabase_admin_client = None
+
+
+def _fetch_admin_profile_rows(user_id: str) -> list[dict]:
+    last_error: Exception | None = None
+
+    for attempt in range(2):
+        try:
+            db = _get_supabase_admin_client()
+            response = db.table("profiles").select("*").eq("id", user_id).limit(1).execute()
+            rows = response.data if isinstance(response.data, list) else []
+            return [row for row in rows if isinstance(row, dict)]
+        except Exception as exc:
+            last_error = exc
+            if attempt == 0:
+                _reset_supabase_admin_client()
+                continue
+            break
+
+    raise HTTPException(status_code=500, detail="Failed to validate admin access") from last_error
+
+
 def require_admin_user(user=Depends(require_user)):
     user_id = str(user.get("sub") or "").strip()
     if not user_id:
         raise HTTPException(status_code=401, detail="Invalid token: missing subject")
 
-    try:
-        db = _get_supabase_admin_client()
-        response = db.table("profiles").select("*").eq("id", user_id).limit(1).execute()
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to validate admin access: {exc}") from exc
-
-    rows = response.data if isinstance(response.data, list) else []
-    if not rows or not isinstance(rows[0], dict):
+    rows = _fetch_admin_profile_rows(user_id)
+    if not rows:
         raise HTTPException(status_code=403, detail="Admin access required")
 
     profile = rows[0]
