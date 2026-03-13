@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useResolvedWbrProfile } from "../_lib/useResolvedWbrProfile";
 import { useWbrSection1Report } from "../_lib/useWbrSection1Report";
+import WbrSection1HorizontalTable from "./WbrSection1HorizontalTable";
 import WbrSection1MetricTable from "./WbrSection1MetricTable";
 import { hasAnyActivity } from "./wbrSection1RowDisplay";
 
@@ -16,6 +17,7 @@ export default function WbrSection1ReportScreen({ clientSlug, marketplaceCode }:
   const reportState = useWbrSection1Report(resolved.profile?.id ?? null, 4);
   const [hideEmptyRows, setHideEmptyRows] = useState(true);
   const [newestFirst, setNewestFirst] = useState(true);
+  const [horizontalLayout, setHorizontalLayout] = useState(true);
 
   if (resolved.loading || reportState.loading) {
     return (
@@ -88,6 +90,16 @@ export default function WbrSection1ReportScreen({ clientSlug, marketplaceCode }:
               />
               <span className="font-medium">Newest first</span>
             </label>
+
+            <label className="inline-flex items-center gap-2 rounded-lg border border-[#c7d8f5] bg-[#f7faff] px-3 py-1.5 text-xs text-[#0f172a] md:text-sm">
+              <input
+                type="checkbox"
+                checked={horizontalLayout}
+                onChange={(event) => setHorizontalLayout(event.target.checked)}
+                className="h-4 w-4 rounded border-[#94a3b8] text-[#0a6fd6] focus:ring-[#0a6fd6]"
+              />
+              <span className="font-medium">Horizontal</span>
+            </label>
           </div>
         </div>
 
@@ -115,40 +127,49 @@ export default function WbrSection1ReportScreen({ clientSlug, marketplaceCode }:
       </div>
 
       {rows.length > 0 ? (
-        <>
-          <WbrSection1MetricTable
-            title="Page Views"
-            metricKey="page_views"
+        horizontalLayout ? (
+          <WbrSection1HorizontalTable
             weeks={weeks}
             rows={rows}
             hideEmptyRows={hideEmptyRows}
             newestFirst={newestFirst}
           />
-          <WbrSection1MetricTable
-            title="Unit Sales"
-            metricKey="unit_sales"
-            weeks={weeks}
-            rows={rows}
-            hideEmptyRows={hideEmptyRows}
-            newestFirst={newestFirst}
-          />
-          <WbrSection1MetricTable
-            title="Sales"
-            metricKey="sales"
-            weeks={weeks}
-            rows={rows}
-            hideEmptyRows={hideEmptyRows}
-            newestFirst={newestFirst}
-          />
-          <WbrSection1MetricTable
-            title="Conversion Rate"
-            metricKey="conversion_rate"
-            weeks={weeks}
-            rows={rows}
-            hideEmptyRows={hideEmptyRows}
-            newestFirst={newestFirst}
-          />
-        </>
+        ) : (
+          <>
+            <WbrSection1MetricTable
+              title="Page Views"
+              metricKey="page_views"
+              weeks={weeks}
+              rows={rows}
+              hideEmptyRows={hideEmptyRows}
+              newestFirst={newestFirst}
+            />
+            <WbrSection1MetricTable
+              title="Unit Sales"
+              metricKey="unit_sales"
+              weeks={weeks}
+              rows={rows}
+              hideEmptyRows={hideEmptyRows}
+              newestFirst={newestFirst}
+            />
+            <WbrSection1MetricTable
+              title="Sales"
+              metricKey="sales"
+              weeks={weeks}
+              rows={rows}
+              hideEmptyRows={hideEmptyRows}
+              newestFirst={newestFirst}
+            />
+            <WbrSection1MetricTable
+              title="Conversion Rate"
+              metricKey="conversion_rate"
+              weeks={weeks}
+              rows={rows}
+              hideEmptyRows={hideEmptyRows}
+              newestFirst={newestFirst}
+            />
+          </>
+        )
       ) : null}
     </main>
   );
