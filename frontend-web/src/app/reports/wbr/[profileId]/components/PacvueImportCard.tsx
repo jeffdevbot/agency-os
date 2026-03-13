@@ -83,7 +83,7 @@ export default function PacvueImportCard({
       </div>
 
       <div className="mt-4 rounded-2xl border border-[#c7d8f5] bg-[#f7faff] p-4">
-        <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
+        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_280px] md:items-start">
           <label className="text-sm">
             <span className="mb-1 block font-semibold text-[#0f172a]">Pacvue Workbook</span>
             <input
@@ -92,25 +92,25 @@ export default function PacvueImportCard({
               onChange={(event) => setSelectedFile(event.target.files?.[0] ?? null)}
               className="block w-full rounded-xl border border-[#c7d8f5] bg-white px-3 py-2 text-sm text-[#0f172a] file:mr-4 file:rounded-lg file:border-0 file:bg-[#0a6fd6] file:px-3 file:py-2 file:text-sm file:font-semibold file:text-white"
             />
-            <p className="mt-1 text-xs text-[#64748b]">
-              Metadata rows above the real header are fine. Only `.xlsx` and `.xlsm` are supported.
-            </p>
           </label>
-          <button
-            onClick={() => {
-              if (selectedFile) {
-                onUpload(selectedFile);
-              }
-            }}
-            disabled={!selectedFile || uploading}
-            className="rounded-2xl bg-[#0a6fd6] px-4 py-3 text-sm font-semibold text-white shadow-[0_15px_30px_rgba(10,111,214,0.35)] transition hover:bg-[#0959ab] disabled:cursor-not-allowed disabled:bg-[#b7cbea]"
-          >
-            {uploading ? "Importing..." : "Import Pacvue File"}
-          </button>
+          <div className="md:pt-6">
+            <button
+              onClick={() => {
+                if (selectedFile) {
+                  onUpload(selectedFile);
+                }
+              }}
+              disabled={!selectedFile || uploading}
+              className="w-full rounded-2xl bg-[#0a6fd6] px-4 py-3 text-sm font-semibold text-white shadow-[0_15px_30px_rgba(10,111,214,0.35)] transition hover:bg-[#0959ab] disabled:cursor-not-allowed disabled:bg-[#b7cbea]"
+            >
+              {uploading ? "Importing..." : "Import Pacvue File"}
+            </button>
+          </div>
         </div>
-        {selectedFile ? (
-          <p className="mt-2 text-xs text-[#4c576f]">Selected: {selectedFile.name}</p>
-        ) : null}
+        <div className="mt-3 space-y-1 text-xs text-[#64748b]">
+          <p>Metadata rows above the real header are fine. Only `.xlsx` and `.xlsm` are supported.</p>
+          {selectedFile ? <p>Selected: {selectedFile.name}</p> : null}
+        </div>
       </div>
 
       {errorMessage ? (

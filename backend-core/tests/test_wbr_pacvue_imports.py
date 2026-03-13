@@ -22,6 +22,21 @@ def _build_workbook_bytes(rows: list[list[object]]) -> bytes:
     return buffer.getvalue()
 
 
+def _build_multisheet_workbook_bytes(sheet_rows: list[tuple[str, list[list[object]]]]) -> bytes:
+    workbook = Workbook()
+    default_sheet = workbook.active
+    workbook.remove(default_sheet)
+
+    for title, rows in sheet_rows:
+        sheet = workbook.create_sheet(title)
+        for row in rows:
+            sheet.append(row)
+
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    return buffer.getvalue()
+
+
 def _chain_table(response_data: list[dict] | None = None) -> MagicMock:
     table = MagicMock()
     table.select.return_value = table
@@ -83,6 +98,29 @@ class TestParsePacvueWorkbook:
         assert parsed.rows_read == 2
         assert parsed.duplicate_rows_skipped == 1
         assert len(parsed.records) == 1
+
+    def test_detects_header_on_non_active_sheet(self):
+        file_bytes = _build_multisheet_workbook_bytes(
+            [
+                ("Intro", [["Level", "Campaign"], ["Download Time", "2026-03-12 12:21:38"]]),
+                (
+                    "Campaigns",
+                    [
+                        ["Level", "Campaign"],
+                        ["Time Range", "03/02/2026 - 03/08/2026"],
+                        [],
+                        ["Name", "state", "CampaignTagNames"],
+                        ["Screen Shine - Duo | SPM", "enabled", "Screen Shine | Duo / Perf"],
+                    ],
+                ),
+            ]
+        )
+
+        parsed = parse_pacvue_workbook(file_bytes)
+
+        assert parsed.sheet_title == "Campaigns"
+        assert parsed.header_row_index == 3
+        assert parsed.records[0].campaign_name == "Screen Shine - Duo | SPM"
 
     def test_rejects_conflicting_duplicate_campaign_rows(self):
         file_bytes = _build_workbook_bytes(

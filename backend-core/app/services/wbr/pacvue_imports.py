@@ -40,6 +40,7 @@ class ParsedPacvueRecord:
 
 @dataclass(frozen=True)
 class ParsedPacvueWorkbook:
+    sheet_title: str
     header_row_index: int
     rows_read: int
     duplicate_rows_skipped: int
@@ -62,12 +63,31 @@ def parse_pacvue_workbook(file_bytes: bytes) -> ParsedPacvueWorkbook:
     except Exception as exc:  # noqa: BLE001
         raise WBRValidationError(f"Unable to read Pacvue workbook: {exc}") from exc
 
-    sheet = workbook.active
-    rows = list(sheet.iter_rows(values_only=True))
-    if not rows:
-        raise WBRValidationError("Pacvue workbook is empty")
+    selected_sheet_title: str | None = None
+    rows: list[tuple[Any, ...]] | None = None
+    header_row_index: int | None = None
+    header_map: dict[str, int] | None = None
+    header_values: list[str] | None = None
 
-    header_row_index, header_map, header_values = _find_pacvue_header(rows)
+    for sheet in workbook.worksheets:
+        sheet_rows = list(sheet.iter_rows(values_only=True))
+        if not sheet_rows:
+            continue
+        try:
+            found_header_row_index, found_header_map, found_header_values = _find_pacvue_header(sheet_rows)
+        except WBRValidationError:
+            continue
+
+        selected_sheet_title = sheet.title
+        rows = sheet_rows
+        header_row_index = found_header_row_index
+        header_map = found_header_map
+        header_values = found_header_values
+        break
+
+    if rows is None or header_row_index is None or header_map is None or header_values is None:
+        raise WBRValidationError('Pacvue workbook must contain "Name" and "CampaignTagNames" columns')
+
     records: list[ParsedPacvueRecord] = []
     deduped_by_campaign: dict[str, ParsedPacvueRecord] = {}
     duplicate_rows_skipped = 0
@@ -111,6 +131,7 @@ def parse_pacvue_workbook(file_bytes: bytes) -> ParsedPacvueWorkbook:
         raise WBRValidationError("Pacvue workbook contained no campaign/tag rows")
 
     return ParsedPacvueWorkbook(
+        sheet_title=selected_sheet_title or workbook.active.title,
         header_row_index=header_row_index,
         rows_read=len(records) + duplicate_rows_skipped,
         duplicate_rows_skipped=duplicate_rows_skipped,
