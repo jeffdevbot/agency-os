@@ -62,6 +62,52 @@ def test_aggregate_rows_merges_duplicate_campaign_days():
     assert facts[0].currency_code == "USD"
 
 
+def test_aggregate_rows_accepts_numeric_dates_and_nested_campaign_shape():
+    svc = AmazonAdsSyncService(MagicMock())
+
+    facts = svc._aggregate_rows(
+        [
+            {
+                "startDate": "20260303",
+                "campaign": {
+                    "campaignId": "999",
+                    "campaignName": "Nested Campaign",
+                },
+                "impressions": "42",
+                "clicks": "6",
+                "cost": "3.50",
+                "purchases7d": "1",
+                "sales7d": "15.00",
+            }
+        ],
+        marketplace_code="US",
+    )
+
+    assert len(facts) == 1
+    assert facts[0].report_date == date(2026, 3, 3)
+    assert facts[0].campaign_id == "999"
+    assert facts[0].campaign_name == "Nested Campaign"
+    assert facts[0].spend == Decimal("3.50")
+    assert facts[0].sales == Decimal("15.00")
+
+
+def test_preview_helpers_capture_first_row_shape():
+    svc = AmazonAdsSyncService(MagicMock())
+
+    rows = [
+        {
+            "campaignName": "Campaign A",
+            "date": "2026-03-03",
+            "metrics": {"clicks": 5, "impressions": 100},
+        }
+    ]
+
+    assert "campaignName" in svc._preview_first_row_keys(rows)
+    preview = svc._preview_first_row(rows)
+    assert preview["campaignName"] == "Campaign A"
+    assert preview["metrics"]["clicks"] == 5
+
+
 def test_run_backfill_chunks_requested_range(monkeypatch):
     svc = AmazonAdsSyncService(MagicMock())
 

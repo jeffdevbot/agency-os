@@ -26,6 +26,7 @@ AMAZON_ADS_REPORT_CREATE_PATH = "/reporting/reports"
 AMAZON_ADS_REPORT_TYPE_ID = "spCampaigns"
 AMAZON_ADS_CAMPAIGN_TYPE = "sponsored_products"
 AMAZON_ADS_REPORT_COLUMNS = [
+    "date",
     "campaignId",
     "campaignName",
     "impressions",
@@ -253,6 +254,15 @@ class AmazonAdsSyncService:
                 date_to=date_to,
             )
             facts = self._aggregate_rows(raw_rows, marketplace_code=marketplace_code)
+            if raw_rows and not facts:
+                self._update_sync_run_request_meta(
+                    run_id=run_id,
+                    request_meta={
+                        "debug_row_count": len(raw_rows),
+                        "debug_first_row_keys": self._preview_first_row_keys(raw_rows),
+                        "debug_first_row_preview": self._preview_first_row(raw_rows),
+                    },
+                )
             self._replace_fact_window(
                 profile_id=profile_id,
                 sync_run_id=run_id,
@@ -444,19 +454,26 @@ class AmazonAdsSyncService:
         by_key: dict[tuple[date, str], AggregatedAdsFact] = {}
 
         for row in rows:
-            date_text = str(row.get("date") or row.get("reportDate") or "").strip()
-            campaign_name = str(row.get("campaignName") or row.get("campaign_name") or "").strip()
+            date_text = self._extract_report_date_text(row)
+            campaign_name = self._extract_campaign_name(row)
             if not date_text or not campaign_name:
                 continue
 
             try:
-                report_date = date.fromisoformat(date_text[:10])
+                report_date = self._parse_report_date(date_text)
             except ValueError as exc:
                 raise WBRValidationError(f'Invalid Amazon Ads report date "{date_text}"') from exc
 
-            campaign_id = str(row.get("campaignId") or row.get("campaign_id") or "").strip() or None
+            campaign_id = self._extract_campaign_id(row)
             currency_code = (
-                str(row.get("currencyCode") or row.get("currency_code") or "").strip().upper() or None
+                str(
+                    row.get("currencyCode")
+                    or row.get("currency_code")
+                    or self._nested_get(row, "campaign", "currencyCode")
+                    or self._nested_get(row, "accountInfo", "currencyCode")
+                    or ""
+                ).strip().upper()
+                or None
             )
             currency_code = currency_code or _default_currency_code(marketplace_code)
             fact = AggregatedAdsFact(
@@ -512,6 +529,95 @@ class AmazonAdsSyncService:
             )
 
         return sorted(by_key.values(), key=lambda item: (item.report_date, item.campaign_name.lower()))
+
+    def _extract_report_date_text(self, row: dict[str, Any]) -> str:
+        for value in (
+            row.get("date"),
+            row.get("reportDate"),
+            row.get("report_date"),
+            row.get("startDate"),
+            row.get("start_date"),
+            self._nested_get(row, "date"),
+            self._nested_get(row, "dimensions", "date"),
+            self._nested_get(row, "dimensionValues", "date"),
+            self._nested_get(row, "metadata", "date"),
+        ):
+            text = str(value or "").strip()
+            if text:
+                return text
+        return ""
+
+    def _extract_campaign_name(self, row: dict[str, Any]) -> str:
+        for value in (
+            row.get("campaignName"),
+            row.get("campaign_name"),
+            row.get("campaign"),
+            self._nested_get(row, "campaign", "campaignName"),
+            self._nested_get(row, "campaign", "name"),
+            self._nested_get(row, "campaignName"),
+            self._nested_get(row, "dimensionValues", "campaignName"),
+            self._nested_get(row, "dimensions", "campaignName"),
+        ):
+            if isinstance(value, dict):
+                text = str(value.get("campaignName") or value.get("name") or "").strip()
+            else:
+                text = str(value or "").strip()
+            if text:
+                return text
+        return ""
+
+    def _extract_campaign_id(self, row: dict[str, Any]) -> str | None:
+        for value in (
+            row.get("campaignId"),
+            row.get("campaign_id"),
+            self._nested_get(row, "campaign", "campaignId"),
+            self._nested_get(row, "campaign", "id"),
+            self._nested_get(row, "dimensionValues", "campaignId"),
+            self._nested_get(row, "dimensions", "campaignId"),
+        ):
+            text = str(value or "").strip()
+            if text:
+                return text
+        return None
+
+    def _parse_report_date(self, text: str) -> date:
+        normalized = text.strip()
+        if len(normalized) == 8 and normalized.isdigit():
+            normalized = f"{normalized[:4]}-{normalized[4:6]}-{normalized[6:8]}"
+        return date.fromisoformat(normalized[:10])
+
+    def _nested_get(self, value: Any, *path: str) -> Any:
+        current = value
+        for key in path:
+            if not isinstance(current, dict):
+                return None
+            current = current.get(key)
+        return current
+
+    def _preview_first_row_keys(self, rows: list[dict[str, Any]]) -> list[str]:
+        if not rows or not isinstance(rows[0], dict):
+            return []
+        return sorted(str(key) for key in rows[0].keys())[:50]
+
+    def _preview_first_row(self, rows: list[dict[str, Any]]) -> dict[str, Any]:
+        if not rows or not isinstance(rows[0], dict):
+            return {}
+        first = rows[0]
+        preview: dict[str, Any] = {}
+        for key, value in first.items():
+            if isinstance(value, (str, int, float, bool)) or value is None:
+                preview[str(key)] = value
+            elif isinstance(value, dict):
+                preview[str(key)] = {
+                    str(inner_key): inner_value
+                    for inner_key, inner_value in list(value.items())[:10]
+                    if isinstance(inner_value, (str, int, float, bool)) or inner_value is None
+                }
+            else:
+                preview[str(key)] = str(value)[:120]
+            if len(preview) >= 20:
+                break
+        return preview
 
     def _replace_fact_window(
         self,
@@ -648,6 +754,21 @@ class AmazonAdsSyncService:
         if not rows:
             raise WBRValidationError("Failed to finalize WBR sync run")
         return rows[0]
+
+    def _update_sync_run_request_meta(
+        self,
+        *,
+        run_id: str,
+        request_meta: dict[str, Any],
+    ) -> None:
+        response = self.db.table("wbr_sync_runs").select("request_meta").eq("id", run_id).limit(1).execute()
+        rows = response.data if isinstance(response.data, list) else []
+        if not rows:
+            return
+        existing_meta = rows[0].get("request_meta")
+        merged_meta = existing_meta if isinstance(existing_meta, dict) else {}
+        merged_meta = {**merged_meta, **request_meta}
+        self.db.table("wbr_sync_runs").update({"request_meta": merged_meta}).eq("id", run_id).execute()
 
     def _report_headers(self, access_token: str, amazon_ads_profile_id: str) -> dict[str, str]:
         return {
