@@ -76,8 +76,19 @@ class Section2ReportService:
             for item in mappings
             if item.get("campaign_name") and item.get("row_id") and str(item["row_id"]) in leaf_ids
         }
+        asin_mappings = self._list_active_asin_mappings(profile_id)
+        mapping_by_asin = {
+            str(item["child_asin"]).strip().upper(): str(item["row_id"])
+            for item in asin_mappings
+            if item.get("child_asin") and item.get("row_id") and str(item["row_id"]) in leaf_ids
+        }
 
         facts = self._list_facts(
+            profile_id,
+            date_from=week_buckets[0].start,
+            date_to=week_buckets[-1].end,
+        )
+        business_facts = self._list_business_facts(
             profile_id,
             date_from=week_buckets[0].start,
             date_to=week_buckets[-1].end,
@@ -98,6 +109,7 @@ class Section2ReportService:
                     "ad_spend": Decimal("0.00"),
                     "ad_orders": 0,
                     "ad_sales": Decimal("0.00"),
+                    "business_sales": Decimal("0.00"),
                 }
                 for _ in week_buckets
             ]
@@ -128,6 +140,20 @@ class Section2ReportService:
             leaf_week["ad_orders"] = int(leaf_week["ad_orders"]) + int(fact.get("orders") or 0)
             leaf_week["ad_sales"] = Decimal(str(leaf_week["ad_sales"])) + Decimal(str(fact.get("sales") or "0"))
 
+        for fact in business_facts:
+            report_date = date.fromisoformat(str(fact["report_date"]))
+            week_index = week_index_by_date.get(report_date)
+            if week_index is None:
+                continue
+
+            child_asin = str(fact.get("child_asin") or "").strip().upper()
+            row_id = mapping_by_asin.get(child_asin)
+            if not row_id:
+                continue
+
+            leaf_week = leaf_values[row_id][week_index]
+            leaf_week["business_sales"] = Decimal(str(leaf_week["business_sales"])) + Decimal(str(fact.get("sales") or "0"))
+
         row_totals: dict[str, list[dict[str, Decimal | int]]] = {
             row_id: [
                 {
@@ -136,6 +162,7 @@ class Section2ReportService:
                     "ad_spend": Decimal("0.00"),
                     "ad_orders": 0,
                     "ad_sales": Decimal("0.00"),
+                    "business_sales": Decimal("0.00"),
                 }
                 for _ in week_buckets
             ]
@@ -172,6 +199,9 @@ class Section2ReportService:
                     parent_weeks[week_index]["ad_sales"] = Decimal(str(parent_weeks[week_index]["ad_sales"])) + Decimal(
                         str(child_week["ad_sales"])
                     )
+                    parent_weeks[week_index]["business_sales"] = Decimal(
+                        str(parent_weeks[week_index]["business_sales"])
+                    ) + Decimal(str(child_week["business_sales"]))
 
         ordered_rows = sorted(
             rows,
@@ -213,6 +243,13 @@ class Section2ReportService:
                                 float(Decimal(str(values["ad_spend"])) / Decimal(str(values["ad_sales"]))),
                                 4,
                             ),
+                            "business_sales": _decimal_to_string(Decimal(str(values["business_sales"]))),
+                            "tacos_pct": 0
+                            if Decimal(str(values["business_sales"])) == 0
+                            else round(
+                                float(Decimal(str(values["ad_spend"])) / Decimal(str(values["business_sales"]))),
+                                4,
+                            ),
                         }
                         for values in week_values
                     ],
@@ -234,6 +271,7 @@ class Section2ReportService:
                 "active_row_count": len(rows),
                 "mapped_campaign_count": len(mapping_by_campaign),
                 "unmapped_campaign_count": len(unmapped_campaigns),
+                "unmapped_campaign_samples": sorted(unmapped_campaigns)[:10],
                 "unmapped_fact_rows": unmapped_fact_rows,
                 "fact_row_count": len(facts),
             },
@@ -266,10 +304,31 @@ class Section2ReportService:
         )
         return response.data if isinstance(response.data, list) else []
 
+    def _list_active_asin_mappings(self, profile_id: str) -> list[dict[str, Any]]:
+        response = (
+            self.db.table("wbr_asin_row_map")
+            .select("child_asin,row_id")
+            .eq("profile_id", profile_id)
+            .eq("active", True)
+            .execute()
+        )
+        return response.data if isinstance(response.data, list) else []
+
     def _list_facts(self, profile_id: str, *, date_from: date, date_to: date) -> list[dict[str, Any]]:
         response = (
             self.db.table("wbr_ads_campaign_daily")
             .select("*")
+            .eq("profile_id", profile_id)
+            .gte("report_date", date_from.isoformat())
+            .lte("report_date", date_to.isoformat())
+            .execute()
+        )
+        return response.data if isinstance(response.data, list) else []
+
+    def _list_business_facts(self, profile_id: str, *, date_from: date, date_to: date) -> list[dict[str, Any]]:
+        response = (
+            self.db.table("wbr_business_asin_daily")
+            .select("report_date,child_asin,sales")
             .eq("profile_id", profile_id)
             .gte("report_date", date_from.isoformat())
             .lte("report_date", date_to.isoformat())

@@ -93,6 +93,8 @@ export type WbrSection2RowWeek = {
   ad_conversion_rate: number;
   ad_sales: string;
   acos_pct: number;
+  business_sales: string;
+  tacos_pct: number;
 };
 
 export type WbrSection2Row = {
@@ -108,6 +110,7 @@ export type WbrSection2ReportQa = {
   active_row_count: number;
   mapped_campaign_count: number;
   unmapped_campaign_count: number;
+  unmapped_campaign_samples: string[];
   unmapped_fact_rows: number;
   fact_row_count: number;
 };
@@ -300,6 +303,8 @@ const parseSection2RowWeek = (value: unknown): WbrSection2RowWeek => {
     ad_conversion_rate: asNumber(value.ad_conversion_rate),
     ad_sales: asString(value.ad_sales),
     acos_pct: asNumber(value.acos_pct),
+    business_sales: asString(value.business_sales),
+    tacos_pct: asNumber(value.tacos_pct),
   };
 };
 
@@ -329,6 +334,9 @@ const parseSection2Report = (payload: unknown): WbrSection2Report => {
           active_row_count: asNumber(payload.qa.active_row_count),
           mapped_campaign_count: asNumber(payload.qa.mapped_campaign_count),
           unmapped_campaign_count: asNumber(payload.qa.unmapped_campaign_count),
+          unmapped_campaign_samples: Array.isArray(payload.qa.unmapped_campaign_samples)
+            ? payload.qa.unmapped_campaign_samples.map(asString).filter((item) => item.length > 0)
+            : [],
           unmapped_fact_rows: asNumber(payload.qa.unmapped_fact_rows),
           fact_row_count: asNumber(payload.qa.fact_row_count),
         }
@@ -336,6 +344,7 @@ const parseSection2Report = (payload: unknown): WbrSection2Report => {
           active_row_count: 0,
           mapped_campaign_count: 0,
           unmapped_campaign_count: 0,
+          unmapped_campaign_samples: [],
           unmapped_fact_rows: 0,
           fact_row_count: 0,
         },

@@ -11,7 +11,8 @@ type MetricKey =
   | "ad_orders"
   | "ad_conversion_rate"
   | "ad_sales"
-  | "acos_pct";
+  | "acos_pct"
+  | "tacos_pct";
 
 const getRowHasActivity = (row: WbrSection2Row): boolean =>
   row.weeks.some(
@@ -122,6 +123,16 @@ export const buildSection2TotalValues = (
       const spend = topLevelRows.reduce((sum, row) => sum + Number(row.weeks[weekIndex]?.ad_spend || 0), 0);
       const sales = topLevelRows.reduce((sum, row) => sum + Number(row.weeks[weekIndex]?.ad_sales || 0), 0);
       const rate = sales === 0 ? 0 : spend / sales;
+      return `${(rate * 100).toFixed(1)}%`;
+    }
+
+    if (metricKey === "tacos_pct") {
+      const spend = topLevelRows.reduce((sum, row) => sum + Number(row.weeks[weekIndex]?.ad_spend || 0), 0);
+      const businessSales = topLevelRows.reduce(
+        (sum, row) => sum + Number(row.weeks[weekIndex]?.business_sales || 0),
+        0
+      );
+      const rate = businessSales === 0 ? 0 : spend / businessSales;
       return `${(rate * 100).toFixed(1)}%`;
     }
 

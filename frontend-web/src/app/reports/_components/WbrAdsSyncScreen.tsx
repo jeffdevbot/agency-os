@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { getBrowserSupabaseClient } from "@/lib/supabaseClient";
 import { useResolvedWbrProfile } from "../_lib/useResolvedWbrProfile";
 import { useWbrAdsSync } from "../_lib/useWbrAdsSync";
+import { useWbrSection2Report } from "../_lib/useWbrSection2Report";
 import {
   getAmazonAdsConnectUrl,
   getAmazonAdsConnectionStatus,
@@ -40,6 +41,7 @@ const statusClasses = {
 export default function WbrAdsSyncScreen({ clientSlug, marketplaceCode }: Props) {
   const resolved = useResolvedWbrProfile(clientSlug, marketplaceCode);
   const sync = useWbrAdsSync(resolved.profile);
+  const section2ReportState = useWbrSection2Report(resolved.profile?.id ?? null, 4);
   const normalizedMarketplace = marketplaceCode.toLowerCase();
 
   // Amazon Ads connection state
@@ -308,9 +310,85 @@ export default function WbrAdsSyncScreen({ clientSlug, marketplaceCode }: Props)
         )}
       </div>
 
-      {/* Ads sync controls (not wired yet) */}
       {resolved.profile.amazon_ads_profile_id ? (
         <>
+        <div className="rounded-3xl bg-white/95 p-8 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-[#0f172a]">Pacvue Mapping Status</p>
+              <p className="mt-1 text-sm text-[#4c576f]">
+                This is admin-facing QA for row-level ads reporting over the current 4-week WBR window.
+              </p>
+            </div>
+            <button
+              onClick={() => void section2ReportState.loadReport(true)}
+              disabled={section2ReportState.loading || section2ReportState.refreshing}
+              className="rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-[#0a6fd6] shadow transition hover:-translate-y-0.5 hover:shadow-lg disabled:cursor-not-allowed disabled:text-slate-400"
+            >
+              {section2ReportState.refreshing ? "Refreshing..." : "Refresh Mapping"}
+            </button>
+          </div>
+
+          {section2ReportState.errorMessage ? (
+            <p className="mt-4 rounded-xl border border-[#f87171]/40 bg-[#fee2e2] px-4 py-3 text-sm text-[#991b1b]">
+              {section2ReportState.errorMessage}
+            </p>
+          ) : null}
+
+          {section2ReportState.loading && !section2ReportState.report ? (
+            <p className="mt-4 text-sm text-[#64748b]">Loading mapping status...</p>
+          ) : null}
+
+          <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-2xl border border-slate-200 bg-white p-5">
+              <p className="text-xs font-semibold uppercase tracking-wide text-[#4c576f]">Mapped Campaigns</p>
+              <p className="mt-2 text-2xl font-semibold text-[#0f172a]">
+                {section2ReportState.report?.qa.mapped_campaign_count ?? 0}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-5">
+              <p className="text-xs font-semibold uppercase tracking-wide text-[#92400e]">Unmapped Campaigns</p>
+              <p className="mt-2 text-2xl font-semibold text-[#92400e]">
+                {section2ReportState.report?.qa.unmapped_campaign_count ?? 0}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-white p-5">
+              <p className="text-xs font-semibold uppercase tracking-wide text-[#4c576f]">Unmapped Fact Rows</p>
+              <p className="mt-2 text-2xl font-semibold text-[#0f172a]">
+                {section2ReportState.report?.qa.unmapped_fact_rows ?? 0}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-white p-5">
+              <p className="text-xs font-semibold uppercase tracking-wide text-[#4c576f]">Fact Rows In Window</p>
+              <p className="mt-2 text-2xl font-semibold text-[#0f172a]">
+                {section2ReportState.report?.qa.fact_row_count ?? 0}
+              </p>
+            </div>
+          </div>
+
+          {!section2ReportState.loading && (section2ReportState.report?.qa.unmapped_campaign_samples?.length ?? 0) > 0 ? (
+            <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50/70 p-5">
+              <p className="text-xs font-semibold uppercase tracking-wide text-[#92400e]">
+                Sample Unmapped Campaigns
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {section2ReportState.report?.qa.unmapped_campaign_samples.map((campaignName) => (
+                  <span
+                    key={campaignName}
+                    className="inline-flex rounded-full border border-amber-200 bg-white px-3 py-1 text-xs font-medium text-[#78350f]"
+                  >
+                    {campaignName}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ) : !section2ReportState.loading ? (
+            <p className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+              All ads campaign facts in the current 4-week window are matching Pacvue campaign mappings.
+            </p>
+          ) : null}
+        </div>
+
         <div className="rounded-3xl bg-white/95 p-8 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur">
           <p className="rounded-xl border border-slate-200 bg-[#f7faff] px-4 py-3 text-sm text-[#334155]">
             Row-level ads reporting requires Pacvue campaign mapping. Until that is configured, this sync still lets us validate marketplace-level totals.

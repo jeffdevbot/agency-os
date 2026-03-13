@@ -90,6 +90,14 @@ def test_build_report_rolls_up_leafs_and_parents(monkeypatch):
                     ]
                 )
             ],
+            "wbr_asin_row_map": [
+                _chain_table(
+                    [
+                        {"child_asin": "B001", "row_id": "leaf-1"},
+                        {"child_asin": "B002", "row_id": "leaf-2"},
+                    ]
+                )
+            ],
             "wbr_ads_campaign_daily": [
                 _chain_table(
                     [
@@ -110,6 +118,22 @@ def test_build_report_rolls_up_leafs_and_parents(monkeypatch):
                             "spend": "50.00",
                             "orders": 4,
                             "sales": "120.00",
+                        },
+                    ]
+                )
+            ],
+            "wbr_business_asin_daily": [
+                _chain_table(
+                    [
+                        {
+                            "report_date": "2026-03-02",
+                            "child_asin": "B001",
+                            "sales": "1000.00",
+                        },
+                        {
+                            "report_date": "2026-03-03",
+                            "child_asin": "B002",
+                            "sales": "200.00",
                         },
                     ]
                 )
@@ -135,11 +159,14 @@ def test_build_report_rolls_up_leafs_and_parents(monkeypatch):
     assert rows_by_id["leaf-1"]["weeks"][0]["cpc"] == "2.50"
     assert rows_by_id["leaf-1"]["weeks"][0]["ad_conversion_rate"] == 0.2
     assert rows_by_id["leaf-1"]["weeks"][0]["acos_pct"] == round(125 / 300, 4)
+    assert rows_by_id["leaf-1"]["weeks"][0]["tacos_pct"] == round(125 / 1000, 4)
     assert rows_by_id["parent-1"]["weeks"][0]["impressions"] == 1500
     assert rows_by_id["parent-1"]["weeks"][0]["clicks"] == 70
     assert rows_by_id["parent-1"]["weeks"][0]["ad_spend"] == "175.00"
     assert rows_by_id["parent-1"]["weeks"][0]["ad_orders"] == 14
     assert rows_by_id["parent-1"]["weeks"][0]["ad_sales"] == "420.00"
+    assert rows_by_id["parent-1"]["weeks"][0]["business_sales"] == "1200.00"
+    assert rows_by_id["parent-1"]["weeks"][0]["tacos_pct"] == round(175 / 1200, 4)
 
 
 def test_build_report_counts_unmapped_campaign_activity(monkeypatch):
@@ -155,6 +182,7 @@ def test_build_report_counts_unmapped_campaign_activity(monkeypatch):
             "wbr_profiles": [_chain_table([{"id": "profile-1", "week_start_day": "sunday"}])],
             "wbr_rows": [_chain_table([])],
             "wbr_pacvue_campaign_map": [_chain_table([])],
+            "wbr_asin_row_map": [_chain_table([])],
             "wbr_ads_campaign_daily": [
                 _chain_table(
                     [
@@ -170,6 +198,7 @@ def test_build_report_counts_unmapped_campaign_activity(monkeypatch):
                     ]
                 )
             ],
+            "wbr_business_asin_daily": [_chain_table([])],
         }
     )
 
@@ -179,5 +208,6 @@ def test_build_report_counts_unmapped_campaign_activity(monkeypatch):
         {"start": "2026-03-01", "end": "2026-03-07", "label": "01-Mar to 07-Mar"}
     ]
     assert report["qa"]["unmapped_campaign_count"] == 1
+    assert report["qa"]["unmapped_campaign_samples"] == ["Unmapped Campaign"]
     assert report["qa"]["unmapped_fact_rows"] == 1
     assert report["qa"]["fact_row_count"] == 1

@@ -291,6 +291,15 @@ export default function WbrSection1ReportScreen({ clientSlug, marketplaceCode }:
                 newestFirst={newestFirst}
                 referenceRowOrder={referenceRowOrder}
               />
+              <WbrSection2MetricTable
+                title="TACoS"
+                metricKey="tacos_pct"
+                weeks={section2Weeks}
+                rows={section2Rows}
+                hideEmptyRows={hideEmptyRows}
+                newestFirst={newestFirst}
+                referenceRowOrder={referenceRowOrder}
+              />
             </>
           )}
         </>

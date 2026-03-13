@@ -12,7 +12,8 @@ type MetricKey =
   | "ad_orders"
   | "ad_conversion_rate"
   | "ad_sales"
-  | "acos_pct";
+  | "acos_pct"
+  | "tacos_pct";
 
 type MetricDefinition = {
   key: MetricKey;
@@ -37,6 +38,7 @@ const METRICS: MetricDefinition[] = [
   { key: "ad_conversion_rate", title: "Ad CVR" },
   { key: "ad_sales", title: "Ad Sales" },
   { key: "acos_pct", title: "ACoS" },
+  { key: "tacos_pct", title: "TACoS" },
 ];
 
 const formatMetricValue = (metricKey: MetricKey, values: WbrSection2RowWeek): string => {
@@ -47,7 +49,7 @@ const formatMetricValue = (metricKey: MetricKey, values: WbrSection2RowWeek): st
     }).format(Number(values[metricKey] || 0));
   }
 
-  if (metricKey === "ctr_pct" || metricKey === "ad_conversion_rate" || metricKey === "acos_pct") {
+  if (metricKey === "ctr_pct" || metricKey === "ad_conversion_rate" || metricKey === "acos_pct" || metricKey === "tacos_pct") {
     return `${(values[metricKey] * 100).toFixed(1)}%`;
   }
 
