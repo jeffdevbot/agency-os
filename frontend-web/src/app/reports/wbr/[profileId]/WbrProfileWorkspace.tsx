@@ -1,12 +1,14 @@
 "use client";
 
 import Link from "next/link";
+import AsinMappingCard from "./components/AsinMappingCard";
 import CreateRowForm from "./components/CreateRowForm";
 import LeafRowsTable from "./components/LeafRowsTable";
 import ListingsImportCard from "./components/ListingsImportCard";
 import PacvueImportCard from "./components/PacvueImportCard";
 import ParentRowsTable from "./components/ParentRowsTable";
 import ProfileSummaryCard from "./components/ProfileSummaryCard";
+import { useAsinMappings } from "./useAsinMappings";
 import { useListingImport } from "./useListingImport";
 import { usePacvueImport } from "./usePacvueImport";
 import { useWbrProfileWorkspace } from "./useWbrProfileWorkspace";
@@ -18,7 +20,12 @@ type Props = {
 
 export default function WbrProfileWorkspace({ profileId }: Props) {
   const workspace = useWbrProfileWorkspace(profileId);
-  const listingImport = useListingImport(profileId);
+  const asinMappings = useAsinMappings(profileId);
+  const listingImport = useListingImport(profileId, {
+    onImportSuccess: async () => {
+      await asinMappings.loadChildAsins(true);
+    },
+  });
   const pacvueImport = usePacvueImport(profileId, {
     onImportSuccess: async () => {
       await workspace.loadWorkspace(true);
@@ -89,6 +96,25 @@ export default function WbrProfileWorkspace({ profileId }: Props) {
           latestImport={listingImport.latestImport}
           onRefresh={() => void listingImport.loadBatches(true)}
           onUpload={(file) => void listingImport.handleUpload(file)}
+        />
+
+        <AsinMappingCard
+          loading={asinMappings.loading}
+          refreshing={asinMappings.refreshing}
+          errorMessage={asinMappings.errorMessage}
+          successMessage={asinMappings.successMessage}
+          childAsins={asinMappings.filteredChildAsins}
+          counts={asinMappings.counts}
+          search={asinMappings.search}
+          unmappedOnly={asinMappings.unmappedOnly}
+          draftRowIds={asinMappings.draftRowIds}
+          savingRows={asinMappings.savingRows}
+          leafRows={workspace.leafRows}
+          onSearchChange={asinMappings.setSearch}
+          onUnmappedOnlyChange={asinMappings.setUnmappedOnly}
+          onDraftRowIdChange={asinMappings.updateDraftRowId}
+          onSaveMapping={(item) => void asinMappings.saveMapping(item)}
+          onRefresh={() => void asinMappings.loadChildAsins(true)}
         />
 
         <CreateRowForm

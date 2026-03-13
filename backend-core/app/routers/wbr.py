@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from supabase import Client, create_client
 
 from ..auth import require_admin_user
+from ..services.wbr.asin_mappings import AsinMappingService
 from ..config import settings
 from ..services.wbr.listing_imports import ListingImportService
 from ..services.wbr.pacvue_imports import PacvueImportService
@@ -44,6 +45,10 @@ def _get_pacvue_service() -> PacvueImportService:
 
 def _get_listing_service() -> ListingImportService:
     return ListingImportService(_get_supabase())
+
+
+def _get_asin_mapping_service() -> AsinMappingService:
+    return AsinMappingService(_get_supabase())
 
 
 def _user_id(user: dict) -> str | None:
@@ -92,6 +97,10 @@ class UpdateRowRequest(BaseModel):
     parent_row_id: Optional[str] = None
     sort_order: Optional[int] = None
     active: Optional[bool] = None
+
+
+class SetAsinMappingRequest(BaseModel):
+    row_id: Optional[str] = None
 
 
 # ------------------------------------------------------------------
@@ -376,3 +385,49 @@ async def import_listing_file(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception:
         raise HTTPException(status_code=500, detail="Failed to import listings file")
+
+
+# ------------------------------------------------------------------
+# ASIN mapping endpoints
+# ------------------------------------------------------------------
+
+
+@router.get("/profiles/{profile_id}/child-asins")
+async def list_child_asins(
+    profile_id: str,
+    user=Depends(require_admin_user),
+):
+    svc = _get_asin_mapping_service()
+    try:
+        items = svc.list_child_asins(profile_id)
+        return {"ok": True, "items": items}
+    except WBRNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except WBRValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to list child ASINs")
+
+
+@router.put("/profiles/{profile_id}/child-asins/{child_asin}/mapping")
+async def set_child_asin_mapping(
+    profile_id: str,
+    child_asin: str,
+    request: SetAsinMappingRequest,
+    user=Depends(require_admin_user),
+):
+    svc = _get_asin_mapping_service()
+    try:
+        result = svc.set_child_asin_mapping(
+            profile_id=profile_id,
+            child_asin=child_asin,
+            row_id=request.row_id,
+            user_id=_user_id(user),
+        )
+        return {"ok": True, "mapping": result}
+    except WBRNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except WBRValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to save ASIN mapping")
