@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { getBrowserSupabaseClient } from "@/lib/supabaseClient";
 import {
   importListingFile,
+  importListingFileFromWindsor,
   listListingImportBatches,
   type WbrListingImportBatch,
   type WbrListingImportResult,
@@ -100,6 +101,38 @@ export function useListingImport(profileId: string, options?: UseListingImportOp
     [getAccessToken, loadBatches, options, profileId]
   );
 
+  const handleWindsorImport = useCallback(
+    async (windsorAccountId: string | null | undefined) => {
+      if (!windsorAccountId?.trim()) {
+        setErrorMessage("This profile is missing a Windsor account id.");
+        setSuccessMessage(null);
+        return;
+      }
+
+      setUploading(true);
+      setErrorMessage(null);
+      setSuccessMessage(null);
+
+      try {
+        const token = await getAccessToken();
+        const result = await importListingFileFromWindsor(token, profileId);
+        setLatestImport(result);
+        setSuccessMessage(
+          `Imported ${result.summary.rows_loaded} child ASINs from Windsor account ${windsorAccountId}.`
+        );
+        await loadBatches(true);
+        if (options?.onImportSuccess) {
+          await options.onImportSuccess();
+        }
+      } catch (error) {
+        setErrorMessage(error instanceof Error ? error.message : "Failed to import Windsor listings");
+      } finally {
+        setUploading(false);
+      }
+    },
+    [getAccessToken, loadBatches, options, profileId]
+  );
+
   return {
     batches,
     loadingBatches,
@@ -110,5 +143,6 @@ export function useListingImport(profileId: string, options?: UseListingImportOp
     latestImport,
     loadBatches,
     handleUpload,
+    handleWindsorImport,
   };
 }

@@ -387,6 +387,26 @@ async def import_listing_file(
         raise HTTPException(status_code=500, detail="Failed to import listings file")
 
 
+@router.post("/profiles/{profile_id}/listings/import-windsor")
+async def import_listing_file_from_windsor(
+    profile_id: str,
+    user=Depends(require_admin_user),
+):
+    svc = _get_listing_service()
+    try:
+        result = await svc.import_from_windsor(
+            profile_id=profile_id,
+            user_id=_user_id(user),
+        )
+        return {"ok": True, **result}
+    except WBRNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except WBRValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to import Windsor listings")
+
+
 # ------------------------------------------------------------------
 # ASIN mapping endpoints
 # ------------------------------------------------------------------

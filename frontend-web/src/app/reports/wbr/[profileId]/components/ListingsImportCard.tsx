@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import type { WbrListingImportBatch, WbrListingImportResult } from "../../_lib/wbrApi";
 
 type Props = {
+  windsorAccountId: string | null;
   loadingBatches: boolean;
   refreshingBatches: boolean;
   uploading: boolean;
@@ -13,6 +14,7 @@ type Props = {
   latestImport: WbrListingImportResult | null;
   onRefresh: () => void;
   onUpload: (file: File) => void;
+  onImportFromWindsor: () => void;
 };
 
 const formatTimestamp = (value: string | null): string => {
@@ -37,6 +39,7 @@ const statusClasses: Record<WbrListingImportBatch["import_status"], string> = {
 };
 
 export default function ListingsImportCard({
+  windsorAccountId,
   loadingBatches,
   refreshingBatches,
   uploading,
@@ -46,6 +49,7 @@ export default function ListingsImportCard({
   latestImport,
   onRefresh,
   onUpload,
+  onImportFromWindsor,
 }: Props) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
@@ -68,8 +72,8 @@ export default function ListingsImportCard({
         <div>
           <p className="text-sm font-semibold text-[#0f172a]">Listings Import</p>
           <p className="mt-1 text-sm text-[#4c576f]">
-            Upload the Amazon All Listings report to create the child ASIN catalog for this WBR
-            profile. We only need child-ASIN level rows for mapping.
+            Import child ASINs from Windsor or upload the Amazon All Listings report. Both sources
+            replace the same child-ASIN catalog snapshot for this WBR profile.
           </p>
         </div>
         <button
@@ -82,7 +86,34 @@ export default function ListingsImportCard({
       </div>
 
       <div className="mt-4 rounded-2xl border border-[#c7d8f5] bg-[#f7faff] p-4">
+        <div className="grid gap-3 border-b border-[#dbe7fb] pb-4 md:grid-cols-[minmax(0,1fr)_280px] md:items-start">
+          <div>
+            <p className="text-sm font-semibold text-[#0f172a]">Windsor Import</p>
+            <p className="mt-1 text-xs text-[#64748b]">
+              Use the profile&apos;s Windsor account id to fetch the current listings snapshot.
+            </p>
+            <p className="mt-2 text-xs text-[#4c576f]">
+              Windsor Account: <span className="font-semibold text-[#0f172a]">{windsorAccountId ?? "—"}</span>
+            </p>
+          </div>
+          <div className="md:pt-6">
+            <button
+              onClick={onImportFromWindsor}
+              disabled={!windsorAccountId || uploading}
+              className="w-full rounded-2xl bg-[#0a6fd6] px-4 py-3 text-sm font-semibold text-white shadow-[0_15px_30px_rgba(10,111,214,0.35)] transition hover:bg-[#0959ab] disabled:cursor-not-allowed disabled:bg-[#b7cbea]"
+            >
+              {uploading ? "Importing..." : "Import From Windsor"}
+            </button>
+          </div>
+        </div>
+
         <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_280px] md:items-start">
+          <div className="md:col-span-2 mt-4">
+            <p className="text-sm font-semibold text-[#0f172a]">Manual All Listings Upload</p>
+            <p className="mt-1 text-xs text-[#64748b]">
+              Use this when Windsor is unavailable or you need a manual fallback.
+            </p>
+          </div>
           <label className="text-sm">
             <span className="mb-1 block font-semibold text-[#0f172a]">All Listings File</span>
             <input
@@ -107,11 +138,11 @@ export default function ListingsImportCard({
           </div>
         </div>
         <div className="mt-3 space-y-1 text-xs text-[#64748b]">
-          <p>Supported formats: `.txt`, `.tsv`, `.csv`, `.xlsx`, `.xlsm`.</p>
-          <p>Amazon tab-delimited All Listings exports are supported directly.</p>
-          {selectedFile ? <p>Selected: {selectedFile.name}</p> : null}
+            <p>Supported formats: `.txt`, `.tsv`, `.csv`, `.xlsx`, `.xlsm`.</p>
+            <p>Amazon tab-delimited All Listings exports are supported directly.</p>
+            {selectedFile ? <p>Selected: {selectedFile.name}</p> : null}
+          </div>
         </div>
-      </div>
 
       {errorMessage ? (
         <p className="mt-4 rounded-xl border border-[#f87171]/40 bg-[#fee2e2] px-4 py-3 text-sm text-[#991b1b]">

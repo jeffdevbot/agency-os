@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import csv
 import io
+import os
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+import httpx
 from openpyxl import load_workbook
 from supabase import Client
 
@@ -16,6 +18,42 @@ from .profiles import WBRNotFoundError, WBRValidationError
 
 LISTING_ALLOWED_EXTENSIONS = (".txt", ".tsv", ".csv", ".xlsx", ".xlsm")
 UTF16_BOMS = (b"\xff\xfe", b"\xfe\xff")
+WINDSOR_LISTING_FIELDS = [
+    "account_id",
+    "marketplace_country",
+    "merchant_listings_all_data__add_delete",
+    "merchant_listings_all_data__asin1",
+    "merchant_listings_all_data__asin2",
+    "merchant_listings_all_data__asin3",
+    "merchant_listings_all_data__bid_for_featured_placement",
+    "merchant_listings_all_data__expedited_shipping",
+    "merchant_listings_all_data__fulfillment_channel",
+    "merchant_listings_all_data__image_url",
+    "merchant_listings_all_data__item_condition",
+    "merchant_listings_all_data__item_description",
+    "merchant_listings_all_data__item_is_marketplace",
+    "merchant_listings_all_data__item_name",
+    "merchant_listings_all_data__item_note",
+    "merchant_listings_all_data__listing_id",
+    "merchant_listings_all_data__merchant_shipping_group",
+    "merchant_listings_all_data__open_date",
+    "merchant_listings_all_data__pending_quantity",
+    "merchant_listings_all_data__price",
+    "merchant_listings_all_data__product_id",
+    "merchant_listings_all_data__product_id_type",
+    "merchant_listings_all_data__quantity",
+    "merchant_listings_all_data__seller_sku",
+    "merchant_listings_all_data__status",
+    "merchant_listings_all_data__will_ship_internationally",
+    "merchant_listings_all_data__zshop_boldface",
+    "merchant_listings_all_data__zshop_browse_path",
+    "merchant_listings_all_data__zshop_category1",
+    "merchant_listings_all_data__zshop_shipping_fee",
+    "merchant_listings_all_data__zshop_storefront_feature",
+]
+DEFAULT_WINDSOR_LISTING_DATE_PRESET = "yesterday"
+DEFAULT_TIMEOUT_SECONDS = 360
+MIN_TIMEOUT_SECONDS = 60
 
 LISTING_HEADER_ALIASES = {
     "child_asin": {
@@ -271,6 +309,54 @@ def _parse_sheet_rows(rows: list[tuple[Any, ...]], *, source_type: str, sheet_ti
     )
 
 
+def _parse_dict_rows(
+    rows: list[dict[str, Any]], *, source_type: str, sheet_title: str | None
+) -> ParsedListingFile:
+    if not rows:
+        raise WBRValidationError("Listings source returned no rows")
+
+    header_values = list(rows[0].keys())
+    header_map = _map_headers(header_values)
+    if "child_asin" not in header_map and not (
+        "product_id" in header_map and "product_id_type" in header_map
+    ):
+        raise WBRValidationError("Listings source must include a child ASIN column such as Child ASIN or asin1")
+
+    deduped_by_asin: dict[str, ParsedListingRecord] = {}
+    ordered_records: list[ParsedListingRecord] = []
+    duplicate_rows_merged = 0
+
+    for row in rows:
+        tuple_row = tuple(row.get(header) for header in header_values)
+        parsed = _parse_record_from_row(tuple_row, header_values, header_map)
+        if parsed is None:
+            continue
+        existing = deduped_by_asin.get(parsed.child_asin)
+        if existing is None:
+            deduped_by_asin[parsed.child_asin] = parsed
+            ordered_records.append(parsed)
+            continue
+        merged = _merge_record(existing, parsed)
+        deduped_by_asin[parsed.child_asin] = merged
+        duplicate_rows_merged += 1
+        for idx, current in enumerate(ordered_records):
+            if current.child_asin == parsed.child_asin:
+                ordered_records[idx] = merged
+                break
+
+    if not ordered_records:
+        raise WBRValidationError("Listings source contained no child ASIN rows")
+
+    return ParsedListingFile(
+        source_type=source_type,
+        sheet_title=sheet_title,
+        header_row_index=0,
+        rows_read=len(ordered_records) + duplicate_rows_merged,
+        duplicate_rows_merged=duplicate_rows_merged,
+        records=ordered_records,
+    )
+
+
 def _parse_spreadsheet(file_bytes: bytes) -> ParsedListingFile:
     try:
         workbook = load_workbook(io.BytesIO(file_bytes), read_only=True, data_only=True)
@@ -333,6 +419,10 @@ def parse_listing_file(file_name: str, file_bytes: bytes) -> ParsedListingFile:
 class ListingImportService:
     def __init__(self, db: Client) -> None:
         self.db = db
+        self.windsor_api_key = os.getenv("WINDSOR_API_KEY", "").strip()
+        self.windsor_seller_url = os.getenv("WINDSOR_SELLER_URL", "https://connectors.windsor.ai/amazon_sp").strip()
+        configured_timeout = int(os.getenv("WBR_REQUEST_TIMEOUT_SECONDS", str(DEFAULT_TIMEOUT_SECONDS)))
+        self.timeout_seconds = max(configured_timeout, MIN_TIMEOUT_SECONDS)
 
     def list_import_batches(self, profile_id: str) -> list[dict[str, Any]]:
         self._get_profile(profile_id)
@@ -345,6 +435,75 @@ class ListingImportService:
             .execute()
         )
         return response.data if isinstance(response.data, list) else []
+
+    async def import_from_windsor(
+        self,
+        *,
+        profile_id: str,
+        user_id: str | None = None,
+    ) -> dict[str, Any]:
+        profile = self._get_profile(profile_id)
+        account_id = str(profile.get("windsor_account_id") or "").strip()
+        if not account_id:
+            raise WBRValidationError("WBR profile is missing windsor_account_id")
+        if not self.windsor_api_key:
+            raise WBRValidationError("WINDSOR_API_KEY is not configured")
+        if not self.windsor_seller_url:
+            raise WBRValidationError("WINDSOR_SELLER_URL is not configured")
+
+        batch = self._create_batch(
+            profile_id=profile_id,
+            file_name=f"windsor:get_merchant_listings_all_data:{account_id}",
+            user_id=user_id,
+        )
+        batch_id = str(batch["id"])
+
+        try:
+            rows = await self._fetch_windsor_rows(account_id=account_id)
+            self._validate_marketplace(rows, expected_marketplace=str(profile.get("marketplace_code") or "").strip())
+            parsed = _parse_dict_rows(rows, source_type="windsor", sheet_title=None)
+            loaded_count = self._replace_child_asins(
+                profile_id=profile_id,
+                batch_id=batch_id,
+                records=parsed.records,
+            )
+            batch = self._finalize_batch(
+                batch_id=batch_id,
+                import_status="success",
+                rows_read=parsed.rows_read,
+                rows_loaded=loaded_count,
+                error_message=None,
+            )
+            return {
+                "batch": batch,
+                "summary": {
+                    "source_type": parsed.source_type,
+                    "sheet_title": parsed.sheet_title,
+                    "header_row_index": parsed.header_row_index,
+                    "rows_read": parsed.rows_read,
+                    "rows_loaded": loaded_count,
+                    "duplicate_rows_merged": parsed.duplicate_rows_merged,
+                    "windsor_account_id": account_id,
+                },
+            }
+        except WBRValidationError as exc:
+            self._finalize_batch(
+                batch_id=batch_id,
+                import_status="error",
+                rows_read=0,
+                rows_loaded=0,
+                error_message=str(exc),
+            )
+            raise
+        except Exception as exc:  # noqa: BLE001
+            self._finalize_batch(
+                batch_id=batch_id,
+                import_status="error",
+                rows_read=0,
+                rows_loaded=0,
+                error_message=str(exc),
+            )
+            raise
 
     def import_file(
         self,
@@ -420,6 +579,62 @@ class ListingImportService:
         if not rows:
             raise WBRNotFoundError(f"Profile {profile_id} not found")
         return rows[0]
+
+    async def _fetch_windsor_rows(self, *, account_id: str) -> list[dict[str, Any]]:
+        params = {
+            "api_key": self.windsor_api_key,
+            "date_preset": DEFAULT_WINDSOR_LISTING_DATE_PRESET,
+            "fields": ",".join(WINDSOR_LISTING_FIELDS),
+            "select_accounts": account_id,
+        }
+        response = await self._request_windsor(params)
+        if response.status_code >= 400:
+            body_preview = response.text.strip().replace("\n", " ")[:220]
+            raise WBRValidationError(
+                f"Windsor listings request failed: {response.status_code} :: {body_preview}"
+            )
+        return self._parse_windsor_response_rows(response)
+
+    async def _request_windsor(self, params: dict[str, str]) -> httpx.Response:
+        timeout = httpx.Timeout(timeout=self.timeout_seconds)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            return await client.get(self.windsor_seller_url, params=params)
+
+    def _parse_windsor_response_rows(self, response: httpx.Response) -> list[dict[str, Any]]:
+        body = response.text.strip()
+        if not body:
+            return []
+
+        content_type = response.headers.get("content-type", "").lower()
+        if "json" in content_type or body.startswith("[") or body.startswith("{"):
+            payload = response.json()
+            if isinstance(payload, list):
+                return [row for row in payload if isinstance(row, dict)]
+            if isinstance(payload, dict):
+                for key in ("data", "results"):
+                    value = payload.get(key)
+                    if isinstance(value, list):
+                        return [row for row in value if isinstance(row, dict)]
+            raise WBRValidationError("Unexpected Windsor listings payload shape")
+
+        reader = csv.DictReader(io.StringIO(body))
+        return [dict(row) for row in reader]
+
+    def _validate_marketplace(self, rows: list[dict[str, Any]], *, expected_marketplace: str) -> None:
+        expected = expected_marketplace.strip().upper()
+        if not expected:
+            return
+        marketplace_values = {
+            str(row.get("marketplace_country") or "").strip().upper()
+            for row in rows
+            if str(row.get("marketplace_country") or "").strip()
+        }
+        if not marketplace_values:
+            return
+        if marketplace_values != {expected}:
+            raise WBRValidationError(
+                f"Windsor listings marketplace mismatch: expected {expected}, got {', '.join(sorted(marketplace_values))}"
+            )
 
     def _create_batch(self, *, profile_id: str, file_name: str, user_id: str | None) -> dict[str, Any]:
         payload: dict[str, Any] = {

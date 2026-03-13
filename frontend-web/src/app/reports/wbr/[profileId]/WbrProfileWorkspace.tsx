@@ -87,6 +87,7 @@ export default function WbrProfileWorkspace({ profileId }: Props) {
         />
 
         <ListingsImportCard
+          windsorAccountId={workspace.profile?.windsor_account_id ?? null}
           loadingBatches={listingImport.loadingBatches}
           refreshingBatches={listingImport.refreshingBatches}
           uploading={listingImport.uploading}
@@ -96,6 +97,7 @@ export default function WbrProfileWorkspace({ profileId }: Props) {
           latestImport={listingImport.latestImport}
           onRefresh={() => void listingImport.loadBatches(true)}
           onUpload={(file) => void listingImport.handleUpload(file)}
+          onImportFromWindsor={() => void listingImport.handleWindsorImport(workspace.profile?.windsor_account_id)}
         />
 
         <AsinMappingCard

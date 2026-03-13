@@ -84,6 +84,7 @@ export type WbrListingImportSummary = {
   rows_read: number;
   rows_loaded: number;
   duplicate_rows_merged: number;
+  windsor_account_id?: string | null;
 };
 
 export type WbrListingImportResult = {
@@ -294,6 +295,7 @@ const parseListingImportSummary = (value: unknown): WbrListingImportSummary => {
     rows_read: asNumber(value.rows_read),
     rows_loaded: asNumber(value.rows_loaded),
     duplicate_rows_merged: asNumber(value.duplicate_rows_merged),
+    windsor_account_id: asNullableString(value.windsor_account_id),
   };
 };
 
@@ -525,5 +527,19 @@ export const importListingFile = async (
   }
 
   const payload = (await response.json()) as unknown;
+  return parseListingImportResult(payload);
+};
+
+export const importListingFileFromWindsor = async (
+  token: string,
+  profileId: string
+): Promise<WbrListingImportResult> => {
+  const payload = await requestJson<unknown>(
+    token,
+    `/admin/wbr/profiles/${profileId}/listings/import-windsor`,
+    {
+      method: "POST",
+    }
+  );
   return parseListingImportResult(payload);
 };

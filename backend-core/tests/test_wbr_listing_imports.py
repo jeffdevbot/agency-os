@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
 
 import pytest
@@ -175,3 +176,87 @@ class TestListingImportService:
                 file_name="all-listings-report.pdf",
                 file_bytes=b"pdf",
             )
+
+    @pytest.mark.asyncio
+    async def test_import_from_windsor_replaces_active_child_asin_snapshot(self, monkeypatch):
+        profile = {"id": "p1", "windsor_account_id": "A3R8Q6L34VPOIB-US", "marketplace_code": "US"}
+        running_batch = {"id": "b1", "import_status": "running"}
+        finished_batch = {"id": "b1", "import_status": "success", "rows_read": 1, "rows_loaded": 1}
+
+        db = _multi_table_db(
+            {
+                "wbr_profiles": [_chain_table([profile])],
+                "wbr_listing_import_batches": [
+                    _chain_table([running_batch]),
+                    _chain_table([finished_batch]),
+                ],
+                "wbr_profile_child_asins": [
+                    _chain_table([]),
+                    _chain_table([{"id": "a1"}]),
+                ],
+            }
+        )
+
+        svc = ListingImportService(db)
+        svc.windsor_api_key = "secret"
+        svc.windsor_seller_url = "https://connectors.windsor.ai/amazon_sp"
+        monkeypatch.setattr(
+            svc,
+            "_request_windsor",
+            AsyncMock(
+                return_value=MagicMock(
+                    status_code=200,
+                    text=(
+                        "account_id,marketplace_country,merchant_listings_all_data__asin1,"
+                        "merchant_listings_all_data__item_name,merchant_listings_all_data__seller_sku,"
+                        "merchant_listings_all_data__fulfillment_channel\r\n"
+                        "A3R8Q6L34VPOIB-US,US,B012345678,Widget A,SKU-1,AMAZON_NA\r\n"
+                    ),
+                    headers={"content-type": "text/csv"},
+                )
+            ),
+        )
+
+        result = await svc.import_from_windsor(profile_id="p1", user_id="u1")
+
+        assert result["batch"]["import_status"] == "success"
+        assert result["summary"]["rows_loaded"] == 1
+        assert result["summary"]["source_type"] == "windsor"
+        assert result["summary"]["windsor_account_id"] == "A3R8Q6L34VPOIB-US"
+
+    @pytest.mark.asyncio
+    async def test_import_from_windsor_rejects_marketplace_mismatch(self, monkeypatch):
+        profile = {"id": "p1", "windsor_account_id": "A3R8Q6L34VPOIB-US", "marketplace_code": "CA"}
+        running_batch = {"id": "b1", "import_status": "running"}
+        finished_batch = {"id": "b1", "import_status": "error", "rows_read": 0, "rows_loaded": 0}
+
+        db = _multi_table_db(
+            {
+                "wbr_profiles": [_chain_table([profile])],
+                "wbr_listing_import_batches": [
+                    _chain_table([running_batch]),
+                    _chain_table([finished_batch]),
+                ],
+            }
+        )
+
+        svc = ListingImportService(db)
+        svc.windsor_api_key = "secret"
+        svc.windsor_seller_url = "https://connectors.windsor.ai/amazon_sp"
+        monkeypatch.setattr(
+            svc,
+            "_request_windsor",
+            AsyncMock(
+                return_value=MagicMock(
+                    status_code=200,
+                    text=(
+                        "account_id,marketplace_country,merchant_listings_all_data__asin1\r\n"
+                        "A3R8Q6L34VPOIB-US,US,B012345678\r\n"
+                    ),
+                    headers={"content-type": "text/csv"},
+                )
+            ),
+        )
+
+        with pytest.raises(WBRValidationError, match="marketplace mismatch"):
+            await svc.import_from_windsor(profile_id="p1", user_id="u1")
