@@ -18,6 +18,7 @@ from ..services.wbr.amazon_ads_auth import (
     list_advertising_profiles,
     refresh_access_token,
 )
+from ..services.wbr.amazon_ads_sync import AmazonAdsSyncService
 from ..services.wbr.asin_mappings import AsinMappingService
 from ..config import settings
 from ..services.wbr.listing_imports import ListingImportService
@@ -66,6 +67,10 @@ def _get_windsor_business_sync_service() -> WindsorBusinessSyncService:
 
 def _get_section1_report_service() -> Section1ReportService:
     return Section1ReportService(_get_supabase())
+
+
+def _get_amazon_ads_sync_service() -> AmazonAdsSyncService:
+    return AmazonAdsSyncService(_get_supabase())
 
 
 def _user_id(user: dict) -> str | None:
@@ -124,6 +129,12 @@ class RunWindsorBusinessBackfillRequest(BaseModel):
     date_from: str
     date_to: str
     chunk_days: int = Field(7, ge=1, le=31)
+
+
+class RunAmazonAdsBackfillRequest(BaseModel):
+    date_from: str
+    date_to: str
+    chunk_days: int = Field(14, ge=1, le=31)
 
 
 # ------------------------------------------------------------------
@@ -567,6 +578,49 @@ async def run_windsor_business_daily_refresh(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception:
         raise HTTPException(status_code=500, detail="Failed to run Windsor business daily refresh")
+
+
+@router.post("/profiles/{profile_id}/sync-runs/amazon-ads/backfill")
+async def run_amazon_ads_backfill(
+    profile_id: str,
+    request: RunAmazonAdsBackfillRequest,
+    user=Depends(require_admin_user),
+):
+    svc = _get_amazon_ads_sync_service()
+    try:
+        result = await svc.run_backfill(
+            profile_id=profile_id,
+            date_from=date.fromisoformat(request.date_from),
+            date_to=date.fromisoformat(request.date_to),
+            chunk_days=request.chunk_days,
+            user_id=_user_id(user),
+        )
+        return {"ok": True, **result}
+    except ValueError:
+        raise HTTPException(status_code=400, detail="date_from and date_to must be YYYY-MM-DD")
+    except WBRNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except WBRValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to run Amazon Ads backfill")
+
+
+@router.post("/profiles/{profile_id}/sync-runs/amazon-ads/daily-refresh")
+async def run_amazon_ads_daily_refresh(
+    profile_id: str,
+    user=Depends(require_admin_user),
+):
+    svc = _get_amazon_ads_sync_service()
+    try:
+        result = await svc.run_daily_refresh(profile_id=profile_id, user_id=_user_id(user))
+        return {"ok": True, **result}
+    except WBRNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except WBRValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to run Amazon Ads daily refresh")
 
 
 @router.get("/profiles/{profile_id}/section1-report")

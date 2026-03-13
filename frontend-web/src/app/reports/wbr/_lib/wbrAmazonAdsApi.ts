@@ -18,6 +18,55 @@ export type AmazonAdsAdvertiserProfile = {
   };
 };
 
+export type WbrSyncRunStatus = "running" | "success" | "error";
+export type WbrSyncJobType = "backfill" | "daily_refresh" | "manual_rerun" | "import";
+
+export type WbrSyncRun = {
+  id: string;
+  profile_id: string;
+  source_type: string;
+  job_type: WbrSyncJobType;
+  date_from: string | null;
+  date_to: string | null;
+  status: WbrSyncRunStatus;
+  rows_fetched: number;
+  rows_loaded: number;
+  error_message: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+export type RunAmazonAdsBackfillRequest = {
+  date_from: string;
+  date_to: string;
+  chunk_days: number;
+};
+
+export type RunAmazonAdsChunkResult = {
+  run: WbrSyncRun;
+  rows_fetched: number;
+  rows_loaded: number;
+};
+
+export type RunAmazonAdsBackfillResult = {
+  profile_id: string;
+  job_type: "backfill";
+  chunk_days: number;
+  date_from: string;
+  date_to: string;
+  chunks: RunAmazonAdsChunkResult[];
+};
+
+export type RunAmazonAdsDailyRefreshResult = {
+  profile_id: string;
+  job_type: "daily_refresh";
+  date_from: string;
+  date_to: string;
+  chunk: RunAmazonAdsChunkResult;
+};
+
 const getBackendUrl = (): string => {
   const url = process.env.NEXT_PUBLIC_BACKEND_URL;
   if (!url) {
@@ -40,6 +89,21 @@ const parseErrorDetail = async (response: Response): Promise<string> => {
   } catch {
     return response.statusText || `HTTP ${response.status}`;
   }
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const asString = (value: unknown): string => (typeof value === "string" ? value : "");
+const asNullableString = (value: unknown): string | null =>
+  typeof value === "string" ? value : null;
+const asNumber = (value: unknown): number => {
+  if (typeof value === "number") return value;
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    if (!Number.isNaN(parsed)) return parsed;
+  }
+  return 0;
 };
 
 const requestJson = async <T>(token: string, path: string, init?: RequestInit): Promise<T> => {
@@ -66,6 +130,56 @@ type ConnectionStatusResponse = {
   connection: AmazonAdsConnection | null;
 };
 type ProfilesResponse = { ok: boolean; profiles: AmazonAdsAdvertiserProfile[] };
+
+const parseSyncRun = (value: unknown): WbrSyncRun => {
+  if (!isRecord(value)) {
+    throw new Error("Invalid WBR sync run response");
+  }
+
+  const status = asString(value.status);
+  const jobType = asString(value.job_type);
+
+  return {
+    id: asString(value.id),
+    profile_id: asString(value.profile_id),
+    source_type: asString(value.source_type),
+    job_type:
+      jobType === "daily_refresh" || jobType === "manual_rerun" || jobType === "import"
+        ? jobType
+        : "backfill",
+    date_from: asNullableString(value.date_from),
+    date_to: asNullableString(value.date_to),
+    status: status === "running" || status === "error" ? status : "success",
+    rows_fetched: asNumber(value.rows_fetched),
+    rows_loaded: asNumber(value.rows_loaded),
+    error_message: asNullableString(value.error_message),
+    started_at: asNullableString(value.started_at),
+    finished_at: asNullableString(value.finished_at),
+    created_at: asNullableString(value.created_at),
+    updated_at: asNullableString(value.updated_at),
+  };
+};
+
+const parseSyncRunList = (payload: unknown): WbrSyncRun[] => {
+  if (Array.isArray(payload)) {
+    return payload.map(parseSyncRun);
+  }
+  if (!isRecord(payload) || !Array.isArray(payload.runs)) {
+    return [];
+  }
+  return payload.runs.map(parseSyncRun);
+};
+
+const parseChunkResult = (value: unknown): RunAmazonAdsChunkResult => {
+  if (!isRecord(value) || !isRecord(value.run)) {
+    throw new Error("Invalid Amazon Ads sync chunk response");
+  }
+  return {
+    run: parseSyncRun(value.run),
+    rows_fetched: asNumber(value.rows_fetched),
+    rows_loaded: asNumber(value.rows_loaded),
+  };
+};
 
 export const getAmazonAdsConnectUrl = async (
   token: string,
@@ -124,4 +238,68 @@ export const selectAmazonAdsProfile = async (
       }),
     },
   );
+};
+
+export const listAmazonAdsSyncRuns = async (
+  token: string,
+  profileId: string,
+): Promise<WbrSyncRun[]> => {
+  const query = new URLSearchParams({ source_type: "amazon_ads" });
+  const payload = await requestJson<unknown>(
+    token,
+    `/admin/wbr/profiles/${profileId}/sync-runs?${query.toString()}`,
+    { method: "GET" },
+  );
+  return parseSyncRunList(payload);
+};
+
+export const runAmazonAdsBackfill = async (
+  token: string,
+  profileId: string,
+  request: RunAmazonAdsBackfillRequest,
+): Promise<RunAmazonAdsBackfillResult> => {
+  const payload = await requestJson<unknown>(
+    token,
+    `/admin/wbr/profiles/${profileId}/sync-runs/amazon-ads/backfill`,
+    {
+      method: "POST",
+      body: JSON.stringify(request),
+    },
+  );
+
+  if (!isRecord(payload) || !Array.isArray(payload.chunks)) {
+    throw new Error("Invalid Amazon Ads backfill response");
+  }
+
+  return {
+    profile_id: asString(payload.profile_id),
+    job_type: "backfill",
+    chunk_days: asNumber(payload.chunk_days),
+    date_from: asString(payload.date_from),
+    date_to: asString(payload.date_to),
+    chunks: payload.chunks.map(parseChunkResult),
+  };
+};
+
+export const runAmazonAdsDailyRefresh = async (
+  token: string,
+  profileId: string,
+): Promise<RunAmazonAdsDailyRefreshResult> => {
+  const payload = await requestJson<unknown>(
+    token,
+    `/admin/wbr/profiles/${profileId}/sync-runs/amazon-ads/daily-refresh`,
+    { method: "POST" },
+  );
+
+  if (!isRecord(payload) || !isRecord(payload.chunk)) {
+    throw new Error("Invalid Amazon Ads daily refresh response");
+  }
+
+  return {
+    profile_id: asString(payload.profile_id),
+    job_type: "daily_refresh",
+    date_from: asString(payload.date_from),
+    date_to: asString(payload.date_to),
+    chunk: parseChunkResult(payload.chunk),
+  };
 };
