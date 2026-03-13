@@ -5,7 +5,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { getBrowserSupabaseClient } from "@/lib/supabaseClient";
 import { getWbrProfile } from "../wbr/_lib/wbrApi";
 import {
-  loadClientProfileSummaries,
+  findClientById,
+  loadActiveClients,
   slugifyClientName,
 } from "../_lib/reportClientData";
 
@@ -31,17 +32,14 @@ export default function ProfileIdRedirector({ profileId }: Props) {
       }
 
       const profile = await getWbrProfile(session.access_token, profileId);
-      const result = await loadClientProfileSummaries(session.access_token);
-      const clientSummary =
-        result.summaries.find((summary) =>
-          summary.profiles.some((item) => item.id === profile.id)
-        ) ?? null;
+      const clients = await loadActiveClients();
+      const client = findClientById(clients, profile.client_id);
 
-      if (!clientSummary) {
+      if (!client) {
         throw new Error("Unable to resolve client route for this WBR profile.");
       }
 
-      const clientSlug = slugifyClientName(clientSummary.client.name);
+      const clientSlug = slugifyClientName(client.name);
       router.replace(
         `/reports/${clientSlug}/${profile.marketplace_code.toLowerCase()}/wbr/settings`
       );

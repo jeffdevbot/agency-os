@@ -4,8 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getBrowserSupabaseClient } from "@/lib/supabaseClient";
 import {
-  findClientSummaryBySlug,
-  loadClientProfileSummaries,
+  loadClientProfileSummaryBySlug,
   type ClientProfileSummary,
 } from "../_lib/reportClientData";
 
@@ -35,11 +34,7 @@ export default function ClientReportsHub({ clientSlug }: Props) {
         throw new Error("Please sign in again.");
       }
 
-      const result = await loadClientProfileSummaries(session.access_token);
-      const match = findClientSummaryBySlug(result.summaries, clientSlug);
-      if (!match) {
-        throw new Error("Client report hub not found.");
-      }
+      const match = await loadClientProfileSummaryBySlug(session.access_token, clientSlug);
       setSummary({
         client: match.client,
         profiles: match.profiles.slice().sort(sortProfiles),

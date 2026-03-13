@@ -34,6 +34,12 @@ export const loadActiveClients = async (): Promise<Client[]> => {
   return (json.clients ?? []).filter((client) => client.status !== "archived");
 };
 
+export const findClientBySlug = (clients: Client[], clientSlug: string): Client | null =>
+  clients.find((client) => slugifyClientName(client.name) === clientSlug) ?? null;
+
+export const findClientById = (clients: Client[], clientId: string): Client | null =>
+  clients.find((client) => client.id === clientId) ?? null;
+
 export const loadClientProfileSummaries = async (
   token: string
 ): Promise<{
@@ -73,3 +79,19 @@ export const findClientSummaryBySlug = (
 ): ClientProfileSummary | null =>
   summaries.find((summary) => slugifyClientName(summary.client.name) === clientSlug) ?? null;
 
+export const loadClientProfileSummaryBySlug = async (
+  token: string,
+  clientSlug: string
+): Promise<ClientProfileSummary> => {
+  const clients = await loadActiveClients();
+  const client = findClientBySlug(clients, clientSlug);
+
+  if (!client) {
+    throw new Error("Client report hub not found.");
+  }
+
+  return {
+    client,
+    profiles: await listWbrProfiles(token, client.id),
+  };
+};

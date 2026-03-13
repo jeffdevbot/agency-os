@@ -3,8 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getBrowserSupabaseClient } from "@/lib/supabaseClient";
 import {
-  findClientSummaryBySlug,
-  loadClientProfileSummaries,
+  loadClientProfileSummaryBySlug,
   type ClientProfileSummary,
 } from "./reportClientData";
 import type { WbrProfile } from "../wbr/_lib/wbrApi";
@@ -31,11 +30,7 @@ export function useResolvedWbrProfile(clientSlug: string, marketplaceCode: strin
         throw new Error("Please sign in again.");
       }
 
-      const result = await loadClientProfileSummaries(session.access_token);
-      const clientSummary = findClientSummaryBySlug(result.summaries, clientSlug);
-      if (!clientSummary) {
-        throw new Error("Client report hub not found.");
-      }
+      const clientSummary = await loadClientProfileSummaryBySlug(session.access_token, clientSlug);
 
       const matchedProfile =
         clientSummary.profiles.find(
