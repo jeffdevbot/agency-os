@@ -51,7 +51,7 @@ WINDSOR_LISTING_FIELDS = [
     "merchant_listings_all_data__zshop_shipping_fee",
     "merchant_listings_all_data__zshop_storefront_feature",
 ]
-DEFAULT_WINDSOR_LISTING_DATE_PRESET = "yesterday"
+DEFAULT_WINDSOR_LISTING_DATE_PRESET = "last_3d"
 DEFAULT_TIMEOUT_SECONDS = 360
 MIN_TIMEOUT_SECONDS = 60
 
@@ -421,6 +421,9 @@ class ListingImportService:
         self.db = db
         self.windsor_api_key = os.getenv("WINDSOR_API_KEY", "").strip()
         self.windsor_seller_url = os.getenv("WINDSOR_SELLER_URL", "https://connectors.windsor.ai/amazon_sp").strip()
+        self.windsor_listing_date_preset = os.getenv(
+            "WBR_WINDSOR_LISTING_DATE_PRESET", DEFAULT_WINDSOR_LISTING_DATE_PRESET
+        ).strip() or DEFAULT_WINDSOR_LISTING_DATE_PRESET
         configured_timeout = int(os.getenv("WBR_REQUEST_TIMEOUT_SECONDS", str(DEFAULT_TIMEOUT_SECONDS)))
         self.timeout_seconds = max(configured_timeout, MIN_TIMEOUT_SECONDS)
 
@@ -583,7 +586,7 @@ class ListingImportService:
     async def _fetch_windsor_rows(self, *, account_id: str) -> list[dict[str, Any]]:
         params = {
             "api_key": self.windsor_api_key,
-            "date_preset": DEFAULT_WINDSOR_LISTING_DATE_PRESET,
+            "date_preset": self.windsor_listing_date_preset,
             "fields": ",".join(WINDSOR_LISTING_FIELDS),
             "select_accounts": account_id,
         }
