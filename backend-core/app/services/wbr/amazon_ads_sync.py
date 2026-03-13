@@ -18,8 +18,8 @@ DEFAULT_TIMEOUT_SECONDS = 360
 MIN_TIMEOUT_SECONDS = 60
 DEFAULT_CHUNK_DAYS = 14
 DEFAULT_DAILY_LOOKBACK_DAYS = 14
-DEFAULT_REPORT_POLL_SECONDS = 2
-DEFAULT_REPORT_MAX_POLLS = 60
+DEFAULT_REPORT_POLL_SECONDS = 3
+DEFAULT_REPORT_MAX_POLLS = 100
 
 AMAZON_ADS_API_URL = "https://advertising-api.amazon.com"
 AMAZON_ADS_REPORT_CREATE_PATH = "/reporting/reports"
@@ -374,6 +374,7 @@ class AmazonAdsSyncService:
         report_id: str,
     ) -> AmazonAdsReportStatus:
         timeout = httpx.Timeout(timeout=self.timeout_seconds)
+        last_status = "UNKNOWN"
         async with httpx.AsyncClient(timeout=timeout) as client:
             for _ in range(self.report_max_polls):
                 response = await client.get(
@@ -388,6 +389,7 @@ class AmazonAdsSyncService:
                 body = response.json()
                 status = str(body.get("status") or body.get("processingStatus") or "").strip().upper()
                 location = str(body.get("url") or body.get("location") or "").strip() or None
+                last_status = status or last_status
                 current = AmazonAdsReportStatus(report_id=report_id, status=status, location=location)
                 if status in {"COMPLETED", "SUCCESS"}:
                     return current
@@ -396,7 +398,10 @@ class AmazonAdsSyncService:
                     raise WBRValidationError(f"Amazon Ads report failed: {detail}")
                 await self._sleep(self.report_poll_seconds)
 
-        raise WBRValidationError("Amazon Ads report polling timed out")
+        raise WBRValidationError(
+            f"Amazon Ads report polling timed out after {self.report_max_polls * self.report_poll_seconds}s "
+            f"(last status: {last_status})"
+        )
 
     async def _download_report_rows(self, location: str) -> list[dict[str, Any]]:
         timeout = httpx.Timeout(timeout=self.timeout_seconds)
