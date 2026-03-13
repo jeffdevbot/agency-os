@@ -115,6 +115,18 @@ class TestParseListingFile:
         assert parsed.header_row_index == 2
         assert parsed.records[0].child_asin == "B012345678"
 
+    def test_parses_cp1252_tab_delimited_report(self):
+        file_bytes = (
+            "item-name\tseller-sku\tasin1\tfulfillment-channel\r\n"
+            "WHOOSH’s Cleaner\tSKU-1\tB012345678\tAMAZON_NA\r\n"
+        ).encode("cp1252")
+
+        parsed = parse_listing_file("all-listings-report.txt", file_bytes)
+
+        assert parsed.source_type == "delimited"
+        assert parsed.rows_read == 1
+        assert parsed.records[0].child_product_name == "WHOOSH’s Cleaner"
+
 
 class TestListingImportService:
     def test_import_replaces_active_child_asin_snapshot(self):

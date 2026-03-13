@@ -15,6 +15,7 @@ from supabase import Client
 from .profiles import WBRNotFoundError, WBRValidationError
 
 LISTING_ALLOWED_EXTENSIONS = (".txt", ".tsv", ".csv", ".xlsx", ".xlsm")
+UTF16_BOMS = (b"\xff\xfe", b"\xfe\xff")
 
 LISTING_HEADER_ALIASES = {
     "child_asin": {
@@ -291,12 +292,18 @@ def _parse_spreadsheet(file_bytes: bytes) -> ParsedListingFile:
 
 def _parse_delimited(file_bytes: bytes) -> ParsedListingFile:
     text: str | None = None
-    for encoding in ("utf-8-sig", "utf-16", "latin-1"):
+    if file_bytes.startswith(UTF16_BOMS):
         try:
-            text = file_bytes.decode(encoding)
-            break
-        except UnicodeDecodeError:
-            continue
+            text = file_bytes.decode("utf-16")
+        except UnicodeDecodeError as exc:
+            raise WBRValidationError("Unable to decode UTF-16 listings file") from exc
+    else:
+        for encoding in ("utf-8-sig", "cp1252", "latin-1"):
+            try:
+                text = file_bytes.decode(encoding)
+                break
+            except UnicodeDecodeError:
+                continue
     if text is None:
         raise WBRValidationError("Unable to decode listings file")
 
