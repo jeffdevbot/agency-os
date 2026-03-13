@@ -12,6 +12,7 @@ from supabase import Client, create_client
 
 from ..auth import require_admin_user
 from ..config import settings
+from ..services.wbr.listing_imports import ListingImportService
 from ..services.wbr.pacvue_imports import PacvueImportService
 from ..services.wbr.profiles import WBRNotFoundError, WBRValidationError, WBRProfileService
 
@@ -39,6 +40,10 @@ def _get_service() -> WBRProfileService:
 
 def _get_pacvue_service() -> PacvueImportService:
     return PacvueImportService(_get_supabase())
+
+
+def _get_listing_service() -> ListingImportService:
+    return ListingImportService(_get_supabase())
 
 
 def _user_id(user: dict) -> str | None:
@@ -310,3 +315,64 @@ async def import_pacvue_workbook(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception:
         raise HTTPException(status_code=500, detail="Failed to import Pacvue workbook")
+
+
+# ------------------------------------------------------------------
+# Listings import endpoints
+# ------------------------------------------------------------------
+
+
+@router.get("/profiles/{profile_id}/listings/import-batches")
+async def list_listing_import_batches(
+    profile_id: str,
+    user=Depends(require_admin_user),
+):
+    svc = _get_listing_service()
+    try:
+        batches = svc.list_import_batches(profile_id)
+        return {"ok": True, "batches": batches}
+    except WBRNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except WBRValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to list listings import batches")
+
+
+@router.post("/profiles/{profile_id}/listings/import")
+async def import_listing_file(
+    profile_id: str,
+    file: UploadFile = File(...),
+    user=Depends(require_admin_user),
+):
+    svc = _get_listing_service()
+    total = 0
+    chunk_size = 2 * 1024 * 1024
+    file_bytes = bytearray()
+
+    try:
+        while True:
+            chunk = await file.read(chunk_size)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > MAX_UPLOAD_MB * 1024 * 1024:
+                raise HTTPException(status_code=413, detail="File too large")
+            file_bytes.extend(chunk)
+    finally:
+        await file.close()
+
+    try:
+        result = svc.import_file(
+            profile_id=profile_id,
+            file_name=file.filename or "all_listings_report.txt",
+            file_bytes=bytes(file_bytes),
+            user_id=_user_id(user),
+        )
+        return {"ok": True, **result}
+    except WBRNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except WBRValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to import listings file")

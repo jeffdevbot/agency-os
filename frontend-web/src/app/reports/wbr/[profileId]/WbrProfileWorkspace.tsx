@@ -3,9 +3,11 @@
 import Link from "next/link";
 import CreateRowForm from "./components/CreateRowForm";
 import LeafRowsTable from "./components/LeafRowsTable";
+import ListingsImportCard from "./components/ListingsImportCard";
 import PacvueImportCard from "./components/PacvueImportCard";
 import ParentRowsTable from "./components/ParentRowsTable";
 import ProfileSummaryCard from "./components/ProfileSummaryCard";
+import { useListingImport } from "./useListingImport";
 import { usePacvueImport } from "./usePacvueImport";
 import { useWbrProfileWorkspace } from "./useWbrProfileWorkspace";
 import type { WbrRowKind } from "./workspaceTypes";
@@ -16,6 +18,7 @@ type Props = {
 
 export default function WbrProfileWorkspace({ profileId }: Props) {
   const workspace = useWbrProfileWorkspace(profileId);
+  const listingImport = useListingImport(profileId);
   const pacvueImport = usePacvueImport(profileId, {
     onImportSuccess: async () => {
       await workspace.loadWorkspace(true);
@@ -74,6 +77,18 @@ export default function WbrProfileWorkspace({ profileId }: Props) {
           latestImport={pacvueImport.latestImport}
           onRefresh={() => void pacvueImport.loadBatches(true)}
           onUpload={(file) => void pacvueImport.handleUpload(file)}
+        />
+
+        <ListingsImportCard
+          loadingBatches={listingImport.loadingBatches}
+          refreshingBatches={listingImport.refreshingBatches}
+          uploading={listingImport.uploading}
+          batches={listingImport.batches}
+          errorMessage={listingImport.errorMessage}
+          successMessage={listingImport.successMessage}
+          latestImport={listingImport.latestImport}
+          onRefresh={() => void listingImport.loadBatches(true)}
+          onUpload={(file) => void listingImport.handleUpload(file)}
         />
 
         <CreateRowForm

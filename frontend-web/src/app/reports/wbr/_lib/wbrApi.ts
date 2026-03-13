@@ -60,6 +60,37 @@ export type WbrPacvueImportResult = {
   summary: WbrPacvueImportSummary;
 };
 
+export type WbrListingImportBatchStatus = "running" | "success" | "error";
+
+export type WbrListingImportBatch = {
+  id: string;
+  profile_id: string;
+  source_filename: string | null;
+  import_status: WbrListingImportBatchStatus;
+  rows_read: number;
+  rows_loaded: number;
+  error_message: string | null;
+  initiated_by: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+export type WbrListingImportSummary = {
+  source_type: string;
+  sheet_title: string | null;
+  header_row_index: number;
+  rows_read: number;
+  rows_loaded: number;
+  duplicate_rows_merged: number;
+};
+
+export type WbrListingImportResult = {
+  batch: WbrListingImportBatch;
+  summary: WbrListingImportSummary;
+};
+
 export type CreateWbrProfileRequest = {
   client_id: string;
   marketplace_code: string;
@@ -228,6 +259,44 @@ const parsePacvueImportSummary = (value: unknown): WbrPacvueImportSummary => {
   };
 };
 
+const parseListingImportBatch = (value: unknown): WbrListingImportBatch => {
+  if (!isRecord(value)) {
+    throw new Error("Invalid listings import batch response");
+  }
+
+  const importStatus = asString(value.import_status);
+  return {
+    id: asString(value.id),
+    profile_id: asString(value.profile_id),
+    source_filename: asNullableString(value.source_filename),
+    import_status:
+      importStatus === "running" || importStatus === "error" ? importStatus : "success",
+    rows_read: asNumber(value.rows_read),
+    rows_loaded: asNumber(value.rows_loaded),
+    error_message: asNullableString(value.error_message),
+    initiated_by: asNullableString(value.initiated_by),
+    started_at: asNullableString(value.started_at),
+    finished_at: asNullableString(value.finished_at),
+    created_at: asNullableString(value.created_at),
+    updated_at: asNullableString(value.updated_at),
+  };
+};
+
+const parseListingImportSummary = (value: unknown): WbrListingImportSummary => {
+  if (!isRecord(value)) {
+    throw new Error("Invalid listings import summary response");
+  }
+
+  return {
+    source_type: asString(value.source_type),
+    sheet_title: asNullableString(value.sheet_title),
+    header_row_index: asNumber(value.header_row_index),
+    rows_read: asNumber(value.rows_read),
+    rows_loaded: asNumber(value.rows_loaded),
+    duplicate_rows_merged: asNumber(value.duplicate_rows_merged),
+  };
+};
+
 const parseProfileList = (payload: unknown): WbrProfile[] => {
   if (Array.isArray(payload)) {
     return payload.map(parseProfile);
@@ -283,6 +352,28 @@ const parsePacvueImportResult = (payload: unknown): WbrPacvueImportResult => {
   return {
     batch: parsePacvueImportBatch(payload.batch),
     summary: parsePacvueImportSummary(payload.summary),
+  };
+};
+
+const parseListingImportBatchList = (payload: unknown): WbrListingImportBatch[] => {
+  if (Array.isArray(payload)) {
+    return payload.map(parseListingImportBatch);
+  }
+
+  if (!isRecord(payload)) return [];
+  if (Array.isArray(payload.batches)) return payload.batches.map(parseListingImportBatch);
+  if (Array.isArray(payload.items)) return payload.items.map(parseListingImportBatch);
+  return [];
+};
+
+const parseListingImportResult = (payload: unknown): WbrListingImportResult => {
+  if (!isRecord(payload) || !isRecord(payload.batch) || !isRecord(payload.summary)) {
+    throw new Error("Invalid listings import response");
+  }
+
+  return {
+    batch: parseListingImportBatch(payload.batch),
+    summary: parseListingImportSummary(payload.summary),
   };
 };
 
@@ -398,4 +489,41 @@ export const importPacvueWorkbook = async (
 
   const payload = (await response.json()) as unknown;
   return parsePacvueImportResult(payload);
+};
+
+export const listListingImportBatches = async (
+  token: string,
+  profileId: string
+): Promise<WbrListingImportBatch[]> => {
+  const payload = await requestJson<unknown>(
+    token,
+    `/admin/wbr/profiles/${profileId}/listings/import-batches`,
+    {
+      method: "GET",
+    }
+  );
+  return parseListingImportBatchList(payload);
+};
+
+export const importListingFile = async (
+  token: string,
+  profileId: string,
+  file: File
+): Promise<WbrListingImportResult> => {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const response = await fetch(`${getBackendUrl()}/admin/wbr/profiles/${profileId}/listings/import`, {
+    method: "POST",
+    headers: authHeaders(token),
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const detail = await parseErrorDetail(response);
+    throw new Error(detail);
+  }
+
+  const payload = (await response.json()) as unknown;
+  return parseListingImportResult(payload);
 };
