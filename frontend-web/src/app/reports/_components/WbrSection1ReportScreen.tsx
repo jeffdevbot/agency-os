@@ -1,25 +1,21 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import { useResolvedWbrProfile } from "../_lib/useResolvedWbrProfile";
 import { useWbrSection1Report } from "../_lib/useWbrSection1Report";
 import WbrSection1MetricTable from "./WbrSection1MetricTable";
+import { hasAnyActivity } from "./wbrSection1RowDisplay";
 
 type Props = {
   clientSlug: string;
   marketplaceCode: string;
 };
 
-const hasAnyActivity = (rows: Array<{ weeks: Array<{ page_views: number; unit_sales: number; sales: string }> }>) =>
-  rows.some((row) =>
-    row.weeks.some(
-      (week) => week.page_views > 0 || week.unit_sales > 0 || Number(week.sales || 0) > 0
-    )
-  );
-
 export default function WbrSection1ReportScreen({ clientSlug, marketplaceCode }: Props) {
   const resolved = useResolvedWbrProfile(clientSlug, marketplaceCode);
   const reportState = useWbrSection1Report(resolved.profile?.id ?? null, 4);
+  const [hideEmptyRows, setHideEmptyRows] = useState(true);
   const normalizedMarketplace = marketplaceCode.toLowerCase();
 
   if (resolved.loading || reportState.loading) {
@@ -92,6 +88,16 @@ export default function WbrSection1ReportScreen({ clientSlug, marketplaceCode }:
           </Link>
         </div>
 
+        <label className="mt-6 inline-flex items-center gap-3 rounded-2xl border border-[#c7d8f5] bg-[#f7faff] px-4 py-3 text-sm text-[#0f172a]">
+          <input
+            type="checkbox"
+            checked={hideEmptyRows}
+            onChange={(event) => setHideEmptyRows(event.target.checked)}
+            className="h-4 w-4 rounded border-[#94a3b8] text-[#0a6fd6] focus:ring-[#0a6fd6]"
+          />
+          <span className="font-medium">Hide rows with no data</span>
+        </label>
+
         {resolved.errorMessage ? (
           <p className="mt-4 rounded-xl border border-[#f87171]/40 bg-[#fee2e2] px-4 py-3 text-sm text-[#991b1b]">
             {resolved.errorMessage}
@@ -138,10 +144,34 @@ export default function WbrSection1ReportScreen({ clientSlug, marketplaceCode }:
 
       {rows.length > 0 ? (
         <>
-          <WbrSection1MetricTable title="Page Views" metricKey="page_views" weeks={weeks} rows={rows} />
-          <WbrSection1MetricTable title="Unit Sales" metricKey="unit_sales" weeks={weeks} rows={rows} />
-          <WbrSection1MetricTable title="Sales" metricKey="sales" weeks={weeks} rows={rows} />
-          <WbrSection1MetricTable title="Conversion Rate" metricKey="conversion_rate" weeks={weeks} rows={rows} />
+          <WbrSection1MetricTable
+            title="Page Views"
+            metricKey="page_views"
+            weeks={weeks}
+            rows={rows}
+            hideEmptyRows={hideEmptyRows}
+          />
+          <WbrSection1MetricTable
+            title="Unit Sales"
+            metricKey="unit_sales"
+            weeks={weeks}
+            rows={rows}
+            hideEmptyRows={hideEmptyRows}
+          />
+          <WbrSection1MetricTable
+            title="Sales"
+            metricKey="sales"
+            weeks={weeks}
+            rows={rows}
+            hideEmptyRows={hideEmptyRows}
+          />
+          <WbrSection1MetricTable
+            title="Conversion Rate"
+            metricKey="conversion_rate"
+            weeks={weeks}
+            rows={rows}
+            hideEmptyRows={hideEmptyRows}
+          />
         </>
       ) : null}
     </main>

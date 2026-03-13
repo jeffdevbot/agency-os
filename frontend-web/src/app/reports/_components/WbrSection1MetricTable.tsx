@@ -1,6 +1,7 @@
 "use client";
 
 import type { WbrSection1Row, WbrSection1RowWeek, WbrSection1Week } from "../wbr/_lib/wbrSection1Api";
+import { buildDisplayRows, buildTotalValues } from "./wbrSection1RowDisplay";
 
 type MetricKey = "page_views" | "unit_sales" | "sales" | "conversion_rate";
 
@@ -9,6 +10,7 @@ type Props = {
   metricKey: MetricKey;
   weeks: WbrSection1Week[];
   rows: WbrSection1Row[];
+  hideEmptyRows?: boolean;
 };
 
 const formatMetricValue = (metricKey: MetricKey, values: WbrSection1RowWeek): string => {
@@ -26,56 +28,15 @@ const formatMetricValue = (metricKey: MetricKey, values: WbrSection1RowWeek): st
   return new Intl.NumberFormat("en-US").format(values[metricKey]);
 };
 
-const buildDisplayRows = (rows: WbrSection1Row[]): WbrSection1Row[] => {
-  const childrenByParent = new Map<string, WbrSection1Row[]>();
-  const roots: WbrSection1Row[] = [];
-
-  rows.forEach((row) => {
-    if (row.parent_row_id) {
-      const current = childrenByParent.get(row.parent_row_id) ?? [];
-      current.push(row);
-      childrenByParent.set(row.parent_row_id, current);
-      return;
-    }
-    roots.push(row);
-  });
-
-  const ordered: WbrSection1Row[] = [];
-  roots.forEach((root) => {
-    ordered.push(root);
-    const children = childrenByParent.get(root.id) ?? [];
-    children.forEach((child) => ordered.push(child));
-  });
-
-  return ordered;
-};
-
-const buildTotalValues = (rows: WbrSection1Row[], weeks: WbrSection1Week[], metricKey: MetricKey): string[] => {
-  const topLevelRows = rows.filter((row) => !row.parent_row_id);
-  return weeks.map((_, weekIndex) => {
-    if (metricKey === "sales") {
-      const total = topLevelRows.reduce((sum, row) => sum + Number(row.weeks[weekIndex]?.sales || 0), 0);
-      return new Intl.NumberFormat("en-US", {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      }).format(total);
-    }
-
-    if (metricKey === "conversion_rate") {
-      const pageViews = topLevelRows.reduce((sum, row) => sum + Number(row.weeks[weekIndex]?.page_views || 0), 0);
-      const unitSales = topLevelRows.reduce((sum, row) => sum + Number(row.weeks[weekIndex]?.unit_sales || 0), 0);
-      const rate = pageViews === 0 ? 0 : unitSales / pageViews;
-      return `${(rate * 100).toFixed(1)}%`;
-    }
-
-    const total = topLevelRows.reduce((sum, row) => sum + Number(row.weeks[weekIndex]?.[metricKey] || 0), 0);
-    return new Intl.NumberFormat("en-US").format(total);
-  });
-};
-
-export default function WbrSection1MetricTable({ title, metricKey, weeks, rows }: Props) {
-  const displayRows = buildDisplayRows(rows);
-  const totals = buildTotalValues(rows, weeks, metricKey);
+export default function WbrSection1MetricTable({
+  title,
+  metricKey,
+  weeks,
+  rows,
+  hideEmptyRows = false,
+}: Props) {
+  const displayRows = buildDisplayRows(rows, hideEmptyRows);
+  const totals = buildTotalValues(rows, weeks, metricKey, hideEmptyRows);
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-5">
