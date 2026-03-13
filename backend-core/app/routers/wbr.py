@@ -25,6 +25,7 @@ from ..services.wbr.listing_imports import ListingImportService
 from ..services.wbr.pacvue_imports import PacvueImportService
 from ..services.wbr.profiles import WBRNotFoundError, WBRValidationError, WBRProfileService
 from ..services.wbr.section1_report import Section1ReportService
+from ..services.wbr.section2_report import Section2ReportService
 from ..services.wbr.windsor_business_sync import WindsorBusinessSyncService
 
 router = APIRouter(prefix="/admin/wbr", tags=["wbr-admin"])
@@ -67,6 +68,10 @@ def _get_windsor_business_sync_service() -> WindsorBusinessSyncService:
 
 def _get_section1_report_service() -> Section1ReportService:
     return Section1ReportService(_get_supabase())
+
+
+def _get_section2_report_service() -> Section2ReportService:
+    return Section2ReportService(_get_supabase())
 
 
 def _get_amazon_ads_sync_service() -> AmazonAdsSyncService:
@@ -639,6 +644,24 @@ async def get_section1_report(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception:
         raise HTTPException(status_code=500, detail="Failed to build Section 1 report")
+
+
+@router.get("/profiles/{profile_id}/section2-report")
+async def get_section2_report(
+    profile_id: str,
+    weeks: int = Query(4, ge=1, le=12),
+    user=Depends(require_admin_user),
+):
+    svc = _get_section2_report_service()
+    try:
+        report = svc.build_report(profile_id, weeks=weeks)
+        return {"ok": True, **report}
+    except WBRNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except WBRValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to build Section 2 report")
 
 
 @router.put("/profiles/{profile_id}/child-asins/{child_asin}/mapping")

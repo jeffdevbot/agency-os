@@ -83,6 +83,41 @@ export type WbrSection1Report = {
   qa: WbrSection1ReportQa;
 };
 
+export type WbrSection2RowWeek = {
+  impressions: number;
+  clicks: number;
+  ctr_pct: number;
+  ad_spend: string;
+  cpc: string;
+  ad_orders: number;
+  ad_conversion_rate: number;
+  ad_sales: string;
+  acos_pct: number;
+};
+
+export type WbrSection2Row = {
+  id: string;
+  row_label: string;
+  row_kind: "parent" | "leaf";
+  parent_row_id: string | null;
+  sort_order: number;
+  weeks: WbrSection2RowWeek[];
+};
+
+export type WbrSection2ReportQa = {
+  active_row_count: number;
+  mapped_campaign_count: number;
+  unmapped_campaign_count: number;
+  unmapped_fact_rows: number;
+  fact_row_count: number;
+};
+
+export type WbrSection2Report = {
+  weeks: WbrSection1Week[];
+  rows: WbrSection2Row[];
+  qa: WbrSection2ReportQa;
+};
+
 const getBackendUrl = (): string => {
   const url = process.env.NEXT_PUBLIC_BACKEND_URL;
   if (!url) {
@@ -251,6 +286,62 @@ const parseSection1Report = (payload: unknown): WbrSection1Report => {
   };
 };
 
+const parseSection2RowWeek = (value: unknown): WbrSection2RowWeek => {
+  if (!isRecord(value)) {
+    throw new Error("Invalid Section 2 row week response");
+  }
+  return {
+    impressions: asNumber(value.impressions),
+    clicks: asNumber(value.clicks),
+    ctr_pct: asNumber(value.ctr_pct),
+    ad_spend: asString(value.ad_spend),
+    cpc: asString(value.cpc),
+    ad_orders: asNumber(value.ad_orders),
+    ad_conversion_rate: asNumber(value.ad_conversion_rate),
+    ad_sales: asString(value.ad_sales),
+    acos_pct: asNumber(value.acos_pct),
+  };
+};
+
+const parseSection2Row = (value: unknown): WbrSection2Row => {
+  if (!isRecord(value) || !Array.isArray(value.weeks)) {
+    throw new Error("Invalid Section 2 row response");
+  }
+  return {
+    id: asString(value.id),
+    row_label: asString(value.row_label),
+    row_kind: asString(value.row_kind) === "parent" ? "parent" : "leaf",
+    parent_row_id: asNullableString(value.parent_row_id),
+    sort_order: asNumber(value.sort_order),
+    weeks: value.weeks.map(parseSection2RowWeek),
+  };
+};
+
+const parseSection2Report = (payload: unknown): WbrSection2Report => {
+  if (!isRecord(payload)) {
+    throw new Error("Invalid Section 2 report response");
+  }
+  return {
+    weeks: Array.isArray(payload.weeks) ? payload.weeks.map(parseSection1Week) : [],
+    rows: Array.isArray(payload.rows) ? payload.rows.map(parseSection2Row) : [],
+    qa: isRecord(payload.qa)
+      ? {
+          active_row_count: asNumber(payload.qa.active_row_count),
+          mapped_campaign_count: asNumber(payload.qa.mapped_campaign_count),
+          unmapped_campaign_count: asNumber(payload.qa.unmapped_campaign_count),
+          unmapped_fact_rows: asNumber(payload.qa.unmapped_fact_rows),
+          fact_row_count: asNumber(payload.qa.fact_row_count),
+        }
+      : {
+          active_row_count: 0,
+          mapped_campaign_count: 0,
+          unmapped_campaign_count: 0,
+          unmapped_fact_rows: 0,
+          fact_row_count: 0,
+        },
+  };
+};
+
 export const listWbrSyncRuns = async (token: string, profileId: string): Promise<WbrSyncRun[]> => {
   const query = new URLSearchParams({ source_type: "windsor_business" });
   const payload = await requestJson<unknown>(
@@ -324,4 +415,18 @@ export const getWbrSection1Report = async (
     { method: "GET" }
   );
   return parseSection1Report(payload);
+};
+
+export const getWbrSection2Report = async (
+  token: string,
+  profileId: string,
+  weeks = 4
+): Promise<WbrSection2Report> => {
+  const query = new URLSearchParams({ weeks: String(weeks) });
+  const payload = await requestJson<unknown>(
+    token,
+    `/admin/wbr/profiles/${profileId}/section2-report?${query.toString()}`,
+    { method: "GET" }
+  );
+  return parseSection2Report(payload);
 };

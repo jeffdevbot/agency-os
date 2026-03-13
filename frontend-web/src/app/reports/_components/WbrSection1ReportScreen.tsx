@@ -3,9 +3,13 @@
 import { useState } from "react";
 import { useResolvedWbrProfile } from "../_lib/useResolvedWbrProfile";
 import { useWbrSection1Report } from "../_lib/useWbrSection1Report";
+import { useWbrSection2Report } from "../_lib/useWbrSection2Report";
 import WbrSection1HorizontalTable from "./WbrSection1HorizontalTable";
 import WbrSection1MetricTable from "./WbrSection1MetricTable";
-import { hasAnyActivity } from "./wbrSection1RowDisplay";
+import WbrSection2HorizontalTable from "./WbrSection2HorizontalTable";
+import WbrSection2MetricTable from "./WbrSection2MetricTable";
+import { buildDisplayRows, hasAnyActivity } from "./wbrSection1RowDisplay";
+import { hasAnySection2Activity } from "./wbrSection2RowDisplay";
 
 type Props = {
   clientSlug: string;
@@ -15,11 +19,12 @@ type Props = {
 export default function WbrSection1ReportScreen({ clientSlug, marketplaceCode }: Props) {
   const resolved = useResolvedWbrProfile(clientSlug, marketplaceCode);
   const reportState = useWbrSection1Report(resolved.profile?.id ?? null, 4);
+  const section2ReportState = useWbrSection2Report(resolved.profile?.id ?? null, 4);
   const [hideEmptyRows, setHideEmptyRows] = useState(true);
   const [newestFirst, setNewestFirst] = useState(true);
   const [horizontalLayout, setHorizontalLayout] = useState(true);
 
-  if (resolved.loading || reportState.loading) {
+  if (resolved.loading || reportState.loading || section2ReportState.loading) {
     return (
       <main className="space-y-3">
         <div className="rounded-3xl bg-white/95 p-6 text-sm text-[#64748b] shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur">
@@ -46,6 +51,11 @@ export default function WbrSection1ReportScreen({ clientSlug, marketplaceCode }:
   const rows = report?.rows ?? [];
   const weeks = report?.weeks ?? [];
   const activityPresent = hasAnyActivity(rows);
+  const section2Report = section2ReportState.report;
+  const section2Rows = section2Report?.rows ?? [];
+  const section2Weeks = section2Report?.weeks ?? weeks;
+  const section2ActivityPresent = hasAnySection2Activity(section2Rows);
+  const referenceRowOrder = buildDisplayRows(rows, false).map((row) => row.id);
 
   return (
     <main className="space-y-3">
@@ -63,6 +73,7 @@ export default function WbrSection1ReportScreen({ clientSlug, marketplaceCode }:
               onClick={() => {
                 void resolved.loadRoute();
                 void reportState.loadReport(true);
+                void section2ReportState.loadReport(true);
               }}
               disabled={reportState.refreshing}
               className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-[#0a6fd6] shadow-sm transition hover:-translate-y-0.5 hover:shadow disabled:cursor-not-allowed disabled:text-slate-400 md:text-sm"
@@ -112,6 +123,12 @@ export default function WbrSection1ReportScreen({ clientSlug, marketplaceCode }:
         {reportState.errorMessage ? (
           <p className="mt-4 rounded-xl border border-[#f87171]/40 bg-[#fee2e2] px-4 py-3 text-sm text-[#991b1b]">
             {reportState.errorMessage}
+          </p>
+        ) : null}
+
+        {section2ReportState.errorMessage ? (
+          <p className="mt-4 rounded-xl border border-[#f87171]/40 bg-[#fee2e2] px-4 py-3 text-sm text-[#991b1b]">
+            {section2ReportState.errorMessage}
           </p>
         ) : null}
 
@@ -170,6 +187,113 @@ export default function WbrSection1ReportScreen({ clientSlug, marketplaceCode }:
             />
           </>
         )
+      ) : null}
+
+      {section2Rows.length > 0 ? (
+        <>
+          <div className="rounded-3xl bg-white/95 p-5 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur md:p-6">
+            <h2 className="text-xl font-semibold text-[#0f172a]">Section 2: Ads Metrics</h2>
+            {!section2ActivityPresent ? (
+              <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                No mapped Section 2 ads data is showing for the current 4-week window. Run an Ads API sync, and confirm Pacvue campaign mapping is active for this profile.
+              </p>
+            ) : null}
+          </div>
+
+          {horizontalLayout ? (
+            <WbrSection2HorizontalTable
+              weeks={section2Weeks}
+              rows={section2Rows}
+              hideEmptyRows={hideEmptyRows}
+              newestFirst={newestFirst}
+              referenceRowOrder={referenceRowOrder}
+            />
+          ) : (
+            <>
+              <WbrSection2MetricTable
+                title="Impressions"
+                metricKey="impressions"
+                weeks={section2Weeks}
+                rows={section2Rows}
+                hideEmptyRows={hideEmptyRows}
+                newestFirst={newestFirst}
+                referenceRowOrder={referenceRowOrder}
+              />
+              <WbrSection2MetricTable
+                title="Clicks"
+                metricKey="clicks"
+                weeks={section2Weeks}
+                rows={section2Rows}
+                hideEmptyRows={hideEmptyRows}
+                newestFirst={newestFirst}
+                referenceRowOrder={referenceRowOrder}
+              />
+              <WbrSection2MetricTable
+                title="CTR"
+                metricKey="ctr_pct"
+                weeks={section2Weeks}
+                rows={section2Rows}
+                hideEmptyRows={hideEmptyRows}
+                newestFirst={newestFirst}
+                referenceRowOrder={referenceRowOrder}
+              />
+              <WbrSection2MetricTable
+                title="Ad Spend"
+                metricKey="ad_spend"
+                weeks={section2Weeks}
+                rows={section2Rows}
+                hideEmptyRows={hideEmptyRows}
+                newestFirst={newestFirst}
+                referenceRowOrder={referenceRowOrder}
+              />
+              <WbrSection2MetricTable
+                title="CPC"
+                metricKey="cpc"
+                weeks={section2Weeks}
+                rows={section2Rows}
+                hideEmptyRows={hideEmptyRows}
+                newestFirst={newestFirst}
+                referenceRowOrder={referenceRowOrder}
+              />
+              <WbrSection2MetricTable
+                title="Ad Orders"
+                metricKey="ad_orders"
+                weeks={section2Weeks}
+                rows={section2Rows}
+                hideEmptyRows={hideEmptyRows}
+                newestFirst={newestFirst}
+                referenceRowOrder={referenceRowOrder}
+              />
+              <WbrSection2MetricTable
+                title="Ad Conversion Rate"
+                metricKey="ad_conversion_rate"
+                weeks={section2Weeks}
+                rows={section2Rows}
+                hideEmptyRows={hideEmptyRows}
+                newestFirst={newestFirst}
+                referenceRowOrder={referenceRowOrder}
+              />
+              <WbrSection2MetricTable
+                title="Ad Sales"
+                metricKey="ad_sales"
+                weeks={section2Weeks}
+                rows={section2Rows}
+                hideEmptyRows={hideEmptyRows}
+                newestFirst={newestFirst}
+                referenceRowOrder={referenceRowOrder}
+              />
+              <WbrSection2MetricTable
+                title="ACoS"
+                metricKey="acos_pct"
+                weeks={section2Weeks}
+                rows={section2Rows}
+                hideEmptyRows={hideEmptyRows}
+                newestFirst={newestFirst}
+                referenceRowOrder={referenceRowOrder}
+              />
+            </>
+          )}
+        </>
       ) : null}
     </main>
   );
