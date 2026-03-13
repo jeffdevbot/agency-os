@@ -234,3 +234,45 @@ class TestAsinMappingService:
                 file_bytes=csv_text,
                 user_id="u1",
             )
+
+    def test_import_child_asin_mapping_csv_accepts_exported_current_row_columns(self):
+        csv_text = (
+            "child_asin,current_row_label\n"
+            "B012345678,Row 1\n"
+        ).encode("utf-8")
+
+        db = _multi_table_db(
+            {
+                "wbr_profiles": [
+                    _chain_table([{"id": "p1"}]),
+                    _chain_table([{"id": "p1"}]),
+                ],
+                "wbr_profile_child_asins": [
+                    _chain_table([{"id": "a1", "profile_id": "p1", "child_asin": "B012345678", "active": True}]),
+                    _chain_table([{"child_asin": "B012345678"}]),
+                ],
+                "wbr_asin_row_map": [
+                    _chain_table([]),
+                    _chain_table([{"id": "m1", "child_asin": "B012345678", "row_id": "r1"}]),
+                ],
+                "wbr_rows": [
+                    _chain_table([{"id": "r1", "row_label": "Row 1", "active": True}]),
+                    _chain_table([{"id": "r1", "profile_id": "p1", "row_kind": "leaf", "row_label": "Row 1", "active": True}]),
+                ],
+            }
+        )
+
+        svc = AsinMappingService(db)
+        summary = svc.import_child_asin_mapping_csv(
+            profile_id="p1",
+            file_name="asin-mapping.csv",
+            file_bytes=csv_text,
+            user_id="u1",
+        )
+
+        assert summary == {
+            "rows_read": 1,
+            "rows_updated": 0,
+            "rows_cleared": 0,
+            "rows_unchanged": 1,
+        }

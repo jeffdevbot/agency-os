@@ -13,8 +13,22 @@ from .profiles import WBRNotFoundError, WBRValidationError
 CSV_IMPORT_ALLOWED_EXTENSIONS = (".csv",)
 CSV_IMPORT_COLUMN_ALIASES = {
     "child_asin": {"child_asin", "child asin", "asin"},
-    "mapped_row_id": {"mapped_row_id", "mapped row id", "row_id", "row id"},
-    "mapped_row_label": {"mapped_row_label", "mapped row label", "row_label", "row label"},
+    "mapped_row_id": {
+        "mapped_row_id",
+        "mapped row id",
+        "current_row_id",
+        "current row id",
+        "row_id",
+        "row id",
+    },
+    "mapped_row_label": {
+        "mapped_row_label",
+        "mapped row label",
+        "current_row_label",
+        "current row label",
+        "row_label",
+        "row label",
+    },
 }
 
 
