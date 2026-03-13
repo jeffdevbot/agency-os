@@ -1,4 +1,4 @@
-import WbrSyncStub from "../../../../_components/WbrSyncStub";
+import WbrSyncOverviewScreen from "../../../../_components/WbrSyncOverviewScreen";
 
 type PageProps = {
   params: Promise<{
@@ -9,5 +9,5 @@ type PageProps = {
 
 export default async function ClientMarketplaceWbrSyncPage({ params }: PageProps) {
   const { clientSlug, marketplaceCode } = await params;
-  return <WbrSyncStub clientSlug={clientSlug} marketplaceCode={marketplaceCode} />;
+  return <WbrSyncOverviewScreen clientSlug={clientSlug} marketplaceCode={marketplaceCode} />;
 }

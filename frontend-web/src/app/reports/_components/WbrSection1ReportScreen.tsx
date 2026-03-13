@@ -136,37 +136,37 @@ export default function WbrSection1ReportScreen({ clientSlug, marketplaceCode }:
           />
         ) : (
           <>
-            <WbrSection1MetricTable
-              title="Page Views"
-              metricKey="page_views"
-              weeks={weeks}
-              rows={rows}
+          <WbrSection1MetricTable
+            title="Page Views"
+            metricKey="page_views"
+            weeks={weeks}
+            rows={rows}
               hideEmptyRows={hideEmptyRows}
               newestFirst={newestFirst}
             />
-            <WbrSection1MetricTable
-              title="Unit Sales"
-              metricKey="unit_sales"
-              weeks={weeks}
-              rows={rows}
-              hideEmptyRows={hideEmptyRows}
-              newestFirst={newestFirst}
-            />
-            <WbrSection1MetricTable
-              title="Sales"
-              metricKey="sales"
-              weeks={weeks}
-              rows={rows}
-              hideEmptyRows={hideEmptyRows}
-              newestFirst={newestFirst}
-            />
-            <WbrSection1MetricTable
-              title="Conversion Rate"
-              metricKey="conversion_rate"
-              weeks={weeks}
-              rows={rows}
-              hideEmptyRows={hideEmptyRows}
-              newestFirst={newestFirst}
+          <WbrSection1MetricTable
+            title="Unit Sales"
+            metricKey="unit_sales"
+            weeks={weeks}
+            rows={rows}
+            hideEmptyRows={hideEmptyRows}
+            newestFirst={newestFirst}
+          />
+          <WbrSection1MetricTable
+            title="Conversion Rate"
+            metricKey="conversion_rate"
+            weeks={weeks}
+            rows={rows}
+            hideEmptyRows={hideEmptyRows}
+            newestFirst={newestFirst}
+          />
+          <WbrSection1MetricTable
+            title="Sales"
+            metricKey="sales"
+            weeks={weeks}
+            rows={rows}
+            hideEmptyRows={hideEmptyRows}
+            newestFirst={newestFirst}
             />
           </>
         )

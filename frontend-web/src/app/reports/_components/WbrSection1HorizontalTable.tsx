@@ -20,8 +20,8 @@ type Props = {
 const METRICS: MetricDefinition[] = [
   { key: "page_views", title: "Page Views" },
   { key: "unit_sales", title: "Unit Sales" },
-  { key: "sales", title: "Sales" },
   { key: "conversion_rate", title: "Conversion Rate" },
+  { key: "sales", title: "Sales" },
 ];
 
 const formatMetricValue = (metricKey: MetricKey, values: WbrSection1RowWeek): string => {

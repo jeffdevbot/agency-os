@@ -60,10 +60,10 @@ export default function WbrSyncScreen({ clientSlug, marketplaceCode }: Props) {
     <main className="space-y-4">
       <div className="rounded-3xl bg-white/95 p-8 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur">
         <h1 className="text-2xl font-semibold text-[#0f172a]">
-          {resolved.summary.client.name} {resolved.profile.marketplace_code} WBR Sync
+          {resolved.summary.client.name} {resolved.profile.marketplace_code} SP-API Sync
         </h1>
         <p className="mt-2 text-sm text-[#4c576f]">
-          Backfill Windsor business data in chunks or run the daily rewrite window refresh for this profile.
+          Backfill business data via Windsor.ai or run the daily rewrite window refresh for this profile.
         </p>
 
         <div className="mt-6 flex flex-wrap gap-3">
@@ -74,6 +74,12 @@ export default function WbrSyncScreen({ clientSlug, marketplaceCode }: Props) {
           >
             {sync.refreshingRuns ? "Refreshing..." : "Refresh Runs"}
           </button>
+          <Link
+            href={`/reports/${clientSlug}/${normalizedMarketplace}/wbr/sync`}
+            className="rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-[#0a6fd6] shadow transition hover:-translate-y-0.5 hover:shadow-lg"
+          >
+            Sync Sources
+          </Link>
           <Link
             href={`/reports/${clientSlug}/${normalizedMarketplace}/wbr`}
             className="rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-[#0a6fd6] shadow transition hover:-translate-y-0.5 hover:shadow-lg"
@@ -107,7 +113,7 @@ export default function WbrSyncScreen({ clientSlug, marketplaceCode }: Props) {
 
         {!resolved.profile.windsor_account_id ? (
           <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-            Save a Windsor account id in Settings before running Section 1 sync.
+            Save a Windsor account id in Settings before running SP-API sync.
           </p>
         ) : null}
 
@@ -127,7 +133,7 @@ export default function WbrSyncScreen({ clientSlug, marketplaceCode }: Props) {
           <div className="rounded-2xl border border-slate-200 bg-white p-5">
             <p className="text-sm font-semibold text-[#0f172a]">Historical Backfill</p>
             <p className="mt-1 text-sm text-[#4c576f]">
-              Run Windsor business sync across a custom range. The backend processes this in chunked date windows.
+              Run business-data sync across a custom range. The backend processes this in chunked date windows.
             </p>
             <div className="mt-4 grid gap-3 md:grid-cols-3">
               <label className="text-sm">
@@ -172,7 +178,7 @@ export default function WbrSyncScreen({ clientSlug, marketplaceCode }: Props) {
           <div className="rounded-2xl border border-slate-200 bg-white p-5">
             <p className="text-sm font-semibold text-[#0f172a]">Daily Refresh</p>
             <p className="mt-1 text-sm text-[#4c576f]">
-              Rewrite the profile&apos;s trailing {resolved.profile.daily_rewrite_days}-day Windsor window to catch late business-data changes.
+              Rewrite the profile&apos;s trailing {resolved.profile.daily_rewrite_days}-day SP-API window to catch late business-data changes.
             </p>
             <button
               onClick={() => void sync.handleRunDailyRefresh()}
@@ -210,7 +216,7 @@ export default function WbrSyncScreen({ clientSlug, marketplaceCode }: Props) {
               ) : sync.runs.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-3 py-4 text-[#64748b]">
-                    No Windsor business sync runs yet.
+                    No SP-API sync runs yet.
                   </td>
                 </tr>
               ) : (
