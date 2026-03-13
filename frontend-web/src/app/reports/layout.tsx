@@ -1,6 +1,6 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createSupabaseRouteClient } from "@/lib/supabase/serverClient";
+import ReportsHeader from "./_components/ReportsHeader";
 
 export default async function ReportsLayout({
   children,
@@ -16,27 +16,7 @@ export default async function ReportsLayout({
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#eaf2ff] via-[#dce8ff] to-[#cddcf8]">
-      <header className="border-b border-slate-200 bg-white px-6 py-4 shadow-sm">
-        <div className="mx-auto flex max-w-6xl items-baseline justify-between gap-4">
-          <Link href="/reports" className="flex items-baseline">
-            <span className="text-2xl font-extrabold leading-none text-[#0f172a]">Reports</span>
-          </Link>
-          <div className="flex items-center gap-4">
-            <Link href="/reports" className="text-sm font-semibold text-[#0a6fd6] hover:underline">
-              Clients
-            </Link>
-            <Link href="/reports/wbr" className="text-sm font-semibold text-[#0a6fd6] hover:underline">
-              WBR Admin
-            </Link>
-            <Link href="/reports/wbr/setup" className="text-sm font-semibold text-[#0a6fd6] hover:underline">
-              Setup New WBR
-            </Link>
-            <Link href="/" className="text-sm font-semibold text-[#0a6fd6] hover:underline">
-              Back to Tools
-            </Link>
-          </div>
-        </div>
-      </header>
+      <ReportsHeader />
       <div className="mx-auto max-w-6xl px-6 py-8">{children}</div>
     </div>
   );

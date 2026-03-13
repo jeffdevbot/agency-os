@@ -66,12 +66,6 @@ export default function ReportsClientHub() {
           >
             {loading ? "Refreshing..." : "Refresh"}
           </button>
-          <Link
-            href="/reports/wbr/setup"
-            className="rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-[#0a6fd6] shadow transition hover:-translate-y-0.5 hover:shadow-lg"
-          >
-            Setup New WBR Profile
-          </Link>
         </div>
 
         {errorMessage ? (
