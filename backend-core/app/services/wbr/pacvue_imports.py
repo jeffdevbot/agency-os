@@ -27,6 +27,8 @@ PACVUE_GOAL_CODES = {
     "def": "Def",
     "rank": "Rank",
 }
+PACVUE_EMPTY_TAG_PATTERN = re.compile(r"^[-\s\u2013\u2014]+$")
+PACVUE_FOOTER_LABELS = {"total", "total:"}
 
 
 @dataclass(frozen=True)
@@ -44,6 +46,7 @@ class ParsedPacvueWorkbook:
     header_row_index: int
     rows_read: int
     duplicate_rows_skipped: int
+    unmapped_rows_skipped: int
     records: list[ParsedPacvueRecord]
 
 
@@ -70,6 +73,11 @@ def parse_pacvue_workbook(file_bytes: bytes) -> ParsedPacvueWorkbook:
     header_values: list[str] | None = None
 
     for sheet in workbook.worksheets:
+        # Pacvue exports can declare an incorrect worksheet dimension like A1
+        # even when the sheet contains a full table. Resetting dimensions lets
+        # openpyxl scan the actual populated cells instead of trusting the bad
+        # metadata.
+        sheet.reset_dimensions()
         sheet_rows = list(sheet.iter_rows(values_only=True))
         if not sheet_rows:
             continue
@@ -91,6 +99,7 @@ def parse_pacvue_workbook(file_bytes: bytes) -> ParsedPacvueWorkbook:
     records: list[ParsedPacvueRecord] = []
     deduped_by_campaign: dict[str, ParsedPacvueRecord] = {}
     duplicate_rows_skipped = 0
+    unmapped_rows_skipped = 0
 
     for row in rows[header_row_index + 1 :]:
         campaign_name = _as_cell_text(row[header_map["campaign_name"]]) if header_map["campaign_name"] < len(row) else ""
@@ -99,8 +108,13 @@ def parse_pacvue_workbook(file_bytes: bytes) -> ParsedPacvueWorkbook:
         # Ignore fully blank rows beneath the header.
         if not campaign_name and not raw_tag:
             continue
+        if campaign_name and not raw_tag and _is_footer_row(campaign_name):
+            continue
         if not campaign_name or not raw_tag:
             raise WBRValidationError("Pacvue rows must include both Name and CampaignTagNames values")
+        if _is_empty_tag(raw_tag):
+            unmapped_rows_skipped += 1
+            continue
 
         leaf_row_label, goal_code = _parse_tag(raw_tag)
         raw_payload = {
@@ -135,6 +149,7 @@ def parse_pacvue_workbook(file_bytes: bytes) -> ParsedPacvueWorkbook:
         header_row_index=header_row_index,
         rows_read=len(records) + duplicate_rows_skipped,
         duplicate_rows_skipped=duplicate_rows_skipped,
+        unmapped_rows_skipped=unmapped_rows_skipped,
         records=records,
     )
 
@@ -172,6 +187,14 @@ def _parse_tag(raw_tag: str) -> tuple[str, str]:
         raise WBRValidationError(f'Pacvue tag "{raw_tag}" has an unsupported goal suffix')
 
     return leaf_row_label, goal_code
+
+
+def _is_empty_tag(raw_tag: str) -> bool:
+    return bool(PACVUE_EMPTY_TAG_PATTERN.fullmatch(raw_tag.strip()))
+
+
+def _is_footer_row(campaign_name: str) -> bool:
+    return campaign_name.strip().lower() in PACVUE_FOOTER_LABELS
 
 
 class PacvueImportService:
@@ -226,6 +249,7 @@ class PacvueImportService:
                     "rows_read": parsed.rows_read,
                     "rows_loaded": loaded_count,
                     "duplicate_rows_skipped": parsed.duplicate_rows_skipped,
+                    "unmapped_rows_skipped": parsed.unmapped_rows_skipped,
                     "created_leaf_rows": row_summary["created_leaf_rows"],
                     "reactivated_leaf_rows": row_summary["reactivated_leaf_rows"],
                 },

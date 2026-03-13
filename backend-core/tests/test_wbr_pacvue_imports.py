@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import zipfile
 from unittest.mock import MagicMock
 
 import pytest
@@ -35,6 +36,22 @@ def _build_multisheet_workbook_bytes(sheet_rows: list[tuple[str, list[list[objec
     buffer = io.BytesIO()
     workbook.save(buffer)
     return buffer.getvalue()
+
+
+def _force_bad_dimension(file_bytes: bytes, sheet_name: str = "xl/worksheets/sheet1.xml") -> bytes:
+    source = io.BytesIO(file_bytes)
+    output = io.BytesIO()
+
+    with zipfile.ZipFile(source, "r") as zin, zipfile.ZipFile(output, "w") as zout:
+        for item in zin.infolist():
+            data = zin.read(item.filename)
+            if item.filename == sheet_name:
+                data = data.replace(b'<dimension ref="A1:C3"/>', b'<dimension ref="A1"/>')
+                data = data.replace(b'<dimension ref="A1:C4"/>', b'<dimension ref="A1"/>')
+                data = data.replace(b'<dimension ref="A1:C6"/>', b'<dimension ref="A1"/>')
+            zout.writestr(item, data)
+
+    return output.getvalue()
 
 
 def _chain_table(response_data: list[dict] | None = None) -> MagicMock:
@@ -145,6 +162,55 @@ class TestParsePacvueWorkbook:
         with pytest.raises(WBRValidationError, match="unsupported goal suffix"):
             parse_pacvue_workbook(file_bytes)
 
+    def test_handles_bad_sheet_dimension_metadata(self):
+        file_bytes = _build_workbook_bytes(
+            [
+                ["Level", "Campaign", None],
+                ["Time Range", "03/02/2026 - 03/08/2026", None],
+                [],
+                ["Name", "state", "CampaignTagNames"],
+                ["Screen Shine - Duo | SPM", "enabled", "Screen Shine | Duo / Perf"],
+            ]
+        )
+        broken_bytes = _force_bad_dimension(file_bytes)
+
+        parsed = parse_pacvue_workbook(broken_bytes)
+
+        assert parsed.header_row_index == 3
+        assert parsed.rows_read == 1
+        assert parsed.records[0].leaf_row_label == "Screen Shine | Duo"
+
+    def test_skips_placeholder_unmapped_tags(self):
+        file_bytes = _build_workbook_bytes(
+            [
+                ["Name", "state", "CampaignTagNames"],
+                ["Mapped Campaign", "enabled", "Screen Shine | Duo / Perf"],
+                ["Unmapped Campaign", "paused", "--"],
+            ]
+        )
+
+        parsed = parse_pacvue_workbook(file_bytes)
+
+        assert parsed.rows_read == 1
+        assert parsed.unmapped_rows_skipped == 1
+        assert len(parsed.records) == 1
+        assert parsed.records[0].campaign_name == "Mapped Campaign"
+
+    def test_skips_total_footer_row_without_tag(self):
+        file_bytes = _build_workbook_bytes(
+            [
+                ["Name", "state", "CampaignTagNames"],
+                ["Mapped Campaign", "enabled", "Screen Shine | Duo / Perf"],
+                ["total:", None, None],
+            ]
+        )
+
+        parsed = parse_pacvue_workbook(file_bytes)
+
+        assert parsed.rows_read == 1
+        assert len(parsed.records) == 1
+        assert parsed.records[0].campaign_name == "Mapped Campaign"
+
 
 class TestPacvueImportService:
     def test_import_reactivates_existing_leaf_and_refreshes_mappings(self):
@@ -192,6 +258,7 @@ class TestPacvueImportService:
         assert result["summary"]["rows_loaded"] == 1
         assert result["summary"]["reactivated_leaf_rows"] == 1
         assert result["summary"]["created_leaf_rows"] == 0
+        assert result["summary"]["unmapped_rows_skipped"] == 0
 
     def test_rejects_non_xlsx_files(self):
         svc = PacvueImportService(MagicMock())
