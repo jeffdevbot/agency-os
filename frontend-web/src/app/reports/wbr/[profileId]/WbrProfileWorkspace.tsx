@@ -119,12 +119,17 @@ export default function WbrProfileWorkspace({ profileId }: Props) {
           unmappedOnly={asinMappings.unmappedOnly}
           draftRowIds={asinMappings.draftRowIds}
           savingRows={asinMappings.savingRows}
+          importingCsv={asinMappings.importingCsv}
+          exportingCsv={asinMappings.exportingCsv}
+          latestCsvImportSummary={asinMappings.latestCsvImportSummary}
           leafRows={workspace.leafRows}
           onSearchChange={asinMappings.setSearch}
           onUnmappedOnlyChange={asinMappings.setUnmappedOnly}
           onDraftRowIdChange={asinMappings.updateDraftRowId}
           onSaveMapping={(item) => void asinMappings.saveMapping(item)}
           onRefresh={() => void asinMappings.loadChildAsins(true)}
+          onDownloadCsv={() => void asinMappings.downloadMappingCsv()}
+          onUploadCsv={(file) => void asinMappings.uploadMappingCsv(file)}
         />
 
         <CreateRowForm

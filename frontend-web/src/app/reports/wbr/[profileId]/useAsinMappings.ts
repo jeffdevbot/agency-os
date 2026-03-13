@@ -3,8 +3,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getBrowserSupabaseClient } from "@/lib/supabaseClient";
 import {
+  exportWbrChildAsinMappingCsv,
+  importWbrChildAsinMappingCsv,
   listWbrChildAsins,
   setWbrChildAsinMapping,
+  type ImportWbrChildAsinMappingSummary,
   type WbrChildAsinItem,
 } from "../_lib/asinMappingApi";
 
@@ -19,6 +22,10 @@ export function useAsinMappings(profileId: string) {
   const [unmappedOnly, setUnmappedOnly] = useState(false);
   const [draftRowIds, setDraftRowIds] = useState<Record<string, string>>({});
   const [savingRows, setSavingRows] = useState<Record<string, boolean>>({});
+  const [importingCsv, setImportingCsv] = useState(false);
+  const [exportingCsv, setExportingCsv] = useState(false);
+  const [latestCsvImportSummary, setLatestCsvImportSummary] =
+    useState<ImportWbrChildAsinMappingSummary | null>(null);
 
   const getAccessToken = useCallback(async (): Promise<string> => {
     const {
@@ -136,6 +143,59 @@ export function useAsinMappings(profileId: string) {
     }
   };
 
+  const downloadMappingCsv = useCallback(async () => {
+    setExportingCsv(true);
+    setErrorMessage(null);
+    setSuccessMessage(null);
+
+    try {
+      const token = await getAccessToken();
+      const blob = await exportWbrChildAsinMappingCsv(token, profileId);
+      const url = window.URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `wbr-asin-mapping-${profileId}.csv`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.URL.revokeObjectURL(url);
+      setSuccessMessage("Downloaded ASIN mapping CSV.");
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Failed to export ASIN mapping CSV");
+    } finally {
+      setExportingCsv(false);
+    }
+  }, [getAccessToken, profileId]);
+
+  const uploadMappingCsv = useCallback(
+    async (file: File) => {
+      if (!file.name.toLowerCase().endsWith(".csv")) {
+        setErrorMessage("ASIN mapping import supports .csv files only.");
+        setSuccessMessage(null);
+        return;
+      }
+
+      setImportingCsv(true);
+      setErrorMessage(null);
+      setSuccessMessage(null);
+
+      try {
+        const token = await getAccessToken();
+        const summary = await importWbrChildAsinMappingCsv(token, profileId, file);
+        setLatestCsvImportSummary(summary);
+        setSuccessMessage(
+          `Imported mapping CSV: ${summary.rows_updated} updated, ${summary.rows_cleared} cleared, ${summary.rows_unchanged} unchanged.`
+        );
+        await loadChildAsins(true);
+      } catch (error) {
+        setErrorMessage(error instanceof Error ? error.message : "Failed to import ASIN mapping CSV");
+      } finally {
+        setImportingCsv(false);
+      }
+    },
+    [getAccessToken, loadChildAsins, profileId]
+  );
+
   return {
     loading,
     refreshing,
@@ -148,10 +208,15 @@ export function useAsinMappings(profileId: string) {
     unmappedOnly,
     draftRowIds,
     savingRows,
+    importingCsv,
+    exportingCsv,
+    latestCsvImportSummary,
     setSearch,
     setUnmappedOnly,
     updateDraftRowId,
     saveMapping,
+    downloadMappingCsv,
+    uploadMappingCsv,
     loadChildAsins,
   };
 }

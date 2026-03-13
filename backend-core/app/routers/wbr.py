@@ -6,7 +6,7 @@ import os
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel, Field
 from supabase import Client, create_client
 
@@ -427,6 +427,62 @@ async def list_child_asins(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception:
         raise HTTPException(status_code=500, detail="Failed to list child ASINs")
+
+
+@router.get("/profiles/{profile_id}/child-asins/mapping-export")
+async def export_child_asin_mapping_csv(
+    profile_id: str,
+    user=Depends(require_admin_user),
+):
+    svc = _get_asin_mapping_service()
+    try:
+        csv_text = svc.export_child_asin_mapping_csv(profile_id)
+        return Response(
+            content=csv_text,
+            media_type="text/csv",
+            headers={
+                "Content-Disposition": f'attachment; filename="wbr-asin-mapping-{profile_id}.csv"'
+            },
+        )
+    except WBRNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except WBRValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to export ASIN mapping CSV")
+
+
+@router.post("/profiles/{profile_id}/child-asins/mapping-import")
+async def import_child_asin_mapping_csv(
+    profile_id: str,
+    file: UploadFile = File(...),
+    user=Depends(require_admin_user),
+):
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="File name is required")
+
+    contents = await file.read()
+    if len(contents) > MAX_UPLOAD_MB * 1024 * 1024:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File exceeds {MAX_UPLOAD_MB} MB upload limit",
+        )
+
+    svc = _get_asin_mapping_service()
+    try:
+        summary = svc.import_child_asin_mapping_csv(
+            profile_id=profile_id,
+            file_name=file.filename,
+            file_bytes=contents,
+            user_id=_user_id(user),
+        )
+        return {"ok": True, "summary": summary}
+    except WBRNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except WBRValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to import ASIN mapping CSV")
 
 
 @router.put("/profiles/{profile_id}/child-asins/{child_asin}/mapping")

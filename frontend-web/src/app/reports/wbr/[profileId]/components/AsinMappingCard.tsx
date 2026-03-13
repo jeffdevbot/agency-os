@@ -1,6 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import type { WbrChildAsinItem } from "../../_lib/asinMappingApi";
+import type { ImportWbrChildAsinMappingSummary } from "../../_lib/asinMappingApi";
 import type { WbrRow } from "../../_lib/wbrApi";
 
 type Props = {
@@ -18,12 +20,17 @@ type Props = {
   unmappedOnly: boolean;
   draftRowIds: Record<string, string>;
   savingRows: Record<string, boolean>;
+  importingCsv: boolean;
+  exportingCsv: boolean;
+  latestCsvImportSummary: ImportWbrChildAsinMappingSummary | null;
   leafRows: WbrRow[];
   onSearchChange: (value: string) => void;
   onUnmappedOnlyChange: (value: boolean) => void;
   onDraftRowIdChange: (childAsin: string, rowId: string) => void;
   onSaveMapping: (item: WbrChildAsinItem) => void;
   onRefresh: () => void;
+  onDownloadCsv: () => void;
+  onUploadCsv: (file: File) => void;
 };
 
 export default function AsinMappingCard({
@@ -37,13 +44,19 @@ export default function AsinMappingCard({
   unmappedOnly,
   draftRowIds,
   savingRows,
+  importingCsv,
+  exportingCsv,
+  latestCsvImportSummary,
   leafRows,
   onSearchChange,
   onUnmappedOnlyChange,
   onDraftRowIdChange,
   onSaveMapping,
   onRefresh,
+  onDownloadCsv,
+  onUploadCsv,
 }: Props) {
+  const [selectedCsvFile, setSelectedCsvFile] = useState<File | null>(null);
   const activeLeafRows = leafRows.filter((row) => row.active);
   const leafRowById = Object.fromEntries(leafRows.map((row) => [row.id, row]));
 
@@ -78,6 +91,76 @@ export default function AsinMappingCard({
           <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">Unmapped</p>
           <p className="mt-2 text-2xl font-semibold text-amber-950">{counts.unmapped}</p>
         </div>
+      </div>
+
+      <div className="mt-4 rounded-2xl border border-[#c7d8f5] bg-[#f7faff] p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-[#0f172a]">Bulk CSV Mapping</p>
+            <p className="mt-1 text-sm text-[#4c576f]">
+              Download the current child-ASIN catalog, assign rows in Excel, then upload the CSV
+              back.
+            </p>
+          </div>
+          <button
+            onClick={onDownloadCsv}
+            disabled={loading || refreshing || exportingCsv || importingCsv}
+            className="rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-[#0a6fd6] shadow transition hover:-translate-y-0.5 hover:shadow-lg disabled:cursor-not-allowed disabled:text-slate-400"
+          >
+            {exportingCsv ? "Downloading..." : "Download Mapping CSV"}
+          </button>
+        </div>
+
+        <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_280px] md:items-start">
+          <label className="text-sm">
+            <span className="mb-1 block font-semibold text-[#0f172a]">Upload Completed CSV</span>
+            <input
+              type="file"
+              accept=".csv"
+              onChange={(event) => setSelectedCsvFile(event.target.files?.[0] ?? null)}
+              className="block w-full rounded-xl border border-[#c7d8f5] bg-white px-3 py-2 text-sm text-[#0f172a] file:mr-4 file:rounded-lg file:border-0 file:bg-[#0a6fd6] file:px-3 file:py-2 file:text-sm file:font-semibold file:text-white"
+            />
+          </label>
+          <div className="md:pt-6">
+            <button
+              onClick={() => {
+                if (selectedCsvFile) {
+                  onUploadCsv(selectedCsvFile);
+                }
+              }}
+              disabled={!selectedCsvFile || importingCsv || exportingCsv}
+              className="w-full rounded-2xl bg-[#0a6fd6] px-4 py-3 text-sm font-semibold text-white shadow-[0_15px_30px_rgba(10,111,214,0.35)] transition hover:bg-[#0959ab] disabled:cursor-not-allowed disabled:bg-[#b7cbea]"
+            >
+              {importingCsv ? "Importing..." : "Import Mapping CSV"}
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-3 space-y-1 text-xs text-[#64748b]">
+          <p>CSV should include `child_asin` and either `mapped_row_id` or `mapped_row_label`.</p>
+          {selectedCsvFile ? <p>Selected: {selectedCsvFile.name}</p> : null}
+        </div>
+
+        {latestCsvImportSummary ? (
+          <div className="mt-4 grid gap-3 md:grid-cols-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-[#4c576f]">Rows Read</p>
+              <p className="text-sm font-semibold text-[#0f172a]">{latestCsvImportSummary.rows_read}</p>
+            </div>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-[#4c576f]">Updated</p>
+              <p className="text-sm font-semibold text-[#0f172a]">{latestCsvImportSummary.rows_updated}</p>
+            </div>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-[#4c576f]">Cleared</p>
+              <p className="text-sm font-semibold text-[#0f172a]">{latestCsvImportSummary.rows_cleared}</p>
+            </div>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-[#4c576f]">Unchanged</p>
+              <p className="text-sm font-semibold text-[#0f172a]">{latestCsvImportSummary.rows_unchanged}</p>
+            </div>
+          </div>
+        ) : null}
       </div>
 
       <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">

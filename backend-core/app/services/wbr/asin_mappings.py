@@ -2,11 +2,42 @@
 
 from __future__ import annotations
 
+import csv
+import io
 from typing import Any
 
 from supabase import Client
 
 from .profiles import WBRNotFoundError, WBRValidationError
+
+CSV_IMPORT_ALLOWED_EXTENSIONS = (".csv",)
+CSV_IMPORT_COLUMN_ALIASES = {
+    "child_asin": {"child_asin", "child asin", "asin"},
+    "mapped_row_id": {"mapped_row_id", "mapped row id", "row_id", "row id"},
+    "mapped_row_label": {"mapped_row_label", "mapped row label", "row_label", "row label"},
+}
+
+
+def _decode_csv_text(file_bytes: bytes) -> str:
+    for encoding in ("utf-8-sig", "cp1252", "latin-1"):
+        try:
+            return file_bytes.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    raise WBRValidationError("Unable to decode ASIN mapping CSV")
+
+
+def _canonicalize_column_name(value: str) -> str:
+    return value.strip().lower().replace("_", " ")
+
+
+def _resolve_column(fieldnames: list[str], aliases: set[str]) -> str | None:
+    canonical_to_original = {_canonicalize_column_name(name): name for name in fieldnames if name}
+    for alias in aliases:
+        original = canonical_to_original.get(_canonicalize_column_name(alias))
+        if original:
+            return original
+    return None
 
 
 class AsinMappingService:
@@ -89,6 +120,143 @@ class AsinMappingService:
             )
         )
         return results
+
+    def export_child_asin_mapping_csv(self, profile_id: str) -> str:
+        items = self.list_child_asins(profile_id)
+        output = io.StringIO()
+        writer = csv.DictWriter(
+            output,
+            fieldnames=[
+                "child_asin",
+                "child_sku",
+                "child_product_name",
+                "current_row_id",
+                "current_row_label",
+            ],
+            lineterminator="\n",
+        )
+        writer.writeheader()
+        for item in items:
+            writer.writerow(
+                {
+                    "child_asin": item.get("child_asin") or "",
+                    "child_sku": item.get("child_sku") or "",
+                    "child_product_name": item.get("child_product_name") or "",
+                    "current_row_id": item.get("mapped_row_id") or "",
+                    "current_row_label": item.get("mapped_row_label") or "",
+                }
+            )
+        return output.getvalue()
+
+    def import_child_asin_mapping_csv(
+        self,
+        *,
+        profile_id: str,
+        file_name: str,
+        file_bytes: bytes,
+        user_id: str | None = None,
+    ) -> dict[str, int]:
+        self._validate_csv_file_name(file_name)
+        self._get_profile(profile_id)
+
+        text = _decode_csv_text(file_bytes)
+        reader = csv.DictReader(io.StringIO(text))
+        if not reader.fieldnames:
+            raise WBRValidationError("ASIN mapping CSV must include a header row")
+
+        fieldnames = [name for name in reader.fieldnames if name]
+        child_asin_column = _resolve_column(fieldnames, CSV_IMPORT_COLUMN_ALIASES["child_asin"])
+        row_id_column = _resolve_column(fieldnames, CSV_IMPORT_COLUMN_ALIASES["mapped_row_id"])
+        row_label_column = _resolve_column(fieldnames, CSV_IMPORT_COLUMN_ALIASES["mapped_row_label"])
+
+        if not child_asin_column:
+            raise WBRValidationError("ASIN mapping CSV must include a child_asin column")
+        if not row_id_column and not row_label_column:
+            raise WBRValidationError(
+                "ASIN mapping CSV must include mapped_row_id or mapped_row_label"
+            )
+
+        active_child_asins = {
+            item["child_asin"]: item for item in self.list_child_asins(profile_id)
+        }
+        leaf_rows = self._list_leaf_rows(profile_id)
+        active_rows_by_id = {
+            str(row["id"]): row
+            for row in leaf_rows
+            if isinstance(row, dict) and row.get("id") and row.get("active") is True
+        }
+        active_rows_by_label = {
+            str(row["row_label"]).strip(): row
+            for row in active_rows_by_id.values()
+            if str(row.get("row_label") or "").strip()
+        }
+
+        seen_child_asins: set[str] = set()
+        operations: list[tuple[str, str | None]] = []
+
+        for index, row in enumerate(reader, start=2):
+            child_asin = str(row.get(child_asin_column) or "").strip().upper()
+            if not child_asin:
+                raise WBRValidationError(f"ASIN mapping CSV row {index} is missing child_asin")
+            if child_asin in seen_child_asins:
+                raise WBRValidationError(f"ASIN mapping CSV contains duplicate child_asin {child_asin}")
+            seen_child_asins.add(child_asin)
+
+            if child_asin not in active_child_asins:
+                raise WBRValidationError(
+                    f"ASIN mapping CSV row {index} references unknown active child_asin {child_asin}"
+                )
+
+            mapped_row_id = str(row.get(row_id_column) or "").strip() if row_id_column else ""
+            mapped_row_label = str(row.get(row_label_column) or "").strip() if row_label_column else ""
+
+            if mapped_row_id:
+                target_row = active_rows_by_id.get(mapped_row_id)
+                if not target_row:
+                    raise WBRValidationError(
+                        f"ASIN mapping CSV row {index} references unknown active mapped_row_id {mapped_row_id}"
+                    )
+                operations.append((child_asin, str(target_row["id"])))
+                continue
+
+            if mapped_row_label:
+                target_row = active_rows_by_label.get(mapped_row_label)
+                if not target_row:
+                    raise WBRValidationError(
+                        f'ASIN mapping CSV row {index} references unknown active mapped_row_label "{mapped_row_label}"'
+                    )
+                operations.append((child_asin, str(target_row["id"])))
+                continue
+
+            operations.append((child_asin, None))
+
+        rows_updated = 0
+        rows_cleared = 0
+        rows_unchanged = 0
+
+        for child_asin, target_row_id in operations:
+            current = self._get_active_mapping(profile_id, child_asin)
+            current_row_id = str(current.get("row_id")) if current and current.get("row_id") else None
+            if current_row_id == target_row_id:
+                rows_unchanged += 1
+                continue
+            self.set_child_asin_mapping(
+                profile_id=profile_id,
+                child_asin=child_asin,
+                row_id=target_row_id,
+                user_id=user_id,
+            )
+            if target_row_id is None:
+                rows_cleared += 1
+            else:
+                rows_updated += 1
+
+        return {
+            "rows_read": len(operations),
+            "rows_updated": rows_updated,
+            "rows_cleared": rows_cleared,
+            "rows_unchanged": rows_unchanged,
+        }
 
     def set_child_asin_mapping(
         self,
@@ -176,6 +344,21 @@ class AsinMappingService:
         if not rows:
             raise WBRNotFoundError(f"Profile {profile_id} not found")
         return rows[0]
+
+    def _validate_csv_file_name(self, file_name: str) -> None:
+        lower_name = (file_name or "").lower()
+        if not lower_name.endswith(CSV_IMPORT_ALLOWED_EXTENSIONS):
+            raise WBRValidationError("ASIN mapping import supports .csv files only")
+
+    def _list_leaf_rows(self, profile_id: str) -> list[dict[str, Any]]:
+        response = (
+            self.db.table("wbr_rows")
+            .select("*")
+            .eq("profile_id", profile_id)
+            .eq("row_kind", "leaf")
+            .execute()
+        )
+        return response.data if isinstance(response.data, list) else []
 
     def _get_child_asin(self, profile_id: str, child_asin: str) -> dict[str, Any]:
         response = (

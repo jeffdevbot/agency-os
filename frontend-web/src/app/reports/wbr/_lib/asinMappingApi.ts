@@ -25,6 +25,13 @@ export type SetWbrChildAsinMappingResult = {
   mapped_row_active: boolean | null;
 };
 
+export type ImportWbrChildAsinMappingSummary = {
+  rows_read: number;
+  rows_updated: number;
+  rows_cleared: number;
+  rows_unchanged: number;
+};
+
 const getBackendUrl = (): string => {
   const url = process.env.NEXT_PUBLIC_BACKEND_URL;
   if (!url) {
@@ -139,6 +146,65 @@ export const setWbrChildAsinMapping = async (
     }
   );
   return parseMappingResult(payload);
+};
+
+export const exportWbrChildAsinMappingCsv = async (
+  token: string,
+  profileId: string
+): Promise<Blob> => {
+  const response = await fetch(
+    `${getBackendUrl()}/admin/wbr/profiles/${profileId}/child-asins/mapping-export`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    }
+  );
+
+  if (!response.ok) {
+    const detail = await parseErrorDetail(response);
+    throw new Error(detail);
+  }
+
+  return await response.blob();
+};
+
+export const importWbrChildAsinMappingCsv = async (
+  token: string,
+  profileId: string,
+  file: File
+): Promise<ImportWbrChildAsinMappingSummary> => {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const response = await fetch(
+    `${getBackendUrl()}/admin/wbr/profiles/${profileId}/child-asins/mapping-import`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: formData,
+    }
+  );
+
+  if (!response.ok) {
+    const detail = await parseErrorDetail(response);
+    throw new Error(detail);
+  }
+
+  const payload = (await response.json()) as unknown;
+  const summary = isRecord(payload) && isRecord(payload.summary) ? payload.summary : payload;
+  if (!isRecord(summary)) {
+    throw new Error("Invalid ASIN mapping import response");
+  }
+  return {
+    rows_read: typeof summary.rows_read === "number" ? summary.rows_read : 0,
+    rows_updated: typeof summary.rows_updated === "number" ? summary.rows_updated : 0,
+    rows_cleared: typeof summary.rows_cleared === "number" ? summary.rows_cleared : 0,
+    rows_unchanged: typeof summary.rows_unchanged === "number" ? summary.rows_unchanged : 0,
+  };
 };
 
 export const buildActiveLeafRowOptions = (leafRows: WbrRow[]) => {
