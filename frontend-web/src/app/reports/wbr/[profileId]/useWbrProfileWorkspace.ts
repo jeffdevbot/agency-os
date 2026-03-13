@@ -2,8 +2,21 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getBrowserSupabaseClient } from "@/lib/supabaseClient";
-import { createWbrRow, deleteWbrRow, getWbrProfile, listWbrRows, updateWbrRow } from "../_lib/wbrApi";
-import type { RowEditState, WbrProfile, WbrRow, WbrRowKind } from "./workspaceTypes";
+import {
+  createWbrRow,
+  deleteWbrRow,
+  getWbrProfile,
+  listWbrRows,
+  updateWbrProfile,
+  updateWbrRow,
+} from "../_lib/wbrApi";
+import type {
+  ProfileIntegrationEditState,
+  RowEditState,
+  WbrProfile,
+  WbrRow,
+  WbrRowKind,
+} from "./workspaceTypes";
 
 const sortByOrderThenLabel = (a: WbrRow, b: WbrRow): number => {
   const orderCompare = a.sort_order - b.sort_order;
@@ -24,6 +37,14 @@ const buildEdits = (rows: WbrRow[]): Record<string, RowEditState> =>
     ])
   );
 
+const buildProfileIntegrationEdits = (
+  profile: WbrProfile | null
+): ProfileIntegrationEditState => ({
+  windsor_account_id: profile?.windsor_account_id ?? "",
+  amazon_ads_profile_id: profile?.amazon_ads_profile_id ?? "",
+  amazon_ads_account_id: profile?.amazon_ads_account_id ?? "",
+});
+
 export function useWbrProfileWorkspace(profileId: string) {
   const supabase = useMemo(() => getBrowserSupabaseClient(), []);
   const [loading, setLoading] = useState(true);
@@ -31,6 +52,10 @@ export function useWbrProfileWorkspace(profileId: string) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [profile, setProfile] = useState<WbrProfile | null>(null);
+  const [profileIntegrationEdits, setProfileIntegrationEdits] = useState<ProfileIntegrationEditState>(
+    buildProfileIntegrationEdits(null)
+  );
+  const [savingProfileIntegrations, setSavingProfileIntegrations] = useState(false);
   const [rows, setRows] = useState<WbrRow[]>([]);
   const [rowEdits, setRowEdits] = useState<Record<string, RowEditState>>({});
   const [savingRows, setSavingRows] = useState<Record<string, boolean>>({});
@@ -89,10 +114,12 @@ export function useWbrProfileWorkspace(profileId: string) {
         ]);
         const sortedRows = loadedRows.slice().sort(sortByOrderThenLabel);
         setProfile(loadedProfile);
+        setProfileIntegrationEdits(buildProfileIntegrationEdits(loadedProfile));
         setRows(sortedRows);
         setRowEdits(buildEdits(sortedRows));
       } catch (error) {
         setProfile(null);
+        setProfileIntegrationEdits(buildProfileIntegrationEdits(null));
         setRows([]);
         setRowEdits({});
         setErrorMessage(error instanceof Error ? error.message : "Unable to load profile workspace");
@@ -170,6 +197,44 @@ export function useWbrProfileWorkspace(profileId: string) {
         [key]: value,
       },
     }));
+  };
+
+  const updateProfileIntegrationField = <K extends keyof ProfileIntegrationEditState>(
+    key: K,
+    value: ProfileIntegrationEditState[K]
+  ) => {
+    setProfileIntegrationEdits((prev) => ({
+      ...prev,
+      [key]: value,
+    }));
+  };
+
+  const handleSaveProfileIntegrations = async () => {
+    if (!profile) {
+      setErrorMessage("Profile is not loaded.");
+      return;
+    }
+
+    setSavingProfileIntegrations(true);
+    setErrorMessage(null);
+    setSuccessMessage(null);
+
+    try {
+      const token = await getAccessToken();
+      const updatedProfile = await updateWbrProfile(token, profile.id, {
+        windsor_account_id: profileIntegrationEdits.windsor_account_id.trim() || null,
+        amazon_ads_profile_id: profileIntegrationEdits.amazon_ads_profile_id.trim() || null,
+        amazon_ads_account_id: profileIntegrationEdits.amazon_ads_account_id.trim() || null,
+      });
+
+      setProfile(updatedProfile);
+      setProfileIntegrationEdits(buildProfileIntegrationEdits(updatedProfile));
+      setSuccessMessage("Profile integrations saved.");
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Failed to save profile integrations");
+    } finally {
+      setSavingProfileIntegrations(false);
+    }
   };
 
   const handleSaveRow = async (row: WbrRow) => {
@@ -271,6 +336,8 @@ export function useWbrProfileWorkspace(profileId: string) {
     errorMessage,
     successMessage,
     profile,
+    profileIntegrationEdits,
+    savingProfileIntegrations,
     parentRows,
     activeParentRows,
     leafRows,
@@ -285,6 +352,7 @@ export function useWbrProfileWorkspace(profileId: string) {
     newRowSortOrder,
     loadWorkspace,
     handleCreateRow,
+    handleSaveProfileIntegrations,
     handleSaveRow,
     handleDeactivateRow,
     handleDeleteRowPermanently,
@@ -292,6 +360,7 @@ export function useWbrProfileWorkspace(profileId: string) {
     setCreateRowKind,
     setNewRowParentId,
     setNewRowSortOrder,
+    updateProfileIntegrationField,
     updateRowField,
   };
 }

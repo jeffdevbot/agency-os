@@ -95,6 +95,11 @@ export default function ListingsImportCard({
             <p className="mt-2 text-xs text-[#4c576f]">
               Windsor Account: <span className="font-semibold text-[#0f172a]">{windsorAccountId ?? "—"}</span>
             </p>
+            {!windsorAccountId ? (
+              <p className="mt-2 text-xs text-amber-700">
+                Save a Windsor account id in Profile Integrations above to enable this import.
+              </p>
+            ) : null}
           </div>
           <div className="md:pt-6">
             <button

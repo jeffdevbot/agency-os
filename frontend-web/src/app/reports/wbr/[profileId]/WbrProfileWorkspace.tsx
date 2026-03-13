@@ -7,6 +7,7 @@ import LeafRowsTable from "./components/LeafRowsTable";
 import ListingsImportCard from "./components/ListingsImportCard";
 import PacvueImportCard from "./components/PacvueImportCard";
 import ParentRowsTable from "./components/ParentRowsTable";
+import ProfileIntegrationsCard from "./components/ProfileIntegrationsCard";
 import ProfileSummaryCard from "./components/ProfileSummaryCard";
 import { useAsinMappings } from "./useAsinMappings";
 import { useListingImport } from "./useListingImport";
@@ -61,6 +62,13 @@ export default function WbrProfileWorkspace({ profileId }: Props) {
         </div>
 
         <ProfileSummaryCard profile={workspace.profile} />
+
+        <ProfileIntegrationsCard
+          profileIntegrationEdits={workspace.profileIntegrationEdits}
+          saving={workspace.savingProfileIntegrations}
+          onFieldChange={workspace.updateProfileIntegrationField}
+          onSave={() => void workspace.handleSaveProfileIntegrations()}
+        />
 
         {workspace.errorMessage ? (
           <p className="mt-4 rounded-xl border border-[#f87171]/40 bg-[#fee2e2] px-4 py-3 text-sm text-[#991b1b]">

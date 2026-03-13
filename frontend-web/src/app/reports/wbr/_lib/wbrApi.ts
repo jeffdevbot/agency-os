@@ -104,6 +104,17 @@ export type CreateWbrProfileRequest = {
   daily_rewrite_days: number;
 };
 
+export type UpdateWbrProfileRequest = {
+  display_name?: string | null;
+  week_start_day?: WeekStartDay | null;
+  status?: string | null;
+  windsor_account_id?: string | null;
+  amazon_ads_profile_id?: string | null;
+  amazon_ads_account_id?: string | null;
+  backfill_start_date?: string | null;
+  daily_rewrite_days?: number | null;
+};
+
 export type CreateWbrRowRequest = {
   row_label: string;
   row_kind: WbrRowKind;
@@ -401,6 +412,18 @@ export const createWbrProfile = async (
 export const getWbrProfile = async (token: string, profileId: string): Promise<WbrProfile> => {
   const payload = await requestJson<unknown>(token, `/admin/wbr/profiles/${profileId}`, {
     method: "GET",
+  });
+  return parseProfileItem(payload);
+};
+
+export const updateWbrProfile = async (
+  token: string,
+  profileId: string,
+  request: UpdateWbrProfileRequest
+): Promise<WbrProfile> => {
+  const payload = await requestJson<unknown>(token, `/admin/wbr/profiles/${profileId}`, {
+    method: "PATCH",
+    body: JSON.stringify(request),
   });
   return parseProfileItem(payload);
 };
