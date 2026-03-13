@@ -295,43 +295,69 @@ class Section2ReportService:
         return response.data if isinstance(response.data, list) else []
 
     def _list_active_campaign_mappings(self, profile_id: str) -> list[dict[str, Any]]:
-        response = (
-            self.db.table("wbr_pacvue_campaign_map")
-            .select("campaign_name,row_id")
-            .eq("profile_id", profile_id)
-            .eq("active", True)
-            .execute()
+        return self._select_all(
+            "wbr_pacvue_campaign_map",
+            "campaign_name,row_id",
+            [
+                ("eq", "profile_id", profile_id),
+                ("eq", "active", True),
+            ],
         )
-        return response.data if isinstance(response.data, list) else []
 
     def _list_active_asin_mappings(self, profile_id: str) -> list[dict[str, Any]]:
-        response = (
-            self.db.table("wbr_asin_row_map")
-            .select("child_asin,row_id")
-            .eq("profile_id", profile_id)
-            .eq("active", True)
-            .execute()
+        return self._select_all(
+            "wbr_asin_row_map",
+            "child_asin,row_id",
+            [
+                ("eq", "profile_id", profile_id),
+                ("eq", "active", True),
+            ],
         )
-        return response.data if isinstance(response.data, list) else []
 
     def _list_facts(self, profile_id: str, *, date_from: date, date_to: date) -> list[dict[str, Any]]:
-        response = (
-            self.db.table("wbr_ads_campaign_daily")
-            .select("*")
-            .eq("profile_id", profile_id)
-            .gte("report_date", date_from.isoformat())
-            .lte("report_date", date_to.isoformat())
-            .execute()
+        return self._select_all(
+            "wbr_ads_campaign_daily",
+            "*",
+            [
+                ("eq", "profile_id", profile_id),
+                ("gte", "report_date", date_from.isoformat()),
+                ("lte", "report_date", date_to.isoformat()),
+            ],
         )
-        return response.data if isinstance(response.data, list) else []
 
     def _list_business_facts(self, profile_id: str, *, date_from: date, date_to: date) -> list[dict[str, Any]]:
-        response = (
-            self.db.table("wbr_business_asin_daily")
-            .select("report_date,child_asin,sales")
-            .eq("profile_id", profile_id)
-            .gte("report_date", date_from.isoformat())
-            .lte("report_date", date_to.isoformat())
-            .execute()
+        return self._select_all(
+            "wbr_business_asin_daily",
+            "report_date,child_asin,sales",
+            [
+                ("eq", "profile_id", profile_id),
+                ("gte", "report_date", date_from.isoformat()),
+                ("lte", "report_date", date_to.isoformat()),
+            ],
         )
-        return response.data if isinstance(response.data, list) else []
+
+    def _select_all(
+        self,
+        table_name: str,
+        columns: str,
+        filters: list[tuple[str, str, Any]],
+        *,
+        page_size: int = 1000,
+    ) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        offset = 0
+
+        while True:
+            query = self.db.table(table_name).select(columns)
+            for op, field, value in filters:
+                query = getattr(query, op)(field, value)
+
+            response = query.range(offset, offset + page_size - 1).execute()
+            batch = response.data if isinstance(response.data, list) else []
+            rows.extend(batch)
+
+            if len(batch) < page_size:
+                break
+            offset += page_size
+
+        return rows
