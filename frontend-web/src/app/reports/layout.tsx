@@ -22,8 +22,11 @@ export default async function ReportsLayout({
             <span className="text-2xl font-extrabold leading-none text-[#0f172a]">Reports</span>
           </Link>
           <div className="flex items-center gap-4">
+            <Link href="/reports" className="text-sm font-semibold text-[#0a6fd6] hover:underline">
+              Clients
+            </Link>
             <Link href="/reports/wbr" className="text-sm font-semibold text-[#0a6fd6] hover:underline">
-              WBR
+              WBR Admin
             </Link>
             <Link href="/reports/wbr/setup" className="text-sm font-semibold text-[#0a6fd6] hover:underline">
               Setup New WBR

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { getBrowserSupabaseClient } from "@/lib/supabaseClient";
+import { slugifyClientName } from "../../_lib/reportClientData";
 import { createWbrProfile } from "../_lib/wbrApi";
 
 type Client = {
@@ -120,7 +121,8 @@ export default function WbrSetupPage() {
       });
 
       setSuccessMessage("WBR profile created. Redirecting to workspace...");
-      router.push(`/reports/wbr/${created.id}`);
+      const clientSlug = slugifyClientName(selectedClient?.name ?? displayName.trim());
+      router.push(`/reports/${clientSlug}/${created.marketplace_code.toLowerCase()}/wbr/settings`);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Failed to create WBR profile");
     } finally {

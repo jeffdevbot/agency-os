@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getBrowserSupabaseClient } from "@/lib/supabaseClient";
+import { slugifyClientName } from "../_lib/reportClientData";
 import { listWbrProfiles, type WbrProfile } from "./_lib/wbrApi";
 
 type Client = {
@@ -113,7 +114,7 @@ export default function WbrPage() {
       <div className="rounded-3xl bg-white/95 p-8 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur">
         <h1 className="text-2xl font-semibold text-[#0f172a]">Weekly Business Reports</h1>
         <p className="mt-2 text-sm text-[#4c576f]">
-          WBR is now profile-based. Create a profile per client and marketplace, then open its workspace.
+          Admin index for WBR profiles. The primary navigation is now client first under Reports.
         </p>
 
         <div className="mt-6 flex flex-wrap gap-3">
@@ -159,7 +160,7 @@ export default function WbrPage() {
                 <th className="px-4 py-3">Marketplace</th>
                 <th className="px-4 py-3">Week Start</th>
                 <th className="px-4 py-3">Status</th>
-                <th className="px-4 py-3">Action</th>
+                <th className="px-4 py-3">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 bg-white">
@@ -186,12 +187,20 @@ export default function WbrPage() {
                     <td className="px-4 py-3 text-[#0f172a]">{profile.week_start_day}</td>
                     <td className="px-4 py-3 text-[#0f172a]">{profile.status}</td>
                     <td className="px-4 py-3">
-                      <Link
-                        href={`/reports/wbr/${profile.id}`}
-                        className="text-sm font-semibold text-[#0a6fd6] hover:underline"
-                      >
-                        Open Workspace
-                      </Link>
+                      <div className="flex flex-wrap gap-3">
+                        <Link
+                          href={`/reports/${slugifyClientName(profile.client_name)}/${profile.marketplace_code.toLowerCase()}/wbr`}
+                          className="text-sm font-semibold text-[#0a6fd6] hover:underline"
+                        >
+                          Open WBR
+                        </Link>
+                        <Link
+                          href={`/reports/${slugifyClientName(profile.client_name)}/${profile.marketplace_code.toLowerCase()}/wbr/settings`}
+                          className="text-sm font-semibold text-[#0a6fd6] hover:underline"
+                        >
+                          Settings
+                        </Link>
+                      </div>
                     </td>
                   </tr>
                 ))

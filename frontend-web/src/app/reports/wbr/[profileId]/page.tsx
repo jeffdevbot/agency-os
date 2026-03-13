@@ -1,4 +1,4 @@
-import WbrProfileWorkspace from "./WbrProfileWorkspace";
+import ProfileIdRedirector from "../../_components/ProfileIdRedirector";
 
 type WbrProfilePageProps = {
   params: Promise<{
@@ -9,5 +9,5 @@ type WbrProfilePageProps = {
 export default async function WbrProfilePage({ params }: WbrProfilePageProps) {
   const { profileId } = await params;
 
-  return <WbrProfileWorkspace profileId={profileId} />;
+  return <ProfileIdRedirector profileId={profileId} />;
 }

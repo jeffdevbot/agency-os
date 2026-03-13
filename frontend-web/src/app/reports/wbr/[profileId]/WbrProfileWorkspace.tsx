@@ -17,9 +17,11 @@ import type { WbrRowKind } from "./workspaceTypes";
 
 type Props = {
   profileId: string;
+  clientSlug?: string;
+  marketplaceCode?: string;
 };
 
-export default function WbrProfileWorkspace({ profileId }: Props) {
+export default function WbrProfileWorkspace({ profileId, clientSlug, marketplaceCode }: Props) {
   const workspace = useWbrProfileWorkspace(profileId);
   const asinMappings = useAsinMappings(profileId);
   const listingImport = useListingImport(profileId, {
@@ -32,6 +34,12 @@ export default function WbrProfileWorkspace({ profileId }: Props) {
       await workspace.loadWorkspace(true);
     },
   });
+  const normalizedMarketplace = marketplaceCode?.toLowerCase();
+  const backHref = clientSlug ? `/reports/${clientSlug}` : "/reports/wbr";
+  const reportHref =
+    clientSlug && normalizedMarketplace
+      ? `/reports/${clientSlug}/${normalizedMarketplace}/wbr`
+      : "/reports/wbr";
 
   return (
     <main className="space-y-4">
@@ -48,16 +56,16 @@ export default function WbrProfileWorkspace({ profileId }: Props) {
             {workspace.refreshing ? "Refreshing..." : "Refresh"}
           </button>
           <Link
-            href="/reports/wbr/setup"
+            href={backHref}
             className="rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-[#0a6fd6] shadow transition hover:-translate-y-0.5 hover:shadow-lg"
           >
-            Back to Setup
+            {clientSlug ? "Back to Marketplaces" : "Back to Setup"}
           </Link>
           <Link
-            href="/reports/wbr"
+            href={reportHref}
             className="rounded-2xl bg-[#e8eefc] px-4 py-3 text-sm font-semibold text-[#0f172a] transition hover:bg-[#d7e1fb]"
           >
-            Back to WBR
+            {clientSlug ? "Open WBR" : "Back to WBR"}
           </Link>
         </div>
 

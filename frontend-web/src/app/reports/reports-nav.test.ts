@@ -3,12 +3,11 @@ import * as fs from "fs";
 import * as path from "path";
 
 describe("Reports navigation", () => {
-  it("home page contains only the WBR entry link", () => {
+  it("home page routes through the client-first reports hub", () => {
     const pagePath = path.resolve(__dirname, "page.tsx");
     const content = fs.readFileSync(pagePath, "utf-8");
 
-    expect(content).toContain('href="/reports/wbr"');
-    expect(content).toContain("WBR");
-    expect(content).not.toContain('href="/reports/wbr/setup"');
+    expect(content).toContain("ReportsClientHub");
+    expect(content).not.toContain('href="/reports/wbr"');
   });
 });
