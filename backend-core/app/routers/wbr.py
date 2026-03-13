@@ -12,6 +12,12 @@ from pydantic import BaseModel, Field
 from supabase import Client, create_client
 
 from ..auth import require_admin_user
+from ..services.wbr.amazon_ads_auth import (
+    build_authorization_url,
+    create_signed_state,
+    list_advertising_profiles,
+    refresh_access_token,
+)
 from ..services.wbr.asin_mappings import AsinMappingService
 from ..config import settings
 from ..services.wbr.listing_imports import ListingImportService
@@ -603,3 +609,132 @@ async def set_child_asin_mapping(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception:
         raise HTTPException(status_code=500, detail="Failed to save ASIN mapping")
+
+
+# ------------------------------------------------------------------
+# Amazon Ads OAuth + profile discovery
+# ------------------------------------------------------------------
+
+
+class AmazonAdsConnectRequest(BaseModel):
+    return_path: str = Field("", description="Frontend path to redirect to after OAuth")
+
+
+class SelectAmazonAdsProfileRequest(BaseModel):
+    amazon_ads_profile_id: str = Field(..., min_length=1)
+    amazon_ads_account_id: Optional[str] = None
+
+
+@router.post("/profiles/{profile_id}/amazon-ads/connect")
+async def amazon_ads_connect(
+    profile_id: str,
+    request: AmazonAdsConnectRequest,
+    user=Depends(require_admin_user),
+):
+    """Generate the LWA authorization URL for connecting Amazon Ads."""
+    svc = _get_service()
+    try:
+        svc.get_profile(profile_id)
+    except WBRNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    try:
+        state = create_signed_state(
+            profile_id=profile_id,
+            initiated_by=_user_id(user),
+            return_path=request.return_path,
+        )
+        url = build_authorization_url(state=state)
+        return {"ok": True, "authorization_url": url}
+    except WBRValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to generate Amazon Ads authorization URL")
+
+
+@router.get("/profiles/{profile_id}/amazon-ads/connection")
+async def get_amazon_ads_connection(
+    profile_id: str,
+    user=Depends(require_admin_user),
+):
+    """Check whether this profile has a stored Amazon Ads connection."""
+    svc = _get_service()
+    try:
+        svc.get_profile(profile_id)
+    except WBRNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    db = _get_supabase()
+    response = (
+        db.table("wbr_amazon_ads_connections")
+        .select("profile_id, connected_at, lwa_account_hint, created_at, updated_at")
+        .eq("profile_id", profile_id)
+        .limit(1)
+        .execute()
+    )
+    rows = response.data if isinstance(response.data, list) else []
+    if not rows:
+        return {"ok": True, "connected": False, "connection": None}
+
+    return {"ok": True, "connected": True, "connection": rows[0]}
+
+
+@router.get("/profiles/{profile_id}/amazon-ads/profiles")
+async def list_amazon_ads_profiles(
+    profile_id: str,
+    user=Depends(require_admin_user),
+):
+    """Discover available Amazon Ads advertiser profiles for this connection."""
+    svc = _get_service()
+    try:
+        svc.get_profile(profile_id)
+    except WBRNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    db = _get_supabase()
+    conn_response = (
+        db.table("wbr_amazon_ads_connections")
+        .select("amazon_ads_refresh_token")
+        .eq("profile_id", profile_id)
+        .limit(1)
+        .execute()
+    )
+    conn_rows = conn_response.data if isinstance(conn_response.data, list) else []
+    if not conn_rows:
+        raise HTTPException(status_code=400, detail="No Amazon Ads connection found. Connect first.")
+
+    refresh_token = conn_rows[0].get("amazon_ads_refresh_token", "")
+    if not refresh_token:
+        raise HTTPException(status_code=400, detail="Amazon Ads refresh token is missing")
+
+    try:
+        access_token = await refresh_access_token(refresh_token)
+        profiles = await list_advertising_profiles(access_token)
+        return {"ok": True, "profiles": profiles}
+    except WBRValidationError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to fetch Amazon Ads profiles")
+
+
+@router.post("/profiles/{profile_id}/amazon-ads/select-profile")
+async def select_amazon_ads_profile(
+    profile_id: str,
+    request: SelectAmazonAdsProfileRequest,
+    user=Depends(require_admin_user),
+):
+    """Save the chosen Amazon Ads profile/account IDs to the WBR profile."""
+    svc = _get_service()
+    try:
+        updates = {
+            "amazon_ads_profile_id": request.amazon_ads_profile_id,
+            "amazon_ads_account_id": request.amazon_ads_account_id or None,
+        }
+        profile = svc.update_profile(profile_id, updates, user_id=_user_id(user))
+        return {"ok": True, "profile": profile}
+    except WBRNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except WBRValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to save Amazon Ads profile selection")
