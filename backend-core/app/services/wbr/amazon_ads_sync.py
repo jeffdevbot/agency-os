@@ -23,17 +23,62 @@ DEFAULT_REPORT_MAX_POLLS = 100
 
 AMAZON_ADS_API_URL = "https://advertising-api.amazon.com"
 AMAZON_ADS_REPORT_CREATE_PATH = "/reporting/reports"
-AMAZON_ADS_REPORT_TYPE_ID = "spCampaigns"
-AMAZON_ADS_CAMPAIGN_TYPE = "sponsored_products"
-AMAZON_ADS_REPORT_COLUMNS = [
-    "date",
-    "campaignId",
-    "campaignName",
-    "impressions",
-    "clicks",
-    "cost",
-    "purchases7d",
-    "sales7d",
+
+
+@dataclass(frozen=True)
+class AmazonAdsReportDefinition:
+    ad_product: str
+    report_type_id: str
+    campaign_type: str
+    columns: list[str]
+
+
+AMAZON_ADS_REPORT_DEFINITIONS = [
+    AmazonAdsReportDefinition(
+        ad_product="SPONSORED_PRODUCTS",
+        report_type_id="spCampaigns",
+        campaign_type="sponsored_products",
+        columns=[
+            "date",
+            "campaignId",
+            "campaignName",
+            "impressions",
+            "clicks",
+            "cost",
+            "purchases7d",
+            "sales7d",
+        ],
+    ),
+    AmazonAdsReportDefinition(
+        ad_product="SPONSORED_BRANDS",
+        report_type_id="sbCampaigns",
+        campaign_type="sponsored_brands",
+        columns=[
+            "date",
+            "campaignId",
+            "campaignName",
+            "impressions",
+            "clicks",
+            "cost",
+            "purchases14d",
+            "sales14d",
+        ],
+    ),
+    AmazonAdsReportDefinition(
+        ad_product="SPONSORED_DISPLAY",
+        report_type_id="sdCampaigns",
+        campaign_type="sponsored_display",
+        columns=[
+            "date",
+            "campaignId",
+            "campaignName",
+            "impressions",
+            "clicks",
+            "cost",
+            "purchases14d",
+            "sales14d",
+        ],
+    ),
 ]
 
 
@@ -122,6 +167,14 @@ def _api_client_id() -> str:
     if not value:
         raise WBRValidationError("AMAZON_ADS_CLIENT_ID is not configured")
     return value
+
+
+def _extract_first_present(row: dict[str, Any], *field_names: str) -> Any:
+    for field_name in field_names:
+        value = row.get(field_name)
+        if value not in (None, ""):
+            return value
+    return None
 
 
 class AmazonAdsSyncService:
@@ -236,10 +289,15 @@ class AmazonAdsSyncService:
             date_to=date_to,
             request_meta={
                 "amazon_ads_profile_id": amazon_ads_profile_id,
-                "ad_product": "SPONSORED_PRODUCTS",
-                "report_type_id": AMAZON_ADS_REPORT_TYPE_ID,
-                "columns": AMAZON_ADS_REPORT_COLUMNS,
-                "attribution_window": "7d",
+                "report_definitions": [
+                    {
+                        "ad_product": definition.ad_product,
+                        "report_type_id": definition.report_type_id,
+                        "campaign_type": definition.campaign_type,
+                        "columns": definition.columns,
+                    }
+                    for definition in AMAZON_ADS_REPORT_DEFINITIONS
+                ],
             },
             user_id=user_id,
         )
@@ -310,20 +368,37 @@ class AmazonAdsSyncService:
         date_to: date,
     ) -> list[dict[str, Any]]:
         access_token = await refresh_access_token(refresh_token)
-        report_id = await self._create_campaign_report(
-            access_token=access_token,
-            amazon_ads_profile_id=amazon_ads_profile_id,
-            date_from=date_from,
-            date_to=date_to,
-        )
-        report = await self._wait_for_report(
-            access_token=access_token,
-            amazon_ads_profile_id=amazon_ads_profile_id,
-            report_id=report_id,
-        )
-        if not report.location:
-            raise WBRValidationError("Amazon Ads report completed without a download location")
-        return await self._download_report_rows(report.location)
+        rows: list[dict[str, Any]] = []
+        for definition in AMAZON_ADS_REPORT_DEFINITIONS:
+            report_id = await self._create_campaign_report(
+                access_token=access_token,
+                amazon_ads_profile_id=amazon_ads_profile_id,
+                date_from=date_from,
+                date_to=date_to,
+                report_definition=definition,
+            )
+            report = await self._wait_for_report(
+                access_token=access_token,
+                amazon_ads_profile_id=amazon_ads_profile_id,
+                report_id=report_id,
+            )
+            if not report.location:
+                raise WBRValidationError(
+                    f"Amazon Ads {definition.campaign_type} report completed without a download location"
+                )
+            product_rows = await self._download_report_rows(report.location)
+            rows.extend(
+                [
+                    {
+                        **row,
+                        "__campaign_type": definition.campaign_type,
+                        "__ad_product": definition.ad_product,
+                        "__report_type_id": definition.report_type_id,
+                    }
+                    for row in product_rows
+                ]
+            )
+        return rows
 
     async def _create_campaign_report(
         self,
@@ -332,16 +407,20 @@ class AmazonAdsSyncService:
         amazon_ads_profile_id: str,
         date_from: date,
         date_to: date,
+        report_definition: AmazonAdsReportDefinition,
     ) -> str:
         payload = {
-            "name": f"WBR SP Campaigns {date_from.isoformat()} to {date_to.isoformat()}",
+            "name": (
+                f"WBR {report_definition.campaign_type} {date_from.isoformat()} "
+                f"to {date_to.isoformat()}"
+            ),
             "startDate": date_from.isoformat(),
             "endDate": date_to.isoformat(),
             "configuration": {
-                "adProduct": "SPONSORED_PRODUCTS",
+                "adProduct": report_definition.ad_product,
                 "groupBy": ["campaign"],
-                "columns": AMAZON_ADS_REPORT_COLUMNS,
-                "reportTypeId": AMAZON_ADS_REPORT_TYPE_ID,
+                "columns": report_definition.columns,
+                "reportTypeId": report_definition.report_type_id,
                 "timeUnit": "DAILY",
                 "format": "GZIP_JSON",
             },
@@ -456,7 +535,7 @@ class AmazonAdsSyncService:
         *,
         marketplace_code: str,
     ) -> list[AggregatedAdsFact]:
-        by_key: dict[tuple[date, str], AggregatedAdsFact] = {}
+        by_key: dict[tuple[date, str, str], AggregatedAdsFact] = {}
 
         for row in rows:
             date_text = self._extract_report_date_text(row)
@@ -470,6 +549,7 @@ class AmazonAdsSyncService:
                 raise WBRValidationError(f'Invalid Amazon Ads report date "{date_text}"') from exc
 
             campaign_id = self._extract_campaign_id(row)
+            campaign_type = str(row.get("__campaign_type") or "sponsored_products").strip() or "sponsored_products"
             currency_code = (
                 str(
                     row.get("currencyCode")
@@ -485,17 +565,37 @@ class AmazonAdsSyncService:
                 report_date=report_date,
                 campaign_id=campaign_id,
                 campaign_name=campaign_name,
-                campaign_type=AMAZON_ADS_CAMPAIGN_TYPE,
+                campaign_type=campaign_type,
                 impressions=_parse_int(row.get("impressions")),
                 clicks=_parse_int(row.get("clicks")),
                 spend=_parse_decimal(row.get("cost") or row.get("spend")),
-                orders=_parse_int(row.get("purchases7d") or row.get("orders")),
-                sales=_parse_decimal(row.get("sales7d") or row.get("sales")),
+                orders=_parse_int(
+                    _extract_first_present(
+                        row,
+                        "purchases7d",
+                        "purchases14d",
+                        "orders",
+                        "attributedConversions14d",
+                        "attributedConversions7d",
+                        "conversions14d",
+                        "conversions7d",
+                    )
+                ),
+                sales=_parse_decimal(
+                    _extract_first_present(
+                        row,
+                        "sales7d",
+                        "sales14d",
+                        "sales",
+                        "attributedSales14d",
+                        "attributedSales7d",
+                    )
+                ),
                 currency_code=currency_code,
                 source_payload=row,
             )
 
-            key = (report_date, campaign_name)
+            key = (report_date, campaign_name, campaign_type)
             existing = by_key.get(key)
             if existing is None:
                 by_key[key] = fact
@@ -533,7 +633,10 @@ class AmazonAdsSyncService:
                 source_payload=merged_payload,
             )
 
-        return sorted(by_key.values(), key=lambda item: (item.report_date, item.campaign_name.lower()))
+        return sorted(
+            by_key.values(),
+            key=lambda item: (item.report_date, item.campaign_type, item.campaign_name.lower()),
+        )
 
     def _extract_report_date_text(self, row: dict[str, Any]) -> str:
         for value in (

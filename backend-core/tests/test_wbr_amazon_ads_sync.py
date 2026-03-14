@@ -91,6 +91,46 @@ def test_aggregate_rows_accepts_numeric_dates_and_nested_campaign_shape():
     assert facts[0].sales == Decimal("15.00")
 
 
+def test_aggregate_rows_keeps_ad_products_distinct_and_parses_14d_metrics():
+    svc = AmazonAdsSyncService(MagicMock())
+
+    facts = svc._aggregate_rows(
+        [
+            {
+                "date": "2026-03-02",
+                "campaignId": "111",
+                "campaignName": "Brand Campaign",
+                "impressions": "100",
+                "clicks": "10",
+                "cost": "12.34",
+                "purchases14d": "2",
+                "sales14d": "44.56",
+                "__campaign_type": "sponsored_brands",
+            },
+            {
+                "date": "2026-03-02",
+                "campaignId": "222",
+                "campaignName": "Brand Campaign",
+                "impressions": "50",
+                "clicks": "4",
+                "cost": "1.66",
+                "purchases14d": "1",
+                "sales14d": "20.00",
+                "__campaign_type": "sponsored_display",
+            },
+        ],
+        marketplace_code="US",
+    )
+
+    assert len(facts) == 2
+    assert facts[0].campaign_type == "sponsored_brands"
+    assert facts[0].orders == 2
+    assert facts[0].sales == Decimal("44.56")
+    assert facts[1].campaign_type == "sponsored_display"
+    assert facts[1].orders == 1
+    assert facts[1].sales == Decimal("20.00")
+
+
 def test_preview_helpers_capture_first_row_shape():
     svc = AmazonAdsSyncService(MagicMock())
 
