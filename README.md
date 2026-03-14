@@ -55,7 +55,7 @@ Each doc includes the UX and backend contracts for its domain. Use `docs/db/sche
 |---------|------|---------|
 | `frontend-web` | Next.js | Web UI at tools.ecomlabs.ca |
 | `backend-core` | FastAPI | API endpoints, integrations |
-| `worker-sync` | Background | Render background worker (planned; no code in this repo yet) |
+| `worker-sync` | Background | Render background worker for nightly WBR refresh jobs and future long-running sync work |
 
 All services are deployed on Render. See `docs/archive/non_agencyclaw/00_agency_os_architecture.md` for details.
 

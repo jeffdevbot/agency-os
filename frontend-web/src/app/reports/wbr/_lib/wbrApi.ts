@@ -13,6 +13,8 @@ export type WbrProfile = {
   amazon_ads_account_id: string | null;
   backfill_start_date: string | null;
   daily_rewrite_days: number;
+  sp_api_auto_sync_enabled: boolean;
+  ads_api_auto_sync_enabled: boolean;
   created_at: string | null;
   updated_at: string | null;
 };
@@ -102,6 +104,8 @@ export type CreateWbrProfileRequest = {
   amazon_ads_account_id?: string | null;
   backfill_start_date?: string | null;
   daily_rewrite_days: number;
+  sp_api_auto_sync_enabled?: boolean;
+  ads_api_auto_sync_enabled?: boolean;
 };
 
 export type UpdateWbrProfileRequest = {
@@ -113,6 +117,8 @@ export type UpdateWbrProfileRequest = {
   amazon_ads_account_id?: string | null;
   backfill_start_date?: string | null;
   daily_rewrite_days?: number | null;
+  sp_api_auto_sync_enabled?: boolean | null;
+  ads_api_auto_sync_enabled?: boolean | null;
 };
 
 export type CreateWbrRowRequest = {
@@ -210,6 +216,8 @@ const parseProfile = (value: unknown): WbrProfile => {
     amazon_ads_account_id: asNullableString(value.amazon_ads_account_id),
     backfill_start_date: asNullableString(value.backfill_start_date),
     daily_rewrite_days: asNumber(value.daily_rewrite_days),
+    sp_api_auto_sync_enabled: asBoolean(value.sp_api_auto_sync_enabled),
+    ads_api_auto_sync_enabled: asBoolean(value.ads_api_auto_sync_enabled),
     created_at: asNullableString(value.created_at),
     updated_at: asNullableString(value.updated_at),
   };

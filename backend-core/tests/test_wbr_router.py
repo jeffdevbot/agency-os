@@ -64,3 +64,20 @@ def test_update_profile_preserves_explicit_null_field(monkeypatch):
     assert fake_service.profile_updates is not None
     assert "windsor_account_id" in fake_service.profile_updates["updates"]
     assert fake_service.profile_updates["updates"]["windsor_account_id"] is None
+
+
+def test_update_profile_preserves_explicit_false_boolean(monkeypatch):
+    fake_service = _FakeWbrService()
+    monkeypatch.setattr(wbr, "_get_service", lambda: fake_service)
+    app.dependency_overrides[wbr.require_admin_user] = _override_admin
+
+    try:
+      with TestClient(app) as client:
+          response = client.patch("/admin/wbr/profiles/profile-1", json={"sp_api_auto_sync_enabled": False})
+    finally:
+      app.dependency_overrides.pop(wbr.require_admin_user, None)
+
+    assert response.status_code == 200
+    assert fake_service.profile_updates is not None
+    assert "sp_api_auto_sync_enabled" in fake_service.profile_updates["updates"]
+    assert fake_service.profile_updates["updates"]["sp_api_auto_sync_enabled"] is False

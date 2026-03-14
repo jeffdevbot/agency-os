@@ -1,8 +1,11 @@
 "use client";
 
 import Link from "next/link";
+import { useCallback, useMemo, useState } from "react";
 import { useResolvedWbrProfile } from "../_lib/useResolvedWbrProfile";
 import { useWbrSync } from "../_lib/useWbrSync";
+import { updateWbrProfile } from "../wbr/_lib/wbrApi";
+import { getBrowserSupabaseClient } from "@/lib/supabaseClient";
 
 type Props = {
   clientSlug: string;
@@ -32,6 +35,35 @@ export default function WbrSyncScreen({ clientSlug, marketplaceCode }: Props) {
   const resolved = useResolvedWbrProfile(clientSlug, marketplaceCode);
   const sync = useWbrSync(resolved.profile);
   const normalizedMarketplace = marketplaceCode.toLowerCase();
+  const supabase = useMemo(() => getBrowserSupabaseClient(), []);
+  const [toggleSaving, setToggleSaving] = useState(false);
+  const [toggleMessage, setToggleMessage] = useState<string | null>(null);
+  const [toggleError, setToggleError] = useState<string | null>(null);
+
+  const handleToggleNightlySync = useCallback(async () => {
+    if (!resolved.profile?.id) return;
+    setToggleSaving(true);
+    setToggleError(null);
+    setToggleMessage(null);
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        throw new Error("Please sign in again.");
+      }
+      const nextEnabled = !resolved.profile.sp_api_auto_sync_enabled;
+      await updateWbrProfile(session.access_token, resolved.profile.id, {
+        sp_api_auto_sync_enabled: nextEnabled,
+      });
+      await resolved.loadRoute();
+      setToggleMessage(nextEnabled ? "Nightly SP-API sync enabled." : "Nightly SP-API sync disabled.");
+    } catch (error) {
+      setToggleError(error instanceof Error ? error.message : "Failed to update nightly SP-API sync");
+    } finally {
+      setToggleSaving(false);
+    }
+  }, [resolved, supabase]);
 
   if (resolved.loading) {
     return (
@@ -63,7 +95,7 @@ export default function WbrSyncScreen({ clientSlug, marketplaceCode }: Props) {
           {resolved.summary.client.name} {resolved.profile.marketplace_code} SP-API Sync
         </h1>
         <p className="mt-2 text-sm text-[#4c576f]">
-          Backfill business data via Windsor.ai or run the daily rewrite window refresh for this profile.
+          Backfill business data via Windsor.ai and control the nightly trailing-window refresh for this profile.
         </p>
 
         <div className="mt-6 flex flex-wrap gap-3">
@@ -117,9 +149,21 @@ export default function WbrSyncScreen({ clientSlug, marketplaceCode }: Props) {
           </p>
         ) : null}
 
+        {toggleError ? (
+          <p className="mt-4 rounded-xl border border-[#f87171]/40 bg-[#fee2e2] px-4 py-3 text-sm text-[#991b1b]">
+            {toggleError}
+          </p>
+        ) : null}
+
         {sync.errorMessage ? (
           <p className="mt-4 rounded-xl border border-[#f87171]/40 bg-[#fee2e2] px-4 py-3 text-sm text-[#991b1b]">
             {sync.errorMessage}
+          </p>
+        ) : null}
+
+        {toggleMessage ? (
+          <p className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+            {toggleMessage}
           </p>
         ) : null}
 
@@ -176,17 +220,46 @@ export default function WbrSyncScreen({ clientSlug, marketplaceCode }: Props) {
           </div>
 
           <div className="rounded-2xl border border-slate-200 bg-white p-5">
-            <p className="text-sm font-semibold text-[#0f172a]">Daily Refresh</p>
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm font-semibold text-[#0f172a]">Nightly Refresh</p>
+              <span
+                className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${
+                  resolved.profile.sp_api_auto_sync_enabled
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                    : "border-slate-200 bg-slate-50 text-slate-700"
+                }`}
+              >
+                {resolved.profile.sp_api_auto_sync_enabled ? "Enabled" : "Disabled"}
+              </span>
+            </div>
             <p className="mt-1 text-sm text-[#4c576f]">
-              Rewrite the profile&apos;s trailing {resolved.profile.daily_rewrite_days}-day SP-API window to catch late business-data changes.
+              When enabled, `worker-sync` rewrites the trailing {resolved.profile.daily_rewrite_days}-day SP-API window every night to catch late business-data changes.
             </p>
-            <button
-              onClick={() => void sync.handleRunDailyRefresh()}
-              disabled={!resolved.profile.windsor_account_id || sync.runningBackfill || sync.runningDailyRefresh}
-              className="mt-4 rounded-2xl bg-[#0a6fd6] px-4 py-3 text-sm font-semibold text-white shadow-[0_15px_30px_rgba(10,111,214,0.35)] transition hover:bg-[#0959ab] disabled:cursor-not-allowed disabled:bg-[#b7cbea]"
-            >
-              {sync.runningDailyRefresh ? "Running Daily Refresh..." : "Run Daily Refresh"}
-            </button>
+            <div className="mt-4 flex flex-wrap gap-3">
+              <button
+                onClick={() => void handleToggleNightlySync()}
+                disabled={
+                  (!resolved.profile.windsor_account_id && !resolved.profile.sp_api_auto_sync_enabled) ||
+                  toggleSaving ||
+                  sync.runningBackfill ||
+                  sync.runningDailyRefresh
+                }
+                className="rounded-2xl bg-[#0a6fd6] px-4 py-3 text-sm font-semibold text-white shadow-[0_15px_30px_rgba(10,111,214,0.35)] transition hover:bg-[#0959ab] disabled:cursor-not-allowed disabled:bg-[#b7cbea]"
+              >
+                {toggleSaving
+                  ? "Saving..."
+                  : resolved.profile.sp_api_auto_sync_enabled
+                    ? "Disable Nightly Sync"
+                    : "Enable Nightly Sync"}
+              </button>
+              <button
+                onClick={() => void sync.handleRunDailyRefresh()}
+                disabled={!resolved.profile.windsor_account_id || toggleSaving || sync.runningBackfill || sync.runningDailyRefresh}
+                className="rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-[#0a6fd6] shadow transition hover:-translate-y-0.5 hover:shadow-lg disabled:cursor-not-allowed disabled:text-slate-400"
+              >
+                {sync.runningDailyRefresh ? "Running Manual Refresh..." : "Run Manual Refresh"}
+              </button>
+            </div>
           </div>
         </div>
       </div>

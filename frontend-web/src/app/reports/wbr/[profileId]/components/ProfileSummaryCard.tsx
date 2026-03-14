@@ -37,6 +37,14 @@ export default function ProfileSummaryCard({ profile }: Props) {
         <p>
           <span className="font-semibold text-[#0f172a]">Daily Rewrite Days:</span> {profile.daily_rewrite_days}
         </p>
+        <p>
+          <span className="font-semibold text-[#0f172a]">Nightly SP-API Sync:</span>{" "}
+          {profile.sp_api_auto_sync_enabled ? "Enabled" : "Disabled"}
+        </p>
+        <p>
+          <span className="font-semibold text-[#0f172a]">Nightly Ads Sync:</span>{" "}
+          {profile.ads_api_auto_sync_enabled ? "Enabled" : "Disabled"}
+        </p>
       </div>
     </div>
   );

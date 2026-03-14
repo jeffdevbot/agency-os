@@ -98,6 +98,8 @@ class CreateProfileRequest(BaseModel):
     amazon_ads_account_id: Optional[str] = None
     backfill_start_date: Optional[str] = None
     daily_rewrite_days: int = Field(14, ge=1, le=60)
+    sp_api_auto_sync_enabled: bool = False
+    ads_api_auto_sync_enabled: bool = False
 
 
 class UpdateProfileRequest(BaseModel):
@@ -109,6 +111,8 @@ class UpdateProfileRequest(BaseModel):
     amazon_ads_account_id: Optional[str] = None
     backfill_start_date: Optional[str] = None
     daily_rewrite_days: Optional[int] = Field(None, ge=1, le=60)
+    sp_api_auto_sync_enabled: Optional[bool] = None
+    ads_api_auto_sync_enabled: Optional[bool] = None
 
 
 class CreateRowRequest(BaseModel):

@@ -6,6 +6,7 @@ import { getBrowserSupabaseClient } from "@/lib/supabaseClient";
 import { useResolvedWbrProfile } from "../_lib/useResolvedWbrProfile";
 import { useWbrAdsSync } from "../_lib/useWbrAdsSync";
 import { useWbrSection2Report } from "../_lib/useWbrSection2Report";
+import { updateWbrProfile } from "../wbr/_lib/wbrApi";
 import {
   getAmazonAdsConnectUrl,
   getAmazonAdsConnectionStatus,
@@ -54,6 +55,9 @@ export default function WbrAdsSyncScreen({ clientSlug, marketplaceCode }: Props)
   const [adsProfiles, setAdsProfiles] = useState<AmazonAdsAdvertiserProfile[]>([]);
   const [adsLoadingProfiles, setAdsLoadingProfiles] = useState(false);
   const [adsSelectingProfile, setAdsSelectingProfile] = useState(false);
+  const [toggleSaving, setToggleSaving] = useState(false);
+  const [toggleMessage, setToggleMessage] = useState<string | null>(null);
+  const [toggleError, setToggleError] = useState<string | null>(null);
 
   const getToken = useCallback(async (): Promise<string> => {
     const { data: { session } } = await supabase.auth.getSession();
@@ -136,6 +140,26 @@ export default function WbrAdsSyncScreen({ clientSlug, marketplaceCode }: Props)
     }
   }, [getToken, resolved.profile?.id]);
 
+  const handleToggleNightlySync = useCallback(async () => {
+    if (!resolved.profile?.id) return;
+    setToggleSaving(true);
+    setToggleError(null);
+    setToggleMessage(null);
+    try {
+      const token = await getToken();
+      const nextEnabled = !resolved.profile.ads_api_auto_sync_enabled;
+      await updateWbrProfile(token, resolved.profile.id, {
+        ads_api_auto_sync_enabled: nextEnabled,
+      });
+      await resolved.loadRoute();
+      setToggleMessage(nextEnabled ? "Nightly Ads API sync enabled." : "Nightly Ads API sync disabled.");
+    } catch (error) {
+      setToggleError(error instanceof Error ? error.message : "Failed to update nightly Ads API sync");
+    } finally {
+      setToggleSaving(false);
+    }
+  }, [getToken, resolved]);
+
   if (resolved.loading) {
     return (
       <main className="space-y-4">
@@ -166,7 +190,7 @@ export default function WbrAdsSyncScreen({ clientSlug, marketplaceCode }: Props)
           {resolved.summary.client.name} {resolved.profile.marketplace_code} Ads API Sync
         </h1>
         <p className="mt-2 text-sm text-[#4c576f]">
-          Connect to Amazon Ads and sync campaign performance data for WBR Section 2.
+          Connect to Amazon Ads and control the nightly campaign refresh used for WBR Section 2.
         </p>
 
         <div className="mt-6 flex flex-wrap gap-3">
@@ -204,9 +228,21 @@ export default function WbrAdsSyncScreen({ clientSlug, marketplaceCode }: Props)
           </p>
         ) : null}
 
+        {toggleError ? (
+          <p className="mt-4 rounded-xl border border-[#f87171]/40 bg-[#fee2e2] px-4 py-3 text-sm text-[#991b1b]">
+            {toggleError}
+          </p>
+        ) : null}
+
         {sync.errorMessage ? (
           <p className="mt-4 rounded-xl border border-[#f87171]/40 bg-[#fee2e2] px-4 py-3 text-sm text-[#991b1b]">
             {sync.errorMessage}
+          </p>
+        ) : null}
+
+        {toggleMessage ? (
+          <p className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+            {toggleMessage}
           </p>
         ) : null}
 
@@ -398,7 +434,7 @@ export default function WbrAdsSyncScreen({ clientSlug, marketplaceCode }: Props)
             <div className="rounded-2xl border border-slate-200 bg-white p-5">
               <p className="text-sm font-semibold text-[#0f172a]">Historical Backfill</p>
               <p className="mt-1 text-sm text-[#4c576f]">
-                Backfill daily Sponsored Products campaign facts in date chunks so we can validate weekly ad totals.
+                Backfill daily Sponsored Products, Sponsored Brands, and Sponsored Display campaign facts in date chunks so we can validate weekly ad totals.
               </p>
               <div className="mt-4 grid gap-3 md:grid-cols-3">
                 <label className="text-sm">
@@ -441,17 +477,46 @@ export default function WbrAdsSyncScreen({ clientSlug, marketplaceCode }: Props)
             </div>
 
             <div className="rounded-2xl border border-slate-200 bg-white p-5">
-              <p className="text-sm font-semibold text-[#0f172a]">Daily Refresh</p>
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-semibold text-[#0f172a]">Nightly Refresh</p>
+                <span
+                  className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${
+                    resolved.profile.ads_api_auto_sync_enabled
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                      : "border-slate-200 bg-slate-50 text-slate-700"
+                  }`}
+                >
+                  {resolved.profile.ads_api_auto_sync_enabled ? "Enabled" : "Disabled"}
+                </span>
+              </div>
               <p className="mt-1 text-sm text-[#4c576f]">
-                Rewrite the profile&apos;s trailing {resolved.profile.daily_rewrite_days}-day Amazon Ads window to catch late attribution and report changes.
+                When enabled, `worker-sync` rewrites the trailing {resolved.profile.daily_rewrite_days}-day Amazon Ads window every night to catch late attribution and reporting changes.
               </p>
-              <button
-                onClick={() => void sync.handleRunDailyRefresh()}
-                disabled={sync.runningBackfill || sync.runningDailyRefresh}
-                className="mt-4 rounded-2xl bg-[#0a6fd6] px-4 py-3 text-sm font-semibold text-white shadow-[0_15px_30px_rgba(10,111,214,0.35)] transition hover:bg-[#0959ab] disabled:cursor-not-allowed disabled:bg-[#b7cbea]"
-              >
-                {sync.runningDailyRefresh ? "Running Daily Refresh..." : "Run Daily Refresh"}
-              </button>
+              <div className="mt-4 flex flex-wrap gap-3">
+                <button
+                  onClick={() => void handleToggleNightlySync()}
+                  disabled={
+                    (!resolved.profile.amazon_ads_profile_id && !resolved.profile.ads_api_auto_sync_enabled) ||
+                    toggleSaving ||
+                    sync.runningBackfill ||
+                    sync.runningDailyRefresh
+                  }
+                  className="rounded-2xl bg-[#0a6fd6] px-4 py-3 text-sm font-semibold text-white shadow-[0_15px_30px_rgba(10,111,214,0.35)] transition hover:bg-[#0959ab] disabled:cursor-not-allowed disabled:bg-[#b7cbea]"
+                >
+                  {toggleSaving
+                    ? "Saving..."
+                    : resolved.profile.ads_api_auto_sync_enabled
+                      ? "Disable Nightly Sync"
+                      : "Enable Nightly Sync"}
+                </button>
+                <button
+                  onClick={() => void sync.handleRunDailyRefresh()}
+                  disabled={!resolved.profile.amazon_ads_profile_id || toggleSaving || sync.runningBackfill || sync.runningDailyRefresh}
+                  className="rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-[#0a6fd6] shadow transition hover:-translate-y-0.5 hover:shadow-lg disabled:cursor-not-allowed disabled:text-slate-400"
+                >
+                  {sync.runningDailyRefresh ? "Running Manual Refresh..." : "Run Manual Refresh"}
+                </button>
+              </div>
             </div>
           </div>
         </div>

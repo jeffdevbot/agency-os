@@ -155,11 +155,11 @@ export function useWbrAdsSync(profile: WbrProfile | null) {
       const token = await getAccessToken();
       const result = await runAmazonAdsDailyRefresh(token, profile.id);
       setSuccessMessage(
-        `Daily refresh loaded ${result.chunk.rows_loaded} daily campaign facts for ${result.date_from} to ${result.date_to}.`,
+        `Manual refresh loaded ${result.chunk.rows_loaded} daily campaign facts for ${result.date_from} to ${result.date_to}.`,
       );
       await loadRuns(true);
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Failed to run Amazon Ads daily refresh");
+      setErrorMessage(error instanceof Error ? error.message : "Failed to run Amazon Ads manual refresh");
     } finally {
       setRunningDailyRefresh(false);
     }
