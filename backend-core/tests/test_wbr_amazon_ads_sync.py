@@ -91,7 +91,7 @@ def test_aggregate_rows_accepts_numeric_dates_and_nested_campaign_shape():
     assert facts[0].sales == Decimal("15.00")
 
 
-def test_aggregate_rows_keeps_ad_products_distinct_and_parses_14d_metrics():
+def test_aggregate_rows_keeps_ad_products_distinct_and_parses_brands_and_display_metrics():
     svc = AmazonAdsSyncService(MagicMock())
 
     facts = svc._aggregate_rows(
@@ -103,8 +103,8 @@ def test_aggregate_rows_keeps_ad_products_distinct_and_parses_14d_metrics():
                 "impressions": "100",
                 "clicks": "10",
                 "cost": "12.34",
-                "purchases14d": "2",
-                "sales14d": "44.56",
+                "purchases": "2",
+                "sales": "44.56",
                 "__campaign_type": "sponsored_brands",
             },
             {
@@ -114,8 +114,8 @@ def test_aggregate_rows_keeps_ad_products_distinct_and_parses_14d_metrics():
                 "impressions": "50",
                 "clicks": "4",
                 "cost": "1.66",
-                "purchases14d": "1",
-                "sales14d": "20.00",
+                "purchases": "1",
+                "sales": "20.00",
                 "__campaign_type": "sponsored_display",
             },
         ],
