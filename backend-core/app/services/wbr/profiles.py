@@ -109,6 +109,7 @@ class WBRProfileService:
 
     def create_profile(self, payload: dict[str, Any], user_id: str | None = None) -> dict[str, Any]:
         _normalize_marketplace_code(payload)
+        _promote_draft_to_active_for_auto_sync(payload)
         _validate_profile_fields(payload)
 
         # Check uniqueness on (client_id, marketplace_code)
@@ -139,9 +140,10 @@ class WBRProfileService:
         return rows[0]
 
     def update_profile(self, profile_id: str, updates: dict[str, Any], user_id: str | None = None) -> dict[str, Any]:
-        self.get_profile(profile_id)
+        existing = self.get_profile(profile_id)
 
         _normalize_marketplace_code(updates)
+        _promote_draft_to_active_for_auto_sync(updates, existing)
         _validate_profile_fields(updates)
 
         if user_id:
@@ -376,3 +378,22 @@ def _validate_profile_fields(payload: dict[str, Any]) -> None:
         raise WBRValidationError(
             f"status must be one of: {', '.join(sorted(VALID_STATUSES))}"
         )
+
+
+def _promote_draft_to_active_for_auto_sync(
+    payload: dict[str, Any],
+    existing: dict[str, Any] | None = None,
+) -> None:
+    if payload.get("status") is not None:
+        return
+
+    enabling_auto_sync = (
+        payload.get("sp_api_auto_sync_enabled") is True
+        or payload.get("ads_api_auto_sync_enabled") is True
+    )
+    if not enabling_auto_sync:
+        return
+
+    current_status = str(existing.get("status") if existing else payload.get("status") or "draft")
+    if current_status == "draft":
+        payload["status"] = "active"

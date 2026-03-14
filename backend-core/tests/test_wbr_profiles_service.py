@@ -178,6 +178,25 @@ class TestCreateProfile:
         with pytest.raises(WBRValidationError, match="already exists"):
             svc.create_profile({"client_id": "c1", "marketplace_code": "US", "display_name": "US"})
 
+    def test_enabling_auto_sync_on_create_promotes_draft_to_active(self):
+        created = {"id": "p1", "status": "active", "sp_api_auto_sync_enabled": True}
+        db = _rotating_db(
+            "wbr_profiles",
+            _chain_table([]),  # uniqueness check
+            _chain_table([created]),  # insert
+        )
+        svc = WBRProfileService(db)
+        payload = {
+            "client_id": "c1",
+            "marketplace_code": "US",
+            "display_name": "US",
+            "sp_api_auto_sync_enabled": True,
+        }
+
+        svc.create_profile(payload)
+
+        assert payload["status"] == "active"
+
 
 class TestUpdateProfile:
     def test_updates_and_returns(self):
@@ -206,6 +225,48 @@ class TestUpdateProfile:
         updates = {"marketplace_code": "uk"}
         svc.update_profile("p1", updates)
         assert updates["marketplace_code"] == "UK"
+
+    def test_enabling_sp_auto_sync_promotes_draft_profile_to_active(self):
+        db = _rotating_db(
+            "wbr_profiles",
+            _chain_table([{"id": "p1", "status": "draft"}]),  # get
+            _chain_table([{"id": "p1", "status": "active", "sp_api_auto_sync_enabled": True}]),  # update
+        )
+        svc = WBRProfileService(db)
+        updates = {"sp_api_auto_sync_enabled": True}
+
+        result = svc.update_profile("p1", updates)
+
+        assert updates["status"] == "active"
+        assert result["status"] == "active"
+
+    def test_enabling_ads_auto_sync_promotes_draft_profile_to_active(self):
+        db = _rotating_db(
+            "wbr_profiles",
+            _chain_table([{"id": "p1", "status": "draft"}]),  # get
+            _chain_table([{"id": "p1", "status": "active", "ads_api_auto_sync_enabled": True}]),  # update
+        )
+        svc = WBRProfileService(db)
+        updates = {"ads_api_auto_sync_enabled": True}
+
+        result = svc.update_profile("p1", updates)
+
+        assert updates["status"] == "active"
+        assert result["status"] == "active"
+
+    def test_enabling_auto_sync_does_not_unpause_profile(self):
+        db = _rotating_db(
+            "wbr_profiles",
+            _chain_table([{"id": "p1", "status": "paused"}]),  # get
+            _chain_table([{"id": "p1", "status": "paused", "sp_api_auto_sync_enabled": True}]),  # update
+        )
+        svc = WBRProfileService(db)
+        updates = {"sp_api_auto_sync_enabled": True}
+
+        result = svc.update_profile("p1", updates)
+
+        assert "status" not in updates
+        assert result["status"] == "paused"
 
 
 # ==================================================================
