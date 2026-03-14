@@ -20,6 +20,50 @@ export type AmazonAdsAdvertiserProfile = {
 
 export type WbrSyncRunStatus = "running" | "success" | "error";
 export type WbrSyncJobType = "backfill" | "daily_refresh" | "manual_rerun" | "import";
+export type AmazonAdsReportJobStatus = "pending" | "processing" | "completed" | "failed";
+export type AmazonAdsReportProgressPhase =
+  | "queued"
+  | "polling"
+  | "ready_to_finalize"
+  | "completed"
+  | "failed"
+  | "unknown";
+
+export type AmazonAdsReportJob = {
+  report_id: string;
+  status: AmazonAdsReportJobStatus;
+  poll_attempts: number;
+  next_poll_at: string | null;
+  location: string | null;
+  status_detail: string | null;
+  campaign_type: string;
+  ad_product: string;
+  report_type_id: string;
+  columns: string[];
+};
+
+export type AmazonAdsReportProgress = {
+  phase: AmazonAdsReportProgressPhase;
+  summary: string;
+  total_jobs: number;
+  pending_jobs: number;
+  processing_jobs: number;
+  completed_jobs: number;
+  failed_jobs: number;
+  next_poll_at: string | null;
+};
+
+export type WbrSyncRunRequestMeta = {
+  async_reports_v1: boolean;
+  amazon_ads_profile_id: string | null;
+  marketplace_code: string | null;
+  queued_at: string | null;
+  finalized_at: string | null;
+  last_worker_error: string | null;
+  last_worker_error_at: string | null;
+  report_jobs: AmazonAdsReportJob[];
+  report_progress: AmazonAdsReportProgress | null;
+};
 
 export type WbrSyncRun = {
   id: string;
@@ -36,6 +80,7 @@ export type WbrSyncRun = {
   finished_at: string | null;
   created_at: string | null;
   updated_at: string | null;
+  request_meta: WbrSyncRunRequestMeta | null;
 };
 
 export type RunAmazonAdsBackfillRequest = {
@@ -97,6 +142,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const asString = (value: unknown): string => (typeof value === "string" ? value : "");
 const asNullableString = (value: unknown): string | null =>
   typeof value === "string" ? value : null;
+const asBoolean = (value: unknown): boolean => value === true;
 const asNumber = (value: unknown): number => {
   if (typeof value === "number") return value;
   if (typeof value === "string" && value.trim() !== "") {
@@ -132,6 +178,72 @@ type ConnectionStatusResponse = {
 };
 type ProfilesResponse = { ok: boolean; profiles: AmazonAdsAdvertiserProfile[] };
 
+const parseReportJob = (value: unknown): AmazonAdsReportJob => {
+  if (!isRecord(value)) {
+    throw new Error("Invalid Amazon Ads report job");
+  }
+
+  const status = asString(value.status);
+  return {
+    report_id: asString(value.report_id ?? value.reportId),
+    status:
+      status === "pending" || status === "processing" || status === "completed" || status === "failed"
+        ? status
+        : "pending",
+    poll_attempts: asNumber(value.poll_attempts),
+    next_poll_at: asNullableString(value.next_poll_at),
+    location: asNullableString(value.location),
+    status_detail: asNullableString(value.status_detail),
+    campaign_type: asString(value.campaign_type),
+    ad_product: asString(value.ad_product),
+    report_type_id: asString(value.report_type_id),
+    columns: Array.isArray(value.columns) ? value.columns.map(asString).filter(Boolean) : [],
+  };
+};
+
+const parseReportProgress = (value: unknown): AmazonAdsReportProgress | null => {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const phase = asString(value.phase);
+  return {
+    phase:
+      phase === "queued" ||
+      phase === "polling" ||
+      phase === "ready_to_finalize" ||
+      phase === "completed" ||
+      phase === "failed"
+        ? phase
+        : "unknown",
+    summary: asString(value.summary),
+    total_jobs: asNumber(value.total_jobs),
+    pending_jobs: asNumber(value.pending_jobs),
+    processing_jobs: asNumber(value.processing_jobs),
+    completed_jobs: asNumber(value.completed_jobs),
+    failed_jobs: asNumber(value.failed_jobs),
+    next_poll_at: asNullableString(value.next_poll_at),
+  };
+};
+
+const parseRequestMeta = (value: unknown): WbrSyncRunRequestMeta | null => {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  return {
+    async_reports_v1: asBoolean(value.async_reports_v1),
+    amazon_ads_profile_id: asNullableString(value.amazon_ads_profile_id),
+    marketplace_code: asNullableString(value.marketplace_code),
+    queued_at: asNullableString(value.queued_at),
+    finalized_at: asNullableString(value.finalized_at),
+    last_worker_error: asNullableString(value.last_worker_error),
+    last_worker_error_at: asNullableString(value.last_worker_error_at),
+    report_jobs: Array.isArray(value.report_jobs) ? value.report_jobs.map(parseReportJob) : [],
+    report_progress: parseReportProgress(value.report_progress),
+  };
+};
+
 const parseSyncRun = (value: unknown): WbrSyncRun => {
   if (!isRecord(value)) {
     throw new Error("Invalid WBR sync run response");
@@ -158,6 +270,7 @@ const parseSyncRun = (value: unknown): WbrSyncRun => {
     finished_at: asNullableString(value.finished_at),
     created_at: asNullableString(value.created_at),
     updated_at: asNullableString(value.updated_at),
+    request_meta: parseRequestMeta(value.request_meta),
   };
 };
 

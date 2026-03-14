@@ -35,7 +35,7 @@ def _create_supabase_client():
 
 
 async def _run_forever() -> None:
-    poll_seconds = _env_int("WBR_WORKER_POLL_SECONDS", 300, minimum=30)
+    poll_seconds = _env_int("WBR_WORKER_POLL_SECONDS", 60, minimum=30)
     timezone_name = os.getenv("WBR_WORKER_TIMEZONE", "America/Toronto").strip() or "America/Toronto"
     run_hour = _env_int("WBR_WORKER_RUN_HOUR", 2)
     run_minute = _env_int("WBR_WORKER_RUN_MINUTE", 0)

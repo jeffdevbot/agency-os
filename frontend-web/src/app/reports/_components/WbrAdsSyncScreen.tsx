@@ -13,6 +13,7 @@ import {
   listAmazonAdsProfiles,
   selectAmazonAdsProfile,
   type AmazonAdsAdvertiserProfile,
+  type WbrSyncRun,
 } from "../wbr/_lib/wbrAmazonAdsApi";
 
 type Props = {
@@ -37,6 +38,32 @@ const statusClasses = {
   running: "border-sky-200 bg-sky-50 text-sky-800",
   success: "border-emerald-200 bg-emerald-50 text-emerald-800",
   error: "border-rose-200 bg-rose-50 text-rose-800",
+};
+
+const runPhaseLabel = (run: WbrSyncRun): string => {
+  const phase = run.request_meta?.report_progress?.phase;
+  if (run.status === "success") return "completed";
+  if (run.status === "error") return phase === "failed" ? "worker error" : "failed";
+  if (phase === "queued") return "queued";
+  if (phase === "polling") return "polling Amazon";
+  if (phase === "ready_to_finalize") return "downloading reports";
+  if (phase === "completed") return "completed";
+  if (phase === "failed") return "failed";
+  return "running";
+};
+
+const runProgressSummary = (run: WbrSyncRun): string => {
+  const progress = run.request_meta?.report_progress;
+  if (progress?.summary) return progress.summary;
+  if (run.status === "running") return "Background worker is processing this sync run.";
+  if (run.status === "success") return "Amazon Ads sync finished successfully.";
+  return "Amazon Ads sync failed.";
+};
+
+const runNextPollText = (run: WbrSyncRun): string | null => {
+  const nextPollAt = run.request_meta?.report_progress?.next_poll_at;
+  if (!nextPollAt || run.status !== "running") return null;
+  return `Next poll ${formatTimestamp(nextPollAt)}`;
 };
 
 export default function WbrAdsSyncScreen({ clientSlug, marketplaceCode }: Props) {
@@ -523,7 +550,14 @@ export default function WbrAdsSyncScreen({ clientSlug, marketplaceCode }: Props)
 
         <div className="rounded-3xl bg-white/95 p-8 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur">
           <div className="flex items-center justify-between gap-3">
-            <p className="text-sm font-semibold text-[#0f172a]">Recent Runs</p>
+            <div>
+              <p className="text-sm font-semibold text-[#0f172a]">Recent Runs</p>
+              {sync.hasRunningRuns ? (
+                <p className="mt-1 text-xs text-[#64748b]">
+                  Auto-refreshing every 15 seconds while Amazon Ads jobs are still running.
+                </p>
+              ) : null}
+            </div>
             <button
               onClick={() => void sync.loadRuns(true)}
               disabled={sync.loadingRuns || sync.refreshingRuns || sync.runningBackfill || sync.runningDailyRefresh}
@@ -541,6 +575,7 @@ export default function WbrAdsSyncScreen({ clientSlug, marketplaceCode }: Props)
                   <th className="px-3 py-2">Job</th>
                   <th className="px-3 py-2">Window</th>
                   <th className="px-3 py-2">Status</th>
+                  <th className="px-3 py-2">Progress</th>
                   <th className="px-3 py-2">Rows Fetched</th>
                   <th className="px-3 py-2">Rows Loaded</th>
                   <th className="px-3 py-2">Error</th>
@@ -549,13 +584,13 @@ export default function WbrAdsSyncScreen({ clientSlug, marketplaceCode }: Props)
               <tbody className="divide-y divide-slate-200 bg-white">
                 {sync.loadingRuns ? (
                   <tr>
-                    <td colSpan={7} className="px-3 py-4 text-[#64748b]">
+                    <td colSpan={8} className="px-3 py-4 text-[#64748b]">
                       Loading sync runs...
                     </td>
                   </tr>
                 ) : sync.runs.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-3 py-4 text-[#64748b]">
+                    <td colSpan={8} className="px-3 py-4 text-[#64748b]">
                       No Ads API sync runs yet.
                     </td>
                   </tr>
@@ -573,6 +608,13 @@ export default function WbrAdsSyncScreen({ clientSlug, marketplaceCode }: Props)
                         >
                           {run.status}
                         </span>
+                        <p className="mt-1 text-xs text-[#64748b]">{runPhaseLabel(run)}</p>
+                      </td>
+                      <td className="px-3 py-2 text-[#4c576f]">
+                        <p>{runProgressSummary(run)}</p>
+                        {runNextPollText(run) ? (
+                          <p className="mt-1 text-xs text-[#64748b]">{runNextPollText(run)}</p>
+                        ) : null}
                       </td>
                       <td className="px-3 py-2 text-[#0f172a]">{run.rows_fetched}</td>
                       <td className="px-3 py-2 text-[#0f172a]">{run.rows_loaded}</td>

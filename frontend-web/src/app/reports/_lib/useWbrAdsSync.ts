@@ -108,6 +108,22 @@ export function useWbrAdsSync(profile: WbrProfile | null) {
     void loadRuns(false);
   }, [loadRuns]);
 
+  const hasRunningRuns = runs.some((run) => run.status === "running");
+
+  useEffect(() => {
+    if (!profile?.id || !hasRunningRuns) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      void loadRuns(true);
+    }, 15000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [hasRunningRuns, loadRuns, profile?.id]);
+
   const handleRunBackfill = useCallback(async () => {
     if (!profile?.id) {
       setErrorMessage("WBR profile not found.");
@@ -129,9 +145,8 @@ export function useWbrAdsSync(profile: WbrProfile | null) {
         date_to: backfillEndDate,
         chunk_days: Number(chunkDays) || 14,
       });
-      const totalRowsLoaded = result.chunks.reduce((sum, chunk) => sum + chunk.rows_loaded, 0);
       setSuccessMessage(
-        `Backfill completed across ${result.chunks.length} chunk(s). Loaded ${totalRowsLoaded} daily campaign facts.`,
+        `Backfill queued across ${result.chunks.length} chunk(s). Worker-sync will poll Amazon and finalize the runs in the background.`,
       );
       await loadRuns(true);
     } catch (error) {
@@ -155,7 +170,7 @@ export function useWbrAdsSync(profile: WbrProfile | null) {
       const token = await getAccessToken();
       const result = await runAmazonAdsDailyRefresh(token, profile.id);
       setSuccessMessage(
-        `Manual refresh loaded ${result.chunk.rows_loaded} daily campaign facts for ${result.date_from} to ${result.date_to}.`,
+        `Manual refresh queued for ${result.date_from} to ${result.date_to}. Worker-sync will poll Amazon and finalize it in the background.`,
       );
       await loadRuns(true);
     } catch (error) {
@@ -176,6 +191,7 @@ export function useWbrAdsSync(profile: WbrProfile | null) {
     backfillStartDate,
     backfillEndDate,
     chunkDays,
+    hasRunningRuns,
     setBackfillStartDate,
     setBackfillEndDate,
     setChunkDays,

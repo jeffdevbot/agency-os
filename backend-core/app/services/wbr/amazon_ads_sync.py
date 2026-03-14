@@ -18,8 +18,8 @@ DEFAULT_TIMEOUT_SECONDS = 360
 MIN_TIMEOUT_SECONDS = 60
 DEFAULT_CHUNK_DAYS = 14
 DEFAULT_DAILY_LOOKBACK_DAYS = 14
-DEFAULT_REPORT_POLL_SECONDS = 5
-DEFAULT_REPORT_MAX_POLLS = 180
+DEFAULT_REPORT_POLL_SECONDS = 30
+DEFAULT_REPORT_MAX_POLLS = 60
 
 AMAZON_ADS_API_URL = "https://advertising-api.amazon.com"
 AMAZON_ADS_REPORT_CREATE_PATH = "/reporting/reports"
@@ -183,8 +183,14 @@ class AmazonAdsSyncService:
         configured_timeout = int(os.getenv("WBR_REQUEST_TIMEOUT_SECONDS", str(DEFAULT_TIMEOUT_SECONDS)))
         self.timeout_seconds = max(configured_timeout, MIN_TIMEOUT_SECONDS)
         self.api_base_url = os.getenv("AMAZON_ADS_API_URL", AMAZON_ADS_API_URL).rstrip("/")
-        self.report_poll_seconds = max(int(os.getenv("WBR_AMAZON_ADS_REPORT_POLL_SECONDS", str(DEFAULT_REPORT_POLL_SECONDS))), 1)
-        self.report_max_polls = max(int(os.getenv("WBR_AMAZON_ADS_REPORT_MAX_POLLS", str(DEFAULT_REPORT_MAX_POLLS))), 1)
+        self.report_poll_seconds = max(
+            int(os.getenv("WBR_AMAZON_ADS_REPORT_POLL_SECONDS", str(DEFAULT_REPORT_POLL_SECONDS))),
+            10,
+        )
+        self.report_max_polls = max(
+            int(os.getenv("WBR_AMAZON_ADS_REPORT_MAX_POLLS", str(DEFAULT_REPORT_MAX_POLLS))),
+            1,
+        )
 
     def list_sync_runs(self, profile_id: str, *, source_type: str = "amazon_ads") -> list[dict[str, Any]]:
         self._get_profile(profile_id)
@@ -216,7 +222,7 @@ class AmazonAdsSyncService:
         results = []
         for chunk_start, chunk_end in chunks:
             results.append(
-                await self._run_chunk(
+                await self._enqueue_chunk(
                     profile_id=profile_id,
                     amazon_ads_profile_id=ads_profile_id,
                     refresh_token=refresh_token,
@@ -250,7 +256,7 @@ class AmazonAdsSyncService:
         date_to = datetime.now(UTC).date()
         date_from = date_to - timedelta(days=max(lookback_days - 1, 0))
 
-        result = await self._run_chunk(
+        result = await self._enqueue_chunk(
             profile_id=profile_id,
             amazon_ads_profile_id=ads_profile_id,
             refresh_token=refresh_token,
@@ -269,7 +275,7 @@ class AmazonAdsSyncService:
             "chunk": result,
         }
 
-    async def _run_chunk(
+    async def _enqueue_chunk(
         self,
         *,
         profile_id: str,
@@ -302,49 +308,35 @@ class AmazonAdsSyncService:
             user_id=user_id,
         )
         run_id = str(run["id"])
-        raw_rows: list[dict[str, Any]] = []
 
         try:
-            raw_rows = await self._fetch_rows(
+            access_token = await refresh_access_token(refresh_token)
+            report_jobs = await self._create_report_jobs(
+                access_token=access_token,
                 amazon_ads_profile_id=amazon_ads_profile_id,
-                refresh_token=refresh_token,
                 date_from=date_from,
                 date_to=date_to,
             )
-            facts = self._aggregate_rows(raw_rows, marketplace_code=marketplace_code)
-            if raw_rows and not facts:
-                self._update_sync_run_request_meta(
-                    run_id=run_id,
-                    request_meta={
-                        "debug_row_count": len(raw_rows),
-                        "debug_first_row_keys": self._preview_first_row_keys(raw_rows),
-                        "debug_first_row_preview": self._preview_first_row(raw_rows),
-                    },
-                )
-            self._replace_fact_window(
-                profile_id=profile_id,
-                sync_run_id=run_id,
-                date_from=date_from,
-                date_to=date_to,
-                facts=facts,
-            )
-            finished = self._finalize_sync_run(
+            self._update_sync_run_request_meta(
                 run_id=run_id,
-                status="success",
-                rows_fetched=len(raw_rows),
-                rows_loaded=len(facts),
-                error_message=None,
+                request_meta={
+                    "async_reports_v1": True,
+                    "marketplace_code": marketplace_code,
+                    "report_jobs": report_jobs,
+                    "report_progress": self._build_report_progress(report_jobs),
+                    "queued_at": datetime.now(UTC).isoformat(),
+                },
             )
             return {
-                "run": finished,
-                "rows_fetched": len(raw_rows),
-                "rows_loaded": len(facts),
+                "run": self._get_sync_run(run_id),
+                "rows_fetched": 0,
+                "rows_loaded": 0,
             }
         except WBRValidationError as exc:
             self._finalize_sync_run(
                 run_id=run_id,
                 status="error",
-                rows_fetched=len(raw_rows),
+                rows_fetched=0,
                 rows_loaded=0,
                 error_message=str(exc),
             )
@@ -353,22 +345,43 @@ class AmazonAdsSyncService:
             self._finalize_sync_run(
                 run_id=run_id,
                 status="error",
-                rows_fetched=len(raw_rows),
+                rows_fetched=0,
                 rows_loaded=0,
                 error_message=str(exc),
             )
-            raise WBRValidationError("Failed to sync Amazon Ads campaign data") from exc
+            raise WBRValidationError("Failed to enqueue Amazon Ads campaign sync") from exc
 
-    async def _fetch_rows(
+    async def process_pending_runs(self, *, limit: int = 20) -> dict[str, Any]:
+        runs = self._list_running_sync_runs(limit=limit)
+        results: list[dict[str, Any]] = []
+
+        for run in runs:
+            request_meta = run.get("request_meta")
+            if not isinstance(request_meta, dict) or not request_meta.get("async_reports_v1"):
+                continue
+            try:
+                result = await self._process_pending_run(run)
+            except Exception as exc:  # noqa: BLE001
+                result = self._mark_run_error(run, exc)
+            if result is not None:
+                results.append(result)
+
+        return {
+            "runs_considered": len(runs),
+            "runs_processed": len(results),
+            "results": results,
+        }
+
+    async def _create_report_jobs(
         self,
         *,
+        access_token: str,
         amazon_ads_profile_id: str,
-        refresh_token: str,
         date_from: date,
         date_to: date,
     ) -> list[dict[str, Any]]:
-        access_token = await refresh_access_token(refresh_token)
-        rows: list[dict[str, Any]] = []
+        now = datetime.now(UTC).isoformat()
+        jobs: list[dict[str, Any]] = []
         for definition in AMAZON_ADS_REPORT_DEFINITIONS:
             report_id = await self._create_campaign_report(
                 access_token=access_token,
@@ -377,28 +390,132 @@ class AmazonAdsSyncService:
                 date_to=date_to,
                 report_definition=definition,
             )
-            report = await self._wait_for_report(
+            jobs.append(
+                {
+                    "report_id": report_id,
+                    "status": "pending",
+                    "poll_attempts": 0,
+                    "next_poll_at": now,
+                    "location": None,
+                    "status_detail": None,
+                    "campaign_type": definition.campaign_type,
+                    "ad_product": definition.ad_product,
+                    "report_type_id": definition.report_type_id,
+                    "columns": definition.columns,
+                }
+            )
+        return jobs
+
+    async def _process_pending_run(self, run: dict[str, Any]) -> dict[str, Any] | None:
+        request_meta = run.get("request_meta")
+        if not isinstance(request_meta, dict):
+            return None
+
+        report_jobs = request_meta.get("report_jobs")
+        if not isinstance(report_jobs, list) or not report_jobs:
+            return None
+
+        run_id = str(run.get("id") or "").strip()
+        profile_id = str(run.get("profile_id") or "").strip()
+        if not run_id or not profile_id:
+            return None
+
+        now = datetime.now(UTC)
+        if self._all_report_jobs_completed(report_jobs):
+            return await self._finalize_completed_run(run, request_meta, report_jobs)
+
+        if not self._has_due_report_job(report_jobs, now):
+            return None
+
+        refresh_token = self._require_refresh_token(profile_id)
+        access_token = await refresh_access_token(refresh_token)
+        amazon_ads_profile_id = str(request_meta.get("amazon_ads_profile_id") or "").strip()
+        if not amazon_ads_profile_id:
+            raise WBRValidationError("Queued Amazon Ads sync run is missing amazon_ads_profile_id")
+
+        updated_jobs = [dict(job) if isinstance(job, dict) else {} for job in report_jobs]
+        for job in updated_jobs:
+            if job.get("status") in {"completed", "failed"}:
+                continue
+            if not self._report_job_is_due(job, now):
+                continue
+
+            status = await self._get_report_status_once(
                 access_token=access_token,
                 amazon_ads_profile_id=amazon_ads_profile_id,
-                report_id=report_id,
+                report_id=str(job.get("report_id") or ""),
             )
-            if not report.location:
-                raise WBRValidationError(
-                    f"Amazon Ads {definition.campaign_type} report completed without a download location"
+            if status.status in {"COMPLETED", "SUCCESS"}:
+                job["status"] = "completed"
+                job["location"] = status.location
+                job["completed_at"] = now.isoformat()
+                job["status_detail"] = status.status
+                continue
+
+            if status.status in {"FAILURE", "FAILED", "CANCELLED"}:
+                job["status"] = "failed"
+                job["status_detail"] = status.status
+                self._update_sync_run_request_meta(
+                    run_id=run_id,
+                    request_meta={
+                        "report_jobs": updated_jobs,
+                        "report_progress": self._build_report_progress(updated_jobs, final_status="error"),
+                    },
                 )
-            product_rows = await self._download_report_rows(report.location)
-            rows.extend(
-                [
-                    {
-                        **row,
-                        "__campaign_type": definition.campaign_type,
-                        "__ad_product": definition.ad_product,
-                        "__report_type_id": definition.report_type_id,
-                    }
-                    for row in product_rows
-                ]
-            )
-        return rows
+                finished = self._finalize_sync_run(
+                    run_id=run_id,
+                    status="error",
+                    rows_fetched=int(run.get("rows_fetched") or 0),
+                    rows_loaded=int(run.get("rows_loaded") or 0),
+                    error_message=f"Amazon Ads report failed for {job.get('campaign_type')}: {status.status}",
+                )
+                return {"run_id": run_id, "status": "error", "run": finished}
+
+            attempts = int(job.get("poll_attempts") or 0) + 1
+            if attempts >= self.report_max_polls:
+                job["status"] = "failed"
+                job["status_detail"] = "poll_limit_exceeded"
+                self._update_sync_run_request_meta(
+                    run_id=run_id,
+                    request_meta={
+                        "report_jobs": updated_jobs,
+                        "report_progress": self._build_report_progress(updated_jobs, final_status="error"),
+                    },
+                )
+                finished = self._finalize_sync_run(
+                    run_id=run_id,
+                    status="error",
+                    rows_fetched=int(run.get("rows_fetched") or 0),
+                    rows_loaded=int(run.get("rows_loaded") or 0),
+                    error_message=(
+                        f"Amazon Ads report polling exceeded {self.report_max_polls} attempts "
+                        f"for {job.get('campaign_type')}"
+                    ),
+                )
+                return {"run_id": run_id, "status": "error", "run": finished}
+
+            job["status"] = "processing"
+            job["poll_attempts"] = attempts
+            job["status_detail"] = status.status
+            job["next_poll_at"] = (now + timedelta(seconds=self._next_poll_delay_seconds(attempts))).isoformat()
+
+        self._update_sync_run_request_meta(
+            run_id=run_id,
+            request_meta={
+                "report_jobs": updated_jobs,
+                "report_progress": self._build_report_progress(updated_jobs),
+            },
+        )
+
+        if self._all_report_jobs_completed(updated_jobs):
+            refreshed_run = self._get_sync_run(run_id)
+            refreshed_meta = refreshed_run.get("request_meta")
+            if isinstance(refreshed_meta, dict):
+                latest_jobs = refreshed_meta.get("report_jobs")
+                if isinstance(latest_jobs, list):
+                    return await self._finalize_completed_run(refreshed_run, refreshed_meta, latest_jobs)
+
+        return {"run_id": run_id, "status": "running"}
 
     async def _create_campaign_report(
         self,
@@ -445,7 +562,7 @@ class AmazonAdsSyncService:
             raise WBRValidationError("Amazon Ads report create response missing reportId")
         return report_id
 
-    async def _wait_for_report(
+    async def _get_report_status_once(
         self,
         *,
         access_token: str,
@@ -453,34 +570,20 @@ class AmazonAdsSyncService:
         report_id: str,
     ) -> AmazonAdsReportStatus:
         timeout = httpx.Timeout(timeout=self.timeout_seconds)
-        last_status = "UNKNOWN"
         async with httpx.AsyncClient(timeout=timeout) as client:
-            for _ in range(self.report_max_polls):
-                response = await client.get(
-                    f"{self.api_base_url}{AMAZON_ADS_REPORT_CREATE_PATH}/{report_id}",
-                    headers=self._report_headers(access_token, amazon_ads_profile_id),
-                )
-                if response.status_code >= 400:
-                    detail = response.text.strip().replace("\n", " ")[:300]
-                    raise WBRValidationError(
-                        f"Amazon Ads report status failed ({response.status_code}): {detail}"
-                    )
-                body = response.json()
-                status = str(body.get("status") or body.get("processingStatus") or "").strip().upper()
-                location = str(body.get("url") or body.get("location") or "").strip() or None
-                last_status = status or last_status
-                current = AmazonAdsReportStatus(report_id=report_id, status=status, location=location)
-                if status in {"COMPLETED", "SUCCESS"}:
-                    return current
-                if status in {"FAILURE", "FAILED", "CANCELLED"}:
-                    detail = str(body.get("statusDetails") or body.get("failureReason") or status)
-                    raise WBRValidationError(f"Amazon Ads report failed: {detail}")
-                await self._sleep(self.report_poll_seconds)
-
-        raise WBRValidationError(
-            f"Amazon Ads report polling timed out after {self.report_max_polls * self.report_poll_seconds}s "
-            f"(last status: {last_status})"
-        )
+            response = await client.get(
+                f"{self.api_base_url}{AMAZON_ADS_REPORT_CREATE_PATH}/{report_id}",
+                headers=self._report_headers(access_token, amazon_ads_profile_id),
+            )
+        if response.status_code >= 400:
+            detail = response.text.strip().replace("\n", " ")[:300]
+            raise WBRValidationError(
+                f"Amazon Ads report status failed ({response.status_code}): {detail}"
+            )
+        body = response.json()
+        status = str(body.get("status") or body.get("processingStatus") or "").strip().upper() or "UNKNOWN"
+        location = str(body.get("url") or body.get("location") or "").strip() or None
+        return AmazonAdsReportStatus(report_id=report_id, status=status, location=location)
 
     async def _download_report_rows(self, location: str) -> list[dict[str, Any]]:
         timeout = httpx.Timeout(timeout=self.timeout_seconds)
@@ -864,6 +967,25 @@ class AmazonAdsSyncService:
             raise WBRValidationError("Failed to finalize WBR sync run")
         return rows[0]
 
+    def _list_running_sync_runs(self, *, limit: int = 20) -> list[dict[str, Any]]:
+        response = (
+            self.db.table("wbr_sync_runs")
+            .select("*")
+            .eq("source_type", "amazon_ads")
+            .eq("status", "running")
+            .order("created_at")
+            .limit(limit)
+            .execute()
+        )
+        return response.data if isinstance(response.data, list) else []
+
+    def _get_sync_run(self, run_id: str) -> dict[str, Any]:
+        response = self.db.table("wbr_sync_runs").select("*").eq("id", run_id).limit(1).execute()
+        rows = response.data if isinstance(response.data, list) else []
+        if not rows:
+            raise WBRValidationError(f"WBR sync run {run_id} not found")
+        return rows[0]
+
     def _update_sync_run_request_meta(
         self,
         *,
@@ -879,6 +1001,195 @@ class AmazonAdsSyncService:
         merged_meta = {**merged_meta, **request_meta}
         self.db.table("wbr_sync_runs").update({"request_meta": merged_meta}).eq("id", run_id).execute()
 
+    def _build_report_progress(
+        self,
+        report_jobs: list[dict[str, Any]],
+        *,
+        final_status: str | None = None,
+    ) -> dict[str, Any]:
+        jobs = [job for job in report_jobs if isinstance(job, dict)]
+        total_jobs = len(jobs)
+        pending_jobs = sum(1 for job in jobs if str(job.get("status") or "") == "pending")
+        processing_jobs = sum(1 for job in jobs if str(job.get("status") or "") == "processing")
+        completed_jobs = sum(1 for job in jobs if str(job.get("status") or "") == "completed")
+        failed_jobs = sum(1 for job in jobs if str(job.get("status") or "") == "failed")
+
+        next_poll_at = None
+        for value in sorted(
+            {
+                str(job.get("next_poll_at") or "").strip()
+                for job in jobs
+                if str(job.get("status") or "") in {"pending", "processing"}
+            }
+        ):
+            if value:
+                next_poll_at = value
+                break
+
+        if final_status == "success":
+            phase = "completed"
+            summary = f"Downloaded and finalized {completed_jobs}/{total_jobs} reports."
+        elif final_status == "error" or failed_jobs > 0:
+            phase = "failed"
+            if failed_jobs > 0:
+                summary = f"{completed_jobs}/{total_jobs} reports completed, {failed_jobs} failed."
+            else:
+                summary = "Worker hit an error before the queued reports could finish."
+        elif total_jobs == 0:
+            phase = "unknown"
+            summary = "No Amazon Ads reports were queued."
+        elif completed_jobs == total_jobs:
+            phase = "ready_to_finalize"
+            summary = f"All {total_jobs} reports are ready to download."
+        elif processing_jobs > 0 or completed_jobs > 0:
+            phase = "polling"
+            waiting_jobs = pending_jobs + processing_jobs
+            summary = f"{completed_jobs}/{total_jobs} reports ready, {waiting_jobs} still waiting on Amazon."
+        else:
+            phase = "queued"
+            summary = f"Queued {total_jobs} Amazon Ads report requests."
+
+        return {
+            "phase": phase,
+            "summary": summary,
+            "total_jobs": total_jobs,
+            "pending_jobs": pending_jobs,
+            "processing_jobs": processing_jobs,
+            "completed_jobs": completed_jobs,
+            "failed_jobs": failed_jobs,
+            "next_poll_at": next_poll_at,
+        }
+
+    def _all_report_jobs_completed(self, report_jobs: list[dict[str, Any]]) -> bool:
+        return all(str(job.get("status") or "") == "completed" for job in report_jobs if isinstance(job, dict))
+
+    def _has_due_report_job(self, report_jobs: list[dict[str, Any]], now: datetime) -> bool:
+        return any(
+            self._report_job_is_due(job, now)
+            for job in report_jobs
+            if isinstance(job, dict) and str(job.get("status") or "") not in {"completed", "failed"}
+        )
+
+    def _report_job_is_due(self, job: dict[str, Any], now: datetime) -> bool:
+        next_poll_at = str(job.get("next_poll_at") or "").strip()
+        if not next_poll_at:
+            return True
+        try:
+            next_dt = datetime.fromisoformat(next_poll_at.replace("Z", "+00:00"))
+        except ValueError:
+            return True
+        if next_dt.tzinfo is None:
+            next_dt = next_dt.replace(tzinfo=UTC)
+        return next_dt <= now
+
+    def _next_poll_delay_seconds(self, attempts: int) -> int:
+        base_delay = max(self.report_poll_seconds, 30)
+        return min(base_delay * (2 ** max(attempts - 1, 0)), 120)
+
+    def _mark_run_error(self, run: dict[str, Any], exc: Exception) -> dict[str, Any]:
+        run_id = str(run.get("id") or "").strip()
+        if not run_id:
+            return {"run_id": "", "status": "error", "error_message": str(exc)}
+
+        request_meta = run.get("request_meta")
+        request_meta_update: dict[str, Any] = {
+            "last_worker_error": str(exc),
+            "last_worker_error_at": datetime.now(UTC).isoformat(),
+        }
+        if isinstance(request_meta, dict):
+            report_jobs = request_meta.get("report_jobs")
+            if isinstance(report_jobs, list):
+                request_meta_update["report_progress"] = self._build_report_progress(
+                    report_jobs,
+                    final_status="error",
+                )
+
+        try:
+            self._update_sync_run_request_meta(run_id=run_id, request_meta=request_meta_update)
+            finished = self._finalize_sync_run(
+                run_id=run_id,
+                status="error",
+                rows_fetched=int(run.get("rows_fetched") or 0),
+                rows_loaded=int(run.get("rows_loaded") or 0),
+                error_message=str(exc),
+            )
+            return {"run_id": run_id, "status": "error", "run": finished}
+        except Exception:  # noqa: BLE001
+            return {"run_id": run_id, "status": "error", "error_message": str(exc)}
+
+    async def _finalize_completed_run(
+        self,
+        run: dict[str, Any],
+        request_meta: dict[str, Any],
+        report_jobs: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        run_id = str(run.get("id") or "").strip()
+        profile_id = str(run.get("profile_id") or "").strip()
+        if not run_id or not profile_id:
+            raise WBRValidationError("Queued Amazon Ads sync run is missing required ids")
+
+        raw_rows: list[dict[str, Any]] = []
+        for job in report_jobs:
+            if not isinstance(job, dict):
+                continue
+            location = str(job.get("location") or "").strip()
+            if not location:
+                raise WBRValidationError(
+                    f"Amazon Ads report {job.get('report_id')} completed without a download location"
+                )
+            rows = await self._download_report_rows(location)
+            raw_rows.extend(
+                [
+                    {
+                        **row,
+                        "__campaign_type": str(job.get("campaign_type") or ""),
+                        "__ad_product": str(job.get("ad_product") or ""),
+                        "__report_type_id": str(job.get("report_type_id") or ""),
+                    }
+                    for row in rows
+                ]
+            )
+
+        marketplace_code = str(request_meta.get("marketplace_code") or "").strip()
+        facts = self._aggregate_rows(raw_rows, marketplace_code=marketplace_code)
+        if raw_rows and not facts:
+            self._update_sync_run_request_meta(
+                run_id=run_id,
+                request_meta={
+                    "debug_row_count": len(raw_rows),
+                    "debug_first_row_keys": self._preview_first_row_keys(raw_rows),
+                    "debug_first_row_preview": self._preview_first_row(raw_rows),
+                },
+            )
+        self._replace_fact_window(
+            profile_id=profile_id,
+            sync_run_id=run_id,
+            date_from=date.fromisoformat(str(run.get("date_from"))),
+            date_to=date.fromisoformat(str(run.get("date_to"))),
+            facts=facts,
+        )
+        self._update_sync_run_request_meta(
+            run_id=run_id,
+            request_meta={
+                "report_progress": self._build_report_progress(report_jobs, final_status="success"),
+                "finalized_at": datetime.now(UTC).isoformat(),
+            },
+        )
+        finished = self._finalize_sync_run(
+            run_id=run_id,
+            status="success",
+            rows_fetched=len(raw_rows),
+            rows_loaded=len(facts),
+            error_message=None,
+        )
+        return {
+            "run_id": run_id,
+            "status": "success",
+            "rows_fetched": len(raw_rows),
+            "rows_loaded": len(facts),
+            "run": finished,
+        }
+
     def _report_headers(self, access_token: str, amazon_ads_profile_id: str) -> dict[str, str]:
         return {
             "Authorization": f"Bearer {access_token}",
@@ -887,8 +1198,3 @@ class AmazonAdsSyncService:
             "Content-Type": "application/json",
             "Accept": "application/json",
         }
-
-    async def _sleep(self, seconds: int) -> None:
-        import asyncio
-
-        await asyncio.sleep(seconds)

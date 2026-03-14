@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import MagicMock
 
@@ -165,15 +165,15 @@ def test_run_backfill_chunks_requested_range(monkeypatch):
 
     calls: list[tuple[date, date, str]] = []
 
-    async def fake_run_chunk(*, profile_id, amazon_ads_profile_id, refresh_token, marketplace_code, date_from, date_to, job_type, user_id):
+    async def fake_enqueue_chunk(*, profile_id, amazon_ads_profile_id, refresh_token, marketplace_code, date_from, date_to, job_type, user_id):
         calls.append((date_from, date_to, job_type))
         return {
             "run": {"id": f"{date_from.isoformat()}-{date_to.isoformat()}"},
-            "rows_fetched": 1,
-            "rows_loaded": 1,
+            "rows_fetched": 0,
+            "rows_loaded": 0,
         }
 
-    monkeypatch.setattr(svc, "_run_chunk", fake_run_chunk)
+    monkeypatch.setattr(svc, "_enqueue_chunk", fake_enqueue_chunk)
 
     result = asyncio.run(
         svc.run_backfill(
@@ -218,13 +218,13 @@ def test_run_daily_refresh_uses_profile_rewrite_window(monkeypatch):
 
     observed: dict[str, date] = {}
 
-    async def fake_run_chunk(*, profile_id, amazon_ads_profile_id, refresh_token, marketplace_code, date_from, date_to, job_type, user_id):
+    async def fake_enqueue_chunk(*, profile_id, amazon_ads_profile_id, refresh_token, marketplace_code, date_from, date_to, job_type, user_id):
         observed["date_from"] = date_from
         observed["date_to"] = date_to
         observed["job_type"] = job_type
-        return {"run": {"id": "run-1"}, "rows_fetched": 2, "rows_loaded": 2}
+        return {"run": {"id": "run-1"}, "rows_fetched": 0, "rows_loaded": 0}
 
-    monkeypatch.setattr(svc, "_run_chunk", fake_run_chunk)
+    monkeypatch.setattr(svc, "_enqueue_chunk", fake_enqueue_chunk)
 
     result = asyncio.run(svc.run_daily_refresh(profile_id="profile-1", user_id="user-1"))
 
@@ -250,6 +250,155 @@ def test_run_backfill_requires_selected_ads_profile(monkeypatch):
         assert False, "Expected WBRValidationError"
     except WBRValidationError as exc:
         assert "amazon_ads_profile_id" in str(exc)
+
+
+def test_process_pending_runs_polls_due_jobs_and_updates_request_meta(monkeypatch):
+    svc = AmazonAdsSyncService(MagicMock())
+    now = datetime(2026, 3, 14, 14, 0, tzinfo=UTC)
+    run = {
+        "id": "run-1",
+        "profile_id": "profile-1",
+        "status": "running",
+        "request_meta": {
+            "async_reports_v1": True,
+            "amazon_ads_profile_id": "ads-prof-1",
+            "report_jobs": [
+                {
+                    "report_id": "rep-1",
+                    "status": "pending",
+                    "poll_attempts": 0,
+                    "next_poll_at": (now - timedelta(seconds=1)).isoformat(),
+                    "campaign_type": "sponsored_products",
+                }
+            ],
+        },
+    }
+
+    monkeypatch.setattr(svc, "_list_running_sync_runs", lambda limit=20: [run])
+    monkeypatch.setattr(sync_module, "datetime", type("_FakeDateTime", (datetime,), {"now": classmethod(lambda cls, tz=None: now)}))
+    monkeypatch.setattr(svc, "_require_refresh_token", lambda profile_id: "refresh-token")
+
+    async def fake_refresh_access_token(refresh_token):
+        return "access-token"
+
+    async def fake_get_report_status_once(*, access_token, amazon_ads_profile_id, report_id):
+        assert access_token == "access-token"
+        assert amazon_ads_profile_id == "ads-prof-1"
+        assert report_id == "rep-1"
+        return sync_module.AmazonAdsReportStatus(report_id=report_id, status="IN_PROGRESS", location=None)
+
+    updates: list[dict[str, object]] = []
+    monkeypatch.setattr(sync_module, "refresh_access_token", fake_refresh_access_token)
+    monkeypatch.setattr(svc, "_get_report_status_once", fake_get_report_status_once)
+    monkeypatch.setattr(
+        svc,
+        "_update_sync_run_request_meta",
+        lambda *, run_id, request_meta: updates.append({"run_id": run_id, "request_meta": request_meta}),
+    )
+
+    result = asyncio.run(svc.process_pending_runs())
+
+    assert result["runs_processed"] == 1
+    assert updates
+    updated_jobs = updates[0]["request_meta"]["report_jobs"]
+    assert updated_jobs[0]["status"] == "processing"
+    assert updated_jobs[0]["poll_attempts"] == 1
+
+
+def test_process_pending_runs_finalizes_completed_run(monkeypatch):
+    svc = AmazonAdsSyncService(MagicMock())
+    run = {
+        "id": "run-1",
+        "profile_id": "profile-1",
+        "date_from": "2026-03-01",
+        "date_to": "2026-03-14",
+        "status": "running",
+        "request_meta": {
+            "async_reports_v1": True,
+            "marketplace_code": "US",
+            "report_jobs": [
+                {
+                    "report_id": "rep-1",
+                    "status": "completed",
+                    "location": "https://download.example/report-1",
+                    "campaign_type": "sponsored_products",
+                    "ad_product": "SPONSORED_PRODUCTS",
+                    "report_type_id": "spCampaigns",
+                }
+            ],
+        },
+    }
+
+    monkeypatch.setattr(svc, "_list_running_sync_runs", lambda limit=20: [run])
+
+    async def fake_finalize_completed_run(run_arg, request_meta_arg, report_jobs_arg):
+        assert run_arg["id"] == "run-1"
+        assert request_meta_arg["marketplace_code"] == "US"
+        assert report_jobs_arg[0]["report_id"] == "rep-1"
+        return {"run_id": "run-1", "status": "success", "rows_fetched": 10, "rows_loaded": 3}
+
+    monkeypatch.setattr(svc, "_finalize_completed_run", fake_finalize_completed_run)
+
+    result = asyncio.run(svc.process_pending_runs())
+
+    assert result["runs_processed"] == 1
+    assert result["results"][0]["status"] == "success"
+
+
+def test_process_pending_runs_marks_single_run_error_and_continues(monkeypatch):
+    svc = AmazonAdsSyncService(MagicMock())
+    run = {
+        "id": "run-1",
+        "profile_id": "profile-1",
+        "status": "running",
+        "rows_fetched": 0,
+        "rows_loaded": 0,
+        "request_meta": {
+            "async_reports_v1": True,
+            "report_jobs": [
+                {
+                    "report_id": "rep-1",
+                    "status": "processing",
+                    "poll_attempts": 1,
+                    "next_poll_at": datetime(2026, 3, 14, 14, 5, tzinfo=UTC).isoformat(),
+                }
+            ],
+        },
+    }
+
+    monkeypatch.setattr(svc, "_list_running_sync_runs", lambda limit=20: [run])
+
+    async def fake_process_pending_run(_run):
+        raise WBRValidationError("boom")
+
+    updates: list[dict[str, object]] = []
+
+    monkeypatch.setattr(svc, "_process_pending_run", fake_process_pending_run)
+    monkeypatch.setattr(
+        svc,
+        "_update_sync_run_request_meta",
+        lambda *, run_id, request_meta: updates.append({"run_id": run_id, "request_meta": request_meta}),
+    )
+    monkeypatch.setattr(
+        svc,
+        "_finalize_sync_run",
+        lambda *, run_id, status, rows_fetched, rows_loaded, error_message: {
+            "id": run_id,
+            "status": status,
+            "rows_fetched": rows_fetched,
+            "rows_loaded": rows_loaded,
+            "error_message": error_message,
+        },
+    )
+
+    result = asyncio.run(svc.process_pending_runs())
+
+    assert result["runs_processed"] == 1
+    assert result["results"][0]["status"] == "error"
+    assert result["results"][0]["run"]["error_message"] == "boom"
+    assert updates
+    assert updates[0]["request_meta"]["last_worker_error"] == "boom"
+    assert updates[0]["request_meta"]["report_progress"]["phase"] == "failed"
 
 
 class _FakeAmazonAdsSyncService:
@@ -281,7 +430,7 @@ class _FakeAmazonAdsSyncService:
             "job_type": "daily_refresh",
             "date_from": "2026-03-01",
             "date_to": "2026-03-13",
-            "chunk": {"run": {"id": "run-1"}, "rows_fetched": 2, "rows_loaded": 2},
+            "chunk": {"run": {"id": "run-1"}, "rows_fetched": 0, "rows_loaded": 0},
         }
 
 

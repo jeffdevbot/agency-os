@@ -41,7 +41,19 @@ class WBRNightlySyncService:
     async def run_pending(self) -> dict[str, Any]:
         now_utc = self._normalize_now(self._now_provider())
         local_now = now_utc.astimezone(self.timezone)
+        pending_ads = await self._amazon_ads.process_pending_runs()
         if local_now.timetz().replace(tzinfo=None) < self.run_at:
+            if pending_ads.get("runs_processed", 0) > 0:
+                return {
+                    "status": "ok",
+                    "reason": "before_schedule",
+                    "scheduled_time": self.run_at.strftime("%H:%M"),
+                    "timezone": self.timezone.key,
+                    "pending_amazon_ads": pending_ads,
+                    "profiles_considered": 0,
+                    "runs_attempted": 0,
+                    "results": [],
+                }
             return {
                 "status": "idle",
                 "reason": "before_schedule",
@@ -87,6 +99,7 @@ class WBRNightlySyncService:
             "scheduled_time": self.run_at.strftime("%H:%M"),
             "profiles_considered": len(profiles),
             "runs_attempted": len(results),
+            "pending_amazon_ads": pending_ads,
             "results": [result.__dict__ for result in results],
         }
 
