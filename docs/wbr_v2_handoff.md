@@ -24,6 +24,7 @@ Commits on `main` relevant to the current WBR v2 slice:
 14. `4068a97` - `Increase Amazon Ads polling window`
 15. `f6a4c58` - `Fix Amazon Ads brand and display columns`
 16. `55ee467` - `Auto-activate nightly sync profiles`
+17. `d225ba8` - `Refactor WBR Amazon Ads sync to queued worker flow`
 
 ## Live database state
 
@@ -137,9 +138,12 @@ Permanent delete is blocked when:
    - Sponsored Products
    - Sponsored Brands
    - Sponsored Display
-6. Sync writes normalized daily campaign facts into `wbr_ads_campaign_daily`.
-7. Facts preserve `campaign_type`, so future split reporting by ad product is possible without changing storage again.
-8. The main WBR route renders Section 2 metrics:
+6. Manual Ads backfills and manual Ads refreshes now enqueue Amazon report jobs immediately instead of waiting synchronously for report completion in the request.
+7. `worker-sync` polls queued report jobs, downloads completed reports, and finalizes the sync runs in the background.
+8. Ads sync screen run history now surfaces queued/polling/finalized progress from `wbr_sync_runs.request_meta`.
+9. Sync writes normalized daily campaign facts into `wbr_ads_campaign_daily`.
+10. Facts preserve `campaign_type`, so future split reporting by ad product is possible without changing storage again.
+11. The main WBR route renders Section 2 metrics:
    - Impressions
    - Clicks
    - CTR
@@ -150,7 +154,7 @@ Permanent delete is blocked when:
    - Ad Sales
    - ACoS
    - TACoS
-9. The Ads sync screen also shows admin-only Pacvue mapping QA for the current 4-week WBR window.
+12. The Ads sync screen also shows admin-only Pacvue mapping QA for the current 4-week WBR window.
 
 ### Nightly sync automation
 
@@ -158,9 +162,10 @@ Permanent delete is blocked when:
 2. Nightly toggles exist separately for:
    - SP-API / Windsor business refresh
    - Ads API refresh
-3. Nightly sync runs as `daily_refresh` and writes its outcomes into `wbr_sync_runs`.
-4. The worker currently scans only `status = 'active'` WBR profiles.
-5. Enabling either nightly toggle now auto-promotes a `draft` profile to `active`.
+3. The same worker now also advances pending queued Amazon Ads report jobs outside the nightly schedule window.
+4. Nightly sync runs as `daily_refresh` and writes its outcomes into `wbr_sync_runs`.
+5. The worker currently scans only `status = 'active'` WBR profiles.
+6. Enabling either nightly toggle now auto-promotes a `draft` profile to `active`.
 
 ## Current backend routes
 

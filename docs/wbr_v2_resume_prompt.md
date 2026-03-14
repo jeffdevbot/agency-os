@@ -10,14 +10,17 @@ Start by reading, in this order:
 4. `docs/wbr_v2_prototype_plan.md`
 5. `backend-core/app/routers/wbr.py`
 6. `backend-core/app/services/wbr/windsor_business_sync.py`
-7. `backend-core/app/services/wbr/section1_report.py`
-8. `frontend-web/src/app/reports/_components/WbrSection1ReportScreen.tsx`
-9. `frontend-web/src/app/reports/_components/WbrSection1MetricTable.tsx`
-10. `frontend-web/src/app/reports/_components/WbrSyncScreen.tsx`
-11. `frontend-web/src/app/reports/_lib/useResolvedWbrProfile.ts`
-12. `frontend-web/src/app/reports/_lib/useWbrSection1Report.ts`
-13. `frontend-web/src/app/reports/_lib/useWbrSync.ts`
-14. `frontend-web/src/app/reports/wbr/[profileId]/WbrProfileWorkspace.tsx`
+7. `backend-core/app/services/wbr/amazon_ads_sync.py`
+8. `backend-core/app/services/wbr/nightly_sync.py`
+9. `backend-core/app/services/wbr/section1_report.py`
+10. `frontend-web/src/app/reports/_components/WbrSection1ReportScreen.tsx`
+11. `frontend-web/src/app/reports/_components/WbrAdsSyncScreen.tsx`
+12. `frontend-web/src/app/reports/_components/WbrSyncScreen.tsx`
+13. `frontend-web/src/app/reports/_lib/useResolvedWbrProfile.ts`
+14. `frontend-web/src/app/reports/_lib/useWbrSection1Report.ts`
+15. `frontend-web/src/app/reports/_lib/useWbrAdsSync.ts`
+16. `frontend-web/src/app/reports/_lib/useWbrSync.ts`
+17. `frontend-web/src/app/reports/wbr/[profileId]/WbrProfileWorkspace.tsx`
 
 Context you should assume:
 
@@ -31,12 +34,13 @@ Context you should assume:
    - `/reports/[clientSlug]/[marketplaceCode]/wbr/sync/sp-api`
    - `/reports/[clientSlug]/[marketplaceCode]/wbr/sync/ads-api`
 4. The old `/admin/wbr/section1/*` backend still exists but is legacy.
-5. `worker-sync` exists in-repo and runs nightly `daily_refresh` jobs for `active` profiles.
+5. `worker-sync` exists in-repo, runs nightly `daily_refresh` jobs for `active` profiles, and now also advances queued Amazon Ads report jobs outside the nightly schedule window.
 6. Enabling either nightly sync toggle auto-promotes a `draft` profile to `active`.
+7. Amazon Ads backfills/manual refreshes are now enqueue-first: the HTTP request returns quickly, while `worker-sync` polls Amazon, downloads finished reports, and finalizes the run later.
 
 Immediate goal for the next session:
 
-1. Start from the current issue or request, assuming both Section 1 and Section 2 are live.
+1. Start from the current issue or request, assuming both Section 1 and Section 2 are live and Amazon Ads sync uses the queued/background report flow.
 2. Avoid god-file bloat.
 3. Keep the route structure and backend contract intact unless a concrete bug requires a change.
 4. Preserve current admin/settings/sync functionality, including nightly worker behavior.

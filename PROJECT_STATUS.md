@@ -11,6 +11,7 @@ _Last updated: 2026-03-14 (ET)_
 - **WBR Section 2 hardening landed:** Added TACoS, admin mapping QA on the Ads sync screen, parser/report-shape hardening, unpaginated fact-query fix, and frontend fetch `no-store` behavior so older week rollups render correctly across the full 4-week window.
 - **WBR nightly automation is now implemented:** Added `worker-sync/` background worker, per-profile nightly SP-API and Ads API toggles, and worker-driven `daily_refresh` execution using `wbr_sync_runs` as the operational log.
 - **WBR sync ergonomics improved:** Amazon Ads polling now defaults to a 15-minute report wait window, Brand/Display report column definitions were corrected, and enabling either nightly sync toggle on a `draft` profile now auto-promotes it to `active` so the worker will pick it up.
+- **WBR Amazon Ads sync now runs as queued background work:** Manual Ads backfills and manual Ads refreshes now enqueue report jobs immediately, persist queued-report progress in `wbr_sync_runs.request_meta`, and let `worker-sync` poll/download/finalize in the background. The Ads sync UI now shows queued/polling/completed progress instead of a long blocking request.
 
 ## 2026-03-13 (EST)
 - **WBR client-first routing now serves real report/sync pages:** The new client/marketplace paths are live as the primary navigation shape:

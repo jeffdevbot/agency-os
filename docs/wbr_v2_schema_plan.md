@@ -23,9 +23,13 @@ As of March 14, 2026:
    - Windsor business sync + Section 1 report
    - Amazon Ads OAuth/profile selection + sync + Section 2 report
    - nightly worker toggles + `worker-sync` execution
-3. `wbr_ads_campaign_daily` now stores `campaign_type` and uses uniqueness on:
+3. Amazon Ads sync now uses a queued/background report lifecycle:
+   - manual backfills/manual refreshes enqueue report jobs and return quickly
+   - queued report state is persisted in `wbr_sync_runs.request_meta`
+   - `worker-sync` polls Amazon, downloads completed reports, and finalizes runs
+4. `wbr_ads_campaign_daily` now stores `campaign_type` and uses uniqueness on:
    - `(profile_id, report_date, campaign_type, campaign_name)`
-4. The sections below mix live schema notes with retained design rationale from
+5. The sections below mix live schema notes with retained design rationale from
    the original rollout plan. When rollout-sequencing language conflicts with
    the current app, treat the applied migrations, `docs/wbr_v2_handoff.md`, and
    the live codepaths as the source of truth.
@@ -69,6 +73,7 @@ The schema must support:
 7. Historical backfill and rolling rewrite syncs.
 8. QA tables/views for unmapped campaigns, unmapped ASINs, and reconciliation.
 9. Secure RLS aligned to admin or future explicit client access rules.
+10. Async/queued sync-run metadata for long-running external report generation.
 
 ## Core design choice
 
@@ -120,6 +125,7 @@ Notes:
 
 - `display_name` is the operator-facing label like `WHOOSH INC [US]`.
 - If later needed, source credentials can be moved to separate config tables, but this is enough for the prototype.
+- Ads API queued-report state currently lives in `wbr_sync_runs.request_meta` rather than a dedicated report-job table.
 
 ### 2. `wbr_rows`
 
@@ -332,6 +338,9 @@ Indexes:
 Reasoning:
 
 - The old `wbr_ingest_runs` concept is worth keeping, but it should become source-agnostic.
+- For Amazon Ads, the currently shipped implementation also stores queued
+  report-job state in `request_meta` so the worker can resume polling/download
+  work across loops without a separate job table.
 
 ### 9. `wbr_business_asin_daily`
 
@@ -493,6 +502,8 @@ Notable differences versus the original phased plan:
    follow-up migration after the first Ads API rollout.
 3. Nightly sync toggles shipped on `wbr_profiles`; the planned QA and rollup
    views did not ship as database views.
+4. Amazon Ads report-job state was kept inside `wbr_sync_runs.request_meta`
+   rather than introducing a dedicated async job table in this tranche.
 
 ## Backend impact
 

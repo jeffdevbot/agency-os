@@ -30,7 +30,10 @@ As of March 14, 2026:
    - `/reports/[clientSlug]/[marketplaceCode]/wbr/sync/ads-api`
 6. `worker-sync` is implemented in-repo and runs nightly `daily_refresh` jobs
    for `active` profiles with per-profile source toggles.
-7. The old Windsor-only `/admin/wbr/section1/*` backend remains as legacy
+7. Amazon Ads manual backfills/manual refreshes now enqueue report jobs and let
+   `worker-sync` poll/download/finalize them in the background rather than
+   blocking the HTTP request until Amazon finishes generating reports.
+8. The old Windsor-only `/admin/wbr/section1/*` backend remains as legacy
    compatibility surface and should not be treated as the primary WBR path.
 
 The sections below still capture the design rationale that led to the shipped
