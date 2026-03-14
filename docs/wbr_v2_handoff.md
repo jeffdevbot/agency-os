@@ -1,6 +1,6 @@
 # WBR v2 Handoff
 
-_Last updated: 2026-03-13 (EST)_
+_Last updated: 2026-03-14 (ET)_
 
 This file is the fast restart point for the current WBR v2 build.
 
@@ -16,6 +16,14 @@ Commits on `main` relevant to the current WBR v2 slice:
 6. `16c5f13` - `Add Windsor listings import for WBR`
 7. `3194e49` - `Restructure reports navigation around client routes`
 8. `48fbdc2` - `Add WBR Section 1 sync and report screens`
+9. `608a759` - `Add WBR Section 2 ads report`
+10. `c433561` - `Add TACoS and ads mapping QA`
+11. `6cc13e8` - `Paginate Section 2 report fact queries`
+12. `9f0e602` - `Add sponsored brands and display sync`
+13. `a4ec019` - `Add WBR nightly sync worker and toggles`
+14. `4068a97` - `Increase Amazon Ads polling window`
+15. `f6a4c58` - `Fix Amazon Ads brand and display columns`
+16. `55ee467` - `Auto-activate nightly sync profiles`
 
 ## Live database state
 
@@ -24,6 +32,9 @@ These migrations were created and applied to the live Supabase project:
 1. `20260312000001_wbr_profiles_and_rows.sql`
 2. `20260312000002_wbr_imports_and_mappings.sql`
 3. `20260312000003_wbr_sync_runs_and_fact_tables.sql`
+4. `20260313000001_wbr_amazon_ads_connections.sql`
+5. `20260313000002_wbr_ads_campaign_daily_campaign_type_unique.sql`
+6. `20260313000003_wbr_profile_auto_sync_flags.sql`
 
 Core live tables in use now:
 
@@ -37,6 +48,7 @@ Core live tables in use now:
 8. `wbr_sync_runs`
 9. `wbr_business_asin_daily`
 10. `wbr_ads_campaign_daily`
+11. `wbr_amazon_ads_connections`
 
 ## Current user-facing routes
 
@@ -47,6 +59,8 @@ Primary navigation shape:
 3. `/reports/[clientSlug]/[marketplaceCode]/wbr`
 4. `/reports/[clientSlug]/[marketplaceCode]/wbr/settings`
 5. `/reports/[clientSlug]/[marketplaceCode]/wbr/sync`
+6. `/reports/[clientSlug]/[marketplaceCode]/wbr/sync/sp-api`
+7. `/reports/[clientSlug]/[marketplaceCode]/wbr/sync/ads-api`
 
 Compatibility/admin routes still present:
 
@@ -99,7 +113,7 @@ Permanent delete is blocked when:
 ### Section 1 sync/report
 
 1. Run Windsor business-data backfill from the sync screen.
-2. Run daily refresh from the sync screen.
+2. Run manual refresh from the sync screen.
 3. Sync writes normalized daily child-ASIN facts into `wbr_business_asin_daily`.
 4. Report route renders the first live Section 1 tables:
    - Page Views
@@ -112,6 +126,41 @@ Permanent delete is blocked when:
    - mapped ASINs
    - unmapped ASINs with activity
    - fact rows in window
+
+### Amazon Ads sync/report
+
+1. Connect a WBR profile to Amazon Ads via OAuth and store the refresh token in `wbr_amazon_ads_connections`.
+2. Discover advertiser profiles and save `amazon_ads_profile_id` + `amazon_ads_account_id` onto the WBR profile.
+3. Run Amazon Ads backfill from the Ads sync screen.
+4. Run manual refresh from the Ads sync screen.
+5. Ads sync currently pulls:
+   - Sponsored Products
+   - Sponsored Brands
+   - Sponsored Display
+6. Sync writes normalized daily campaign facts into `wbr_ads_campaign_daily`.
+7. Facts preserve `campaign_type`, so future split reporting by ad product is possible without changing storage again.
+8. The main WBR route renders Section 2 metrics:
+   - Impressions
+   - Clicks
+   - CTR
+   - Ad Spend
+   - CPC
+   - Ad Orders
+   - Ad Conversion Rate
+   - Ad Sales
+   - ACoS
+   - TACoS
+9. The Ads sync screen also shows admin-only Pacvue mapping QA for the current 4-week WBR window.
+
+### Nightly sync automation
+
+1. `worker-sync` is now implemented in-repo and deployed as the Render background worker.
+2. Nightly toggles exist separately for:
+   - SP-API / Windsor business refresh
+   - Ads API refresh
+3. Nightly sync runs as `daily_refresh` and writes its outcomes into `wbr_sync_runs`.
+4. The worker currently scans only `status = 'active'` WBR profiles.
+5. Enabling either nightly toggle now auto-promotes a `draft` profile to `active`.
 
 ## Current backend routes
 
@@ -151,6 +200,16 @@ Permanent delete is blocked when:
 3. `POST /admin/wbr/profiles/{profile_id}/sync-runs/windsor-business/daily-refresh`
 4. `GET /admin/wbr/profiles/{profile_id}/section1-report?weeks=4`
 
+### Amazon Ads + Section 2
+
+1. `POST /admin/wbr/profiles/{profile_id}/amazon-ads/connect`
+2. `GET /admin/wbr/profiles/{profile_id}/amazon-ads/connection`
+3. `GET /admin/wbr/profiles/{profile_id}/amazon-ads/profiles`
+4. `POST /admin/wbr/profiles/{profile_id}/amazon-ads/select-profile`
+5. `POST /admin/wbr/profiles/{profile_id}/sync-runs/amazon-ads/backfill`
+6. `POST /admin/wbr/profiles/{profile_id}/sync-runs/amazon-ads/daily-refresh`
+7. `GET /admin/wbr/profiles/{profile_id}/section2-report?weeks=4`
+
 ## Key files the next session should read first
 
 ### Product/state docs
@@ -168,26 +227,36 @@ Permanent delete is blocked when:
 4. `backend-core/app/services/wbr/listing_imports.py`
 5. `backend-core/app/services/wbr/asin_mappings.py`
 6. `backend-core/app/services/wbr/windsor_business_sync.py`
-7. `backend-core/app/services/wbr/section1_report.py`
+7. `backend-core/app/services/wbr/amazon_ads_auth.py`
+8. `backend-core/app/services/wbr/amazon_ads_sync.py`
+9. `backend-core/app/services/wbr/section1_report.py`
+10. `backend-core/app/services/wbr/section2_report.py`
+11. `backend-core/app/services/wbr/nightly_sync.py`
 
 ### Frontend report routes
 
 1. `frontend-web/src/app/reports/_components/WbrSection1ReportScreen.tsx`
 2. `frontend-web/src/app/reports/_components/WbrSection1MetricTable.tsx`
-3. `frontend-web/src/app/reports/_components/WbrSyncScreen.tsx`
-4. `frontend-web/src/app/reports/_components/ResolvedWbrSettingsRoute.tsx`
-5. `frontend-web/src/app/reports/_lib/useResolvedWbrProfile.ts`
-6. `frontend-web/src/app/reports/_lib/useWbrSection1Report.ts`
-7. `frontend-web/src/app/reports/_lib/useWbrSync.ts`
-8. `frontend-web/src/app/reports/wbr/_lib/wbrApi.ts`
-9. `frontend-web/src/app/reports/wbr/_lib/wbrSection1Api.ts`
-10. `frontend-web/src/app/reports/wbr/[profileId]/WbrProfileWorkspace.tsx`
+3. `frontend-web/src/app/reports/_components/WbrSection2MetricTable.tsx`
+4. `frontend-web/src/app/reports/_components/WbrSection2HorizontalTable.tsx`
+5. `frontend-web/src/app/reports/_components/WbrSyncScreen.tsx`
+6. `frontend-web/src/app/reports/_components/WbrAdsSyncScreen.tsx`
+7. `frontend-web/src/app/reports/_components/ResolvedWbrSettingsRoute.tsx`
+8. `frontend-web/src/app/reports/_lib/useResolvedWbrProfile.ts`
+9. `frontend-web/src/app/reports/_lib/useWbrSection1Report.ts`
+10. `frontend-web/src/app/reports/_lib/useWbrSection2Report.ts`
+11. `frontend-web/src/app/reports/_lib/useWbrSync.ts`
+12. `frontend-web/src/app/reports/_lib/useWbrAdsSync.ts`
+13. `frontend-web/src/app/reports/wbr/_lib/wbrApi.ts`
+14. `frontend-web/src/app/reports/wbr/_lib/wbrSection1Api.ts`
+15. `frontend-web/src/app/reports/wbr/_lib/wbrAmazonAdsApi.ts`
+16. `frontend-web/src/app/reports/wbr/[profileId]/WbrProfileWorkspace.tsx`
 
 ## Important product assumptions currently locked
 
 1. One WBR profile per client per marketplace.
 2. Windsor is still the business-data source for Section 1.
-3. Amazon Ads API will be the ads-data source later.
+3. Amazon Ads API is now the live ads-data source for Section 2.
 4. Pacvue export is the grouping source for campaigns.
 5. Pacvue tags define leaf rows after removing the goal suffix.
 6. Parent rows are manual and optional.
@@ -195,6 +264,8 @@ Permanent delete is blocked when:
 8. Week start is per profile and supports `sunday` or `monday`.
 9. Listings import is snapshot replacement, not enrichment/merge.
 10. Re-importing the correct Windsor/manual listings snapshot fixes a bad import by replacing the active catalog.
+11. Nightly worker sync only runs for `active` profiles, but enabling either nightly toggle will now auto-promote `draft -> active`.
+12. Ads storage preserves `campaign_type` so Section 2 can later be split by Sponsored Products / Brands / Display.
 
 ## Intentional leftovers
 
@@ -212,27 +283,25 @@ Reason:
 
 ## Recommended next implementation order
 
-The next session should start with UI improvements on the new WBR report route, not with more schema work.
+The next session should treat WBR v2 as a live end-to-end reporting path, not a Section 1-only prototype.
 
 Recommended order:
 
-1. Improve WBR report presentation on `/reports/[clientSlug]/[marketplaceCode]/wbr`
-   - cleaner layout
-   - better table spacing/typography
-   - clearer hierarchy for parents vs leaves
-   - stronger weekly-header presentation
-   - tighter QA/status presentation
-2. Validate Whoosh US Section 1 against the manual Excel WBR.
-3. Add source-vs-report reconciliation helpers if totals are off.
-4. After Section 1 is trustworthy, start Amazon Ads ingest for Section 2.
+1. Verify the first real nightly `daily_refresh` runs for both Windsor and Amazon Ads on an `active` profile.
+2. Tighten worker observability:
+   - cleaner per-cycle logging
+   - optional skipped-profile reasons
+   - easier diagnosis from `wbr_sync_runs`
+3. Validate SB/SD contribution and decide whether Section 2 needs split views by `campaign_type`.
+4. Continue report/UI polish only after the sync path is operationally trustworthy.
 
 ## Tests last run
 
-1. `backend-core/.venv/bin/pytest backend-core/tests/test_wbr_windsor_business_sync.py backend-core/tests/test_wbr_section1_report.py backend-core/tests/test_wbr_profiles_service.py backend-core/tests/test_wbr_router.py backend-core/tests/test_wbr_pacvue_imports.py backend-core/tests/test_wbr_listing_imports.py backend-core/tests/test_wbr_asin_mappings.py`
-   - `73 passed`
-2. `npm -C frontend-web run typecheck`
-   - passed
-3. `npm -C frontend-web run test:run -- src/app/reports/reports-nav.test.ts`
+1. `backend-core/.venv/bin/pytest backend-core/tests/test_wbr_nightly_sync.py backend-core/tests/test_wbr_router.py backend-core/tests/test_wbr_profiles_service.py backend-core/tests/test_wbr_windsor_business_sync.py backend-core/tests/test_wbr_amazon_ads_sync.py`
+   - `55 passed`
+2. `backend-core/.venv/bin/pytest backend-core/tests/test_wbr_profiles_service.py backend-core/tests/test_wbr_router.py`
+   - `44 passed`
+3. `npm -C frontend-web run typecheck`
    - passed
 
 ## Non-WBR local changes intentionally not part of the shipped WBR commits

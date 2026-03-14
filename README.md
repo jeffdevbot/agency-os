@@ -14,7 +14,7 @@ Ecomlabs Tools is the internal platform that consolidates our ad analytics, SOP 
 - **AdScope** — `/adscope` (Amazon Ads audit workspace: upload Bulk + STR; views + chat). Specs: `docs/archive/non_agencyclaw/20_adscope_prd.md`; Amazon export file reference: `docs/archive/non_agencyclaw/21_adscope_schema.md`; live DB schema: `docs/db/schema_master.md`.
 - **Scribe** — `/scribe` (Amazon listing copy generation: project → SKUs → topics → copy). Current specs live under `docs/archive/non_agencyclaw/scribe_lite/`.
 - **Root Keyword Analysis** — `/root-keywords` (4-week hierarchical campaign rollup). Specs: `docs/archive/non_agencyclaw/18_root_keyword_analysis_prd.md`, plan: `docs/archive/non_agencyclaw/19_root_keyword_analysis_plan.md`.
-- **Reports (WBR v1)** — `/reports` (WBR hub + setup + client workspace for Section 1 Windsor backfill/refresh and weekly totals validation). Ops runbook: `docs/windsor_wbr_ingestion_runbook.md`.
+- **Reports (WBR v2)** — `/reports` (client/marketplace WBR workspace with Section 1 Windsor sync/reporting, Section 2 Amazon Ads sync/reporting, sync QA, and nightly refresh controls). Current state docs: `docs/wbr_v2_handoff.md`, `docs/wbr_v2_schema_plan.md`; Windsor ops runbook: `docs/windsor_wbr_ingestion_runbook.md`.
 - **Command Center (MVP)** — `/command-center` (admin-only; clients → brands → role slots; team roster; Ghost Profiles merge-on-login). Specs: `docs/archive/non_agencyclaw/07_command_center_prd.md`, API: `docs/archive/non_agencyclaw/07_command_center_schema_api.md`, live DB schema: `docs/db/schema_master.md`.
 - **Debrief (MVP)** — `/debrief` (admin-only; sync Meet “Notes by Gemini” into Supabase; manually extract tasks; edit/remove; send to ClickUp once IDs are mapped). Specs: `docs/archive/non_agencyclaw/debrief_prd.md`, plan: `docs/archive/non_agencyclaw/debrief_implementation_plan.md`.
 
@@ -33,6 +33,8 @@ Ecomlabs Tools is the internal platform that consolidates our ad analytics, SOP 
 ### Dev Operations
 - `docs/mcp_setup.md` — MCP workspace setup and verification (Supabase MCP server config, read-only connectivity checks, and `401 Unauthorized` re-auth recovery).
 - `docs/windsor_wbr_ingestion_runbook.md` — Windsor Amazon SP ingestion operations for WBR (account scoping, date windows, scaling guardrails, and batching strategy).
+- `docs/wbr_v2_handoff.md` — Current WBR v2 shipped state, routes, migrations, and restart context.
+- `docs/wbr_v2_schema_plan.md` — WBR schema plan annotated with current implementation status and remaining drift.
 
 ### Other Specs
 - `docs/archive/non_agencyclaw/05_creative_brief_prd.md` — Creative Brief tool that maps Composer copy + uploaded assets into designer-ready storyboards.

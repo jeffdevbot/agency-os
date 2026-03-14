@@ -162,7 +162,7 @@ pytest backend-core/
 **Render services:**
 - `frontend-web` → `tools.ecomlabs.ca`
 - `backend-core` → API server
-- Background jobs: not present in this repo (historically referenced as `worker-sync`)
+- `worker-sync` → Render background worker for nightly WBR refresh jobs and future long-running sync work
 
 **Env group:** `agency-os-env-var` (shared across all services)
 

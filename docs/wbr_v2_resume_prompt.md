@@ -21,22 +21,25 @@ Start by reading, in this order:
 
 Context you should assume:
 
-1. WBR v2 schema migrations 1-3 are already applied live.
-2. Pacvue import, listings import, ASIN mapping, Windsor listings import, and Section 1 Windsor sync/report are already shipped.
+1. WBR v2 schema migrations 1-6 are already applied live.
+2. Pacvue import, listings import, ASIN mapping, Windsor listings import, Section 1 Windsor sync/report, Amazon Ads sync/report, and nightly worker automation are already shipped.
 3. Primary user routes are client-first:
    - `/reports/[clientSlug]`
    - `/reports/[clientSlug]/[marketplaceCode]/wbr`
    - `/reports/[clientSlug]/[marketplaceCode]/wbr/settings`
    - `/reports/[clientSlug]/[marketplaceCode]/wbr/sync`
+   - `/reports/[clientSlug]/[marketplaceCode]/wbr/sync/sp-api`
+   - `/reports/[clientSlug]/[marketplaceCode]/wbr/sync/ads-api`
 4. The old `/admin/wbr/section1/*` backend still exists but is legacy.
-5. The next requested slice is UI improvements to the WBR report screen, not more schema work.
+5. `worker-sync` exists in-repo and runs nightly `daily_refresh` jobs for `active` profiles.
+6. Enabling either nightly sync toggle auto-promotes a `draft` profile to `active`.
 
 Immediate goal for the next session:
 
-1. Improve the WBR screen layout and hierarchy using the existing live Section 1 data path.
+1. Start from the current issue or request, assuming both Section 1 and Section 2 are live.
 2. Avoid god-file bloat.
 3. Keep the route structure and backend contract intact unless a concrete bug requires a change.
-4. Preserve current admin/settings/sync functionality.
+4. Preserve current admin/settings/sync functionality, including nightly worker behavior.
 
 Constraints:
 

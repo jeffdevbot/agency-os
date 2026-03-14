@@ -1,10 +1,16 @@
 # Changelog — Ecomlabs Tools
 
-_Last updated: 2026-03-13 (EST)_
+_Last updated: 2026-03-14 (ET)_
 
 > Development history for the project. For setup instructions and project overview, see [AGENTS.md](AGENTS.md).
 
 ---
+
+## 2026-03-14 (ET)
+- **WBR Amazon Ads source is live for Section 2:** Added Amazon Ads OAuth connection storage, advertiser-profile selection, sync-run wiring, and Section 2 report rendering on the main WBR route. The current Ads sync supports Sponsored Products, Sponsored Brands, and Sponsored Display ingestion into `wbr_ads_campaign_daily` with `campaign_type` preserved for future split reporting.
+- **WBR Section 2 hardening landed:** Added TACoS, admin mapping QA on the Ads sync screen, parser/report-shape hardening, unpaginated fact-query fix, and frontend fetch `no-store` behavior so older week rollups render correctly across the full 4-week window.
+- **WBR nightly automation is now implemented:** Added `worker-sync/` background worker, per-profile nightly SP-API and Ads API toggles, and worker-driven `daily_refresh` execution using `wbr_sync_runs` as the operational log.
+- **WBR sync ergonomics improved:** Amazon Ads polling now defaults to a 15-minute report wait window, Brand/Display report column definitions were corrected, and enabling either nightly sync toggle on a `draft` profile now auto-promotes it to `active` so the worker will pick it up.
 
 ## 2026-03-13 (EST)
 - **WBR client-first routing now serves real report/sync pages:** The new client/marketplace paths are live as the primary navigation shape:

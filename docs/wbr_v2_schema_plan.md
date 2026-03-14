@@ -4,23 +4,26 @@ This document turns the WBR v2 prototype plan into a concrete database plan.
 
 ## Current implementation status
 
-As of March 12, 2026:
+As of March 14, 2026:
 
-1. Migration 1 is implemented and applied live:
-   - `wbr_profiles`
-   - `wbr_rows`
-2. Migration 2 is implemented and applied live:
-   - `wbr_pacvue_import_batches`
-   - `wbr_pacvue_campaign_map`
-   - `wbr_listing_import_batches`
-   - `wbr_profile_child_asins`
-   - `wbr_asin_row_map`
-3. Migration 3 is implemented and applied live:
-   - `wbr_sync_runs`
-   - `wbr_business_asin_daily`
-   - `wbr_ads_campaign_daily`
-4. The application layer is currently wired only to `wbr_profiles` and `wbr_rows`.
-5. Pacvue import, listings import, ASIN mapping, sync execution, QA views, and report rollups are not wired yet.
+1. Migrations 1-6 are implemented and applied live:
+   - `20260312000001_wbr_profiles_and_rows.sql`
+   - `20260312000002_wbr_imports_and_mappings.sql`
+   - `20260312000003_wbr_sync_runs_and_fact_tables.sql`
+   - `20260313000001_wbr_amazon_ads_connections.sql`
+   - `20260313000002_wbr_ads_campaign_daily_campaign_type_unique.sql`
+   - `20260313000003_wbr_profile_auto_sync_flags.sql`
+2. The application layer is wired to the full current WBR v2 stack:
+   - profiles and row tree
+   - Pacvue import and campaign mapping
+   - listings import and Windsor listings import
+   - ASIN mapping and CSV round-trip
+   - Windsor business sync + Section 1 report
+   - Amazon Ads OAuth/profile selection + sync + Section 2 report
+   - nightly worker toggles + `worker-sync` execution
+3. `wbr_ads_campaign_daily` now stores `campaign_type` and uses uniqueness on:
+   - `(profile_id, report_date, campaign_type, campaign_name)`
+4. The schema still has drift in the docs below where sections are written as proposals rather than current live behavior.
 
 ## Decision on the old migration
 
@@ -95,6 +98,8 @@ Columns:
 - `amazon_ads_account_id text`
 - `backfill_start_date date`
 - `daily_rewrite_days integer not null default 14 check (daily_rewrite_days >= 1 and daily_rewrite_days <= 60)`
+- `sp_api_auto_sync_enabled boolean not null default false`
+- `ads_api_auto_sync_enabled boolean not null default false`
 - `created_by uuid references public.profiles(id)`
 - `updated_by uuid references public.profiles(id)`
 - `created_at timestamptz not null default now()`
@@ -370,7 +375,7 @@ Columns:
 - `report_date date not null`
 - `campaign_id text`
 - `campaign_name text not null`
-- `campaign_type text`
+- `campaign_type text not null default 'sponsored_products'`
 - `impressions bigint not null default 0 check (impressions >= 0)`
 - `clicks bigint not null default 0 check (clicks >= 0)`
 - `spend numeric(18, 2) not null default 0`
@@ -383,7 +388,7 @@ Columns:
 
 Constraints/indexes:
 
-- Unique constraint on `(profile_id, report_date, campaign_name)` for prototype exact-name matching.
+- Unique constraint on `(profile_id, report_date, campaign_type, campaign_name)` for prototype exact-name matching across SP/SB/SD.
 - Index on `(profile_id, report_date desc)`.
 - Index on `(profile_id, campaign_name)`.
 - Optional non-unique index on `(profile_id, campaign_id)`.
@@ -512,12 +517,24 @@ Create:
 
 ## Backend impact
 
-The current scaffold code will need to be reworked to target the new schema.
+Most of the intended backend impact has already happened.
 
-Current code paths tied to the old schema:
+Live code paths targeting the new schema now include:
+
+- `backend-core/app/services/wbr/profiles.py`
+- `backend-core/app/services/wbr/pacvue_imports.py`
+- `backend-core/app/services/wbr/listing_imports.py`
+- `backend-core/app/services/wbr/asin_mappings.py`
+- `backend-core/app/services/wbr/windsor_business_sync.py`
+- `backend-core/app/services/wbr/amazon_ads_sync.py`
+- `backend-core/app/services/wbr/section1_report.py`
+- `backend-core/app/services/wbr/section2_report.py`
+- `backend-core/app/services/wbr/nightly_sync.py`
+
+Intentional leftovers still tied to the old schema/path:
 
 - `backend-core/app/services/wbr/windsor_section1_ingest.py`
-- `frontend-web/src/app/reports/wbr/[clientId]/WbrClientWorkspace.tsx`
+- legacy `/admin/wbr/section1/*` routes
 
 Those paths should not drive the final schema design. They should be updated after the new migrations land.
 
