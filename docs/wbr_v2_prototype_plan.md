@@ -2,20 +2,40 @@
 
 > The concrete database design for this plan lives in `docs/wbr_v2_schema_plan.md`.
 
-This document defines the next WBR prototype beyond the current Windsor-only Section 1 scaffold. It captures the target setup flow, data model, ingest strategy, refresh cadence, and phased implementation plan for a usable first client rollout.
+This document defines the next WBR prototype beyond the original
+Windsor-only Section 1 scaffold. It captures the target setup flow, data
+model, ingest strategy, refresh cadence, and phased implementation plan that
+drove the first client-ready rollout.
 
 ## Current implementation status
 
-As of March 12, 2026:
+As of March 14, 2026:
 
-1. The v2 schema foundation has been applied through three migrations covering profiles/rows, imports/mappings, and sync/fact tables.
-2. The app now has admin WBR profile and row management endpoints under `/admin/wbr/*`.
-3. The frontend has been switched from the old client-based Section 1 scaffold to a profile-based flow:
+1. WBR v2 migrations 1-6 are applied live, including Amazon Ads OAuth
+   connections, Ads fact-table uniqueness hardening, and nightly auto-sync
+   flags.
+2. The profile setup flow is shipped:
    - `/reports/wbr`
    - `/reports/wbr/setup`
-   - `/reports/wbr/[profileId]`
-4. The current shipped UI only manages profiles and rows. Pacvue import, listings import, ASIN mapping, QA tables, and final report rendering are still pending.
-5. The old Windsor-only Section 1 backend endpoints still exist temporarily under `/admin/wbr/section1/*` and should be removed only after the replacement ingest/setup path is in place.
+   - `/reports/wbr/[profileId]` as compatibility redirect
+   - `/reports/[clientSlug]/[marketplaceCode]/wbr/settings` as the primary
+     settings workspace
+3. Pacvue import, listings import, ASIN mapping, Windsor listings import, row
+   management, and row delete safeguards are shipped.
+4. Section 1 Windsor sync/report and Section 2 Amazon Ads sync/report are
+   shipped on the client-first report routes.
+5. The sync UX is shipped under:
+   - `/reports/[clientSlug]/[marketplaceCode]/wbr/sync`
+   - `/reports/[clientSlug]/[marketplaceCode]/wbr/sync/sp-api`
+   - `/reports/[clientSlug]/[marketplaceCode]/wbr/sync/ads-api`
+6. `worker-sync` is implemented in-repo and runs nightly `daily_refresh` jobs
+   for `active` profiles with per-profile source toggles.
+7. The old Windsor-only `/admin/wbr/section1/*` backend remains as legacy
+   compatibility surface and should not be treated as the primary WBR path.
+
+The sections below still capture the design rationale that led to the shipped
+implementation. Where they read like forward-looking rollout steps, treat them
+as historical planning context rather than pending work.
 
 ## Why this doc exists
 
@@ -449,7 +469,7 @@ The first real renderer should support:
 
 Inventory can remain out of scope for this prototype.
 
-## Recommended implementation order
+## Historical implementation order
 
 ### Phase 1: foundation
 
@@ -481,9 +501,11 @@ Inventory can remain out of scope for this prototype.
 3. Source-vs-report reconciliation.
 4. Final WBR table with expandable parents.
 
-## Explicit prototype shortcuts
+## Historical prototype shortcuts
 
-These shortcuts are acceptable for the first prototype:
+These shortcuts were acceptable in the first prototype plan. The shipped app no
+longer follows every shortcut exactly, but they remain useful context for the
+tradeoffs made during rollout.
 
 1. Match Pacvue to Ads API by exact campaign name only.
 2. Require one Pacvue export per marketplace/account during setup.
@@ -541,18 +563,19 @@ These should not block the prototype:
 5. Fully dynamic row sorting based on latest metric values.
 6. Multi-marketplace rollup views.
 
-## Immediate next build target
+## Prototype scope now supported
 
-The first client-ready prototype should prove this flow for one client and one marketplace:
+The shipped prototype now supports this end-to-end flow for one client and one
+marketplace:
 
 1. Create profile.
 2. Upload Pacvue export.
 3. Auto-generate leaf rows.
 4. Add parents manually.
-5. Upload listings source.
+5. Import listings from file or Windsor.
 6. Map child ASINs.
 7. Backfill historical Windsor business data.
 8. Backfill historical Amazon Ads campaign data.
-9. Run daily rewrite sync.
-10. Validate QA tables.
-11. Render 4-week WBR with parents and totals.
+9. Run manual or nightly rewrite syncs.
+10. Validate sync history plus mapping QA.
+11. Render a rolling 4-week WBR with shared rows across Sections 1 and 2.

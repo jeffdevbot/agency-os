@@ -1,320 +1,184 @@
-# Windsor Amazon SP Ingestion Runbook (WBR v1)
+# Windsor WBR Section 1 Ingestion Runbook
 
-> Broader WBR prototype planning now lives in `docs/wbr_v2_prototype_plan.md`. This runbook remains focused on Windsor business-data ingest details.
-
-This document captures operational details for ingesting Windsor Amazon Seller Central (`amazon_sp`) data into Supabase for WBR.
+> Broader WBR state and restart context live in `docs/wbr_v2_handoff.md`,
+> `docs/wbr_v2_schema_plan.md`, and `docs/wbr_v2_prototype_plan.md`. This
+> runbook is intentionally narrower: it documents the live Windsor-based
+> Section 1 ingestion path only.
 
 ## Scope
 
-- Source: Windsor connector endpoint `https://connectors.windsor.ai/amazon_sp`
-- Initial report shape: sales + traffic by ASIN with daily grain (`date`)
-- Initial output target: rolling 4-week WBR summary with drilldown support
-- Data tenancy model: shared tables with `client_id` scoping (do not create separate table versions per client).
+This runbook covers the current WBR Section 1 source flow:
 
-## Windsor Report Source Setup (Current)
+1. Windsor seller-business sync for daily child-ASIN facts.
+2. Windsor merchant-listings import for optional catalog bootstrap.
+3. Sync execution from the client-first WBR routes.
 
-These are the exact Windsor presets currently used and how they are configured in the UI.
+This runbook does not define Section 2. Ads reporting is now sourced from the
+Amazon Ads API, not Windsor.
+
+## Current live architecture
+
+WBR business-data ingest is now profile-centric, not client-id flat.
+
+Current live shape:
+
+1. One WBR profile per client and marketplace in `wbr_profiles`.
+2. Windsor account scoping is stored on `wbr_profiles.windsor_account_id`.
+3. Daily business facts land in `wbr_business_asin_daily`.
+4. Sync execution history lands in `wbr_sync_runs` with `source_type = 'windsor_business'`.
+5. Section 1 report rollups happen in `backend-core/app/services/wbr/section1_report.py`.
+
+Primary user routes:
+
+1. `/reports/[clientSlug]/[marketplaceCode]/wbr`
+2. `/reports/[clientSlug]/[marketplaceCode]/wbr/settings`
+3. `/reports/[clientSlug]/[marketplaceCode]/wbr/sync`
+4. `/reports/[clientSlug]/[marketplaceCode]/wbr/sync/sp-api`
+
+Primary backend routes:
+
+1. `POST /admin/wbr/profiles/{profile_id}/listings/import-windsor`
+2. `GET /admin/wbr/profiles/{profile_id}/sync-runs?source_type=windsor_business`
+3. `POST /admin/wbr/profiles/{profile_id}/sync-runs/windsor-business/backfill`
+4. `POST /admin/wbr/profiles/{profile_id}/sync-runs/windsor-business/daily-refresh`
+5. `GET /admin/wbr/profiles/{profile_id}/section1-report?weeks=4`
+
+## Windsor report presets in use
 
 ### Report A: Merchant Listings Snapshot
 
 - Data source: `Amazon Seller Central`
 - Report preset: `get_merchant_listings_all_data`
-- Customization: add `account_id` field
-- Purpose:
-  - Pull SKU/product metadata (`seller_sku`, `product_id`, `product_id_type`, item name, status)
-  - Support ASIN/SKU dimension and grouping workflows
+- Purpose: optional listings bootstrap for child-ASIN catalog import
+- Current app usage: `Listings import from Windsor`
 
-### Report B: Sales and Traffic by ASIN (Primary WBR Section 1 Source)
+Current requested Windsor fields include:
+
+- `account_id`
+- `marketplace_country`
+- `merchant_listings_all_data__asin1`
+- `merchant_listings_all_data__asin2`
+- `merchant_listings_all_data__product_id`
+- `merchant_listings_all_data__product_id_type`
+- `merchant_listings_all_data__seller_sku`
+- `merchant_listings_all_data__item_name`
+- `merchant_listings_all_data__fulfillment_channel`
+- `merchant_listings_all_data__zshop_category1`
+
+The importer accepts Windsor rows directly and also supports fallback file
+uploads (`.txt`, `.tsv`, `.csv`, `.xlsx`, `.xlsm`) on the settings page.
+
+### Report B: Sales and Traffic by ASIN
 
 - Data source: `Amazon Seller Central`
 - Report preset: `get_sales_and_traffic_report_by_asin`
-- Date control: set report range in Windsor (for example `last_7d`, `last_28d`, `last_180d` or explicit range)
-- Customization: add `account_id` and `date` fields
-- Purpose:
-  - Primary metric source for Section 1 (`page_views`, `unit_sales`, `sales`) at daily ASIN grain
+- Purpose: primary Section 1 metric source
+- Current app usage: Windsor business sync service
 
-### Report C: Sponsored Products Campaigns (Section 2 Candidate Source)
-
-- Data source: `Amazon Ads`
-- Report preset: `sponsored_products_campaigns`
-- Customization used in current test: add `date` and `datasource` fields
-- Observed output (sample):
-  - Includes campaign-level metrics (`impressions`, `clicks`, `spend`, attributed sales/conversions, `campaignid`, `campaign`)
-  - Does not include portfolio fields in the tested export (`portfolio_id` / `portfolio_name` absent)
-  - Does not include explicit ad account ID in the tested export
-
-## New Client WBR Onboarding Workflow (Target UX)
-
-Goal: onboard a new client by configuration, not custom code.
-
-### Operator Steps
-
-1. In Windsor, connect the client's source account(s) manually.
-2. In our app, create a WBR profile for the client.
-3. Add the relevant Windsor `account_id` values (and marketplace labels) to that profile.
-4. Run initial backfill from our app (job generates account-scoped Windsor URLs automatically).
-5. Review `UNMAPPED` ASINs and assign group labels.
-6. Activate daily incremental sync.
-
-### System Behavior
-
-1. Store selected Windsor account IDs in config tables per client profile.
-2. Build query URLs in code per account/date window (`select_accounts=...`), so users do not hand-build URLs repeatedly.
-3. Execute per-account/per-window ingestion with retries and run logging.
-4. Upsert into shared multi-tenant tables using `client_id` scoping.
-
-### Configuration Notes
-
-- Currency is marketplace-specific in v1 (no cross-currency conversion).
-- Timezone can remain default in v1.
-- One client can include multiple marketplaces/accounts under one WBR profile.
-
-## WBR Output Contract (Current)
-
-This section defines the report output first, so ingestion and schema decisions map to required business fields.
-
-### Flexibility Requirement
-
-- Row grouping is client-specific and must be configurable over time.
-- Initial example client: Distex.
-- Initial example groups: `THORINOX`, `NEW AIR`, `BRIKA`, `DISTEX`.
-- Some accounts contain additional brands not included in WBR; reporting must support scoped inclusion by configured group set.
-
-### Group Mapping Strategy (Recommended)
-
-- Do not use product-name parsing as the source of truth for WBR grouping.
-- Introduce a manual mapping layer: `account_id + child_asin -> group_label` (Brand/style/sub-category).
-- Allow per-client custom grouping schemes so each client can choose its own row logic.
-- Keep an `UNMAPPED` bucket for ASINs not yet tagged, and make this visible in QA views.
-- Optional accelerator: auto-suggest group labels from item name/SKU prefixes, but require manual confirm/save.
-- Portfolio-based grouping can be used as an optional input/bootstrap when available, but it should not be the only grouping source because non-advertised ASINs may not have portfolio context.
-
-### Time Window Convention
-
-- Rolling 4 weeks for Sections 1 and 2.
-- Weekly columns are most-recent week first (left to right).
-- Each week is represented by explicit date range headers.
-- Include one summary `Total` row in addition to grouped rows.
-- Week boundary (v1): Sunday-start weeks.
-- Future option: Monday-start toggle can be added later at query/view layer; v1 stays fixed to Sunday-start for parity with current reporting.
-
-### Section 1: Organic / Sales-Traffic Summary (v1 target)
-
-Dimensions:
-
-- `group_label` (initially Brand)
-
-Metrics (4 weekly columns each):
-
-- `page_views`
-- `unit_sales`
-- `unit_conversions_pct` = `unit_sales / page_views` (0 when divisor is 0)
-- `sales`
-
-Notes:
-
-- `active_asins` is omitted from v1.
-- MTD and YTD are intentionally omitted from v1 and will be delivered as separate views later.
-- `sales` source for v1: ordered product sales (not shipped sales).
-- `page_views` source for v1: total page views field (`trafficbyasin_pageviews` / equivalent), which already represents browser + mobile app views.
-
-### Section 1 Field Mapping (Locked v1)
-
-Source preset:
-
-- Windsor Report B: `get_sales_and_traffic_report_by_asin`
-
-Required source columns:
+Required Windsor fields:
 
 - `account_id`
 - `date`
 - `sales_and_traffic_report_by_date__childasin`
 - `sales_and_traffic_report_by_date__parentasin`
-- `sales_and_traffic_report_by_date__trafficbyasin_pageviews`
-- `sales_and_traffic_report_by_date__salesbyasin_unitsordered`
 - `sales_and_traffic_report_by_date__salesbyasin_orderedproductsales_amount`
 - `sales_and_traffic_report_by_date__salesbyasin_orderedproductsales_currencycode`
+- `sales_and_traffic_report_by_date__salesbyasin_unitsordered`
+- `sales_and_traffic_report_by_date__trafficbyasin_pageviews`
 
 Metric mapping:
 
-- `page_views` = `SUM(sales_and_traffic_report_by_date__trafficbyasin_pageviews)`
-- `unit_sales` = `SUM(sales_and_traffic_report_by_date__salesbyasin_unitsordered)`
-- `sales` = `SUM(sales_and_traffic_report_by_date__salesbyasin_orderedproductsales_amount)`
-- `unit_conversions_pct` = `unit_sales / page_views` (0 when divisor is 0)
+- `page_views` = `trafficbyasin_pageviews`
+- `unit_sales` = `salesbyasin_unitsordered`
+- `sales` = `salesbyasin_orderedproductsales_amount`
+- `conversion_rate` = `unit_sales / page_views`
 
-Grouping for rows:
+## Onboarding flow for Section 1
 
-- Join source rows to internal mapping table (`account_id + child_asin -> group_label`).
-- Aggregate by `group_label` and week bucket.
-- Include `UNMAPPED` group for any missing mapping rows.
+1. Create the WBR profile.
+2. Save `windsor_account_id` on the profile in WBR Settings.
+3. Import listings from Windsor or upload a listings file.
+4. Map child ASINs to WBR leaf rows.
+5. Run Windsor backfill from the SP-API sync screen.
+6. Validate Section 1 output on the main WBR report route.
+7. Optionally enable nightly SP-API sync for the profile.
 
-Weekly bucketing:
+The system does not group by `group_label`. Business facts roll up through:
 
-- Use source `date` as provided (date type).
-- Build rolling 4 Sunday-start weeks.
-- Display weeks most-recent first.
+`child_asin -> wbr_asin_row_map -> wbr_rows`
 
-### Section 1 UI Behavior (Live v1 as of 2026-02-26)
+## Sync behavior
 
-- Route: `/reports/wbr/[clientId]`
-- Backfill action calls: `POST /admin/wbr/section1/backfill-last-full-weeks`
-- Weeks shown are always previous **full** Sunday-Saturday weeks only (current in-progress week is excluded).
-- Table shows Section 1 weekly **totals** (across all mapped/unmapped groups) for validation.
-- If one expected week has no source rows, UI still renders that week with `0` values (zero-filled gap), so `Weeks=4` always displays 4 rows.
-- Backfill reruns are idempotent for the requested windows (range replace + re-aggregate), so rerunning the same weeks is safe.
+### Backfill
 
-### Section 2: Ads Summary
+- Triggered from `/reports/[clientSlug]/[marketplaceCode]/wbr/sync/sp-api`
+- Calls `POST /admin/wbr/profiles/{profile_id}/sync-runs/windsor-business/backfill`
+- Accepts:
+  - `date_from`
+  - `date_to`
+  - `chunk_days`
+- Backend default chunk size: `7` days
+- Each chunk creates its own `wbr_sync_runs` row
 
-Dimensions:
+### Daily refresh
 
-- `group_label` (same grouping key as Section 1)
+- Triggered manually from the same sync screen or nightly by `worker-sync`
+- Calls `POST /admin/wbr/profiles/{profile_id}/sync-runs/windsor-business/daily-refresh`
+- Rewrites the trailing `daily_rewrite_days` window for the profile
+- Default trailing window: `14` days unless overridden on the profile
 
-Metrics (4 weekly columns each):
+### Nightly automation
 
-- `impressions`
-- `clicks`
-- `ctr_pct` = `clicks / impressions` (0 when divisor is 0)
-- `ad_spend`
-- `cpc` = `ad_spend / clicks` (0 when divisor is 0)
-- `ad_sales`
-- `acos_pct` = `ad_spend / ad_sales` (0 when divisor is 0)
-- `tacos_pct` = `ad_spend / sales` where `sales` is Section 1 total sales for same group/week (0 when divisor is 0)
+- Controlled by `wbr_profiles.sp_api_auto_sync_enabled`
+- Only `active` profiles are scanned by `worker-sync`
+- Enabling the nightly toggle on a `draft` profile auto-promotes the profile to
+  `active`
 
-Section 2 data-shaping note:
+## Section 1 report behavior
 
-- If connector output lacks portfolio fields, ingest a separate campaign-to-portfolio mapping extract from Amazon Ads directly and join on campaign ID.
-- Keep this mapping as a managed table with effective dating so historical joins remain stable when portfolio assignments change.
+Section 1 is rendered from the synced fact table plus active ASIN mappings.
 
-### Section 3: Inventory Snapshot
+Current report rules:
 
-Dimensions:
+1. The report shows previous full weeks only; the current in-progress week is excluded.
+2. Week boundaries follow `wbr_profiles.week_start_day` and support `sunday` or `monday`.
+3. Parent rows are sums of child leaf rows.
+4. Unmapped ASIN activity is excluded from row totals and counted in report QA.
 
-- `group_label` (same grouping key)
+Current Section 1 metrics:
 
-Metrics (single current column per metric, not 4-week columns):
+1. Page Views
+2. Unit Sales
+3. Sales
+4. Conversion Rate
 
-- `units_in_stock` (FBA total units)
-- `working`
-- `in_transit`
-- `reserved_fc_transfer`
-- `wos` = `(units_in_stock + reserved_fc_transfer) / avg(last_4_weeks_unit_sales)` (0 when divisor is 0)
+## Query behavior and source handling
 
-### Section 4: Returns
+Current Windsor business sync behavior in code:
 
-- Deferred. Contract to be defined in a later iteration.
+1. Requests are account-scoped via `select_accounts=<windsor_account_id>`.
+2. Requests use explicit `date_from` and `date_to`.
+3. Response payloads may be JSON or CSV; the sync service supports both.
+4. Recent windows are rewritten, not append-only merged.
+5. Currency defaults are inferred from account suffix if the source omits it.
 
-## Locked Decisions (as of 2026-02-25)
-
-1. Weeks are Sunday-start for v1.
-2. Section 1 sales metric uses ordered product sales.
-3. Mixed-marketplace reporting remains marketplace-native (no FX conversion in v1; CAD stays CAD, USD stays USD).
-4. `Total` row only sums included reporting groups (for example selected brands), not all account brands.
-5. Number formatting should match current manual WBR conventions.
-
-## Open Definitions
-
-1. Returns section schema/formulas are pending.
-2. First-pass UX for manual ASIN mapping is pending (likely Command Center admin surface).
-3. Portfolio-to-group import behavior (one-way bootstrap vs continuous sync) is pending.
-
-## Section 2 Source Roadmap
-
-Near-term:
-
-1. Keep Windsor as the source for Section 1 and Section 2 ad performance metrics.
-2. Maintain a custom portfolio/campaign mapping table as fallback for grouping logic.
-
-Long-term:
-
-1. When direct Amazon Ads API access is approved, ingest Section 2 from Ads API directly.
-2. Retire the manual portfolio mapping path if direct API payloads provide stable portfolio linkage for required joins.
-
-## Sample Data Needed for Field Mapping
-
-Do not paste large browser previews. Provide one exported file instead:
-
-- Preferred: CSV export from Windsor query.
-- Minimum window: last 1 day is enough to validate shape and field naming.
-- Better for metric sanity checks: last 7 days.
-- Scope: one account (`select_accounts=...`) to keep mapping and validation clean.
-
-## Connector Behavior Observed
-
-1. Each marketplace/account appears as a distinct connector account ID (example suffixes `-CA`, `-US`).
-2. If `select_accounts` is not present, the query returns all currently selected accounts.
-3. If `select_accounts=<account_id>` is present, the query is account-scoped.
-4. Date windows can be controlled by:
-   - preset mode (`date_preset=last_28d`, etc.), or
-   - explicit range mode (`date_from=YYYY-MM-DD&date_to=YYYY-MM-DD`).
-
-## Query Patterns
-
-### All selected accounts (broad pull)
+Example request shape:
 
 ```text
-https://connectors.windsor.ai/amazon_sp?api_key=***&date_preset=last_28d&fields=...
+https://connectors.windsor.ai/amazon_sp?api_key=***&select_accounts=<account_id>&date_from=YYYY-MM-DD&date_to=YYYY-MM-DD&fields=...
 ```
 
-### Single account pull (recommended for production ingestion)
+## Operational guidance
 
-```text
-https://connectors.windsor.ai/amazon_sp?api_key=***&date_preset=last_28d&fields=...&select_accounts=A1MY3C51FMRZ3Z-CA
-```
+1. Prefer account-scoped pulls for safety and predictable row counts.
+2. Use chunked backfills for larger historical ranges; do not send oversized date windows unless necessary.
+3. Re-run recent windows instead of relying on append-only logic; Windsor source data can restate.
+4. If Section 1 totals look low, inspect ASIN mapping coverage before suspecting the sync itself.
+5. If sync row counts spike, check for account-scope mistakes or Windsor field-shape changes.
 
-### Explicit backfill window
+## Known caveats
 
-```text
-https://connectors.windsor.ai/amazon_sp?api_key=***&date_from=2025-08-29&date_to=2026-02-24&fields=...&select_accounts=A1MY3C51FMRZ3Z-CA
-```
-
-Use either `date_preset` or `date_from/date_to`, not both.
-
-## Recommended Ingestion Strategy
-
-1. Ingest per account ID, not all accounts in one request.
-2. Backfill in windows (for example 30-day chunks) up to 180 days.
-3. Nightly incremental should re-pull a short recent window (for example last 2-3 days) to absorb late updates.
-4. Store raw payload rows first, then transform in Supabase (ELT) into typed fact tables.
-5. Upsert idempotently using a natural key at daily grain:
-   - `(account_id, date, child_asin)` plus marketplace discriminator if needed.
-
-## Minimum Fields To Keep
-
-Always keep:
-
-- `account_id`
-- `date`
-- `sales_and_traffic_report_by_date__childasin`
-- `sales_and_traffic_report_by_date__parentasin`
-
-Recommended additions when available:
-
-- account display name
-- marketplace/country code
-- currency code columns for monetary fields
-
-## Operational Guardrails
-
-1. Post-ingest assertion for account-scoped runs:
-   - `COUNT(DISTINCT account_id) = 1`
-2. Reject or quarantine rows with null `date` or null child ASIN.
-3. Track per-run metadata:
-   - requested account(s), date window, row count, duration, status, error.
-4. Track row volume over time; spikes usually indicate account scope drift or field changes.
-
-## Scaling Notes
-
-Daily row count grows approximately with:
-
-- `#accounts * #days * #child ASIN rows`
-
-At larger scale, one-request-for-all-accounts becomes slower and harder to retry. Per-account batching is the default pattern.
-
-## Immediate Next Steps
-
-1. Lock Section 1 metric definitions and exact source-field mapping from Windsor fields.
-2. Create ingestion run metadata table.
-3. Create raw Windsor landing table.
-4. Implement first per-account backfill job (single report shape).
-5. Build first transformed daily fact table for Section 1 metrics.
-6. Build first WBR Section 1 UI with 4-week columns and total row.
+1. Windsor response shape can vary between JSON and CSV depending on source behavior.
+2. Merchant listings can be incomplete for some catalog metadata; manual file import remains a supported fallback.
+3. Very large date ranges should still be chunked even if Windsor appears responsive.
+4. The old `/admin/wbr/section1/*` routes and `/reports/wbr/[clientId]` flow are legacy and should not be used as the reference path for current WBR behavior.

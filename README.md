@@ -32,9 +32,9 @@ Ecomlabs Tools is the internal platform that consolidates our ad analytics, SOP 
 
 ### Dev Operations
 - `docs/mcp_setup.md` — MCP workspace setup and verification (Supabase MCP server config, read-only connectivity checks, and `401 Unauthorized` re-auth recovery).
-- `docs/windsor_wbr_ingestion_runbook.md` — Windsor Amazon SP ingestion operations for WBR (account scoping, date windows, scaling guardrails, and batching strategy).
+- `docs/windsor_wbr_ingestion_runbook.md` — Windsor Section 1 ingestion operations for WBR (account scoping, date windows, sync behavior, and batching strategy).
 - `docs/wbr_v2_handoff.md` — Current WBR v2 shipped state, routes, migrations, and restart context.
-- `docs/wbr_v2_schema_plan.md` — WBR schema plan annotated with current implementation status and remaining drift.
+- `docs/wbr_v2_schema_plan.md` — WBR schema plan annotated with current implementation status, live migrations, and follow-on schema notes.
 
 ### Other Specs
 - `docs/archive/non_agencyclaw/05_creative_brief_prd.md` — Creative Brief tool that maps Composer copy + uploaded assets into designer-ready storyboards.

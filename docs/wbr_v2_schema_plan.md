@@ -1,6 +1,8 @@
 # WBR v2 Schema Plan
 
 This document turns the WBR v2 prototype plan into a concrete database plan.
+It now also serves as a reference for the live WBR schema shape and the design
+choices behind it.
 
 ## Current implementation status
 
@@ -23,7 +25,10 @@ As of March 14, 2026:
    - nightly worker toggles + `worker-sync` execution
 3. `wbr_ads_campaign_daily` now stores `campaign_type` and uses uniqueness on:
    - `(profile_id, report_date, campaign_type, campaign_name)`
-4. The schema still has drift in the docs below where sections are written as proposals rather than current live behavior.
+4. The sections below mix live schema notes with retained design rationale from
+   the original rollout plan. When rollout-sequencing language conflicts with
+   the current app, treat the applied migrations, `docs/wbr_v2_handoff.md`, and
+   the live codepaths as the source of truth.
 
 ## Decision on the old migration
 
@@ -77,7 +82,7 @@ Reason:
 4. Source config belongs to one profile.
 5. This avoids mixing unrelated marketplaces or account scopes under one client id.
 
-## Proposed tables
+## Live tables and design notes
 
 ### 1. `wbr_profiles`
 
@@ -400,7 +405,15 @@ Operational rule:
 
 ## Derived views
 
-These should be created only after the base tables exist and the service-layer behavior is clear.
+These views are not currently shipped as persistent database views.
+Equivalent weekly rollups and QA outputs are currently computed in the service
+layer, primarily in:
+
+- `backend-core/app/services/wbr/section1_report.py`
+- `backend-core/app/services/wbr/section2_report.py`
+
+If database views are added later, the definitions below remain the intended
+shape.
 
 ### 1. `wbr_unmapped_campaigns`
 
@@ -460,60 +473,26 @@ Implementation pattern:
 - Reuse the project’s admin test on `public.profiles`.
 - Prefer a helper function if the same policy is repeated across many WBR tables.
 
-## Migration sequence
+## Applied migration sequence
 
-The schema should be introduced in small migrations, not one oversized migration.
+The initial phased rollout described in this plan has now been implemented with
+the following live migrations:
 
-### Migration 1: profiles and rows
+1. `20260312000001_wbr_profiles_and_rows.sql`
+2. `20260312000002_wbr_imports_and_mappings.sql`
+3. `20260312000003_wbr_sync_runs_and_fact_tables.sql`
+4. `20260313000001_wbr_amazon_ads_connections.sql`
+5. `20260313000002_wbr_ads_campaign_daily_campaign_type_unique.sql`
+6. `20260313000003_wbr_profile_auto_sync_flags.sql`
 
-Create:
+Notable differences versus the original phased plan:
 
-- `wbr_profiles`
-- `wbr_rows`
-
-Add:
-
-- indexes
-- timestamps/triggers
-- RLS
-
-### Migration 2: import and mapping tables
-
-Create:
-
-- `wbr_pacvue_import_batches`
-- `wbr_pacvue_campaign_map`
-- `wbr_listing_import_batches`
-- `wbr_profile_child_asins`
-- `wbr_asin_row_map`
-
-Add:
-
-- validation trigger for leaf-row-only ASIN mappings
-- RLS
-
-### Migration 3: sync runs and source fact tables
-
-Create:
-
-- `wbr_sync_runs`
-- `wbr_business_asin_daily`
-- `wbr_ads_campaign_daily`
-
-Add:
-
-- indexes
-- RLS
-
-### Migration 4: QA and rollup views
-
-Create:
-
-- `wbr_unmapped_campaigns`
-- `wbr_unmapped_asins`
-- `wbr_row_weekly_business`
-- `wbr_row_weekly_ads`
-- `wbr_row_weekly_combined`
+1. Amazon Ads OAuth connection storage shipped as its own migration rather than
+   being folded into the earlier schema tranche.
+2. The `campaign_type` uniqueness fix for `wbr_ads_campaign_daily` shipped as a
+   follow-up migration after the first Ads API rollout.
+3. Nightly sync toggles shipped on `wbr_profiles`; the planned QA and rollup
+   views did not ship as database views.
 
 ## Backend impact
 
@@ -536,12 +515,12 @@ Intentional leftovers still tied to the old schema/path:
 - `backend-core/app/services/wbr/windsor_section1_ingest.py`
 - legacy `/admin/wbr/section1/*` routes
 
-Those paths should not drive the final schema design. They should be updated after the new migrations land.
+Those paths should not drive the final schema design. They remain compatibility
+surface only.
 
-## Recommended next implementation step
+## Current follow-on focus
 
-After this schema plan, the next concrete task should be:
-
-1. Create migration 1 for `wbr_profiles` and `wbr_rows`.
-2. Add a minimal admin setup UI that can create a profile and display rows.
-3. Then implement Pacvue import against the new tables before touching Ads API ingest.
+This schema plan no longer has an immediate bootstrap step; the foundation is
+already live. New work should start from `docs/wbr_v2_handoff.md` and focus on
+bug fixes, reporting improvements, or additional WBR sections rather than
+recreating the initial rollout sequence.
