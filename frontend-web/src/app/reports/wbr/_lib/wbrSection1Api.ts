@@ -127,6 +127,11 @@ export type WbrSection2Report = {
   qa: WbrSection2ReportQa;
 };
 
+export type ExportWbrWorkbookResult = {
+  blob: Blob;
+  filename: string;
+};
+
 const getBackendUrl = (): string => {
   const url = process.env.NEXT_PUBLIC_BACKEND_URL;
   if (!url) {
@@ -182,6 +187,21 @@ const requestJson = async <T>(token: string, path: string, init?: RequestInit): 
   }
 
   return (await response.json()) as T;
+};
+
+const parseAttachmentFilename = (response: Response, fallback: string): string => {
+  const disposition = response.headers.get("Content-Disposition") || response.headers.get("content-disposition");
+  if (!disposition) return fallback;
+  const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1]);
+    } catch {
+      return utf8Match[1];
+    }
+  }
+  const plainMatch = disposition.match(/filename="?([^"]+)"?/i);
+  return plainMatch?.[1] || fallback;
 };
 
 const parseSyncRun = (value: unknown): WbrSyncRun => {
@@ -472,6 +492,34 @@ export const getWbrSection2Report = async (
     { method: "GET" }
   );
   return parseSection2Report(payload);
+};
+
+export const exportWbrWorkbook = async (
+  token: string,
+  profileId: string,
+  options?: { weeks?: number; hideEmptyRows?: boolean; newestFirst?: boolean }
+): Promise<ExportWbrWorkbookResult> => {
+  const query = new URLSearchParams({
+    weeks: String(options?.weeks ?? 4),
+    hide_empty_rows: String(options?.hideEmptyRows ?? false),
+    newest_first: String(options?.newestFirst ?? true),
+  });
+  const response = await fetch(`${getBackendUrl()}/admin/wbr/profiles/${profileId}/export.xlsx?${query.toString()}`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!response.ok) {
+    const detail = await parseErrorDetail(response);
+    throw new Error(detail);
+  }
+
+  return {
+    blob: await response.blob(),
+    filename: parseAttachmentFilename(response, "wbr.xlsx"),
+  };
 };
 
 // ---------------------------------------------------------------------------

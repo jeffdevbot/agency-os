@@ -5,6 +5,7 @@ import { useResolvedWbrProfile } from "../_lib/useResolvedWbrProfile";
 import { useWbrSection1Report } from "../_lib/useWbrSection1Report";
 import { useWbrSection2Report } from "../_lib/useWbrSection2Report";
 import { useWbrSection3Report } from "../_lib/useWbrSection3Report";
+import { useWbrWorkbookExport } from "../_lib/useWbrWorkbookExport";
 import WbrAdvertisingPane from "./WbrAdvertisingPane";
 import WbrInventoryReturnsPane from "./WbrInventoryReturnsPane";
 import WbrReportSectionTabs, { type WbrReportSection } from "./WbrReportSectionTabs";
@@ -21,6 +22,7 @@ export default function WbrSection1ReportScreen({ clientSlug, marketplaceCode }:
   const reportState = useWbrSection1Report(resolved.profile?.id ?? null, 4);
   const section2ReportState = useWbrSection2Report(resolved.profile?.id ?? null, 4);
   const section3ReportState = useWbrSection3Report(resolved.profile?.id ?? null, 4);
+  const workbookExport = useWbrWorkbookExport(resolved.profile?.id ?? null);
   const [hideEmptyRows, setHideEmptyRows] = useState(true);
   const [newestFirst, setNewestFirst] = useState(true);
   const [horizontalLayout, setHorizontalLayout] = useState(true);
@@ -73,6 +75,21 @@ export default function WbrSection1ReportScreen({ clientSlug, marketplaceCode }:
           </div>
 
           <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+            <button
+              onClick={() =>
+                void workbookExport.downloadWorkbook({
+                  weeks: 4,
+                  hideEmptyRows,
+                  newestFirst,
+                })
+              }
+              disabled={workbookExport.exporting}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-[#0a6fd6] shadow-sm transition hover:-translate-y-0.5 hover:shadow disabled:cursor-not-allowed disabled:text-slate-400 md:text-sm"
+              title="Download the current WBR as an Excel workbook"
+            >
+              {workbookExport.exporting ? "Exporting..." : "Export to Excel"}
+            </button>
+
             <button
               onClick={() => {
                 void resolved.loadRoute();
@@ -140,6 +157,12 @@ export default function WbrSection1ReportScreen({ clientSlug, marketplaceCode }:
         {section3ReportState.errorMessage ? (
           <p className="mt-4 rounded-xl border border-[#f87171]/40 bg-[#fee2e2] px-4 py-3 text-sm text-[#991b1b]">
             {section3ReportState.errorMessage}
+          </p>
+        ) : null}
+
+        {workbookExport.errorMessage ? (
+          <p className="mt-4 rounded-xl border border-[#f87171]/40 bg-[#fee2e2] px-4 py-3 text-sm text-[#991b1b]">
+            {workbookExport.errorMessage}
           </p>
         ) : null}
       </div>

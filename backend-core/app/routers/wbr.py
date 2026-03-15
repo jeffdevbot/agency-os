@@ -8,6 +8,7 @@ from datetime import date
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from supabase import Client, create_client
 
@@ -27,6 +28,7 @@ from ..services.wbr.profiles import WBRNotFoundError, WBRValidationError, WBRPro
 from ..services.wbr.section1_report import Section1ReportService
 from ..services.wbr.section2_report import Section2ReportService
 from ..services.wbr.section3_report import Section3ReportService
+from ..services.wbr.workbook import WbrWorkbookExportService
 from ..services.wbr.windsor_business_sync import WindsorBusinessSyncService
 
 router = APIRouter(prefix="/admin/wbr", tags=["wbr-admin"])
@@ -81,6 +83,10 @@ def _get_section3_report_service() -> Section3ReportService:
 
 def _get_amazon_ads_sync_service() -> AmazonAdsSyncService:
     return AmazonAdsSyncService(_get_supabase())
+
+
+def _get_wbr_workbook_export_service() -> WbrWorkbookExportService:
+    return WbrWorkbookExportService(_get_supabase())
 
 
 def _user_id(user: dict) -> str | None:
@@ -689,6 +695,35 @@ async def get_section3_report(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception:
         raise HTTPException(status_code=500, detail="Failed to build Section 3 report")
+
+
+@router.get("/profiles/{profile_id}/export.xlsx")
+async def export_wbr_workbook(
+    profile_id: str,
+    weeks: int = Query(4, ge=1, le=12),
+    hide_empty_rows: bool = Query(False),
+    newest_first: bool = Query(True),
+    user=Depends(require_admin_user),
+):
+    svc = _get_wbr_workbook_export_service()
+    try:
+        workbook_path, filename = svc.build_export(
+            profile_id,
+            weeks=weeks,
+            hide_empty_rows=hide_empty_rows,
+            newest_first=newest_first,
+        )
+        return FileResponse(
+            workbook_path,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            filename=filename,
+        )
+    except WBRNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except WBRValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to export WBR workbook")
 
 
 @router.put("/profiles/{profile_id}/child-asins/{child_asin}/mapping")
