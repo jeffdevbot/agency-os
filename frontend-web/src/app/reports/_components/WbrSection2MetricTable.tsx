@@ -1,19 +1,13 @@
 "use client";
 
 import type { WbrSection1Week, WbrSection2Row, WbrSection2RowWeek } from "../wbr/_lib/wbrSection1Api";
-import { buildSection2DisplayRows, buildSection2TotalValues } from "./wbrSection2RowDisplay";
+import {
+  buildSection2DisplayRows,
+  buildSection2TotalValues,
+  type WbrSection2MetricKey,
+} from "./wbrSection2RowDisplay";
 
-type MetricKey =
-  | "impressions"
-  | "clicks"
-  | "ctr_pct"
-  | "ad_spend"
-  | "cpc"
-  | "ad_orders"
-  | "ad_conversion_rate"
-  | "ad_sales"
-  | "acos_pct"
-  | "tacos_pct";
+type MetricKey = WbrSection2MetricKey;
 
 type Props = {
   title: string;
@@ -23,6 +17,10 @@ type Props = {
   hideEmptyRows?: boolean;
   newestFirst?: boolean;
   referenceRowOrder?: string[];
+  onMetricClick?: (metricKey: MetricKey) => void;
+  expandedMetric?: MetricKey | null;
+  selectedRowIds?: Set<string>;
+  onRowToggle?: (rowId: string) => void;
 };
 
 const formatMetricValue = (metricKey: MetricKey, values: WbrSection2RowWeek): string => {
@@ -48,6 +46,10 @@ export default function WbrSection2MetricTable({
   hideEmptyRows = false,
   newestFirst = true,
   referenceRowOrder = [],
+  onMetricClick,
+  expandedMetric = null,
+  selectedRowIds = new Set<string>(),
+  onRowToggle,
 }: Props) {
   const displayRows = buildSection2DisplayRows(rows, hideEmptyRows, referenceRowOrder);
   const totals = buildSection2TotalValues(rows, weeks, metricKey, hideEmptyRows);
@@ -56,7 +58,16 @@ export default function WbrSection2MetricTable({
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white px-3 py-3 md:px-4 md:py-3">
-      <p className="text-sm font-semibold leading-none text-[#0f172a]">{title}</p>
+      <button
+        type="button"
+        onClick={onMetricClick ? () => onMetricClick(metricKey) : undefined}
+        className={`inline-flex items-center gap-2 text-sm font-semibold leading-none text-[#0f172a] ${
+          onMetricClick ? "cursor-pointer transition hover:text-[#0a6fd6]" : ""
+        }`}
+      >
+        <span>{title}</span>
+        {onMetricClick ? <span className="text-[#4c576f]">{expandedMetric === metricKey ? "▾" : "▸"}</span> : null}
+      </button>
       <div className="mt-3 overflow-x-auto">
         <table className="min-w-full divide-y divide-slate-200 text-left text-[13px] leading-tight md:text-sm">
           <thead className="bg-[#f7faff]">
@@ -80,7 +91,23 @@ export default function WbrSection2MetricTable({
                     row.row_kind === "parent" ? "font-semibold" : row.parent_row_id ? "pl-6" : "pl-3"
                   }`}
                 >
-                  {row.row_label}
+                  <div className="flex items-center gap-2">
+                    {expandedMetric ? (
+                      <button
+                        type="button"
+                        onClick={() => onRowToggle?.(row.id)}
+                        className={`inline-flex h-6 w-6 items-center justify-center rounded-full border text-[11px] transition ${
+                          selectedRowIds.has(row.id)
+                            ? "border-[#0a6fd6] bg-[#0a6fd6] text-white shadow-[0_8px_20px_rgba(10,111,214,0.25)]"
+                            : "border-[#d5e2f7] bg-[#f7faff] text-[#4c576f] hover:border-[#0a6fd6] hover:text-[#0a6fd6]"
+                        }`}
+                        aria-label={`Toggle ${row.row_label} on chart`}
+                      >
+                        ↗
+                      </button>
+                    ) : null}
+                    <span>{row.row_label}</span>
+                  </div>
                 </td>
                 {displayWeekIndexes.map((weekIndex) => (
                   <td key={`${row.id}-${weekIndex}`} className="px-3 py-2 text-right text-[#0f172a]">

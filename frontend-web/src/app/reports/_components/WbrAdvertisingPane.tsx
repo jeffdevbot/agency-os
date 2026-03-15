@@ -1,9 +1,16 @@
 "use client";
 
 import type { WbrSection1Week, WbrSection2Row } from "../wbr/_lib/wbrSection1Api";
+import WbrTrendChart from "./WbrTrendChart";
 import WbrSection2HorizontalTable from "./WbrSection2HorizontalTable";
 import WbrSection2MetricTable from "./WbrSection2MetricTable";
-import { hasAnySection2Activity } from "./wbrSection2RowDisplay";
+import {
+  buildSection2DisplayRows,
+  getSection2TotalValue,
+  hasAnySection2Activity,
+  type WbrSection2MetricKey,
+} from "./wbrSection2RowDisplay";
+import { useWbrChartState } from "./useWbrChartState";
 
 type Props = {
   weeks: WbrSection1Week[];
@@ -14,6 +21,44 @@ type Props = {
   referenceRowOrder: string[];
 };
 
+const SERIES_COLORS = ["#0a6fd6", "#f97316", "#14b8a6", "#6366f1", "#f43f5e", "#65a30d"];
+
+const METRIC_LABELS: Record<WbrSection2MetricKey, string> = {
+  impressions: "Impressions",
+  clicks: "Clicks",
+  ctr_pct: "CTR",
+  ad_spend: "Ad Spend",
+  cpc: "CPC",
+  ad_orders: "Ad Orders",
+  ad_conversion_rate: "Ad Conversion Rate",
+  ad_sales: "Ad Sales",
+  acos_pct: "ACoS",
+  tacos_pct: "TACoS",
+};
+
+const formatChartValue = (metricKey: WbrSection2MetricKey, value: number): string => {
+  if (metricKey === "ad_spend" || metricKey === "cpc" || metricKey === "ad_sales") {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(value);
+  }
+
+  if (metricKey === "ctr_pct" || metricKey === "ad_conversion_rate" || metricKey === "acos_pct" || metricKey === "tacos_pct") {
+    return `${(value * 100).toFixed(1)}%`;
+  }
+
+  return new Intl.NumberFormat("en-US").format(value);
+};
+
+const getMetricValue = (row: WbrSection2Row, metricKey: WbrSection2MetricKey, weekIndex: number): number => {
+  const week = row.weeks[weekIndex];
+  if (!week) return 0;
+  return Number(week[metricKey] || 0);
+};
+
 export default function WbrAdvertisingPane({
   weeks,
   rows,
@@ -22,7 +67,37 @@ export default function WbrAdvertisingPane({
   horizontalLayout,
   referenceRowOrder,
 }: Props) {
+  const chartState = useWbrChartState<WbrSection2MetricKey>();
   const activityPresent = hasAnySection2Activity(rows);
+  const displayRows = buildSection2DisplayRows(rows, hideEmptyRows, referenceRowOrder);
+  const expandedMetric = chartState.expandedMetric;
+
+  const chartSeries =
+    expandedMetric == null
+      ? []
+      : [
+          ...(chartState.showTotal
+            ? [
+                {
+                  key: "total",
+                  label: "Total",
+                  data: weeks.map((_, weekIndex) =>
+                    getSection2TotalValue(rows, weekIndex, expandedMetric, hideEmptyRows)
+                  ),
+                  color: SERIES_COLORS[0],
+                },
+              ]
+            : []),
+          ...displayRows
+            .filter((row) => chartState.selectedRowIds.has(row.id))
+            .slice(0, SERIES_COLORS.length - 1)
+            .map((row, index) => ({
+              key: row.id,
+              label: row.row_label,
+              data: weeks.map((_, weekIndex) => getMetricValue(row, expandedMetric, weekIndex)),
+              color: SERIES_COLORS[index + 1],
+            })),
+        ];
 
   if (rows.length === 0 || !activityPresent) {
     return (
@@ -36,18 +111,44 @@ export default function WbrAdvertisingPane({
 
   if (horizontalLayout) {
     return (
-      <WbrSection2HorizontalTable
-        weeks={weeks}
-        rows={rows}
-        hideEmptyRows={hideEmptyRows}
-        newestFirst={newestFirst}
-        referenceRowOrder={referenceRowOrder}
-      />
+      <>
+        {expandedMetric ? (
+          <WbrTrendChart
+            title={METRIC_LABELS[expandedMetric]}
+            weeks={weeks.map((week) => ({ label: week.label }))}
+            series={chartSeries}
+            formatValue={(value) => formatChartValue(expandedMetric, value)}
+            showTotal={chartState.showTotal}
+            onToggleTotal={chartState.toggleTotal}
+          />
+        ) : null}
+        <WbrSection2HorizontalTable
+          weeks={weeks}
+          rows={rows}
+          hideEmptyRows={hideEmptyRows}
+          newestFirst={newestFirst}
+          referenceRowOrder={referenceRowOrder}
+          onMetricClick={chartState.toggleMetric}
+          expandedMetric={expandedMetric}
+          selectedRowIds={chartState.selectedRowIds}
+          onRowToggle={chartState.toggleRow}
+        />
+      </>
     );
   }
 
   return (
     <>
+      {expandedMetric ? (
+        <WbrTrendChart
+          title={METRIC_LABELS[expandedMetric]}
+          weeks={weeks.map((week) => ({ label: week.label }))}
+          series={chartSeries}
+          formatValue={(value) => formatChartValue(expandedMetric, value)}
+          showTotal={chartState.showTotal}
+          onToggleTotal={chartState.toggleTotal}
+        />
+      ) : null}
       <WbrSection2MetricTable
         title="Impressions"
         metricKey="impressions"
@@ -56,6 +157,10 @@ export default function WbrAdvertisingPane({
         hideEmptyRows={hideEmptyRows}
         newestFirst={newestFirst}
         referenceRowOrder={referenceRowOrder}
+        onMetricClick={chartState.toggleMetric}
+        expandedMetric={expandedMetric}
+        selectedRowIds={chartState.selectedRowIds}
+        onRowToggle={chartState.toggleRow}
       />
       <WbrSection2MetricTable
         title="Clicks"
@@ -65,6 +170,10 @@ export default function WbrAdvertisingPane({
         hideEmptyRows={hideEmptyRows}
         newestFirst={newestFirst}
         referenceRowOrder={referenceRowOrder}
+        onMetricClick={chartState.toggleMetric}
+        expandedMetric={expandedMetric}
+        selectedRowIds={chartState.selectedRowIds}
+        onRowToggle={chartState.toggleRow}
       />
       <WbrSection2MetricTable
         title="CTR"
@@ -74,6 +183,10 @@ export default function WbrAdvertisingPane({
         hideEmptyRows={hideEmptyRows}
         newestFirst={newestFirst}
         referenceRowOrder={referenceRowOrder}
+        onMetricClick={chartState.toggleMetric}
+        expandedMetric={expandedMetric}
+        selectedRowIds={chartState.selectedRowIds}
+        onRowToggle={chartState.toggleRow}
       />
       <WbrSection2MetricTable
         title="Ad Spend"
@@ -83,6 +196,10 @@ export default function WbrAdvertisingPane({
         hideEmptyRows={hideEmptyRows}
         newestFirst={newestFirst}
         referenceRowOrder={referenceRowOrder}
+        onMetricClick={chartState.toggleMetric}
+        expandedMetric={expandedMetric}
+        selectedRowIds={chartState.selectedRowIds}
+        onRowToggle={chartState.toggleRow}
       />
       <WbrSection2MetricTable
         title="CPC"
@@ -92,6 +209,10 @@ export default function WbrAdvertisingPane({
         hideEmptyRows={hideEmptyRows}
         newestFirst={newestFirst}
         referenceRowOrder={referenceRowOrder}
+        onMetricClick={chartState.toggleMetric}
+        expandedMetric={expandedMetric}
+        selectedRowIds={chartState.selectedRowIds}
+        onRowToggle={chartState.toggleRow}
       />
       <WbrSection2MetricTable
         title="Ad Orders"
@@ -101,6 +222,10 @@ export default function WbrAdvertisingPane({
         hideEmptyRows={hideEmptyRows}
         newestFirst={newestFirst}
         referenceRowOrder={referenceRowOrder}
+        onMetricClick={chartState.toggleMetric}
+        expandedMetric={expandedMetric}
+        selectedRowIds={chartState.selectedRowIds}
+        onRowToggle={chartState.toggleRow}
       />
       <WbrSection2MetricTable
         title="Ad Conversion Rate"
@@ -110,6 +235,10 @@ export default function WbrAdvertisingPane({
         hideEmptyRows={hideEmptyRows}
         newestFirst={newestFirst}
         referenceRowOrder={referenceRowOrder}
+        onMetricClick={chartState.toggleMetric}
+        expandedMetric={expandedMetric}
+        selectedRowIds={chartState.selectedRowIds}
+        onRowToggle={chartState.toggleRow}
       />
       <WbrSection2MetricTable
         title="Ad Sales"
@@ -119,6 +248,10 @@ export default function WbrAdvertisingPane({
         hideEmptyRows={hideEmptyRows}
         newestFirst={newestFirst}
         referenceRowOrder={referenceRowOrder}
+        onMetricClick={chartState.toggleMetric}
+        expandedMetric={expandedMetric}
+        selectedRowIds={chartState.selectedRowIds}
+        onRowToggle={chartState.toggleRow}
       />
       <WbrSection2MetricTable
         title="ACoS"
@@ -128,6 +261,10 @@ export default function WbrAdvertisingPane({
         hideEmptyRows={hideEmptyRows}
         newestFirst={newestFirst}
         referenceRowOrder={referenceRowOrder}
+        onMetricClick={chartState.toggleMetric}
+        expandedMetric={expandedMetric}
+        selectedRowIds={chartState.selectedRowIds}
+        onRowToggle={chartState.toggleRow}
       />
       <WbrSection2MetricTable
         title="TACoS"
@@ -137,6 +274,10 @@ export default function WbrAdvertisingPane({
         hideEmptyRows={hideEmptyRows}
         newestFirst={newestFirst}
         referenceRowOrder={referenceRowOrder}
+        onMetricClick={chartState.toggleMetric}
+        expandedMetric={expandedMetric}
+        selectedRowIds={chartState.selectedRowIds}
+        onRowToggle={chartState.toggleRow}
       />
     </>
   );

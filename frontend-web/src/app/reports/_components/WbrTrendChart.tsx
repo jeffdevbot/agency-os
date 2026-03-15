@@ -27,6 +27,8 @@ type Props = {
   weeks: ChartWeek[];
   series: ChartSeries[];
   formatValue: (value: number) => string;
+  showTotal: boolean;
+  onToggleTotal: () => void;
 };
 
 type TooltipPayload = {
@@ -67,7 +69,7 @@ const CustomTooltip = ({
   );
 };
 
-export default function WbrTrendChart({ title, weeks, series, formatValue }: Props) {
+export default function WbrTrendChart({ title, weeks, series, formatValue, showTotal, onToggleTotal }: Props) {
   const chartData = weeks.map((week, index) => {
     const point: Record<string, string | number> = { label: week.label };
     series.forEach((item) => {
@@ -83,41 +85,59 @@ export default function WbrTrendChart({ title, weeks, series, formatValue }: Pro
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#4c576f]">Trend</p>
           <h3 className="text-lg font-semibold text-[#0f172a]">{title}</h3>
         </div>
+        <button
+          type="button"
+          onClick={onToggleTotal}
+          className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold transition ${
+            showTotal
+              ? "border-[#0a6fd6] bg-[#0a6fd6] text-white shadow-[0_10px_24px_rgba(10,111,214,0.24)]"
+              : "border-[#d5e2f7] bg-[#f7faff] text-[#4c576f] hover:border-[#0a6fd6] hover:text-[#0a6fd6]"
+          }`}
+          aria-pressed={showTotal}
+        >
+          Total
+        </button>
       </div>
       <div className="h-[260px] w-full">
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={chartData} margin={{ top: 8, right: 20, left: 8, bottom: 8 }}>
-            <CartesianGrid stroke="#dbe7fb" strokeDasharray="3 3" />
-            <XAxis
-              dataKey="label"
-              tick={{ fill: "#4c576f", fontSize: 12 }}
-              axisLine={{ stroke: "#cbd5e1" }}
-              tickLine={{ stroke: "#cbd5e1" }}
-            />
-            <YAxis
-              tickFormatter={(value) => formatValue(Number(value))}
-              tick={{ fill: "#4c576f", fontSize: 12 }}
-              axisLine={{ stroke: "#cbd5e1" }}
-              tickLine={{ stroke: "#cbd5e1" }}
-              width={64}
-            />
-            <Tooltip content={<CustomTooltip formatValue={formatValue} />} />
-            <Legend wrapperStyle={{ paddingTop: 8 }} />
-            {series.map((item, index) => (
-              <Line
-                key={item.key}
-                type="monotone"
-                dataKey={item.key}
-                name={item.label}
-                stroke={item.color}
-                strokeWidth={index === 0 ? 3 : 2}
-                dot={{ r: index === 0 ? 4 : 3 }}
-                activeDot={{ r: index === 0 ? 6 : 5 }}
-                animationDuration={300}
+        {series.length === 0 ? (
+          <div className="flex h-full items-center justify-center rounded-2xl border border-dashed border-[#d5e2f7] bg-[#f7faff] px-6 text-center text-sm text-[#4c576f]">
+            Select rows from the table to compare trends.
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={chartData} margin={{ top: 8, right: 20, left: 8, bottom: 8 }}>
+              <CartesianGrid stroke="#dbe7fb" strokeDasharray="3 3" />
+              <XAxis
+                dataKey="label"
+                tick={{ fill: "#4c576f", fontSize: 12 }}
+                axisLine={{ stroke: "#cbd5e1" }}
+                tickLine={{ stroke: "#cbd5e1" }}
               />
-            ))}
-          </LineChart>
-        </ResponsiveContainer>
+              <YAxis
+                tickFormatter={(value) => formatValue(Number(value))}
+                tick={{ fill: "#4c576f", fontSize: 12 }}
+                axisLine={{ stroke: "#cbd5e1" }}
+                tickLine={{ stroke: "#cbd5e1" }}
+                width={64}
+              />
+              <Tooltip content={<CustomTooltip formatValue={formatValue} />} />
+              <Legend wrapperStyle={{ paddingTop: 8 }} />
+              {series.map((item) => (
+                <Line
+                  key={item.key}
+                  type="monotone"
+                  dataKey={item.key}
+                  name={item.label}
+                  stroke={item.color}
+                  strokeWidth={item.key === "total" ? 3 : 2}
+                  dot={{ r: item.key === "total" ? 4 : 3 }}
+                  activeDot={{ r: item.key === "total" ? 6 : 5 }}
+                  animationDuration={300}
+                />
+              ))}
+            </LineChart>
+          </ResponsiveContainer>
+        )}
       </div>
     </div>
   );

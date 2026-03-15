@@ -2,7 +2,7 @@
 
 import type { WbrSection1Row, WbrSection1Week } from "../wbr/_lib/wbrSection1Api";
 
-type MetricKey = "page_views" | "unit_sales" | "sales" | "conversion_rate";
+export type WbrSection1MetricKey = "page_views" | "unit_sales" | "sales" | "conversion_rate";
 
 const getRowPageViewTotal = (row: WbrSection1Row): number =>
   row.weeks.reduce((sum, week) => sum + Number(week.page_views || 0), 0);
@@ -50,17 +50,37 @@ export const buildDisplayRows = (rows: WbrSection1Row[], hideEmptyRows: boolean)
   return ordered;
 };
 
+export const getSection1TotalValue = (
+  rows: WbrSection1Row[],
+  weekIndex: number,
+  metricKey: WbrSection1MetricKey,
+  hideEmptyRows: boolean
+): number => {
+  const topLevelRows = (hideEmptyRows ? rows.filter(getRowHasActivity) : rows).filter((row) => !row.parent_row_id);
+
+  if (metricKey === "sales") {
+    return topLevelRows.reduce((sum, row) => sum + Number(row.weeks[weekIndex]?.sales || 0), 0);
+  }
+
+  if (metricKey === "conversion_rate") {
+    const pageViews = topLevelRows.reduce((sum, row) => sum + Number(row.weeks[weekIndex]?.page_views || 0), 0);
+    const unitSales = topLevelRows.reduce((sum, row) => sum + Number(row.weeks[weekIndex]?.unit_sales || 0), 0);
+    return pageViews === 0 ? 0 : unitSales / pageViews;
+  }
+
+  return topLevelRows.reduce((sum, row) => sum + Number(row.weeks[weekIndex]?.[metricKey] || 0), 0);
+};
+
 export const buildTotalValues = (
   rows: WbrSection1Row[],
   weeks: WbrSection1Week[],
-  metricKey: MetricKey,
+  metricKey: WbrSection1MetricKey,
   hideEmptyRows: boolean
 ): string[] => {
-  const topLevelRows = (hideEmptyRows ? rows.filter(getRowHasActivity) : rows).filter((row) => !row.parent_row_id);
-
   return weeks.map((_, weekIndex) => {
+    const total = getSection1TotalValue(rows, weekIndex, metricKey, hideEmptyRows);
+
     if (metricKey === "sales") {
-      const total = topLevelRows.reduce((sum, row) => sum + Number(row.weeks[weekIndex]?.sales || 0), 0);
       return new Intl.NumberFormat("en-US", {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
@@ -68,13 +88,9 @@ export const buildTotalValues = (
     }
 
     if (metricKey === "conversion_rate") {
-      const pageViews = topLevelRows.reduce((sum, row) => sum + Number(row.weeks[weekIndex]?.page_views || 0), 0);
-      const unitSales = topLevelRows.reduce((sum, row) => sum + Number(row.weeks[weekIndex]?.unit_sales || 0), 0);
-      const rate = pageViews === 0 ? 0 : unitSales / pageViews;
-      return `${(rate * 100).toFixed(1)}%`;
+      return `${(total * 100).toFixed(1)}%`;
     }
 
-    const total = topLevelRows.reduce((sum, row) => sum + Number(row.weeks[weekIndex]?.[metricKey] || 0), 0);
     return new Intl.NumberFormat("en-US").format(total);
   });
 };

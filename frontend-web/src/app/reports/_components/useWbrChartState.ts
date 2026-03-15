@@ -2,15 +2,15 @@
 
 import { useState } from "react";
 
-export type WbrChartMetricKey = "page_views" | "unit_sales" | "sales" | "conversion_rate";
-
-export function useWbrChartState() {
-  const [expandedMetric, setExpandedMetric] = useState<WbrChartMetricKey | null>(null);
+export function useWbrChartState<MetricKey extends string>() {
+  const [expandedMetric, setExpandedMetric] = useState<MetricKey | null>(null);
   const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set());
+  const [showTotal, setShowTotal] = useState(true);
 
-  const toggleMetric = (metricKey: WbrChartMetricKey) => {
+  const toggleMetric = (metricKey: MetricKey) => {
     setExpandedMetric((current) => (current === metricKey ? null : metricKey));
     setSelectedRowIds(new Set());
+    setShowTotal(true);
   };
 
   const toggleRow = (rowId: string) => {
@@ -25,10 +25,16 @@ export function useWbrChartState() {
     });
   };
 
+  const toggleTotal = () => {
+    setShowTotal((current) => !current);
+  };
+
   return {
     expandedMetric,
     selectedRowIds,
+    showTotal,
     toggleMetric,
     toggleRow,
+    toggleTotal,
   };
 }

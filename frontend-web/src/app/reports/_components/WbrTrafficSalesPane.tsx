@@ -4,8 +4,13 @@ import type { WbrSection1Row, WbrSection1Week } from "../wbr/_lib/wbrSection1Api
 import WbrTrendChart from "./WbrTrendChart";
 import WbrSection1HorizontalTable from "./WbrSection1HorizontalTable";
 import WbrSection1MetricTable from "./WbrSection1MetricTable";
-import { buildDisplayRows, hasAnyActivity } from "./wbrSection1RowDisplay";
-import { useWbrChartState, type WbrChartMetricKey } from "./useWbrChartState";
+import {
+  buildDisplayRows,
+  getSection1TotalValue,
+  hasAnyActivity,
+  type WbrSection1MetricKey,
+} from "./wbrSection1RowDisplay";
+import { useWbrChartState } from "./useWbrChartState";
 
 type Props = {
   weeks: WbrSection1Week[];
@@ -17,14 +22,14 @@ type Props = {
 
 const SERIES_COLORS = ["#0a6fd6", "#f97316", "#14b8a6", "#6366f1", "#f43f5e", "#65a30d"];
 
-const METRIC_LABELS: Record<WbrChartMetricKey, string> = {
+const METRIC_LABELS: Record<WbrSection1MetricKey, string> = {
   page_views: "Page Views",
   unit_sales: "Unit Sales",
   sales: "Sales",
   conversion_rate: "Conversion Rate",
 };
 
-const formatChartValue = (metricKey: WbrChartMetricKey, value: number): string => {
+const formatChartValue = (metricKey: WbrSection1MetricKey, value: number): string => {
   if (metricKey === "sales") {
     return new Intl.NumberFormat("en-US", {
       style: "currency",
@@ -41,7 +46,7 @@ const formatChartValue = (metricKey: WbrChartMetricKey, value: number): string =
   return new Intl.NumberFormat("en-US").format(value);
 };
 
-const getMetricValue = (row: WbrSection1Row, metricKey: WbrChartMetricKey, weekIndex: number): number => {
+const getMetricValue = (row: WbrSection1Row, metricKey: WbrSection1MetricKey, weekIndex: number): number => {
   const week = row.weeks[weekIndex];
   if (!week) return 0;
   if (metricKey === "sales") return Number(week.sales || 0);
@@ -55,31 +60,35 @@ export default function WbrTrafficSalesPane({
   newestFirst,
   horizontalLayout,
 }: Props) {
-  const chartState = useWbrChartState();
+  const chartState = useWbrChartState<WbrSection1MetricKey>();
   const activityPresent = hasAnyActivity(rows);
   const displayRows = buildDisplayRows(rows, hideEmptyRows);
   const chronologicalWeeks = weeks;
-  const topLevelRows = displayRows.filter((row) => !row.parent_row_id);
+  const expandedMetric = chartState.expandedMetric;
 
   const chartSeries =
-    chartState.expandedMetric == null
+    expandedMetric == null
       ? []
       : [
-          {
-            key: "total",
-            label: "Total",
-            data: chronologicalWeeks.map((_, weekIndex) =>
-              topLevelRows.reduce((sum, row) => sum + getMetricValue(row, chartState.expandedMetric!, weekIndex), 0)
-            ),
-            color: SERIES_COLORS[0],
-          },
+          ...(chartState.showTotal
+            ? [
+                {
+                  key: "total",
+                  label: "Total",
+                  data: chronologicalWeeks.map((_, weekIndex) =>
+                    getSection1TotalValue(rows, weekIndex, expandedMetric, hideEmptyRows)
+                  ),
+                  color: SERIES_COLORS[0],
+                },
+              ]
+            : []),
           ...displayRows
             .filter((row) => chartState.selectedRowIds.has(row.id))
             .slice(0, SERIES_COLORS.length - 1)
             .map((row, index) => ({
               key: row.id,
               label: row.row_label,
-              data: chronologicalWeeks.map((_, weekIndex) => getMetricValue(row, chartState.expandedMetric!, weekIndex)),
+              data: chronologicalWeeks.map((_, weekIndex) => getMetricValue(row, expandedMetric, weekIndex)),
               color: SERIES_COLORS[index + 1],
             })),
         ];
@@ -107,12 +116,14 @@ export default function WbrTrafficSalesPane({
   if (horizontalLayout) {
     return (
       <>
-        {chartState.expandedMetric ? (
+        {expandedMetric ? (
           <WbrTrendChart
-            title={METRIC_LABELS[chartState.expandedMetric]}
+            title={METRIC_LABELS[expandedMetric]}
             weeks={chronologicalWeeks.map((week) => ({ label: week.label }))}
             series={chartSeries}
-            formatValue={(value) => formatChartValue(chartState.expandedMetric!, value)}
+            formatValue={(value) => formatChartValue(expandedMetric, value)}
+            showTotal={chartState.showTotal}
+            onToggleTotal={chartState.toggleTotal}
           />
         ) : null}
         <WbrSection1HorizontalTable
@@ -121,7 +132,7 @@ export default function WbrTrafficSalesPane({
           hideEmptyRows={hideEmptyRows}
           newestFirst={newestFirst}
           onMetricClick={chartState.toggleMetric}
-          expandedMetric={chartState.expandedMetric}
+          expandedMetric={expandedMetric}
           selectedRowIds={chartState.selectedRowIds}
           onRowToggle={chartState.toggleRow}
         />
@@ -131,12 +142,14 @@ export default function WbrTrafficSalesPane({
 
   return (
     <>
-      {chartState.expandedMetric ? (
+      {expandedMetric ? (
         <WbrTrendChart
-          title={METRIC_LABELS[chartState.expandedMetric]}
+          title={METRIC_LABELS[expandedMetric]}
           weeks={chronologicalWeeks.map((week) => ({ label: week.label }))}
           series={chartSeries}
-          formatValue={(value) => formatChartValue(chartState.expandedMetric!, value)}
+          formatValue={(value) => formatChartValue(expandedMetric, value)}
+          showTotal={chartState.showTotal}
+          onToggleTotal={chartState.toggleTotal}
         />
       ) : null}
       <WbrSection1MetricTable
@@ -147,7 +160,7 @@ export default function WbrTrafficSalesPane({
         hideEmptyRows={hideEmptyRows}
         newestFirst={newestFirst}
         onMetricClick={chartState.toggleMetric}
-        expandedMetric={chartState.expandedMetric}
+        expandedMetric={expandedMetric}
         selectedRowIds={chartState.selectedRowIds}
         onRowToggle={chartState.toggleRow}
       />
@@ -159,7 +172,7 @@ export default function WbrTrafficSalesPane({
         hideEmptyRows={hideEmptyRows}
         newestFirst={newestFirst}
         onMetricClick={chartState.toggleMetric}
-        expandedMetric={chartState.expandedMetric}
+        expandedMetric={expandedMetric}
         selectedRowIds={chartState.selectedRowIds}
         onRowToggle={chartState.toggleRow}
       />
@@ -171,7 +184,7 @@ export default function WbrTrafficSalesPane({
         hideEmptyRows={hideEmptyRows}
         newestFirst={newestFirst}
         onMetricClick={chartState.toggleMetric}
-        expandedMetric={chartState.expandedMetric}
+        expandedMetric={expandedMetric}
         selectedRowIds={chartState.selectedRowIds}
         onRowToggle={chartState.toggleRow}
       />
@@ -183,7 +196,7 @@ export default function WbrTrafficSalesPane({
         hideEmptyRows={hideEmptyRows}
         newestFirst={newestFirst}
         onMetricClick={chartState.toggleMetric}
-        expandedMetric={chartState.expandedMetric}
+        expandedMetric={expandedMetric}
         selectedRowIds={chartState.selectedRowIds}
         onRowToggle={chartState.toggleRow}
       />

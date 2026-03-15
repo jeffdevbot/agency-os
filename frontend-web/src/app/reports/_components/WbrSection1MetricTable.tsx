@@ -1,10 +1,9 @@
 "use client";
 
 import type { WbrSection1Row, WbrSection1RowWeek, WbrSection1Week } from "../wbr/_lib/wbrSection1Api";
-import { buildDisplayRows, buildTotalValues } from "./wbrSection1RowDisplay";
-import type { WbrChartMetricKey } from "./useWbrChartState";
+import { buildDisplayRows, buildTotalValues, type WbrSection1MetricKey } from "./wbrSection1RowDisplay";
 
-type MetricKey = WbrChartMetricKey;
+type MetricKey = WbrSection1MetricKey;
 
 type Props = {
   title: string;
