@@ -80,7 +80,7 @@ export default function WbrSection2HorizontalTable({
                 rowSpan={2}
                 className="sticky left-0 z-20 min-w-[280px] border-b border-slate-200 bg-[#f7faff] px-4 py-3 text-left"
               >
-                Row
+                Style
               </th>
               {METRICS.map((metric) => (
                 <th

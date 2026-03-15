@@ -49,7 +49,7 @@ export default function WbrSection1MetricTable({
         <table className="min-w-full divide-y divide-slate-200 text-left text-[13px] leading-tight md:text-sm">
           <thead className="bg-[#f7faff]">
             <tr className="text-xs font-semibold uppercase tracking-wide text-[#4c576f]">
-              <th className="w-[32%] px-3 py-2">Row</th>
+              <th className="w-[32%] px-3 py-2">Style</th>
               {displayWeekIndexes.map((weekIndex) => (
                 <th
                   key={`${title}-${weeks[weekIndex]?.start ?? weekIndex}`}
