@@ -6,15 +6,17 @@ choices behind it.
 
 ## Current implementation status
 
-As of March 14, 2026:
+As of March 15, 2026:
 
-1. Migrations 1-6 are implemented and applied live:
+1. Migrations 1-8 are implemented and applied live:
    - `20260312000001_wbr_profiles_and_rows.sql`
    - `20260312000002_wbr_imports_and_mappings.sql`
    - `20260312000003_wbr_sync_runs_and_fact_tables.sql`
    - `20260313000001_wbr_amazon_ads_connections.sql`
    - `20260313000002_wbr_ads_campaign_daily_campaign_type_unique.sql`
    - `20260313000003_wbr_profile_auto_sync_flags.sql`
+   - `20260314000001_wbr_inventory_and_returns_tables.sql`
+   - `20260315100000_expand_wbr_sync_run_source_types_for_section3.sql`
 2. The application layer is wired to the full current WBR v2 stack:
    - profiles and row tree
    - Pacvue import and campaign mapping
@@ -22,6 +24,7 @@ As of March 14, 2026:
    - ASIN mapping and CSV round-trip
    - Windsor business sync + Section 1 report
    - Amazon Ads OAuth/profile selection + sync + Section 2 report
+   - Windsor inventory + returns sync + Section 3 report
    - nightly worker toggles + `worker-sync` execution
 3. Amazon Ads sync now uses a queued/background report lifecycle:
    - manual backfills/manual refreshes enqueue report jobs and return quickly
@@ -33,6 +36,10 @@ As of March 14, 2026:
    the original rollout plan. When rollout-sequencing language conflicts with
    the current app, treat the applied migrations, `docs/wbr_v2_handoff.md`, and
    the live codepaths as the source of truth.
+6. The current main report UI is now tabbed by section, supports server-side
+   Excel export, and includes inline trend charts for Sections 1 and 2. Those
+   are application-layer features and do not change the core schema, but they
+   are part of the shipped WBR v2 surface.
 
 ## Decision on the old migration
 

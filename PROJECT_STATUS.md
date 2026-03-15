@@ -9,6 +9,8 @@ _Last updated: 2026-03-15 (ET)_
 ## 2026-03-15 (ET)
 - **WBR Section 3 inventory + returns is now live on the main report:** Added Windsor-backed inventory snapshots and returns facts, Section 3 report rendering on the primary WBR route, sync-run visibility for `windsor_inventory` and `windsor_returns`, and end-to-end manual validation that Section 3 is now showing real data for the validation account.
 - **WBR Section 3 schema follow-up applied:** Added and applied `20260314000001_wbr_inventory_and_returns_tables.sql` plus the follow-up `20260315100000_expand_wbr_sync_run_source_types_for_section3.sql` so Section 3 sync runs can be recorded in `wbr_sync_runs`.
+- **WBR report UX upgraded significantly:** Replaced stacked sections with report tabs (`Traffic + Sales`, `Advertising`, `Inventory + Returns`), added Excel export of the current WBR as a 3-sheet workbook, and shipped inline trend charts for Sections 1 and 2 with row overlays and toggleable total series.
+- **WBR docs and planning artifacts updated:** Refreshed the WBR handoff/docs to match the shipped tabs/export/chart state and added `docs/monthly_pnl_implementation_plan.md` to capture the backfill-first Monthly P&L roadmap.
 
 ## 2026-03-14 (ET)
 - **WBR Amazon Ads source is live for Section 2:** Added Amazon Ads OAuth connection storage, advertiser-profile selection, sync-run wiring, and Section 2 report rendering on the main WBR route. The current Ads sync supports Sponsored Products, Sponsored Brands, and Sponsored Display ingestion into `wbr_ads_campaign_daily` with `campaign_type` preserved for future split reporting.

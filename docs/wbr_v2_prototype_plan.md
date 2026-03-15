@@ -9,7 +9,7 @@ drove the first client-ready rollout.
 
 ## Current implementation status
 
-As of March 14, 2026:
+As of March 15, 2026:
 
 1. WBR v2 migrations 1-6 are applied live, including Amazon Ads OAuth
    connections, Ads fact-table uniqueness hardening, and nightly auto-sync
@@ -22,8 +22,9 @@ As of March 14, 2026:
      settings workspace
 3. Pacvue import, listings import, ASIN mapping, Windsor listings import, row
    management, and row delete safeguards are shipped.
-4. Section 1 Windsor sync/report and Section 2 Amazon Ads sync/report are
-   shipped on the client-first report routes.
+4. Section 1 Windsor sync/report, Section 2 Amazon Ads sync/report, and
+   Section 3 Windsor inventory + returns sync/report are shipped on the
+   client-first report routes.
 5. The sync UX is shipped under:
    - `/reports/[clientSlug]/[marketplaceCode]/wbr/sync`
    - `/reports/[clientSlug]/[marketplaceCode]/wbr/sync/sp-api`
@@ -33,7 +34,9 @@ As of March 14, 2026:
 7. Amazon Ads manual backfills/manual refreshes now enqueue report jobs and let
    `worker-sync` poll/download/finalize them in the background rather than
    blocking the HTTP request until Amazon finishes generating reports.
-8. The old Windsor-only `/admin/wbr/section1/*` backend remains as legacy
+8. The main WBR report UI is now tabbed by section, supports Excel export, and
+   includes inline trend charts for Sections 1 and 2.
+9. The old Windsor-only `/admin/wbr/section1/*` backend remains as legacy
    compatibility surface and should not be treated as the primary WBR path.
 
 The sections below still capture the design rationale that led to the shipped

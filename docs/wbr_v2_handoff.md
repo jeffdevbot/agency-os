@@ -26,6 +26,12 @@ Commits on `main` relevant to the current WBR v2 slice:
 16. `55ee467` - `Auto-activate nightly sync profiles`
 17. `d225ba8` - `Refactor WBR Amazon Ads sync to queued worker flow`
 18. `11343ba` - `Add WBR Section 3 inventory and returns reporting`
+19. `33af744` - `Update WBR docs and fix Section 3 sync run types`
+20. `2662eda` - `Add section tabs to WBR report`
+21. `cfbcde9` - `Add WBR Excel export`
+22. `a39e85c` - `Add Section 1 trend charts to WBR`
+23. `f56bed7` - `Add WBR ad charts and total toggle`
+24. `9a38a38` - `Align WBR section 3 table header styling`
 
 ## Live database state
 
@@ -179,6 +185,41 @@ Permanent delete is blocked when:
    - Return %
 6. Section 3 is now showing real data on the validation account after the live follow-up migration that expanded `wbr_sync_runs.source_type`.
 
+### Main report UX
+
+1. The WBR report is now tabbed rather than stacked:
+   - `Traffic + Sales`
+   - `Advertising`
+   - `Inventory + Returns`
+2. Only one section renders at a time in both horizontal and stacked layouts.
+3. The report now supports Excel export from the main page:
+   - server-side `.xlsx`
+   - 3 sheets
+   - horizontal layout
+   - frozen first column
+4. Section 1 now supports inline trend charts for:
+   - Page Views
+   - Unit Sales
+   - Conversion Rate
+   - Sales
+5. Section 2 now supports inline trend charts for:
+   - Impressions
+   - Clicks
+   - CTR
+   - Ad Spend
+   - CPC
+   - Ad Orders
+   - Ad Conversion Rate
+   - Ad Sales
+   - ACoS
+   - TACoS
+6. Chart behavior:
+   - click metric header to open/close
+   - one open chart at a time per section
+   - row overlays toggle from the `Style` cell
+   - `Total` series is now toggleable
+7. Section 3 does not currently have charts because the live payload exposes one inventory snapshot plus two returns weeks, not a true multi-week inventory trend series.
+
 ### Nightly sync automation
 
 1. `worker-sync` is now implemented in-repo and deployed as the Render background worker.
@@ -237,6 +278,8 @@ Permanent delete is blocked when:
 5. `POST /admin/wbr/profiles/{profile_id}/sync-runs/amazon-ads/backfill`
 6. `POST /admin/wbr/profiles/{profile_id}/sync-runs/amazon-ads/daily-refresh`
 7. `GET /admin/wbr/profiles/{profile_id}/section2-report?weeks=4`
+8. `GET /admin/wbr/profiles/{profile_id}/section3-report?weeks=4`
+9. `GET /admin/wbr/profiles/{profile_id}/workbook-export?weeks=4&hide_empty_rows=true&newest_first=true`
 
 ## Key files the next session should read first
 
@@ -267,23 +310,30 @@ Permanent delete is blocked when:
 ### Frontend report routes
 
 1. `frontend-web/src/app/reports/_components/WbrSection1ReportScreen.tsx`
-2. `frontend-web/src/app/reports/_components/WbrSection1MetricTable.tsx`
-3. `frontend-web/src/app/reports/_components/WbrSection2MetricTable.tsx`
-4. `frontend-web/src/app/reports/_components/WbrSection2HorizontalTable.tsx`
-5. `frontend-web/src/app/reports/_components/WbrSection3Table.tsx`
-6. `frontend-web/src/app/reports/_components/WbrSyncScreen.tsx`
-7. `frontend-web/src/app/reports/_components/WbrAdsSyncScreen.tsx`
-8. `frontend-web/src/app/reports/_components/ResolvedWbrSettingsRoute.tsx`
-9. `frontend-web/src/app/reports/_lib/useResolvedWbrProfile.ts`
-10. `frontend-web/src/app/reports/_lib/useWbrSection1Report.ts`
-11. `frontend-web/src/app/reports/_lib/useWbrSection2Report.ts`
-12. `frontend-web/src/app/reports/_lib/useWbrSection3Report.ts`
-13. `frontend-web/src/app/reports/_lib/useWbrSync.ts`
-14. `frontend-web/src/app/reports/_lib/useWbrAdsSync.ts`
-15. `frontend-web/src/app/reports/wbr/_lib/wbrApi.ts`
-16. `frontend-web/src/app/reports/wbr/_lib/wbrSection1Api.ts`
-17. `frontend-web/src/app/reports/wbr/_lib/wbrAmazonAdsApi.ts`
-18. `frontend-web/src/app/reports/wbr/[profileId]/WbrProfileWorkspace.tsx`
+2. `frontend-web/src/app/reports/_components/WbrReportSectionTabs.tsx`
+3. `frontend-web/src/app/reports/_components/WbrTrafficSalesPane.tsx`
+4. `frontend-web/src/app/reports/_components/WbrAdvertisingPane.tsx`
+5. `frontend-web/src/app/reports/_components/WbrInventoryReturnsPane.tsx`
+6. `frontend-web/src/app/reports/_components/WbrTrendChart.tsx`
+7. `frontend-web/src/app/reports/_components/useWbrChartState.ts`
+8. `frontend-web/src/app/reports/_components/WbrSection1MetricTable.tsx`
+9. `frontend-web/src/app/reports/_components/WbrSection2MetricTable.tsx`
+10. `frontend-web/src/app/reports/_components/WbrSection2HorizontalTable.tsx`
+11. `frontend-web/src/app/reports/_components/WbrSection3Table.tsx`
+12. `frontend-web/src/app/reports/_components/WbrSyncScreen.tsx`
+13. `frontend-web/src/app/reports/_components/WbrAdsSyncScreen.tsx`
+14. `frontend-web/src/app/reports/_components/ResolvedWbrSettingsRoute.tsx`
+15. `frontend-web/src/app/reports/_lib/useResolvedWbrProfile.ts`
+16. `frontend-web/src/app/reports/_lib/useWbrSection1Report.ts`
+17. `frontend-web/src/app/reports/_lib/useWbrSection2Report.ts`
+18. `frontend-web/src/app/reports/_lib/useWbrSection3Report.ts`
+19. `frontend-web/src/app/reports/_lib/useWbrWorkbookExport.ts`
+20. `frontend-web/src/app/reports/_lib/useWbrSync.ts`
+21. `frontend-web/src/app/reports/_lib/useWbrAdsSync.ts`
+22. `frontend-web/src/app/reports/wbr/_lib/wbrApi.ts`
+23. `frontend-web/src/app/reports/wbr/_lib/wbrSection1Api.ts`
+24. `frontend-web/src/app/reports/wbr/_lib/wbrAmazonAdsApi.ts`
+25. `frontend-web/src/app/reports/wbr/[profileId]/WbrProfileWorkspace.tsx`
 
 ## Important product assumptions currently locked
 
