@@ -107,50 +107,93 @@ export default function WbrSection3Table({
   return (
     <div className="rounded-xl border border-slate-200 bg-white px-3 py-3 md:px-4 md:py-3">
       <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-slate-200 text-left text-[13px] leading-tight md:text-sm">
-          <thead className="bg-[#f7faff]">
+        <table className="min-w-max border-separate border-spacing-0 text-left text-[13px] leading-tight md:text-sm">
+          <thead>
+            <tr className="text-sm font-semibold text-[#0f172a]">
+              <th
+                rowSpan={2}
+                className="min-w-[280px] border-b border-slate-200 bg-[#f7faff] px-4 py-3 text-left"
+              >
+                Style
+              </th>
+              <th rowSpan={2} className="border-b border-l border-slate-200 bg-white px-3 py-2 text-right">
+                Instock
+              </th>
+              <th rowSpan={2} className="border-b border-l border-slate-200 bg-white px-3 py-2 text-right">
+                Working
+              </th>
+              <th
+                rowSpan={2}
+                className="whitespace-nowrap border-b border-l border-slate-200 bg-white px-3 py-2 text-right"
+              >
+                Reserved / FC Transfer
+              </th>
+              <th
+                rowSpan={2}
+                className="whitespace-nowrap border-b border-l border-slate-200 bg-white px-3 py-2 text-right"
+              >
+                Receiving / Intransit
+              </th>
+              <th
+                rowSpan={2}
+                className="whitespace-nowrap border-b border-l border-slate-200 bg-white px-3 py-2 text-right"
+              >
+                Weeks of Stock
+              </th>
+              <th colSpan={3} className="border-b border-l border-slate-200 bg-white px-3 py-2 text-center">
+                Returns
+              </th>
+            </tr>
             <tr className="text-xs font-semibold uppercase tracking-wide text-[#4c576f]">
-              <th className="w-[24%] px-3 py-2">Style</th>
-              <th className="px-3 py-2 text-right" colSpan={1}>Instock</th>
-              <th className="px-3 py-2 text-right">Working</th>
-              <th className="whitespace-nowrap px-3 py-2 text-right">Reserved / FC Transfer</th>
-              <th className="whitespace-nowrap px-3 py-2 text-right">Receiving / Intransit</th>
-              <th className="whitespace-nowrap px-3 py-2 text-right">Weeks of Stock</th>
-              <th className="border-l border-slate-200 px-3 py-2 text-right">{retWeekLabel1}</th>
-              <th className="px-3 py-2 text-right">{retWeekLabel2}</th>
-              <th className="px-3 py-2 text-right">%</th>
+              <th className="whitespace-nowrap border-b border-l border-slate-200 bg-[#f7faff] px-3 py-2 text-right">
+                {retWeekLabel1}
+              </th>
+              <th className="whitespace-nowrap border-b border-slate-200 bg-[#f7faff] px-3 py-2 text-right">
+                {retWeekLabel2}
+              </th>
+              <th className="border-b border-slate-200 bg-[#f7faff] px-3 py-2 text-right">%</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-200 bg-white">
+          <tbody>
             {ordered.map((row) => (
               <tr key={row.id} className="hover:bg-slate-50">
                 <td
-                  className={`px-3 py-2 text-[#0f172a] ${
+                  className={`border-b border-slate-200 bg-white px-4 py-2 text-[#0f172a] ${
                     row.row_kind === "parent" ? "font-semibold" : row.parent_row_id ? "pl-6" : "pl-3"
                   }`}
                 >
                   {row.row_label}
                 </td>
-                <td className="px-3 py-2 text-right text-[#0f172a]">{fmt(row.instock)}</td>
-                <td className="px-3 py-2 text-right text-[#0f172a]">{fmt(row.working)}</td>
-                <td className="px-3 py-2 text-right text-[#0f172a]">{fmt(row.reserved_plus_fc_transfer)}</td>
-                <td className="px-3 py-2 text-right text-[#0f172a]">{fmt(row.receiving_plus_intransit)}</td>
-                <td className="px-3 py-2 text-right text-[#0f172a]">{fmtWos(row.weeks_of_stock)}</td>
-                <td className="border-l border-slate-200 px-3 py-2 text-right text-[#0f172a]">{fmt(row.returns_week_1)}</td>
-                <td className="px-3 py-2 text-right text-[#0f172a]">{fmt(row.returns_week_2)}</td>
-                <td className="px-3 py-2 text-right text-[#0f172a]">{fmtPct(row.return_rate)}</td>
+                <td className="border-b border-l border-slate-200 px-3 py-2 text-right text-[#0f172a]">{fmt(row.instock)}</td>
+                <td className="border-b border-l border-slate-200 px-3 py-2 text-right text-[#0f172a]">{fmt(row.working)}</td>
+                <td className="border-b border-l border-slate-200 px-3 py-2 text-right text-[#0f172a]">
+                  {fmt(row.reserved_plus_fc_transfer)}
+                </td>
+                <td className="border-b border-l border-slate-200 px-3 py-2 text-right text-[#0f172a]">
+                  {fmt(row.receiving_plus_intransit)}
+                </td>
+                <td className="border-b border-l border-slate-200 px-3 py-2 text-right text-[#0f172a]">
+                  {fmtWos(row.weeks_of_stock)}
+                </td>
+                <td className="border-b border-l border-slate-200 px-3 py-2 text-right text-[#0f172a]">
+                  {fmt(row.returns_week_1)}
+                </td>
+                <td className="border-b border-slate-200 px-3 py-2 text-right text-[#0f172a]">{fmt(row.returns_week_2)}</td>
+                <td className="border-b border-slate-200 px-3 py-2 text-right text-[#0f172a]">{fmtPct(row.return_rate)}</td>
               </tr>
             ))}
             <tr className="bg-[#f8fafc] font-semibold text-[#0f172a]">
-              <td className="px-3 py-2">Total</td>
-              <td className="px-3 py-2 text-right">{fmt(totalInstock)}</td>
-              <td className="px-3 py-2 text-right">{fmt(totalWorking)}</td>
-              <td className="px-3 py-2 text-right">{fmt(totalReservedFc)}</td>
-              <td className="px-3 py-2 text-right">{fmt(totalReceivingIntransit)}</td>
-              <td className="px-3 py-2 text-right">{fmtWos(totalWos)}</td>
-              <td className="border-l border-slate-200 px-3 py-2 text-right">{fmt(totalRetW1)}</td>
-              <td className="px-3 py-2 text-right">{fmt(totalRetW2)}</td>
-              <td className="px-3 py-2 text-right">{fmtPct(totalReturnRate)}</td>
+              <td className="border-t border-slate-200 bg-[#f8fafc] px-4 py-3">Total</td>
+              <td className="border-t border-l border-slate-200 bg-[#f8fafc] px-3 py-3 text-right">{fmt(totalInstock)}</td>
+              <td className="border-t border-l border-slate-200 bg-[#f8fafc] px-3 py-3 text-right">{fmt(totalWorking)}</td>
+              <td className="border-t border-l border-slate-200 bg-[#f8fafc] px-3 py-3 text-right">{fmt(totalReservedFc)}</td>
+              <td className="border-t border-l border-slate-200 bg-[#f8fafc] px-3 py-3 text-right">
+                {fmt(totalReceivingIntransit)}
+              </td>
+              <td className="border-t border-l border-slate-200 bg-[#f8fafc] px-3 py-3 text-right">{fmtWos(totalWos)}</td>
+              <td className="border-t border-l border-slate-200 bg-[#f8fafc] px-3 py-3 text-right">{fmt(totalRetW1)}</td>
+              <td className="border-t border-slate-200 bg-[#f8fafc] px-3 py-3 text-right">{fmt(totalRetW2)}</td>
+              <td className="border-t border-slate-200 bg-[#f8fafc] px-3 py-3 text-right">{fmtPct(totalReturnRate)}</td>
             </tr>
           </tbody>
         </table>
