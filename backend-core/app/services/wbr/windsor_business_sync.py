@@ -12,6 +12,8 @@ import httpx
 from supabase import Client
 
 from .profiles import WBRNotFoundError, WBRValidationError
+from .windsor_inventory_sync import WindsorInventorySyncService
+from .windsor_returns_sync import WindsorReturnsSyncService
 
 WINDSOR_BUSINESS_FIELDS = [
     "account_id",
@@ -118,6 +120,8 @@ class WindsorBusinessSyncService:
         ).strip()
         configured_timeout = int(os.getenv("WBR_REQUEST_TIMEOUT_SECONDS", str(DEFAULT_TIMEOUT_SECONDS)))
         self.timeout_seconds = max(configured_timeout, MIN_TIMEOUT_SECONDS)
+        self._inventory_sync = WindsorInventorySyncService(db)
+        self._returns_sync = WindsorReturnsSyncService(db)
 
     def list_sync_runs(self, profile_id: str, *, source_type: str = "windsor_business") -> list[dict[str, Any]]:
         self._get_profile(profile_id)
@@ -188,13 +192,39 @@ class WindsorBusinessSyncService:
             user_id=user_id,
         )
 
+        # Section 3: inventory + returns (best-effort, don't block Section 1)
+        section3 = await self._run_section3(profile_id=profile_id, user_id=user_id)
+
         return {
             "profile_id": profile_id,
             "job_type": "daily_refresh",
             "date_from": date_from.isoformat(),
             "date_to": date_to.isoformat(),
             "chunk": result,
+            "section3": section3,
         }
+
+    async def _run_section3(
+        self,
+        *,
+        profile_id: str,
+        user_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Run inventory + returns syncs. Errors are captured, not raised."""
+        section3: dict[str, Any] = {"inventory": None, "returns": None}
+        try:
+            section3["inventory"] = await self._inventory_sync.refresh_inventory(
+                profile_id=profile_id, user_id=user_id
+            )
+        except Exception as exc:  # noqa: BLE001
+            section3["inventory"] = {"status": "error", "detail": str(exc)}
+        try:
+            section3["returns"] = await self._returns_sync.refresh_returns(
+                profile_id=profile_id, user_id=user_id
+            )
+        except Exception as exc:  # noqa: BLE001
+            section3["returns"] = {"status": "error", "detail": str(exc)}
+        return section3
 
     async def _run_chunk(
         self,

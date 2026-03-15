@@ -4,10 +4,12 @@ import { useState } from "react";
 import { useResolvedWbrProfile } from "../_lib/useResolvedWbrProfile";
 import { useWbrSection1Report } from "../_lib/useWbrSection1Report";
 import { useWbrSection2Report } from "../_lib/useWbrSection2Report";
+import { useWbrSection3Report } from "../_lib/useWbrSection3Report";
 import WbrSection1HorizontalTable from "./WbrSection1HorizontalTable";
 import WbrSection1MetricTable from "./WbrSection1MetricTable";
 import WbrSection2HorizontalTable from "./WbrSection2HorizontalTable";
 import WbrSection2MetricTable from "./WbrSection2MetricTable";
+import WbrSection3Table from "./WbrSection3Table";
 import { buildDisplayRows, hasAnyActivity } from "./wbrSection1RowDisplay";
 import { hasAnySection2Activity } from "./wbrSection2RowDisplay";
 
@@ -20,6 +22,7 @@ export default function WbrSection1ReportScreen({ clientSlug, marketplaceCode }:
   const resolved = useResolvedWbrProfile(clientSlug, marketplaceCode);
   const reportState = useWbrSection1Report(resolved.profile?.id ?? null, 4);
   const section2ReportState = useWbrSection2Report(resolved.profile?.id ?? null, 4);
+  const section3ReportState = useWbrSection3Report(resolved.profile?.id ?? null, 4);
   const [hideEmptyRows, setHideEmptyRows] = useState(true);
   const [newestFirst, setNewestFirst] = useState(true);
   const [horizontalLayout, setHorizontalLayout] = useState(true);
@@ -55,6 +58,19 @@ export default function WbrSection1ReportScreen({ clientSlug, marketplaceCode }:
   const section2Rows = section2Report?.rows ?? [];
   const section2Weeks = section2Report?.weeks ?? weeks;
   const section2ActivityPresent = hasAnySection2Activity(section2Rows);
+  const section3Report = section3ReportState.report;
+  const section3Rows = section3Report?.rows ?? [];
+  const section3ReturnsWeeks = section3Report?.returns_weeks ?? [];
+  const section3HasActivity = section3Rows.some(
+    (r) =>
+      r.instock > 0 ||
+      r.working > 0 ||
+      r.reserved_plus_fc_transfer > 0 ||
+      r.receiving_plus_intransit > 0 ||
+      r.returns_week_1 > 0 ||
+      r.returns_week_2 > 0
+  );
+
   const referenceRowOrder = buildDisplayRows(rows, false).map((row) => row.id);
 
   return (
@@ -74,6 +90,7 @@ export default function WbrSection1ReportScreen({ clientSlug, marketplaceCode }:
                 void resolved.loadRoute();
                 void reportState.loadReport(true);
                 void section2ReportState.loadReport(true);
+                void section3ReportState.loadReport(true);
               }}
               disabled={reportState.refreshing}
               className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-[#0a6fd6] shadow-sm transition hover:-translate-y-0.5 hover:shadow disabled:cursor-not-allowed disabled:text-slate-400 md:text-sm"
@@ -129,6 +146,12 @@ export default function WbrSection1ReportScreen({ clientSlug, marketplaceCode }:
         {section2ReportState.errorMessage ? (
           <p className="mt-4 rounded-xl border border-[#f87171]/40 bg-[#fee2e2] px-4 py-3 text-sm text-[#991b1b]">
             {section2ReportState.errorMessage}
+          </p>
+        ) : null}
+
+        {section3ReportState.errorMessage ? (
+          <p className="mt-4 rounded-xl border border-[#f87171]/40 bg-[#fee2e2] px-4 py-3 text-sm text-[#991b1b]">
+            {section3ReportState.errorMessage}
           </p>
         ) : null}
 
@@ -302,6 +325,32 @@ export default function WbrSection1ReportScreen({ clientSlug, marketplaceCode }:
               />
             </>
           )}
+        </>
+      ) : null}
+
+      {section3ReportState.loading ? (
+        <div className="rounded-3xl bg-white/95 p-5 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur md:p-6">
+          <h2 className="text-xl font-semibold text-[#0f172a]">Section 3: Inventory + Returns</h2>
+          <p className="mt-3 text-sm text-[#64748b]">Loading inventory and returns data...</p>
+        </div>
+      ) : section3Rows.length > 0 ? (
+        <>
+          <div className="rounded-3xl bg-white/95 p-5 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur md:p-6">
+            <h2 className="text-xl font-semibold text-[#0f172a]">Section 3: Inventory + Returns</h2>
+            {!section3HasActivity ? (
+              <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                No inventory or returns data is showing. Run a Windsor sync from the Sync page.
+              </p>
+            ) : null}
+          </div>
+
+          <WbrSection3Table
+            returnsWeeks={section3ReturnsWeeks}
+            rows={section3Rows}
+            weekCount={section3ReportState.report?.weeks?.length ?? 4}
+            hideEmptyRows={hideEmptyRows}
+            referenceRowOrder={referenceRowOrder}
+          />
         </>
       ) : null}
     </main>

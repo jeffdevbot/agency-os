@@ -39,12 +39,18 @@ export type RunWbrWindsorBusinessBackfillResult = {
   chunks: RunWbrWindsorBusinessChunkResult[];
 };
 
+export type Section3SyncStatus = {
+  inventory: { status: string; detail?: string; rows_loaded?: number; afn_only_asin_count?: number } | null;
+  returns: { status: string; detail?: string; rows_loaded?: number } | null;
+};
+
 export type RunWbrWindsorBusinessDailyRefreshResult = {
   profile_id: string;
   job_type: "daily_refresh";
   date_from: string;
   date_to: string;
   chunk: RunWbrWindsorBusinessChunkResult;
+  section3: Section3SyncStatus | null;
 };
 
 export type WbrSection1Week = {
@@ -352,8 +358,12 @@ const parseSection2Report = (payload: unknown): WbrSection2Report => {
   };
 };
 
-export const listWbrSyncRuns = async (token: string, profileId: string): Promise<WbrSyncRun[]> => {
-  const query = new URLSearchParams({ source_type: "windsor_business" });
+export const listWbrSyncRuns = async (
+  token: string,
+  profileId: string,
+  sourceType = "windsor_business"
+): Promise<WbrSyncRun[]> => {
+  const query = new URLSearchParams({ source_type: sourceType });
   const payload = await requestJson<unknown>(
     token,
     `/admin/wbr/profiles/${profileId}/sync-runs?${query.toString()}`,
@@ -404,12 +414,35 @@ export const runWbrWindsorBusinessDailyRefresh = async (
     throw new Error("Invalid Windsor business daily refresh response");
   }
 
+  const parseSection3Sync = (value: unknown): Section3SyncStatus | null => {
+    if (!isRecord(value)) return null;
+    const parseReturnsPart = (part: unknown): Section3SyncStatus["returns"] => {
+      if (!isRecord(part)) return null;
+      return {
+        status: asString(part.status || (part.run ? "success" : "unknown")),
+        detail: typeof part.detail === "string" ? part.detail : undefined,
+        rows_loaded: typeof part.rows_loaded === "number" ? part.rows_loaded : undefined,
+      };
+    };
+    const parseInventoryPart = (part: unknown): Section3SyncStatus["inventory"] => {
+      if (!isRecord(part)) return null;
+      return {
+        status: asString(part.status || (part.run ? "success" : "unknown")),
+        detail: typeof part.detail === "string" ? part.detail : undefined,
+        rows_loaded: typeof part.rows_loaded === "number" ? part.rows_loaded : undefined,
+        afn_only_asin_count: typeof part.afn_only_asin_count === "number" ? part.afn_only_asin_count : undefined,
+      };
+    };
+    return { inventory: parseInventoryPart(value.inventory), returns: parseReturnsPart(value.returns) };
+  };
+
   return {
     profile_id: asString(payload.profile_id),
     job_type: "daily_refresh",
     date_from: asString(payload.date_from),
     date_to: asString(payload.date_to),
     chunk: parseChunkResult(payload.chunk),
+    section3: parseSection3Sync(payload.section3),
   };
 };
 
@@ -439,4 +472,123 @@ export const getWbrSection2Report = async (
     { method: "GET" }
   );
   return parseSection2Report(payload);
+};
+
+// ---------------------------------------------------------------------------
+// Section 3: Inventory + Returns
+// ---------------------------------------------------------------------------
+
+export type WbrSection3Row = {
+  id: string;
+  row_label: string;
+  row_kind: "parent" | "leaf";
+  parent_row_id: string | null;
+  sort_order: number;
+  instock: number;
+  working: number;
+  reserved_plus_fc_transfer: number;
+  receiving_plus_intransit: number;
+  weeks_of_stock: number | null;
+  returns_week_1: number;
+  returns_week_2: number;
+  return_rate: number | null;
+  /** Total unit sales across all week buckets (WOS denominator). */
+  _unit_sales_4w: number;
+  /** Total unit sales across returns-window weeks (return-rate denominator). */
+  _unit_sales_2w: number;
+};
+
+export type WbrSection3Totals = {
+  weeks_of_stock: number | null;
+  return_rate: number | null;
+};
+
+export type WbrSection3Report = {
+  weeks: WbrSection1Week[];
+  returns_weeks: WbrSection1Week[];
+  rows: WbrSection3Row[];
+  totals: WbrSection3Totals;
+  qa: {
+    active_row_count: number;
+    mapped_asin_count: number;
+    unmapped_inventory_asin_count: number;
+    inventory_fact_count: number;
+    returns_fact_count: number;
+    business_fact_count: number;
+  };
+};
+
+const parseSection3Row = (value: unknown): WbrSection3Row => {
+  if (!isRecord(value)) {
+    throw new Error("Invalid Section 3 row response");
+  }
+  return {
+    id: asString(value.id),
+    row_label: asString(value.row_label),
+    row_kind: asString(value.row_kind) === "parent" ? "parent" : "leaf",
+    parent_row_id: asNullableString(value.parent_row_id),
+    sort_order: asNumber(value.sort_order),
+    instock: asNumber(value.instock),
+    working: asNumber(value.working),
+    reserved_plus_fc_transfer: asNumber(value.reserved_plus_fc_transfer),
+    receiving_plus_intransit: asNumber(value.receiving_plus_intransit),
+    weeks_of_stock: value.weeks_of_stock == null ? null : asNumber(value.weeks_of_stock),
+    returns_week_1: asNumber(value.returns_week_1),
+    returns_week_2: asNumber(value.returns_week_2),
+    return_rate: value.return_rate == null ? null : asNumber(value.return_rate),
+    _unit_sales_4w: asNumber(value._unit_sales_4w),
+    _unit_sales_2w: asNumber(value._unit_sales_2w),
+  };
+};
+
+const parseSection3Report = (payload: unknown): WbrSection3Report => {
+  if (!isRecord(payload)) {
+    throw new Error("Invalid Section 3 report response");
+  }
+  const totals: WbrSection3Totals = isRecord(payload.totals)
+    ? {
+        weeks_of_stock: payload.totals.weeks_of_stock == null ? null : asNumber(payload.totals.weeks_of_stock),
+        return_rate: payload.totals.return_rate == null ? null : asNumber(payload.totals.return_rate),
+      }
+    : { weeks_of_stock: null, return_rate: null };
+
+  return {
+    weeks: Array.isArray(payload.weeks) ? payload.weeks.map(parseSection1Week) : [],
+    returns_weeks: Array.isArray(payload.returns_weeks)
+      ? payload.returns_weeks.map(parseSection1Week)
+      : [],
+    rows: Array.isArray(payload.rows) ? payload.rows.map(parseSection3Row) : [],
+    totals,
+    qa: isRecord(payload.qa)
+      ? {
+          active_row_count: asNumber(payload.qa.active_row_count),
+          mapped_asin_count: asNumber(payload.qa.mapped_asin_count),
+          unmapped_inventory_asin_count: asNumber(payload.qa.unmapped_inventory_asin_count),
+          inventory_fact_count: asNumber(payload.qa.inventory_fact_count),
+          returns_fact_count: asNumber(payload.qa.returns_fact_count),
+          business_fact_count: asNumber(payload.qa.business_fact_count),
+        }
+      : {
+          active_row_count: 0,
+          mapped_asin_count: 0,
+          unmapped_inventory_asin_count: 0,
+          inventory_fact_count: 0,
+          returns_fact_count: 0,
+          business_fact_count: 0,
+        },
+  };
+};
+
+export const getWbrSection3Report = async (
+  token: string,
+  profileId: string,
+  weeks = 4
+): Promise<WbrSection3Report> => {
+  const query = new URLSearchParams({ weeks: String(weeks) });
+  const payload = await requestJson<unknown>(
+    token,
+    `/admin/wbr/profiles/${profileId}/section3-report?${query.toString()}`,
+    { method: "GET" }
+  );
+  return parseSection3Report(payload);
 };

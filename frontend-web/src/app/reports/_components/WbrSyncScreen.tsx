@@ -265,7 +265,7 @@ export default function WbrSyncScreen({ clientSlug, marketplaceCode }: Props) {
       </div>
 
       <div className="rounded-3xl bg-white/95 p-8 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur">
-        <p className="text-sm font-semibold text-[#0f172a]">Recent Runs</p>
+        <p className="text-sm font-semibold text-[#0f172a]">Recent Business Data Runs</p>
         <div className="mt-4 overflow-x-auto">
           <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
             <thead className="bg-[#f7faff]">
@@ -300,6 +300,58 @@ export default function WbrSyncScreen({ clientSlug, marketplaceCode }: Props) {
                     <td className="px-3 py-2 text-[#4c576f]">
                       {run.date_from ?? "—"} to {run.date_to ?? "—"}
                     </td>
+                    <td className="px-3 py-2">
+                      <span
+                        className={`inline-flex rounded-full border px-2 py-1 text-xs font-semibold ${statusClasses[run.status]}`}
+                      >
+                        {run.status}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-[#0f172a]">{run.rows_fetched}</td>
+                    <td className="px-3 py-2 text-[#0f172a]">{run.rows_loaded}</td>
+                    <td className="px-3 py-2 text-[#64748b]">{run.error_message ?? "—"}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="rounded-3xl bg-white/95 p-8 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur">
+        <p className="text-sm font-semibold text-[#0f172a]">Section 3 Sync Runs (Inventory + Returns)</p>
+        <div className="mt-4 overflow-x-auto">
+          <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
+            <thead className="bg-[#f7faff]">
+              <tr className="text-xs font-semibold uppercase tracking-wide text-[#4c576f]">
+                <th className="px-3 py-2">Started</th>
+                <th className="px-3 py-2">Source</th>
+                <th className="px-3 py-2">Job</th>
+                <th className="px-3 py-2">Status</th>
+                <th className="px-3 py-2">Rows Fetched</th>
+                <th className="px-3 py-2">Rows Loaded</th>
+                <th className="px-3 py-2">Error</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200 bg-white">
+              {sync.loadingRuns ? (
+                <tr>
+                  <td colSpan={7} className="px-3 py-4 text-[#64748b]">
+                    Loading...
+                  </td>
+                </tr>
+              ) : sync.section3Runs.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-3 py-4 text-[#64748b]">
+                    No Section 3 sync runs yet.
+                  </td>
+                </tr>
+              ) : (
+                sync.section3Runs.map((run) => (
+                  <tr key={run.id} className="hover:bg-slate-50">
+                    <td className="px-3 py-2 text-[#0f172a]">{formatTimestamp(run.started_at ?? run.created_at)}</td>
+                    <td className="px-3 py-2 text-[#0f172a]">{run.source_type.replace("windsor_", "")}</td>
+                    <td className="px-3 py-2 text-[#0f172a]">{run.job_type}</td>
                     <td className="px-3 py-2">
                       <span
                         className={`inline-flex rounded-full border px-2 py-1 text-xs font-semibold ${statusClasses[run.status]}`}

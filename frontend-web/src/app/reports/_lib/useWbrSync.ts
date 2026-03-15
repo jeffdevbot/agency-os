@@ -31,6 +31,7 @@ const formatDateInput = (value: Date): string => {
 export function useWbrSync(profile: WbrProfile | null) {
   const supabase = useMemo(() => getBrowserSupabaseClient(), []);
   const [runs, setRuns] = useState<WbrSyncRun[]>([]);
+  const [section3Runs, setSection3Runs] = useState<WbrSyncRun[]>([]);
   const [loadingRuns, setLoadingRuns] = useState(true);
   const [refreshingRuns, setRefreshingRuns] = useState(false);
   const [runningBackfill, setRunningBackfill] = useState(false);
@@ -73,6 +74,7 @@ export function useWbrSync(profile: WbrProfile | null) {
     async (isRefresh: boolean) => {
       if (!profile?.id) {
         setRuns([]);
+        setSection3Runs([]);
         setLoadingRuns(false);
         setRefreshingRuns(false);
         return;
@@ -87,10 +89,20 @@ export function useWbrSync(profile: WbrProfile | null) {
 
       try {
         const token = await getAccessToken();
-        const nextRuns = await listWbrSyncRuns(token, profile.id);
+        const [nextRuns, invRuns, retRuns] = await Promise.all([
+          listWbrSyncRuns(token, profile.id, "windsor_business"),
+          listWbrSyncRuns(token, profile.id, "windsor_inventory"),
+          listWbrSyncRuns(token, profile.id, "windsor_returns"),
+        ]);
         setRuns(nextRuns);
+        setSection3Runs(
+          [...invRuns, ...retRuns].sort(
+            (a, b) => new Date(b.created_at ?? "").getTime() - new Date(a.created_at ?? "").getTime()
+          )
+        );
       } catch (error) {
         setRuns([]);
+        setSection3Runs([]);
         setErrorMessage(error instanceof Error ? error.message : "Unable to load WBR sync runs");
       } finally {
         if (isRefresh) {
@@ -153,9 +165,28 @@ export function useWbrSync(profile: WbrProfile | null) {
     try {
       const token = await getAccessToken();
       const result = await runWbrWindsorBusinessDailyRefresh(token, profile.id);
-      setSuccessMessage(
-        `Manual refresh loaded ${result.chunk.rows_loaded} daily ASIN facts for ${result.date_from} to ${result.date_to}.`
-      );
+      const parts = [
+        `Manual refresh loaded ${result.chunk.rows_loaded} daily ASIN facts for ${result.date_from} to ${result.date_to}.`,
+      ];
+      if (result.section3) {
+        const inv = result.section3.inventory;
+        const ret = result.section3.returns;
+        if (inv?.status === "error") {
+          parts.push(`Inventory sync failed: ${inv.detail ?? "unknown error"}`);
+        } else if (inv?.rows_loaded != null) {
+          const afnNote =
+            inv.afn_only_asin_count && inv.afn_only_asin_count > 0
+              ? ` ${inv.afn_only_asin_count} AFN-only ASINs excluded from v1 snapshot.`
+              : "";
+          parts.push(`Inventory: ${inv.rows_loaded} ASINs loaded.${afnNote}`);
+        }
+        if (ret?.status === "error") {
+          parts.push(`Returns sync failed: ${ret.detail ?? "unknown error"}`);
+        } else if (ret?.rows_loaded != null) {
+          parts.push(`Returns: ${ret.rows_loaded} facts loaded.`);
+        }
+      }
+      setSuccessMessage(parts.join(" "));
       await loadRuns(true);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Failed to run Windsor business manual refresh");
@@ -166,6 +197,7 @@ export function useWbrSync(profile: WbrProfile | null) {
 
   return {
     runs,
+    section3Runs,
     loadingRuns,
     refreshingRuns,
     runningBackfill,
