@@ -10,22 +10,26 @@ Start by reading, in this order:
 4. `docs/wbr_v2_prototype_plan.md`
 5. `backend-core/app/routers/wbr.py`
 6. `backend-core/app/services/wbr/windsor_business_sync.py`
-7. `backend-core/app/services/wbr/amazon_ads_sync.py`
-8. `backend-core/app/services/wbr/nightly_sync.py`
-9. `backend-core/app/services/wbr/section1_report.py`
-10. `frontend-web/src/app/reports/_components/WbrSection1ReportScreen.tsx`
-11. `frontend-web/src/app/reports/_components/WbrAdsSyncScreen.tsx`
-12. `frontend-web/src/app/reports/_components/WbrSyncScreen.tsx`
-13. `frontend-web/src/app/reports/_lib/useResolvedWbrProfile.ts`
-14. `frontend-web/src/app/reports/_lib/useWbrSection1Report.ts`
-15. `frontend-web/src/app/reports/_lib/useWbrAdsSync.ts`
-16. `frontend-web/src/app/reports/_lib/useWbrSync.ts`
-17. `frontend-web/src/app/reports/wbr/[profileId]/WbrProfileWorkspace.tsx`
+7. `backend-core/app/services/wbr/windsor_inventory_sync.py`
+8. `backend-core/app/services/wbr/windsor_returns_sync.py`
+9. `backend-core/app/services/wbr/amazon_ads_sync.py`
+10. `backend-core/app/services/wbr/nightly_sync.py`
+11. `backend-core/app/services/wbr/section1_report.py`
+12. `backend-core/app/services/wbr/section3_report.py`
+13. `frontend-web/src/app/reports/_components/WbrSection1ReportScreen.tsx`
+14. `frontend-web/src/app/reports/_components/WbrAdsSyncScreen.tsx`
+15. `frontend-web/src/app/reports/_components/WbrSyncScreen.tsx`
+16. `frontend-web/src/app/reports/_lib/useResolvedWbrProfile.ts`
+17. `frontend-web/src/app/reports/_lib/useWbrSection1Report.ts`
+18. `frontend-web/src/app/reports/_lib/useWbrSection3Report.ts`
+19. `frontend-web/src/app/reports/_lib/useWbrAdsSync.ts`
+20. `frontend-web/src/app/reports/_lib/useWbrSync.ts`
+21. `frontend-web/src/app/reports/wbr/[profileId]/WbrProfileWorkspace.tsx`
 
 Context you should assume:
 
-1. WBR v2 schema migrations 1-6 are already applied live.
-2. Pacvue import, listings import, ASIN mapping, Windsor listings import, Section 1 Windsor sync/report, Amazon Ads sync/report, and nightly worker automation are already shipped.
+1. WBR v2 schema migrations 1-8 are already applied live.
+2. Pacvue import, listings import, ASIN mapping, Windsor listings import, Section 1 Windsor sync/report, Amazon Ads sync/report, Section 3 inventory + returns sync/report, and nightly worker automation are already shipped.
 3. Primary user routes are client-first:
    - `/reports/[clientSlug]`
    - `/reports/[clientSlug]/[marketplaceCode]/wbr`
@@ -37,10 +41,11 @@ Context you should assume:
 5. `worker-sync` exists in-repo, runs nightly `daily_refresh` jobs for `active` profiles, and now also advances queued Amazon Ads report jobs outside the nightly schedule window.
 6. Enabling either nightly sync toggle auto-promotes a `draft` profile to `active`.
 7. Amazon Ads backfills/manual refreshes are now enqueue-first: the HTTP request returns quickly, while `worker-sync` polls Amazon, downloads finished reports, and finalizes the run later.
+8. Windsor manual/nightly refreshes now also run Section 3 inventory and returns ingestion, and Section 3 is showing live data on the validation account.
 
 Immediate goal for the next session:
 
-1. Start from the current issue or request, assuming both Section 1 and Section 2 are live and Amazon Ads sync uses the queued/background report flow.
+1. Start from the current issue or request, assuming Sections 1, 2, and 3 are live and Amazon Ads sync uses the queued/background report flow.
 2. Avoid god-file bloat.
 3. Keep the route structure and backend contract intact unless a concrete bug requires a change.
 4. Preserve current admin/settings/sync functionality, including nightly worker behavior.

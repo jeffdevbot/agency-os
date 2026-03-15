@@ -1,6 +1,6 @@
 # WBR v2 Handoff
 
-_Last updated: 2026-03-14 (ET)_
+_Last updated: 2026-03-15 (ET)_
 
 This file is the fast restart point for the current WBR v2 build.
 
@@ -25,6 +25,7 @@ Commits on `main` relevant to the current WBR v2 slice:
 15. `f6a4c58` - `Fix Amazon Ads brand and display columns`
 16. `55ee467` - `Auto-activate nightly sync profiles`
 17. `d225ba8` - `Refactor WBR Amazon Ads sync to queued worker flow`
+18. `11343ba` - `Add WBR Section 3 inventory and returns reporting`
 
 ## Live database state
 
@@ -36,6 +37,8 @@ These migrations were created and applied to the live Supabase project:
 4. `20260313000001_wbr_amazon_ads_connections.sql`
 5. `20260313000002_wbr_ads_campaign_daily_campaign_type_unique.sql`
 6. `20260313000003_wbr_profile_auto_sync_flags.sql`
+7. `20260314000001_wbr_inventory_and_returns_tables.sql`
+8. `20260315100000_expand_wbr_sync_run_source_types_for_section3.sql`
 
 Core live tables in use now:
 
@@ -50,6 +53,8 @@ Core live tables in use now:
 9. `wbr_business_asin_daily`
 10. `wbr_ads_campaign_daily`
 11. `wbr_amazon_ads_connections`
+12. `wbr_inventory_asin_snapshots`
+13. `wbr_returns_asin_daily`
 
 ## Current user-facing routes
 
@@ -156,6 +161,24 @@ Permanent delete is blocked when:
    - TACoS
 12. The Ads sync screen also shows admin-only Pacvue mapping QA for the current 4-week WBR window.
 
+### Section 3 inventory + returns
+
+1. Windsor manual refresh and nightly Windsor refresh now also run Section 3 inventory and returns ingestion under the same Windsor setup/toggle.
+2. Inventory snapshots are stored in `wbr_inventory_asin_snapshots`.
+3. Returns facts are stored in `wbr_returns_asin_daily`.
+4. Section 3 sync runs are logged as:
+   - `windsor_inventory`
+   - `windsor_returns`
+5. The main WBR route now renders Section 3:
+   - Instock
+   - Working
+   - Reserved / FC Transfer
+   - Receiving / Intransit
+   - Weeks of Stock
+   - prior 2 completed weeks of returns
+   - Return %
+6. Section 3 is now showing real data on the validation account after the live follow-up migration that expanded `wbr_sync_runs.source_type`.
+
 ### Nightly sync automation
 
 1. `worker-sync` is now implemented in-repo and deployed as the Render background worker.
@@ -232,11 +255,14 @@ Permanent delete is blocked when:
 4. `backend-core/app/services/wbr/listing_imports.py`
 5. `backend-core/app/services/wbr/asin_mappings.py`
 6. `backend-core/app/services/wbr/windsor_business_sync.py`
-7. `backend-core/app/services/wbr/amazon_ads_auth.py`
-8. `backend-core/app/services/wbr/amazon_ads_sync.py`
-9. `backend-core/app/services/wbr/section1_report.py`
-10. `backend-core/app/services/wbr/section2_report.py`
-11. `backend-core/app/services/wbr/nightly_sync.py`
+7. `backend-core/app/services/wbr/windsor_inventory_sync.py`
+8. `backend-core/app/services/wbr/windsor_returns_sync.py`
+9. `backend-core/app/services/wbr/amazon_ads_auth.py`
+10. `backend-core/app/services/wbr/amazon_ads_sync.py`
+11. `backend-core/app/services/wbr/section1_report.py`
+12. `backend-core/app/services/wbr/section2_report.py`
+13. `backend-core/app/services/wbr/section3_report.py`
+14. `backend-core/app/services/wbr/nightly_sync.py`
 
 ### Frontend report routes
 
@@ -244,18 +270,20 @@ Permanent delete is blocked when:
 2. `frontend-web/src/app/reports/_components/WbrSection1MetricTable.tsx`
 3. `frontend-web/src/app/reports/_components/WbrSection2MetricTable.tsx`
 4. `frontend-web/src/app/reports/_components/WbrSection2HorizontalTable.tsx`
-5. `frontend-web/src/app/reports/_components/WbrSyncScreen.tsx`
-6. `frontend-web/src/app/reports/_components/WbrAdsSyncScreen.tsx`
-7. `frontend-web/src/app/reports/_components/ResolvedWbrSettingsRoute.tsx`
-8. `frontend-web/src/app/reports/_lib/useResolvedWbrProfile.ts`
-9. `frontend-web/src/app/reports/_lib/useWbrSection1Report.ts`
-10. `frontend-web/src/app/reports/_lib/useWbrSection2Report.ts`
-11. `frontend-web/src/app/reports/_lib/useWbrSync.ts`
-12. `frontend-web/src/app/reports/_lib/useWbrAdsSync.ts`
-13. `frontend-web/src/app/reports/wbr/_lib/wbrApi.ts`
-14. `frontend-web/src/app/reports/wbr/_lib/wbrSection1Api.ts`
-15. `frontend-web/src/app/reports/wbr/_lib/wbrAmazonAdsApi.ts`
-16. `frontend-web/src/app/reports/wbr/[profileId]/WbrProfileWorkspace.tsx`
+5. `frontend-web/src/app/reports/_components/WbrSection3Table.tsx`
+6. `frontend-web/src/app/reports/_components/WbrSyncScreen.tsx`
+7. `frontend-web/src/app/reports/_components/WbrAdsSyncScreen.tsx`
+8. `frontend-web/src/app/reports/_components/ResolvedWbrSettingsRoute.tsx`
+9. `frontend-web/src/app/reports/_lib/useResolvedWbrProfile.ts`
+10. `frontend-web/src/app/reports/_lib/useWbrSection1Report.ts`
+11. `frontend-web/src/app/reports/_lib/useWbrSection2Report.ts`
+12. `frontend-web/src/app/reports/_lib/useWbrSection3Report.ts`
+13. `frontend-web/src/app/reports/_lib/useWbrSync.ts`
+14. `frontend-web/src/app/reports/_lib/useWbrAdsSync.ts`
+15. `frontend-web/src/app/reports/wbr/_lib/wbrApi.ts`
+16. `frontend-web/src/app/reports/wbr/_lib/wbrSection1Api.ts`
+17. `frontend-web/src/app/reports/wbr/_lib/wbrAmazonAdsApi.ts`
+18. `frontend-web/src/app/reports/wbr/[profileId]/WbrProfileWorkspace.tsx`
 
 ## Important product assumptions currently locked
 

@@ -315,7 +315,7 @@ Columns:
 
 - `id uuid primary key default gen_random_uuid()`
 - `profile_id uuid not null references public.wbr_profiles(id) on delete cascade`
-- `source_type text not null check (source_type in ('windsor_business', 'amazon_ads', 'pacvue_import', 'listing_import'))`
+- `source_type text not null check (source_type in ('windsor_business', 'windsor_inventory', 'windsor_returns', 'amazon_ads', 'pacvue_import', 'listing_import'))`
 - `job_type text not null check (job_type in ('backfill', 'daily_refresh', 'manual_rerun', 'import'))`
 - `date_from date`
 - `date_to date`
