@@ -2,8 +2,9 @@
 
 import type { WbrSection1Row, WbrSection1RowWeek, WbrSection1Week } from "../wbr/_lib/wbrSection1Api";
 import { buildDisplayRows, buildTotalValues } from "./wbrSection1RowDisplay";
+import type { WbrChartMetricKey } from "./useWbrChartState";
 
-type MetricKey = "page_views" | "unit_sales" | "sales" | "conversion_rate";
+type MetricKey = WbrChartMetricKey;
 
 type MetricDefinition = {
   key: MetricKey;
@@ -15,6 +16,10 @@ type Props = {
   rows: WbrSection1Row[];
   hideEmptyRows?: boolean;
   newestFirst?: boolean;
+  onMetricClick?: (metricKey: MetricKey) => void;
+  expandedMetric?: MetricKey | null;
+  selectedRowIds?: Set<string>;
+  onRowToggle?: (rowId: string) => void;
 };
 
 const METRICS: MetricDefinition[] = [
@@ -44,6 +49,10 @@ export default function WbrSection1HorizontalTable({
   rows,
   hideEmptyRows = false,
   newestFirst = true,
+  onMetricClick,
+  expandedMetric = null,
+  selectedRowIds = new Set<string>(),
+  onRowToggle,
 }: Props) {
   const displayRows = buildDisplayRows(rows, hideEmptyRows);
   const weekIndexes = weeks.map((_, index) => index);
@@ -70,7 +79,18 @@ export default function WbrSection1HorizontalTable({
                   colSpan={displayWeekIndexes.length}
                   className="border-b border-l border-slate-200 bg-white px-3 py-2 text-center"
                 >
-                  {metric.title}
+                  {onMetricClick ? (
+                    <button
+                      type="button"
+                      onClick={() => onMetricClick(metric.key)}
+                      className="inline-flex items-center gap-2 rounded-md px-1 py-0.5 transition hover:bg-[#f7faff] hover:text-[#0a6fd6]"
+                    >
+                      <span>{metric.title}</span>
+                      <span className="text-[#4c576f]">{expandedMetric === metric.key ? "▾" : "▸"}</span>
+                    </button>
+                  ) : (
+                    <span>{metric.title}</span>
+                  )}
                 </th>
               ))}
             </tr>
@@ -97,7 +117,23 @@ export default function WbrSection1HorizontalTable({
                     row.row_kind === "parent" ? "font-semibold" : row.parent_row_id ? "pl-7" : ""
                   }`}
                 >
-                  {row.row_label}
+                  <div className="flex items-center gap-2">
+                    {expandedMetric ? (
+                      <button
+                        type="button"
+                        onClick={() => onRowToggle?.(row.id)}
+                        className={`inline-flex h-6 w-6 items-center justify-center rounded-full border text-[11px] transition ${
+                          selectedRowIds.has(row.id)
+                            ? "border-[#0a6fd6] bg-[#0a6fd6] text-white shadow-[0_8px_20px_rgba(10,111,214,0.25)]"
+                            : "border-[#d5e2f7] bg-[#f7faff] text-[#4c576f] hover:border-[#0a6fd6] hover:text-[#0a6fd6]"
+                        }`}
+                        aria-label={`Toggle ${row.row_label} on chart`}
+                      >
+                        ↗
+                      </button>
+                    ) : null}
+                    <span>{row.row_label}</span>
+                  </div>
                 </td>
                 {METRICS.flatMap((metric) =>
                   displayWeekIndexes.map((weekIndex, index) => (
