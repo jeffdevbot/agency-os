@@ -64,7 +64,7 @@ export default function PnlMonthRangePicker({
   const hasInvalidRange = Boolean(draftStart && draftEnd && draftStart > draftEnd);
 
   return (
-    <div ref={rootRef} className="relative">
+    <div ref={rootRef} className="relative z-30">
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
@@ -87,7 +87,7 @@ export default function PnlMonthRangePicker({
       </button>
 
       {open ? (
-        <div className="absolute right-0 z-20 mt-3 w-[min(22rem,calc(100vw-2rem))] rounded-3xl border border-[#dbe4f0] bg-white p-4 shadow-[0_30px_80px_rgba(10,59,130,0.18)]">
+        <div className="absolute right-0 z-50 mt-3 w-[min(22rem,calc(100vw-2rem))] rounded-3xl border border-[#dbe4f0] bg-white p-4 shadow-[0_30px_80px_rgba(10,59,130,0.18)]">
           <p className="text-sm font-semibold text-[#0f172a]">Choose the reporting window</p>
           <p className="mt-1 text-sm text-[#64748b]">
             Default view is the last 3 months. Switch presets or choose a custom month span.

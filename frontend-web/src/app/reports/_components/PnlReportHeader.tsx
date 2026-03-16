@@ -35,7 +35,7 @@ export default function PnlReportHeader({
   onToggleSettings,
 }: Props) {
   return (
-    <div className="rounded-3xl bg-white/95 p-5 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur md:p-6">
+    <div className="relative z-20 rounded-3xl bg-white/95 p-5 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur md:p-6">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <h1 className="text-2xl font-semibold text-[#0f172a] md:text-[2rem]">Monthly P&L</h1>
@@ -48,36 +48,31 @@ export default function PnlReportHeader({
         </div>
 
         {profile ? (
-          <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+          <div className="flex flex-wrap items-start gap-3 lg:justify-end">
+            <PnlMonthRangePicker
+              filterMode={filterMode}
+              rangeStart={rangeStart}
+              rangeEnd={rangeEnd}
+              onFilterModeChange={onFilterModeChange}
+              onRangeStartChange={onRangeStartChange}
+              onRangeEndChange={onRangeEndChange}
+            />
             <button
               onClick={onToggleSettings}
-              className="text-sm font-semibold text-[#64748b] transition hover:text-[#0f172a] hover:underline"
+              className="pt-3 text-sm font-semibold text-[#64748b] transition hover:text-[#0f172a] hover:underline"
             >
               {settingsOpen ? "Hide settings" : "Settings"}
             </button>
             <button
               onClick={onRefresh}
               disabled={refreshing}
-              className="rounded-xl border border-[#e2e8f0] bg-white px-4 py-2 text-sm font-medium text-[#334155] transition hover:border-[#94a3b8] disabled:opacity-50"
+              className="rounded-xl border border-[#e2e8f0] bg-white px-4 py-2 text-sm font-medium text-[#334155] transition hover:border-[#94a3b8] disabled:opacity-50 lg:mt-2"
             >
               {refreshing ? "Refreshing..." : "Refresh"}
             </button>
           </div>
         ) : null}
       </div>
-
-      {profile ? (
-        <div className="mt-5 flex flex-wrap items-center gap-3">
-          <PnlMonthRangePicker
-            filterMode={filterMode}
-            rangeStart={rangeStart}
-            rangeEnd={rangeEnd}
-            onFilterModeChange={onFilterModeChange}
-            onRangeStartChange={onRangeStartChange}
-            onRangeEndChange={onRangeEndChange}
-          />
-        </div>
-      ) : null}
     </div>
   );
 }
