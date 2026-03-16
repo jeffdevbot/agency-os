@@ -24,6 +24,11 @@ finished live.
    - `unmapped_amount = 0.00`
 5. The stale bad `Jan 2026` carryover remains gone.
 6. The UI unmapped warning is now gone for December 2025.
+7. The `/reports` frontend now treats WBR and Monthly P&L as separate sibling
+   report surfaces at the marketplace level. The shared header exposes a WBR /
+   Monthly P&L switcher, and the client hub shows each surface independently.
+8. The Monthly P&L page now shows active import provenance in-product:
+   filename, timestamps, import ID, and active months for the current view.
 
 ## What was confirmed
 
@@ -229,17 +234,14 @@ move from one-month debugging to productizing the workflow.
 1. `COGS pipeline`
    - build/upload the Monthly P&L COGS source so `gross_profit` and
      `net_earnings` can reconcile fully, not just revenue/expense sections
-2. `Import provenance in UI`
-   - show active import filename, created time, and maybe import ID on the P&L
-     screen so operators know exactly which Amazon export is driving the report
-3. `Source drift handling`
-   - document clearly that different Amazon download dates can shift settlement
-     coverage and therefore change month totals
-   - decide whether the product should surface a warning or guidance around this
-4. `Broader validation`
+2. `Source drift handling`
+   - expand the lightweight UI guidance into explicit operator messaging and, if
+     needed, a dedicated warning state when workbook reconciliation depends on
+     matching the original Amazon export date
+3. `Broader validation`
    - validate another month and/or another client profile using the same manual
      mapping logic
-5. `Deploy verification`
+4. `Deploy verification`
    - before any future re-import testing, confirm Render is serving the latest
      backend commits (`676851d`, `586c5a9`) so the import path itself matches
      the now-correct live DB state

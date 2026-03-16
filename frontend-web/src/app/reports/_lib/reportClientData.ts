@@ -1,3 +1,5 @@
+import { listPnlProfiles, type PnlProfile } from "../pnl/_lib/pnlApi";
+import { buildClientMarketplaceReportSurfaces, type ClientMarketplaceReportSurface } from "./reportSurfaceSummary";
 import { listWbrProfiles, type WbrProfile } from "../wbr/_lib/wbrApi";
 
 export type Client = {
@@ -16,6 +18,11 @@ export type ClientsResponse = {
 export type ClientProfileSummary = {
   client: Client;
   profiles: WbrProfile[];
+};
+
+export type ClientReportSurfaceSummary = {
+  client: Client;
+  marketplaces: ClientMarketplaceReportSurface[];
 };
 
 export const slugifyClientName = (value: string): string =>
@@ -93,5 +100,27 @@ export const loadClientProfileSummaryBySlug = async (
   return {
     client,
     profiles: await listWbrProfiles(token, client.id),
+  };
+};
+
+export const loadClientReportSurfaceSummaryBySlug = async (
+  token: string,
+  clientSlug: string,
+): Promise<ClientReportSurfaceSummary> => {
+  const clients = await loadActiveClients();
+  const client = findClientBySlug(clients, clientSlug);
+
+  if (!client) {
+    throw new Error("Client report hub not found.");
+  }
+
+  const [wbrProfiles, pnlProfiles] = await Promise.all([
+    listWbrProfiles(token, client.id),
+    listPnlProfiles(token, client.id),
+  ]);
+
+  return {
+    client,
+    marketplaces: buildClientMarketplaceReportSurfaces(wbrProfiles, pnlProfiles),
   };
 };

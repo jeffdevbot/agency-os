@@ -35,7 +35,8 @@ export default function ReportsClientHub() {
       <div className="rounded-3xl bg-white/95 p-8 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur">
         <h1 className="text-2xl font-semibold text-[#0f172a]">Reports</h1>
         <p className="mt-2 text-sm text-[#4c576f]">
-          Start with the client. Marketplaces and report settings live one level deeper.
+          Start with the client. Each marketplace now exposes two distinct reporting surfaces:
+          WBR for weekly operations and Monthly P&amp;L for finance.
         </p>
 
         <div className="mt-6 flex flex-wrap gap-3">
@@ -53,6 +54,27 @@ export default function ReportsClientHub() {
             {errorMessage}
           </p>
         ) : null}
+
+        <div className="mt-6 grid gap-4 lg:grid-cols-2">
+          <div className="rounded-2xl border border-[#dbe4f0] bg-[#f7faff] p-5">
+            <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[#0a6fd6]">WBR</p>
+            <p className="mt-2 text-lg font-semibold text-[#0f172a]">Weekly Business Review</p>
+            <p className="mt-2 text-sm text-[#4c576f]">
+              Operational reporting with live traffic, sales, advertising, inventory, and sync
+              workflows.
+            </p>
+          </div>
+          <div className="rounded-2xl border border-[#dbe4f0] bg-[#fff8ed] p-5">
+            <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[#9a5b16]">
+              Monthly P&amp;L
+            </p>
+            <p className="mt-2 text-lg font-semibold text-[#0f172a]">Monthly Profit &amp; Loss</p>
+            <p className="mt-2 text-sm text-[#4c576f]">
+              Finance reporting from Amazon transaction uploads, separate from WBR syncs and row
+              modeling.
+            </p>
+          </div>
+        </div>
 
         <div className="mt-6 grid gap-4 md:grid-cols-2">
           {loading ? (

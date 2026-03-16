@@ -2,55 +2,54 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-
-const formatSlugLabel = (value: string): string =>
-  value
-    .split("-")
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-
-const buildNavItems = (pathname: string) => {
-  const segments = pathname.split("/").filter(Boolean);
-
-  if (segments[0] === "reports" && segments[1] && segments[2] && segments[3] === "wbr") {
-    const clientSlug = segments[1];
-    const marketplaceCode = segments[2];
-
-    return [
-      { href: `/reports/${clientSlug}`, label: formatSlugLabel(clientSlug) },
-      { href: `/reports/${clientSlug}/${marketplaceCode}/wbr/settings`, label: "Settings" },
-      { href: `/reports/${clientSlug}/${marketplaceCode}/wbr/sync`, label: "Sync" },
-      { href: "/", label: "Back to Tools" },
-    ];
-  }
-
-  return [
-    { href: "/reports", label: "Clients" },
-    { href: "/", label: "Back to Tools" },
-  ];
-};
+import { buildReportsHeaderState } from "../_lib/reportsHeaderState";
 
 export default function ReportsHeader() {
   const pathname = usePathname();
-  const navItems = buildNavItems(pathname);
+  const headerState = buildReportsHeaderState(pathname);
 
   return (
     <header className="border-b border-slate-200 bg-white px-6 py-4 shadow-sm">
-      <div className="mx-auto flex max-w-6xl items-baseline justify-between gap-4">
-        <Link href="/reports" className="flex items-baseline">
-          <span className="text-2xl font-extrabold leading-none text-[#0f172a]">Reports</span>
+      <div className="mx-auto flex max-w-6xl flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <Link href="/reports" className="flex flex-col">
+          <span className="text-2xl font-extrabold leading-none text-[#0f172a]">
+            {headerState.title}
+          </span>
+          <span className="mt-1 text-sm text-[#4c576f]">{headerState.subtitle}</span>
         </Link>
-        <div className="flex items-center gap-4">
-          {navItems.map((item) => (
-            <Link
-              key={`${item.href}-${item.label}`}
-              href={item.href}
-              className="text-sm font-semibold text-[#0a6fd6] hover:underline"
-            >
-              {item.label}
-            </Link>
-          ))}
+
+        <div className="flex flex-col items-start gap-3 lg:items-end">
+          {headerState.surfaceLinks.length > 0 ? (
+            <div className="flex flex-wrap items-center gap-2">
+              {headerState.surfaceLinks.map((item) => (
+                <Link
+                  key={`${item.href}-${item.label}`}
+                  href={item.href}
+                  className={`rounded-full px-3 py-1.5 text-sm font-semibold transition ${
+                    item.active
+                      ? "bg-[#0f172a] text-white"
+                      : "bg-[#e8eefc] text-[#0f172a] hover:bg-[#d7e1fb]"
+                  }`}
+                >
+                  {item.label}
+                </Link>
+              ))}
+            </div>
+          ) : null}
+
+          <div className="flex flex-wrap items-center gap-4">
+            {headerState.actionLinks.map((item) => (
+              <Link
+                key={`${item.href}-${item.label}`}
+                href={item.href}
+                className={`text-sm font-semibold hover:underline ${
+                  item.active ? "text-[#0f172a]" : "text-[#0a6fd6]"
+                }`}
+              >
+                {item.label}
+              </Link>
+            ))}
+          </div>
         </div>
       </div>
     </header>

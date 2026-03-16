@@ -30,6 +30,11 @@ Current reality as of March 16, 2026:
    COGS, provenance, source-drift UX, and broader validation.
 9. WBR should now be treated as a separate shipped reporting product, not as
    the umbrella bucket for Monthly P&L work.
+10. The `/reports` frontend cleanup is now in place:
+   - client hub distinguishes WBR and Monthly P&L per marketplace
+   - shared reports header exposes a WBR / Monthly P&L switcher
+   - Monthly P&L shows active import provenance and lightweight source-drift
+     guidance
 
 Important context:
 
@@ -62,16 +67,13 @@ Relevant live migrations:
 
 Suggested next-session task order:
 
-1. Clean up the docs and frontend language so WBR and Monthly P&L are clearly
-   separate reporting surfaces.
-2. Confirm the latest backend deploy is serving the importer/report fixes if any
+1. Confirm the latest backend deploy is serving the importer/report fixes if any
    new live import testing will be done.
-3. Add import provenance to the Monthly P&L UI:
-   active filename, import timestamp, maybe import ID.
-4. Decide how to communicate Amazon source-drift behavior in product/UI/docs.
-5. Add or design the Monthly P&L COGS path so gross profit / net earnings can
+2. Decide whether the current lightweight source-drift guidance should become a
+   stronger in-product warning or operator workflow.
+3. Add or design the Monthly P&L COGS path so gross profit / net earnings can
    reconcile, not just the revenue and expense sections.
-6. Validate another month or profile to make sure the workbook-aligned mappings
+4. Validate another month or profile to make sure the workbook-aligned mappings
    generalize beyond this one December case.
 
 Deliverable expectation for the next session:
@@ -79,5 +81,5 @@ Deliverable expectation for the next session:
 1. Do not redo December 2025 from scratch.
 2. Preserve the validated live December state unless the user explicitly asks
    to replace it.
-3. Move Monthly P&L from one-off debugging toward an operable standalone
-   workflow, including clearer distinction from WBR in docs and UI.
+3. Continue Monthly P&L productization from the now-separated reporting surface,
+   with COGS and broader validation as the main follow-on work.

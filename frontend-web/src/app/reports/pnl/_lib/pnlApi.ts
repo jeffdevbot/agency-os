@@ -24,6 +24,7 @@ export type CreatePnlProfileRequest = {
 
 export type PnlImportMonth = {
   id: string;
+  import_id: string | null;
   entry_month: string;
   import_status: string;
   is_active: boolean;
@@ -110,6 +111,41 @@ export async function listPnlProfiles(
   }
   const data = await response.json();
   return (data?.profiles ?? []) as PnlProfile[];
+}
+
+export async function listPnlImports(
+  token: string,
+  profileId: string,
+): Promise<PnlImport[]> {
+  const response = await fetch(`${getBackendUrl()}/admin/pnl/profiles/${profileId}/imports`, {
+    method: "GET",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    const detail = await parseErrorDetail(response);
+    throw new Error(detail);
+  }
+  const data = await response.json();
+  return (data?.imports ?? []) as PnlImport[];
+}
+
+export async function listPnlImportMonths(
+  token: string,
+  profileId: string,
+): Promise<PnlImportMonth[]> {
+  const response = await fetch(
+    `${getBackendUrl()}/admin/pnl/profiles/${profileId}/import-months`,
+    {
+      method: "GET",
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  );
+  if (!response.ok) {
+    const detail = await parseErrorDetail(response);
+    throw new Error(detail);
+  }
+  const data = await response.json();
+  return (data?.months ?? []) as PnlImportMonth[];
 }
 
 export async function createPnlProfile(
