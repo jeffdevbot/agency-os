@@ -10,6 +10,7 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from unittest.mock import MagicMock
 
+from postgrest.exceptions import APIError as PostgrestAPIError
 import pytest
 
 from app.services.pnl.profiles import PNLDuplicateFileError, PNLNotFoundError, PNLValidationError
@@ -403,6 +404,10 @@ def _db_with_tables(**tables: MagicMock) -> MagicMock:
     return db
 
 
+def _pg_error(message: str) -> PostgrestAPIError:
+    return PostgrestAPIError({"message": message, "code": "23505", "details": "", "hint": ""})
+
+
 class TestTransactionImportService:
     def test_rejects_running_duplicate_file(self):
         profiles = _chain_table([{"id": "p1", "marketplace_code": "US"}])
@@ -676,6 +681,117 @@ class TestTransactionImportService:
         assert result["summary"]["total_raw_rows"] == 1
         assert created_import_payloads[0]["supersedes_import_id"] == "old-imp"
         assert {"is_active": False} in stale_month_updates
+
+    def test_reimport_retries_after_legacy_unique_index_conflict(self):
+        """Re-import should recover if the old SHA unique index is still present."""
+        profiles = _chain_table([{"id": "p1", "marketplace_code": "US"}])
+        imports_dup_check = _chain_table([{
+            "id": "old-imp",
+            "import_status": "success",
+            "created_at": "2026-01-10T00:00:00+00:00",
+        }])
+        imports_update = _chain_table([{}])
+        imports_final = _chain_table([{"id": "imp-new", "import_status": "success"}])
+        rules = _chain_table([])
+        import_months_insert = _chain_table([{"id": "im-new"}])
+        import_months_update = _chain_table([{}])
+        raw_rows_insert = _chain_table([{}])
+        ledger_insert = _chain_table([{}])
+
+        class InsertConflictThenSuccess:
+            def __init__(self):
+                self.calls = 0
+
+            def insert(self, _payload):
+                self.calls += 1
+                return self
+
+            def execute(self):
+                if self.calls == 1:
+                    raise _pg_error(
+                        'duplicate key value violates unique constraint "uq_monthly_pnl_imports_profile_source_sha256"'
+                    )
+                return MagicMock(data=[{"id": "imp-new", "import_status": "pending"}])
+
+            def update(self, _payload):
+                return self
+
+            def eq(self, *_args, **_kwargs):
+                return self
+
+            def select(self, *_args, **_kwargs):
+                return self
+
+            def order(self, *_args, **_kwargs):
+                return self
+
+            def limit(self, *_args, **_kwargs):
+                return self
+
+        imports_insert = InsertConflictThenSuccess()
+        cleared_hash_payloads: list[dict] = []
+        old_import_active_months = _chain_table([])
+
+        def update_capture(payload):
+            cleared_hash_payloads.append(payload)
+            return imports_update
+
+        import_update_capture = _chain_table([{}])
+        import_update_capture.update = update_capture
+
+        call_counts: dict[str, int] = {}
+
+        def table_router(name: str) -> MagicMock:
+            call_counts.setdefault(name, 0)
+            call_counts[name] += 1
+            if name == "monthly_pnl_profiles":
+                return profiles
+            if name == "monthly_pnl_mapping_rules":
+                return rules
+            if name == "monthly_pnl_imports":
+                count = call_counts[name]
+                if count == 1:
+                    return imports_dup_check
+                if count in (2, 4):
+                    return imports_insert
+                if count == 3:
+                    return import_update_capture
+                if count <= 6:
+                    return imports_update
+                return imports_final
+            if name == "monthly_pnl_import_months":
+                count = call_counts[name]
+                if count == 1:
+                    return import_months_insert
+                if count == 2:
+                    return import_months_update
+                if count == 3:
+                    return old_import_active_months
+                return import_months_update
+            if name == "monthly_pnl_raw_rows":
+                return raw_rows_insert
+            if name == "monthly_pnl_ledger_entries":
+                return ledger_insert
+            return _chain_table()
+
+        csv_data = (
+            '"date/time","type","order id","sku","description","product sales","total","Transaction Release Date"\n'
+            '"Dec 15, 2025","Order","111","SKU1","Widget","10.00","10.00","Jan 02, 2026"\n'
+        ).encode("utf-8")
+
+        db = MagicMock()
+        db.table.side_effect = table_router
+        db.rpc.return_value = _chain_rpc()
+
+        svc = TransactionImportService(db)
+        result = svc.import_file(
+            profile_id="p1",
+            file_name="test.csv",
+            file_bytes=csv_data,
+        )
+
+        assert result["import"]["import_status"] == "success"
+        assert {"source_file_sha256": None} in cleared_hash_payloads
 
     def test_import_month_starts_as_pending(self):
         """Import month should be created with 'pending', not 'success'."""

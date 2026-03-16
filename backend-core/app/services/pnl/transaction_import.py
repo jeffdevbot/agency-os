@@ -16,6 +16,7 @@ from datetime import UTC, datetime, date
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
+from postgrest.exceptions import APIError as PostgrestAPIError
 from supabase import Client
 
 from .profiles import PNLDuplicateFileError, PNLNotFoundError, PNLValidationError
@@ -715,7 +716,18 @@ class TransactionImportService:
             payload["supersedes_import_id"] = supersedes_import_id
         if user_id:
             payload["initiated_by"] = user_id
-        response = self.db.table("monthly_pnl_imports").insert(payload).execute()
+
+        try:
+            response = self.db.table("monthly_pnl_imports").insert(payload).execute()
+        except PostgrestAPIError as exc:
+            # Backward-compatible fallback for environments that still have the
+            # older unique index blocking re-imports of the same successful file.
+            if supersedes_import_id and "uq_monthly_pnl_imports_profile_source_sha256" in str(exc):
+                self._clear_import_hash(supersedes_import_id)
+                response = self.db.table("monthly_pnl_imports").insert(payload).execute()
+            else:
+                raise
+
         rows = response.data if isinstance(response.data, list) else []
         if not rows:
             raise PNLValidationError("Failed to create import record")
@@ -938,3 +950,11 @@ class TransactionImportService:
                 .eq("id", row["id"])
                 .execute()
             )
+
+    def _clear_import_hash(self, import_id: str) -> None:
+        (
+            self.db.table("monthly_pnl_imports")
+            .update({"source_file_sha256": None})
+            .eq("id", import_id)
+            .execute()
+        )
