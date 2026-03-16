@@ -100,19 +100,31 @@ def _parse_decimal(value: str) -> Decimal:
 
 
 def _parse_datetime(value: str) -> datetime | None:
-    if not value.strip():
+    raw = value.strip()
+    if not raw:
         return None
-    for fmt in ("%b %d, %Y %I:%M:%S %p %Z", "%b %d, %Y %I:%M:%S %p", "%Y-%m-%dT%H:%M:%S", "%m/%d/%Y %H:%M:%S"):
-        try:
-            return datetime.strptime(value.strip(), fmt).replace(tzinfo=UTC)
-        except ValueError:
-            continue
+
+    candidates = [raw]
+    # Amazon transaction exports commonly append abbreviations like PST/PDT/EST/EDT.
+    # Python's strptime does not reliably parse those across platforms, so try a
+    # second pass with the trailing token removed.
+    tz_stripped = re.sub(r"\s+[A-Z]{2,5}$", "", raw)
+    if tz_stripped != raw:
+        candidates.append(tz_stripped)
+
+    for candidate in candidates:
+        for fmt in ("%b %d, %Y %I:%M:%S %p %Z", "%b %d, %Y %I:%M:%S %p", "%Y-%m-%dT%H:%M:%S", "%m/%d/%Y %H:%M:%S"):
+            try:
+                return datetime.strptime(candidate, fmt).replace(tzinfo=UTC)
+            except ValueError:
+                continue
     # Try date-only formats
-    for fmt in ("%b %d, %Y", "%m/%d/%Y", "%Y-%m-%d"):
-        try:
-            return datetime.strptime(value.strip(), fmt).replace(tzinfo=UTC)
-        except ValueError:
-            continue
+    for candidate in candidates:
+        for fmt in ("%b %d, %Y", "%m/%d/%Y", "%Y-%m-%d"):
+            try:
+                return datetime.strptime(candidate, fmt).replace(tzinfo=UTC)
+            except ValueError:
+                continue
     return None
 
 

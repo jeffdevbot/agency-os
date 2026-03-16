@@ -108,6 +108,19 @@ class TestParseTransactionCSV:
 
 
 class TestParseRawRows:
+    def test_parses_amazon_release_datetime_with_timezone_abbreviation(self):
+        csv_with_release_ts = (
+            '"date/time","type","order id","sku","description","product sales","total","Transaction Status","Transaction Release Date"\n'
+            '"Dec 1, 2025 12:04:11 AM PST","Order","111","SKU1","Thing","17.19","17.19","Released","Dec 1, 2025 12:04:11 AM PST"\n'
+        )
+        header_values, header_map, data_rows = parse_transaction_csv(csv_with_release_ts.encode())
+        raw_rows = parse_raw_rows(header_values, header_map, data_rows)
+
+        assert len(raw_rows) == 1
+        assert raw_rows[0].posted_at == datetime(2025, 12, 1, 0, 4, 11, tzinfo=UTC)
+        assert raw_rows[0].release_at == datetime(2025, 12, 1, 0, 4, 11, tzinfo=UTC)
+        assert raw_rows[0].entry_month == date(2025, 12, 1)
+
     def test_parses_order_row(self):
         header_values, header_map, data_rows = parse_transaction_csv(SAMPLE_CSV.encode("utf-8"))
         raw_rows = parse_raw_rows(header_values, header_map, data_rows)
