@@ -44,7 +44,12 @@ export default function PnlUploadCard({
           <button
             onClick={onUpload}
             disabled={!selectedFileName || uploadPending}
-            className="rounded-xl bg-[#0a6fd6] px-4 py-2 text-sm font-semibold text-white shadow-[0_15px_30px_rgba(10,111,214,0.2)] transition hover:bg-[#0959ab] disabled:opacity-50"
+            aria-busy={uploadPending}
+            className={`rounded-xl px-4 py-2 text-sm font-semibold text-white shadow-[0_15px_30px_rgba(10,111,214,0.2)] transition hover:bg-[#0959ab] disabled:cursor-not-allowed disabled:bg-[#b7cbea] ${
+              uploadPending
+                ? "bg-[#0a6fd6] ring-2 ring-offset-2 ring-[#8cc7ff] animate-pulse"
+                : "bg-[#0a6fd6]"
+            }`}
           >
             {uploadPending ? "Uploading..." : "Upload report"}
           </button>
