@@ -32,8 +32,8 @@ export default function PnlReportHeader({
 }: Props) {
   return (
     <div className="relative z-20 rounded-3xl bg-white/95 p-5 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur md:p-6">
-      <div className="flex flex-col gap-5">
-        <div>
+      <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0 flex-1">
           <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[#9a5b16]">
             Amazon Finance Reporting
           </p>
@@ -62,13 +62,7 @@ export default function PnlReportHeader({
         </div>
 
         {profile ? (
-          <div className="flex flex-col gap-4 border-t border-[#e2e8f0] pt-4 lg:flex-row lg:items-end lg:justify-between">
-            <button
-              onClick={onToggleSettings}
-              className="w-fit text-sm font-semibold text-[#64748b] transition hover:text-[#0f172a] hover:underline"
-            >
-              {settingsOpen ? "Hide settings" : "Open settings"}
-            </button>
+          <div className="flex shrink-0 flex-col items-start gap-3 lg:items-end">
             <PnlMonthRangePicker
               filterMode={filterMode}
               rangeStart={rangeStart}
@@ -77,6 +71,12 @@ export default function PnlReportHeader({
               onRangeStartChange={onRangeStartChange}
               onRangeEndChange={onRangeEndChange}
             />
+            <button
+              onClick={onToggleSettings}
+              className="pr-1 text-sm font-semibold text-[#64748b] transition hover:text-[#0f172a] hover:underline"
+            >
+              {settingsOpen ? "Hide settings" : "Open settings"}
+            </button>
           </div>
         ) : null}
       </div>
