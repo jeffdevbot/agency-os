@@ -6,7 +6,8 @@ _Last updated: 2026-03-16 (ET)_
 > pipeline, standalone `/reports/.../pnl` surface, provenance/settings UI, and
 > workbook-aligned transaction mapping are live. This document is still useful
 > as design/reference context, but some sections remain forward-looking for
-> work that is not done yet, especially COGS workflow and export/productization
+> work that is not done yet, especially COGS workflow, async/background import
+> execution for multi-month uploads, and the remaining report-speed/productization
 > follow-ons.
 
 This document defines the recommended implementation plan for a new
