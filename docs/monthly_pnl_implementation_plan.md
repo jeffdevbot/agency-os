@@ -256,27 +256,30 @@ Suggested fields:
 
 1. `id`
 2. `import_id`
-3. `import_month_id nullable`
-4. `source_type`
-5. `row_index`
-6. `posted_at`
-7. `order_id`
-8. `sku`
-9. `raw_type`
-10. `raw_description`
-11. `release_at`
-12. `raw_payload jsonb`
-13. timestamps
+3. `profile_id`
+4. `import_month_id nullable`
+5. `source_type`
+6. `row_index`
+7. `posted_at`
+8. `order_id`
+9. `sku`
+10. `raw_type`
+11. `raw_description`
+12. `release_at`
+13. `raw_payload jsonb`
+14. timestamps
 
 Constraints/indexes:
 
 1. unique index on `(import_id, row_index)`
-2. index on `(import_id, posted_at)`
-3. index on `(import_id, release_at)`
+2. index on `(profile_id, import_id)`
+3. index on `(import_id, posted_at)`
+4. index on `(import_id, release_at)`
 
 Notes:
 
 1. `row_index` uniqueness prevents duplicate raw-row ingestion within one import retry path.
+2. `profile_id` should be denormalized onto raw rows for RLS consistency and efficient profile-scoped QA queries.
 
 ### 5. `monthly_pnl_ledger_entries`
 
@@ -342,6 +345,7 @@ Notes:
 
 1. The uniqueness rule is meant to block duplicate ledger expansion during retries.
 2. The exact dedupe key can be adjusted during implementation, but v1 must not allow silent month doubling from import retries.
+3. During implementation, prefer a stable source-row-based uniqueness rule over amount-included dedupe where the source identity is reliable.
 
 ### 6. `monthly_pnl_mapping_rules`
 
@@ -374,6 +378,7 @@ Notes:
 
 1. The mapping rule should not depend on a pipe-delimited freeform string like `type|description`.
 2. Use structured matching so implementation mistakes do not silently unmap money.
+3. If both a global rule and a profile-specific rule match, the profile-specific rule should always win before priority is considered.
 
 ### 7. `monthly_pnl_cogs_monthly`
 
@@ -649,6 +654,7 @@ Recommended storage design:
    - `monthly-pnl/{profile_id}/{source_type}/{import_id}/{original_filename}`
 3. store the bucket path on `monthly_pnl_imports.storage_path`
 4. compute and store `source_file_sha256` during upload
+5. bucket creation should be scripted in repo, not handled as an undocumented manual setup step
 
 #### import behavior for large files
 
@@ -747,6 +753,7 @@ Minimum requirement:
 1. every new P&L table gets RLS enabled
 2. every table gets explicit policies, following the same standard used by WBR tables
 3. child-table policies should resolve access through `monthly_pnl_profiles -> agency_clients`, not rely on ad hoc client identifiers on each row
+4. every mutable table should also get the standard `updated_at` trigger pattern used by WBR tables
 
 ## Known risks and edge cases
 
