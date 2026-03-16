@@ -11,8 +11,9 @@ import hashlib
 import io
 import json
 import re
+import time
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, date
+from datetime import UTC, datetime, date, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
@@ -65,6 +66,17 @@ COLUMN_BUCKET_MAP: dict[str, str] = {
 }
 
 UTF16_BOMS = (b"\xff\xfe", b"\xfe\xff")
+IMPORT_INSERT_CHUNK_SIZE = 500
+IMPORT_INSERT_MIN_CHUNK_SIZE = 100
+IMPORT_INSERT_RETRY_ATTEMPTS = 2
+STALE_RUNNING_IMPORT_AGE = timedelta(minutes=15)
+_TRANSIENT_INSERT_ERROR_MARKERS = (
+    "JSON could not be generated",
+    "Bad gateway",
+    "bad gateway",
+    "'code': 502",
+    '"code": 502',
+)
 
 
 def _canonicalize_header(value: Any) -> str:
@@ -132,6 +144,27 @@ def _parse_datetime(value: str) -> datetime | None:
 def _entry_month_from_dt(dt: datetime) -> date:
     """Normalize a datetime to first-of-month date."""
     return date(dt.year, dt.month, 1)
+
+
+def _parse_db_timestamp(value: Any) -> datetime | None:
+    if value is None:
+        return None
+    raw = str(value).strip()
+    if not raw:
+        return None
+    normalized = raw.replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def _is_transient_insert_error(exc: PostgrestAPIError) -> bool:
+    text = str(exc)
+    return any(marker in text for marker in _TRANSIENT_INSERT_ERROR_MARKERS)
 
 
 # ── Parsed structures ────────────────────────────────────────────────
@@ -741,7 +774,7 @@ class TransactionImportService:
     def _check_duplicate(self, profile_id: str, file_sha256: str) -> dict[str, Any] | None:
         response = (
             self.db.table("monthly_pnl_imports")
-            .select("id, import_status, created_at")
+            .select("id, import_status, created_at, started_at")
             .eq("profile_id", profile_id)
             .eq("source_type", SOURCE_TYPE)
             .eq("source_file_sha256", file_sha256)
@@ -751,22 +784,40 @@ class TransactionImportService:
         )
         rows = response.data if isinstance(response.data, list) else []
         if rows:
-            running_import = next((row for row in rows if row.get("import_status") == "running"), None)
+            active_running_imports: list[dict[str, Any]] = []
+            filtered_rows: list[dict[str, Any]] = []
+            for row in rows:
+                if row.get("import_status") != "running":
+                    filtered_rows.append(row)
+                    continue
+                if self._is_stale_running_import(row):
+                    self._mark_import_stale_error(str(row["id"]))
+                    continue
+                active_running_imports.append(row)
+                filtered_rows.append(row)
+
+            running_import = active_running_imports[0] if active_running_imports else None
             if running_import:
                 raise PNLDuplicateFileError(
                     f"This file has already been imported (import {running_import['id']})"
                 )
 
-            successful_import = next((row for row in rows if row.get("import_status") == "success"), None)
+            successful_import = next(
+                (row for row in filtered_rows if row.get("import_status") == "success"),
+                None,
+            )
             if successful_import:
                 return successful_import
 
-            status = rows[0].get("import_status")
+            if not filtered_rows:
+                return None
+
+            status = filtered_rows[0].get("import_status")
             if status == "running":
                 raise PNLDuplicateFileError(
-                    f"This file has already been imported (import {rows[0]['id']})"
+                    f"This file has already been imported (import {filtered_rows[0]['id']})"
                 )
-            return rows[0]
+            return filtered_rows[0]
         return None
 
     def _load_mapping_rules(
@@ -971,9 +1022,7 @@ class TransactionImportService:
             }
             for rr in raw_rows
         ]
-        for start in range(0, len(payloads), 500):
-            chunk = payloads[start : start + 500]
-            self.db.table("monthly_pnl_raw_rows").insert(chunk).execute()
+        self._insert_payloads("monthly_pnl_raw_rows", payloads)
 
     def _insert_ledger_entries(
         self,
@@ -1004,9 +1053,7 @@ class TransactionImportService:
             }
             for e in entries
         ]
-        for start in range(0, len(payloads), 500):
-            chunk = payloads[start : start + 500]
-            self.db.table("monthly_pnl_ledger_entries").insert(chunk).execute()
+        self._insert_payloads("monthly_pnl_ledger_entries", payloads)
 
     def _update_import_month_status(self, import_month_id: str, status: str) -> None:
         (
@@ -1069,3 +1116,48 @@ class TransactionImportService:
             .eq("id", import_id)
             .execute()
         )
+
+    def _is_stale_running_import(self, row: dict[str, Any]) -> bool:
+        started_at = _parse_db_timestamp(row.get("started_at")) or _parse_db_timestamp(row.get("created_at"))
+        if started_at is None:
+            return False
+        return (datetime.now(UTC) - started_at) >= STALE_RUNNING_IMPORT_AGE
+
+    def _mark_import_stale_error(self, import_id: str) -> None:
+        stale_message = (
+            "Marked as error after a prior import attempt stopped progressing. Safe to retry."
+        )
+        self._update_import_status(import_id, "error", error_message=stale_message)
+        (
+            self.db.table("monthly_pnl_import_months")
+            .update({"import_status": "error"})
+            .eq("import_id", import_id)
+            .eq("import_status", "pending")
+            .execute()
+        )
+
+    def _insert_payloads(self, table_name: str, payloads: list[dict[str, Any]]) -> None:
+        for start in range(0, len(payloads), IMPORT_INSERT_CHUNK_SIZE):
+            chunk = payloads[start : start + IMPORT_INSERT_CHUNK_SIZE]
+            self._insert_chunk(table_name, chunk)
+
+    def _insert_chunk(self, table_name: str, chunk: list[dict[str, Any]]) -> None:
+        for attempt in range(1, IMPORT_INSERT_RETRY_ATTEMPTS + 1):
+            try:
+                self.db.table(table_name).insert(chunk).execute()
+                return
+            except PostgrestAPIError as exc:
+                if not _is_transient_insert_error(exc):
+                    raise
+                if attempt < IMPORT_INSERT_RETRY_ATTEMPTS:
+                    time.sleep(0.25 * attempt)
+                    continue
+                break
+
+        if len(chunk) <= IMPORT_INSERT_MIN_CHUNK_SIZE:
+            self.db.table(table_name).insert(chunk).execute()
+            return
+
+        midpoint = len(chunk) // 2
+        self._insert_chunk(table_name, chunk[:midpoint])
+        self._insert_chunk(table_name, chunk[midpoint:])

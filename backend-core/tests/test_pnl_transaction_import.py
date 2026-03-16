@@ -617,6 +617,12 @@ def _pg_error(message: str) -> PostgrestAPIError:
     return PostgrestAPIError({"message": message, "code": "23505", "details": "", "hint": ""})
 
 
+def _gateway_error() -> PostgrestAPIError:
+    return PostgrestAPIError(
+        {"message": "JSON could not be generated", "code": 502, "details": "", "hint": ""}
+    )
+
+
 class TestTransactionImportService:
     def test_rejects_running_duplicate_file(self):
         profiles = _chain_table([{"id": "p1", "marketplace_code": "US"}])
@@ -799,6 +805,74 @@ class TestTransactionImportService:
             file_bytes=csv_data,
         )
         assert result["summary"]["total_raw_rows"] == 1
+
+    def test_marks_stale_running_duplicate_as_error_and_allows_retry(self):
+        profiles = _chain_table([{"id": "p1", "marketplace_code": "US"}])
+        imports_dup_check = _chain_table([{
+            "id": "stale-imp",
+            "import_status": "running",
+            "created_at": "2026-01-10T00:00:00+00:00",
+            "started_at": "2026-01-10T00:00:00+00:00",
+        }])
+        imports_insert = _chain_table([{"id": "imp-retry", "import_status": "pending"}])
+        imports_update = _chain_table([{"id": "imp-retry", "import_status": "running"}])
+        imports_final = _chain_table([{"id": "imp-retry", "import_status": "success"}])
+        rules = _chain_table([])
+        import_months_insert = _chain_table([{"id": "im-1"}])
+        import_months_update = _chain_table([{}])
+        raw_rows_insert = _chain_table([{}])
+        ledger_insert = _chain_table([{}])
+
+        call_counts: dict[str, int] = {}
+
+        def table_router(name: str) -> MagicMock:
+            call_counts.setdefault(name, 0)
+            call_counts[name] += 1
+            if name == "monthly_pnl_profiles":
+                return profiles
+            if name == "monthly_pnl_mapping_rules":
+                return rules
+            if name == "monthly_pnl_imports":
+                count = call_counts[name]
+                if count == 1:
+                    return imports_dup_check
+                elif count == 2:
+                    return imports_insert
+                elif count <= 4:
+                    return imports_update
+                else:
+                    return imports_final
+            if name == "monthly_pnl_import_months":
+                count = call_counts[name]
+                if count == 1:
+                    return import_months_insert
+                return import_months_update
+            if name == "monthly_pnl_raw_rows":
+                return raw_rows_insert
+            if name == "monthly_pnl_ledger_entries":
+                return ledger_insert
+            return _chain_table()
+
+        csv_data = (
+            '"date/time","type","order id","sku","description","product sales","total",'
+            '"Transaction Release Date"\n'
+            '"Jan 15, 2026","Order","111","SKU1","Widget","10.00","10.00","Jan 20, 2026"\n'
+        ).encode("utf-8")
+
+        db = MagicMock()
+        db.table.side_effect = table_router
+        db.rpc.return_value = _chain_rpc()
+
+        svc = TransactionImportService(db)
+        svc._mark_import_stale_error = MagicMock()
+        result = svc.import_file(
+            profile_id="p1",
+            file_name="test.csv",
+            file_bytes=csv_data,
+        )
+
+        assert result["summary"]["total_raw_rows"] == 1
+        svc._mark_import_stale_error.assert_called_once_with("stale-imp")
 
     def test_allows_reimport_after_success_and_deactivates_stale_months(self):
         """A successful import can be replaced by re-uploading the same file."""
@@ -1001,6 +1075,57 @@ class TestTransactionImportService:
 
         assert result["import"]["import_status"] == "success"
         assert {"source_file_sha256": None} in cleared_hash_payloads
+
+    def test_insert_ledger_entries_retries_and_splits_on_transient_gateway_errors(self, monkeypatch):
+        class FlakyLedgerInsertTable:
+            def __init__(self):
+                self.chunk_sizes: list[int] = []
+                self.current_chunk_size = 0
+
+            def insert(self, payload):
+                self.current_chunk_size = len(payload)
+                self.chunk_sizes.append(self.current_chunk_size)
+                return self
+
+            def execute(self):
+                if self.current_chunk_size > 100:
+                    raise _gateway_error()
+                return MagicMock(data=[{}])
+
+        flaky_table = FlakyLedgerInsertTable()
+        db = MagicMock()
+        db.table.return_value = flaky_table
+        svc = TransactionImportService(db)
+
+        monkeypatch.setattr("app.services.pnl.transaction_import.time.sleep", lambda *_args: None)
+
+        entries = [
+            LedgerEntry(
+                entry_month=date(2025, 8, 1),
+                posted_at=None,
+                order_id=f"order-{index}",
+                sku="SKU1",
+                raw_type="Order",
+                raw_description="Widget",
+                ledger_bucket="product_sales",
+                amount=Decimal("1.00"),
+                is_mapped=True,
+                mapping_rule_id=None,
+                source_row_index=index,
+            )
+            for index in range(250)
+        ]
+
+        svc._insert_ledger_entries(
+            import_id="imp-1",
+            import_month_id="im-1",
+            profile_id="p1",
+            entry_month=date(2025, 8, 1),
+            entries=entries,
+        )
+
+        assert flaky_table.chunk_sizes[:4] == [250, 250, 125, 125]
+        assert any(chunk_size <= 100 for chunk_size in flaky_table.chunk_sizes)
 
     def test_import_month_starts_as_pending(self):
         """Import month should be created with 'pending', not 'success'."""

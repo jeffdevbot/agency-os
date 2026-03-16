@@ -111,7 +111,10 @@ class PNLProfileService:
         self.get_profile(profile_id)
         response = (
             self.db.table("monthly_pnl_imports")
-            .select("*")
+            .select(
+                "id, profile_id, source_filename, import_status, row_count, "
+                "error_message, started_at, finished_at, created_at, updated_at"
+            )
             .eq("profile_id", profile_id)
             .order("created_at", desc=True)
             .limit(50)

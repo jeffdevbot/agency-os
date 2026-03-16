@@ -44,13 +44,24 @@ export function usePnlActiveImports(profileId: string | null, monthsInView: stri
         throw new Error("Please sign in again.");
       }
 
-      const [imports, importMonths] = await Promise.all([
+      const [importsResult, importMonthsResult] = await Promise.allSettled([
         listPnlImports(session.access_token, profileId),
         listPnlImportMonths(session.access_token, profileId),
       ]);
 
+      const imports = importsResult.status === "fulfilled" ? importsResult.value : [];
+      const importMonths = importMonthsResult.status === "fulfilled" ? importMonthsResult.value : [];
+
       setAllImports(imports);
       setAllImportMonths(importMonths);
+
+      if (importMonthsResult.status === "rejected") {
+        throw importMonthsResult.reason;
+      }
+
+      if (importsResult.status === "rejected") {
+        setErrorMessage(null);
+      }
     } catch (error) {
       setAllImports([]);
       setAllImportMonths([]);
