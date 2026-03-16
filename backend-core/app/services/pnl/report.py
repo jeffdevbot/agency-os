@@ -110,6 +110,22 @@ class PNLReportService:
     def __init__(self, db: Client) -> None:
         self.db = db
 
+    def _fetch_all_rows(self, build_query, *, page_size: int = 1000) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        start = 0
+
+        while True:
+            response = build_query(start, page_size).execute()
+            batch = response.data if isinstance(response.data, list) else []
+            rows.extend(batch)
+
+            if len(batch) < page_size:
+                break
+
+            start += page_size
+
+        return rows
+
     def build_report(
         self,
         profile_id: str,
@@ -248,16 +264,17 @@ class PNLReportService:
         self, profile_id: str, start: date, end: date
     ) -> dict[str, dict[str, Decimal]]:
         """Return {bucket: {month_iso: total}} from active import months only."""
-        # Query ledger entries joined through active import_months
-        response = (
-            self.db.table("monthly_pnl_ledger_entries")
-            .select("entry_month, ledger_bucket, amount, import_month_id")
-            .eq("profile_id", profile_id)
-            .gte("entry_month", start.isoformat())
-            .lte("entry_month", end.isoformat())
-            .execute()
+        rows = self._fetch_all_rows(
+            lambda offset, page_size: (
+                self.db.table("monthly_pnl_ledger_entries")
+                .select("entry_month, ledger_bucket, amount, import_month_id")
+                .eq("profile_id", profile_id)
+                .gte("entry_month", start.isoformat())
+                .lte("entry_month", end.isoformat())
+                .order("id")
+                .range(offset, offset + page_size - 1)
+            )
         )
-        rows = response.data if isinstance(response.data, list) else []
 
         # Load active import_month IDs to filter
         active_ids = self._active_import_month_ids(profile_id, start, end)

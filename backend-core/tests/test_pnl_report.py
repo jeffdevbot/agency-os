@@ -32,6 +32,7 @@ def _chain_table(response_data: list[dict] | None = None) -> MagicMock:
     table.gte.return_value = table
     table.lte.return_value = table
     table.order.return_value = table
+    table.range.return_value = table
     table.limit.return_value = table
     resp = MagicMock()
     resp.data = response_data if response_data is not None else []
@@ -215,6 +216,77 @@ class TestPNLReportService:
         assert report["months"] == ["2026-01-01", "2026-02-01"]
         assert len(report["line_items"]) > 0
         assert isinstance(report["warnings"], list)
+
+    def test_report_paginates_ledger_rows_beyond_first_1000(self):
+        profiles_table = _chain_table([FAKE_PROFILE])
+        page_1 = [
+            {"entry_month": "2026-01-01", "ledger_bucket": "product_sales", "amount": "1.00", "import_month_id": "im1"}
+            for _ in range(1000)
+        ]
+        page_2 = [
+            {"entry_month": "2026-01-01", "ledger_bucket": "product_sales", "amount": "1.00", "import_month_id": "im1"}
+        ]
+        current_offset = {"value": 0}
+
+        ledger_table = MagicMock()
+        ledger_table.select.return_value = ledger_table
+        ledger_table.eq.return_value = ledger_table
+        ledger_table.gte.return_value = ledger_table
+        ledger_table.lte.return_value = ledger_table
+        ledger_table.order.return_value = ledger_table
+
+        def range_side_effect(start: int, end: int):
+            current_offset["value"] = start
+            return ledger_table
+
+        def execute_side_effect():
+            response = MagicMock()
+            if current_offset["value"] == 0:
+                response.data = page_1
+            elif current_offset["value"] == 1000:
+                response.data = page_2
+            else:
+                response.data = []
+            return response
+
+        ledger_table.range.side_effect = range_side_effect
+        ledger_table.execute.side_effect = execute_side_effect
+
+        cogs_table = _chain_table([])
+
+        call_count = {"import_months": 0}
+
+        def import_months_factory():
+            call_count["import_months"] += 1
+            if call_count["import_months"] == 1:
+                return _chain_table([{"id": "im1"}])
+            if call_count["import_months"] == 2:
+                return _chain_table([{"entry_month": "2026-01-01", "unmapped_amount": "0"}])
+            return _chain_table([{"entry_month": "2026-01-01"}])
+
+        db = MagicMock()
+
+        def table_router(name):
+            if name == "monthly_pnl_profiles":
+                return profiles_table
+            if name == "monthly_pnl_ledger_entries":
+                return ledger_table
+            if name == "monthly_pnl_cogs_monthly":
+                return cogs_table
+            if name == "monthly_pnl_import_months":
+                return import_months_factory()
+            return _chain_table()
+
+        db.table.side_effect = table_router
+
+        svc = PNLReportService(db)
+        report = svc.build_report(
+            "p1", filter_mode="range", start_month="2026-01-01", end_month="2026-01-01"
+        )
+
+        items = {li["key"]: li for li in report["line_items"]}
+        assert items["product_sales"]["months"]["2026-01-01"] == "1001.00"
+        assert ledger_table.range.call_count == 2
 
     def test_report_line_item_keys(self):
         svc = self._make_service()
