@@ -1,0 +1,200 @@
+"""Monthly P&L admin API router."""
+
+from __future__ import annotations
+
+import os
+from typing import Any
+
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from pydantic import BaseModel, Field
+
+from ..auth import require_admin_user, _get_supabase_admin_client
+from ..services.pnl.profiles import (
+    PNLDuplicateFileError,
+    PNLNotFoundError,
+    PNLProfileService,
+    PNLValidationError,
+)
+from ..services.pnl.transaction_import import TransactionImportService
+
+router = APIRouter(prefix="/admin/pnl", tags=["pnl-admin"])
+
+MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "40"))
+
+
+def _get_profile_service() -> PNLProfileService:
+    return PNLProfileService(_get_supabase_admin_client())
+
+
+def _get_import_service() -> TransactionImportService:
+    return TransactionImportService(_get_supabase_admin_client())
+
+
+# ── Request / response models ────────────────────────────────────────
+
+
+class CreateProfileRequest(BaseModel):
+    client_id: str = Field(..., min_length=1)
+    marketplace_code: str = Field(..., min_length=1)
+    currency_code: str = Field(default="USD")
+    notes: str | None = None
+
+
+# ── Profile endpoints ────────────────────────────────────────────────
+
+
+@router.get("/profiles")
+def list_profiles(
+    client_id: str = Query(..., min_length=1),
+    user=Depends(require_admin_user),
+):
+    svc = _get_profile_service()
+    try:
+        profiles = svc.list_profiles(client_id)
+        return {"ok": True, "profiles": profiles}
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to list P&L profiles")
+
+
+@router.post("/profiles")
+def create_profile(
+    body: CreateProfileRequest,
+    user=Depends(require_admin_user),
+):
+    svc = _get_profile_service()
+    user_id = str(user.get("sub") or "").strip() or None
+    try:
+        profile = svc.create_profile(
+            client_id=body.client_id,
+            marketplace_code=body.marketplace_code,
+            currency_code=body.currency_code,
+            notes=body.notes,
+            user_id=user_id,
+        )
+        return {"ok": True, "profile": profile}
+    except PNLValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to create P&L profile")
+
+
+@router.get("/profiles/{profile_id}")
+def get_profile(
+    profile_id: str,
+    user=Depends(require_admin_user),
+):
+    svc = _get_profile_service()
+    try:
+        profile = svc.get_profile(profile_id)
+        return {"ok": True, "profile": profile}
+    except PNLNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to get P&L profile")
+
+
+# ── Import endpoints ─────────────────────────────────────────────────
+
+
+@router.get("/profiles/{profile_id}/imports")
+def list_imports(
+    profile_id: str,
+    user=Depends(require_admin_user),
+):
+    svc = _get_profile_service()
+    try:
+        imports = svc.list_imports(profile_id)
+        return {"ok": True, "imports": imports}
+    except PNLNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to list imports")
+
+
+@router.get("/profiles/{profile_id}/imports/{import_id}")
+def get_import_summary(
+    profile_id: str,
+    import_id: str,
+    user=Depends(require_admin_user),
+):
+    svc = _get_profile_service()
+    try:
+        summary = svc.get_import_summary(profile_id, import_id)
+        return {"ok": True, **summary}
+    except PNLNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to get import summary")
+
+
+@router.get("/profiles/{profile_id}/import-months")
+def list_import_months(
+    profile_id: str,
+    user=Depends(require_admin_user),
+):
+    svc = _get_profile_service()
+    try:
+        months = svc.list_import_months(profile_id)
+        return {"ok": True, "months": months}
+    except PNLNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to list import months")
+
+
+# ── Transaction upload endpoint ──────────────────────────────────────
+
+
+@router.post("/profiles/{profile_id}/transaction-upload")
+async def upload_transaction_report(
+    profile_id: str,
+    file: UploadFile = File(...),
+    user=Depends(require_admin_user),
+):
+    """Upload an Amazon Monthly Unified Transaction Report CSV."""
+    file_name = file.filename or "unknown.csv"
+    lower_name = file_name.lower()
+    if not lower_name.endswith((".csv", ".txt", ".tsv")):
+        raise HTTPException(status_code=400, detail="Transaction upload supports .csv, .txt, and .tsv files")
+
+    # Read file with size check
+    chunks: list[bytes] = []
+    total = 0
+    chunk_size = 2 * 1024 * 1024
+    try:
+        while True:
+            chunk = await file.read(chunk_size)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > MAX_UPLOAD_MB * 1024 * 1024:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"File exceeds {MAX_UPLOAD_MB}MB limit",
+                )
+            chunks.append(chunk)
+    finally:
+        await file.close()
+
+    file_bytes = b"".join(chunks)
+    if not file_bytes:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+
+    user_id = str(user.get("sub") or "").strip() or None
+    svc = _get_import_service()
+    try:
+        result = svc.import_file(
+            profile_id=profile_id,
+            file_name=file_name,
+            file_bytes=file_bytes,
+            user_id=user_id,
+        )
+        return {"ok": True, **result}
+    except PNLNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except PNLDuplicateFileError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except PNLValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Transaction import failed")
