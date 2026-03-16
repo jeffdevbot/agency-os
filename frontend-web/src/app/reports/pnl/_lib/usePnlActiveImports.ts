@@ -66,7 +66,7 @@ export function usePnlActiveImports(profileId: string | null, monthsInView: stri
       setAllImports([]);
       setAllImportMonths([]);
       setErrorMessage(
-        error instanceof Error ? error.message : "Unable to load Monthly P&L import provenance",
+        error instanceof Error ? error.message : "Unable to load Amazon P&L import history",
       );
     } finally {
       setLoading(false);

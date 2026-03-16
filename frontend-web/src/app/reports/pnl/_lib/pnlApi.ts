@@ -37,6 +37,7 @@ export type PnlImportMonth = {
 export type PnlImport = {
   id: string;
   profile_id: string;
+  source_type: string;
   source_filename: string | null;
   import_status: string;
   row_count: number;

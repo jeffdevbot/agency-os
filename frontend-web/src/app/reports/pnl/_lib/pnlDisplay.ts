@@ -1,4 +1,4 @@
-import type { PnlImportMonth, PnlLineItem } from "./pnlApi";
+import type { PnlFilterMode, PnlImportMonth, PnlLineItem } from "./pnlApi";
 
 export type PnlValueFormat = "currency" | "percent";
 
@@ -6,12 +6,11 @@ export type PnlPresentedLineItem = PnlLineItem & {
   display_format?: PnlValueFormat;
 };
 
-export const FILTER_OPTIONS = [
+export const FILTER_OPTIONS: ReadonlyArray<{ value: PnlFilterMode; label: string }> = [
   { value: "ytd", label: "Year to Date" },
   { value: "last_3", label: "Last 3 Months" },
-  { value: "last_6", label: "Last 6 Months" },
-  { value: "last_12", label: "Last 12 Months" },
-] as const;
+  { value: "last_12", label: "Last Year" },
+];
 
 export const SUMMARY_KEYS = new Set([
   "total_gross_revenue",
@@ -98,4 +97,33 @@ export function monthsBeforeISO(anchorMonth: string, monthsBack: number): string
 
 export function formatMonthRangeLabel(startMonth: string, endMonth: string): string {
   return `${formatMonth(startMonth)} - ${formatMonth(endMonth)}`;
+}
+
+export function formatImportSourceType(sourceType: string): string {
+  switch (sourceType) {
+    case "amazon_transaction_upload":
+      return "CSV Upload";
+    case "windsor_settlement":
+      return "Windsor Sync";
+    case "cogs_upload":
+      return "COGS Upload";
+    default:
+      return sourceType
+        .split("_")
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(" ");
+  }
+}
+
+export function describeImportSource(sourceType: string, sourceFilename: string | null): string {
+  if (sourceFilename) {
+    return sourceFilename;
+  }
+  if (sourceType === "windsor_settlement") {
+    return "Windsor settlement sync";
+  }
+  if (sourceType === "cogs_upload") {
+    return "COGS upload";
+  }
+  return "Unnamed upload";
 }

@@ -2,6 +2,7 @@ import type { PnlImport, PnlImportMonth } from "./pnlApi";
 
 export type PnlActiveImportSummary = {
   import_id: string;
+  source_type: string;
   source_filename: string | null;
   import_status: string;
   created_at: string | null;
@@ -42,6 +43,7 @@ export function buildActiveImportSummaries(
 
     summaries.set(importId, {
       import_id: importId,
+      source_type: matchedImport?.source_type ?? "amazon_transaction_upload",
       source_filename: matchedImport?.source_filename ?? null,
       import_status: matchedImport?.import_status ?? month.import_status,
       created_at: matchedImport?.created_at ?? null,

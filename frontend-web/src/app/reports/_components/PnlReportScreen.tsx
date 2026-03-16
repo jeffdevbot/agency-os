@@ -113,11 +113,11 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
         setProcessingImportId(null);
         if (status === "success") {
           setUploadSuccess(
-            `Finished importing ${processingImportLabel ?? "the queued Monthly P&L upload"}.`,
+            `Finished importing ${processingImportLabel ?? "the queued Amazon P&L upload"}.`,
           );
           setUploadError(null);
         } else {
-          setUploadError(summary.import.error_message ?? "Monthly P&L import failed.");
+          setUploadError(summary.import.error_message ?? "Amazon P&L import failed.");
         }
         await reportState.loadReport(true);
         if (showSettings) {
@@ -130,7 +130,7 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
         setUploadError(
           error instanceof Error
             ? error.message
-            : "Unable to refresh Monthly P&L import status",
+            : "Unable to refresh Amazon P&L import status",
         );
         timeoutId = window.setTimeout(() => {
           void pollImport();
@@ -236,7 +236,7 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
     return (
       <main className="space-y-3">
         <div className="rounded-3xl bg-white/95 p-6 text-sm text-[#64748b] shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur">
-          Loading P&L report...
+          Loading Amazon P&amp;L report...
         </div>
       </main>
     );
@@ -246,7 +246,7 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
     return (
       <main className="space-y-3">
         <div className="rounded-3xl bg-white/95 p-6 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur">
-          <h1 className="text-2xl font-semibold text-[#0f172a]">Monthly P&L</h1>
+          <h1 className="text-2xl font-semibold text-[#0f172a]">Amazon P&amp;L</h1>
           <p className="mt-4 rounded-xl border border-[#f87171]/40 bg-[#fee2e2] px-4 py-3 text-sm text-[#991b1b]">
             {resolved.errorMessage ?? "Unable to resolve P&L route"}
           </p>
@@ -284,7 +284,7 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
 
       {profile && processingImportId ? (
         <div className="rounded-3xl border border-[#0a6fd6]/20 bg-[#eff6ff] px-5 py-4 text-sm text-[#0f172a] shadow-[0_20px_60px_rgba(10,59,130,0.08)] backdrop-blur md:px-6">
-          Processing Monthly P&amp;L import in the background.
+          Processing Amazon P&amp;L import in the background.
           {" "}
           Status: <span className="font-semibold capitalize">{processingImportStatus ?? "pending"}</span>.
           The report will refresh automatically when it finishes.
@@ -295,9 +295,9 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
         <div className="rounded-3xl bg-white/95 p-5 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur md:p-6">
           <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
             <div>
-              <h2 className="text-lg font-semibold text-[#0f172a]">Monthly P&amp;L settings</h2>
+              <h2 className="text-lg font-semibold text-[#0f172a]">Amazon P&amp;L settings</h2>
               <p className="mt-1 text-sm text-[#64748b]">
-                Upload backfill files and inspect the active import provenance for this
+                Upload backfill files and inspect the import history for this
                 marketplace.
               </p>
             </div>
@@ -347,7 +347,7 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
       {profile && months.length === 0 && !reportState.errorMessage ? (
         <div className="rounded-3xl bg-white/95 p-5 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur md:p-6">
           <p className="text-sm text-[#64748b]">
-            No P&amp;L data available for the selected period yet. Upload a transaction report to
+            No Amazon P&amp;L data available for the selected period yet. Upload a transaction report to
             backfill this marketplace.
           </p>
         </div>

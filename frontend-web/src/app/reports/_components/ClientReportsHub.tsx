@@ -219,7 +219,7 @@ export default function ClientReportsHub({ clientSlug }: Props) {
                         </p>
                       ) : (
                         <p className="mt-4 text-sm text-[#4c576f]">
-                          Open Monthly P&amp;L to create the finance profile and upload transaction
+                          Open Amazon P&amp;L to create the finance profile and upload transaction
                           data.
                         </p>
                       )}
@@ -229,7 +229,7 @@ export default function ClientReportsHub({ clientSlug }: Props) {
                           href={`/reports/${clientSlug}/${marketplaceSlug}/pnl`}
                           className="rounded-xl bg-[#0f172a] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#1e293b]"
                         >
-                          {pnlProfile ? "Open Monthly P&L" : "Open Monthly P&L Setup"}
+                          {pnlProfile ? "Open Amazon P&L" : "Open Amazon P&L Setup"}
                         </Link>
                       </div>
                     </div>

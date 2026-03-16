@@ -32,19 +32,43 @@ export default function PnlReportHeader({
 }: Props) {
   return (
     <div className="relative z-20 rounded-3xl bg-white/95 p-5 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur md:p-6">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+      <div className="flex flex-col gap-5">
         <div>
-          <h1 className="text-2xl font-semibold text-[#0f172a] md:text-[2rem]">Monthly P&L</h1>
-          <p className="mt-1 text-sm text-[#4c576f] md:text-base">
-            {clientName} - {marketplaceCode.toUpperCase()}
+          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[#9a5b16]">
+            Amazon Finance Reporting
           </p>
-          <p className="mt-2 text-sm text-[#64748b]">
+          <h1 className="mt-2 text-3xl font-semibold text-[#0f172a] md:text-[2.35rem]">
+            Amazon P&amp;L
+          </h1>
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <div className="rounded-2xl border border-[#dbe4f0] bg-[#f8fafc] px-4 py-3">
+              <p className="text-[0.7rem] font-semibold uppercase tracking-[0.18em] text-[#64748b]">
+                Account
+              </p>
+              <p className="mt-1 text-lg font-semibold text-[#0f172a] md:text-xl">{clientName}</p>
+            </div>
+            <div className="rounded-2xl border border-[#dbe4f0] bg-white px-4 py-3">
+              <p className="text-[0.7rem] font-semibold uppercase tracking-[0.18em] text-[#64748b]">
+                Marketplace
+              </p>
+              <p className="mt-1 text-lg font-semibold text-[#0a6fd6] md:text-xl">
+                {marketplaceCode.toUpperCase()}
+              </p>
+            </div>
+          </div>
+          <p className="mt-4 text-sm text-[#64748b] md:text-base">
             Monthly finance reporting from uploaded Amazon transaction data.
           </p>
         </div>
 
         {profile ? (
-          <div className="flex flex-wrap items-center gap-4 lg:justify-end">
+          <div className="flex flex-col gap-4 border-t border-[#e2e8f0] pt-4 lg:flex-row lg:items-end lg:justify-between">
+            <button
+              onClick={onToggleSettings}
+              className="w-fit text-sm font-semibold text-[#64748b] transition hover:text-[#0f172a] hover:underline"
+            >
+              {settingsOpen ? "Hide settings" : "Open settings"}
+            </button>
             <PnlMonthRangePicker
               filterMode={filterMode}
               rangeStart={rangeStart}
@@ -53,12 +77,6 @@ export default function PnlReportHeader({
               onRangeStartChange={onRangeStartChange}
               onRangeEndChange={onRangeEndChange}
             />
-            <button
-              onClick={onToggleSettings}
-              className="text-sm font-semibold text-[#64748b] transition hover:text-[#0f172a] hover:underline"
-            >
-              {settingsOpen ? "Hide settings" : "Settings"}
-            </button>
           </div>
         ) : null}
       </div>
