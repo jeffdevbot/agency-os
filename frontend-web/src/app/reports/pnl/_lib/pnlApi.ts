@@ -79,7 +79,7 @@ export type PnlReport = {
   warnings: PnlWarning[];
 };
 
-export type PnlFilterMode = "ytd" | "last_3" | "last_6" | "last_12" | "range";
+export type PnlFilterMode = "ytd" | "last_3" | "last_6" | "last_12" | "last_year" | "range";
 
 // ── Helpers ──────────────────────────────────────────────────────────
 

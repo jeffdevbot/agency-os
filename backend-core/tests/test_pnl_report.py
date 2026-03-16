@@ -91,6 +91,14 @@ class TestResolveMonths:
         assert end == date(2026, 3, 1)
         assert len(_month_range(start, end)) == 12
 
+    def test_last_year_returns_previous_calendar_year(self):
+        with patch("app.services.pnl.report.datetime") as mock_dt:
+            mock_dt.now.return_value.date.return_value = date(2026, 3, 15)
+            start, end = _resolve_months("last_year", None, None)
+        assert start == date(2025, 1, 1)
+        assert end == date(2025, 12, 1)
+        assert len(_month_range(start, end)) == 12
+
     def test_last_3_january_wraps_year(self):
         """last_3 in January should wrap to previous year."""
         with patch("app.services.pnl.report.datetime") as mock_dt:

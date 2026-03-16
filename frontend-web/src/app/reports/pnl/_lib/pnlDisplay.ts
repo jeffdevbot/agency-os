@@ -9,7 +9,8 @@ export type PnlPresentedLineItem = PnlLineItem & {
 export const FILTER_OPTIONS: ReadonlyArray<{ value: PnlFilterMode; label: string }> = [
   { value: "ytd", label: "Year to Date" },
   { value: "last_3", label: "Last 3 Months" },
-  { value: "last_12", label: "Last Year" },
+  { value: "last_12", label: "Last 12 Months" },
+  { value: "last_year", label: "Last Year" },
 ];
 
 export const SUMMARY_KEYS = new Set([

@@ -79,6 +79,9 @@ def _resolve_months(
             m += 12
             y -= 1
         return date(y, m, 1), first_of_this_month
+    elif filter_mode == "last_year":
+        prior_year = today.year - 1
+        return date(prior_year, 1, 1), date(prior_year, 12, 1)
     elif filter_mode == "range":
         if not start_month or not end_month:
             raise PNLValidationError("start_month and end_month required for range filter")

@@ -211,7 +211,7 @@ async def upload_transaction_report(
 @router.get("/profiles/{profile_id}/report")
 async def get_pnl_report(
     profile_id: str,
-    filter_mode: str = Query("ytd", pattern="^(ytd|last_3|last_6|last_12|range)$"),
+    filter_mode: str = Query("ytd", pattern="^(ytd|last_3|last_6|last_12|last_year|range)$"),
     start_month: str | None = Query(None),
     end_month: str | None = Query(None),
     user=Depends(require_admin_user),
