@@ -1,10 +1,16 @@
 # Changelog — Ecomlabs Tools
 
-_Last updated: 2026-03-15 (ET)_
+_Last updated: 2026-03-16 (ET)_
 
 > Development history for the project. For setup instructions and project overview, see [AGENTS.md](AGENTS.md).
 
 ---
+
+## 2026-03-16 (ET)
+- **Monthly P&L December 2025 live reconciliation completed:** Applied the pending P&L follow-up migrations live, pushed backend fixes through `main`, and reconciled the validation profile (`c8e854cf-b989-4e3f-8cf4-58a43507c67a`) to the agency manual December workbook using the older source export that the workbook was based on. The active December import is now `c84cade9-6633-427f-b4b0-2371d0aca344`, and live report totals now sit at `total_gross_revenue=339770.20`, `total_refunds=-11314.14`, `total_net_revenue=328456.06`, and `total_expenses=-173735.13`.
+- **Monthly P&L source-drift root cause confirmed:** The newer Amazon December export (`2025DecMonthlyUnifiedTransaction.csv`) and the older workbook source do not represent the same settlement coverage. The major remaining delta after earlier mapping fixes was therefore not a report bug but a source-artifact mismatch caused by Amazon shifting transactions across settlement periods between download dates.
+- **Monthly P&L report performance issue fixed at the DB layer:** The first RPC aggregation version removed Python-side paging, but the RPC still scanned all historical ledger rows for a profile and could take `10s` to `40s` or time out. Added `20260316194500_optimize_monthly_pnl_report_rpc_active_months.sql` to index `monthly_pnl_ledger_entries(import_month_id, entry_month, ledger_bucket)` and rewrite the RPC to resolve active month IDs first. The same profile/report query dropped to sub-`100ms` at the function boundary.
+- **Monthly P&L workbook edge cases now covered:** Added workbook-aligned handling for blank-type promo rows (for example `Price Discount - ...`), broader manual-model rule coverage, `Order / other`, `Refund / other`, and `FBA Removal Order: Disposal Fee`. Final related commits on `main`: `fcd0f9e`, `676851d`, and `586c5a9`. Focused backend P&L tests now pass at `74 passed`.
 
 ## 2026-03-15 (ET)
 - **Monthly P&L Phase 1 foundation shipped:** Added the backfill-first Monthly P&L system for US marketplace. Includes 7 new tables (`monthly_pnl_profiles`, `monthly_pnl_imports`, `monthly_pnl_import_months`, `monthly_pnl_raw_rows`, `monthly_pnl_ledger_entries`, `monthly_pnl_mapping_rules`, `monthly_pnl_cogs_monthly`), a private Supabase Storage bucket for file preservation, RLS + `updated_at` triggers on all tables, seeded US default mapping rules, admin upload endpoint for Amazon Monthly Unified Transaction Report CSVs, CSV parsing with canonical month assignment (`Transaction Release Date` first, `date/time` fallback), ledger expansion with column-based + rule-based bucket mapping, month-slice activation for atomic replacement, duplicate-upload guard via `source_file_sha256`, and 32 new backend tests covering parsing, mapping, expansion, and router behavior (320 total passed).
