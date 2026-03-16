@@ -15,6 +15,7 @@ from ..services.pnl.profiles import (
     PNLProfileService,
     PNLValidationError,
 )
+from ..services.pnl.report import PNLReportService
 from ..services.pnl.transaction_import import TransactionImportService
 
 router = APIRouter(prefix="/admin/pnl", tags=["pnl-admin"])
@@ -28,6 +29,10 @@ def _get_profile_service() -> PNLProfileService:
 
 def _get_import_service() -> TransactionImportService:
     return TransactionImportService(_get_supabase_admin_client())
+
+
+def _get_report_service() -> PNLReportService:
+    return PNLReportService(_get_supabase_admin_client())
 
 
 # ── Request / response models ────────────────────────────────────────
@@ -198,3 +203,32 @@ async def upload_transaction_report(
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception:
         raise HTTPException(status_code=500, detail="Transaction import failed")
+
+
+# ── Report endpoint ─────────────────────────────────────────────────
+
+
+@router.get("/profiles/{profile_id}/report")
+def get_pnl_report(
+    profile_id: str,
+    filter_mode: str = Query("ytd", pattern="^(ytd|last_3|last_6|last_12|range)$"),
+    start_month: str | None = Query(None),
+    end_month: str | None = Query(None),
+    user=Depends(require_admin_user),
+):
+    """Build and return the Monthly P&L report."""
+    svc = _get_report_service()
+    try:
+        report = svc.build_report(
+            profile_id,
+            filter_mode=filter_mode,
+            start_month=start_month,
+            end_month=end_month,
+        )
+        return {"ok": True, **report}
+    except PNLNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except PNLValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to build P&L report")

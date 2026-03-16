@@ -123,6 +123,12 @@ export default function ClientReportsHub({ clientSlug }: Props) {
                     Open WBR
                   </Link>
                   <Link
+                    href={`/reports/${clientSlug}/${profile.marketplace_code.toLowerCase()}/pnl`}
+                    className="text-sm font-semibold text-[#0a6fd6] hover:underline"
+                  >
+                    Monthly P&L
+                  </Link>
+                  <Link
                     href={`/reports/${clientSlug}/${profile.marketplace_code.toLowerCase()}/wbr/settings`}
                     className="text-sm font-semibold text-[#0a6fd6] hover:underline"
                   >
