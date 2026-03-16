@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { getBrowserSupabaseClient } from "@/lib/supabaseClient";
 import { usePnlActiveImports } from "../pnl/_lib/usePnlActiveImports";
 import {
@@ -63,6 +63,16 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
     showSettings ? profileId : null,
     showSettings ? months : [],
   );
+
+  useEffect(() => {
+    setUploadError(null);
+  }, [filterMode, rangeEnd, rangeStart]);
+
+  const handleFileChange = (file: File | null) => {
+    setSelectedFile(file);
+    setUploadError(null);
+    setUploadSuccess(null);
+  };
 
   const handleCreateProfile = async () => {
     const resolvedSummary = resolved.resolved;
@@ -190,7 +200,7 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
               uploadPending={uploadPending}
               uploadError={uploadError}
               uploadSuccess={uploadSuccess}
-              onFileChange={setSelectedFile}
+              onFileChange={handleFileChange}
               onUpload={() => void handleUpload()}
             />
             <PnlProvenanceCard
