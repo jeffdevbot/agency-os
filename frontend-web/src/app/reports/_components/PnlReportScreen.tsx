@@ -13,6 +13,7 @@ import { useResolvedPnlProfile } from "../pnl/_lib/useResolvedPnlProfile";
 import { usePnlReport } from "../pnl/_lib/usePnlReport";
 import {
   createPnlProfile,
+  getPnlImportSummary,
   uploadPnlTransactionReport,
   type PnlFilterMode,
 } from "../pnl/_lib/pnlApi";
@@ -43,6 +44,9 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
   const [uploadPending, setUploadPending] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [processingImportId, setProcessingImportId] = useState<string | null>(null);
+  const [processingImportStatus, setProcessingImportStatus] = useState<string | null>(null);
+  const [processingImportLabel, setProcessingImportLabel] = useState<string | null>(null);
 
   const profileId = resolved.resolved?.profile?.id ?? null;
   const reportState = usePnlReport(
@@ -67,6 +71,90 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
   useEffect(() => {
     setUploadError(null);
   }, [filterMode, rangeEnd, rangeStart]);
+
+  useEffect(() => {
+    if (!profileId || !processingImportId) {
+      return;
+    }
+
+    let cancelled = false;
+    let timeoutId: number | null = null;
+
+    const pollImport = async () => {
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+
+        if (!session?.access_token) {
+          throw new Error("Please sign in again.");
+        }
+
+        const summary = await getPnlImportSummary(
+          session.access_token,
+          profileId,
+          processingImportId,
+        );
+
+        if (cancelled) {
+          return;
+        }
+
+        const status = summary.import.import_status;
+        setProcessingImportStatus(status);
+
+        if (status === "pending" || status === "running") {
+          timeoutId = window.setTimeout(() => {
+            void pollImport();
+          }, 5000);
+          return;
+        }
+
+        setProcessingImportId(null);
+        if (status === "success") {
+          setUploadSuccess(
+            `Finished importing ${processingImportLabel ?? "the queued Monthly P&L upload"}.`,
+          );
+          setUploadError(null);
+        } else {
+          setUploadError(summary.import.error_message ?? "Monthly P&L import failed.");
+        }
+        await reportState.loadReport(true);
+        if (showSettings) {
+          await provenanceState.loadActiveImports();
+        }
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+        setUploadError(
+          error instanceof Error
+            ? error.message
+            : "Unable to refresh Monthly P&L import status",
+        );
+        timeoutId = window.setTimeout(() => {
+          void pollImport();
+        }, 5000);
+      }
+    };
+
+    void pollImport();
+
+    return () => {
+      cancelled = true;
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
+    };
+  }, [
+    processingImportId,
+    processingImportLabel,
+    profileId,
+    provenanceState.loadActiveImports,
+    reportState.loadReport,
+    showSettings,
+    supabase,
+  ]);
 
   const handleFileChange = (file: File | null) => {
     setSelectedFile(file);
@@ -117,13 +205,25 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
       if (!session?.access_token) throw new Error("Please sign in again.");
 
       const result = await uploadPnlTransactionReport(session.access_token, profileId, selectedFile);
+      const monthLabel = formatMonthList(result.months);
       setUploadSuccess(
-        `Imported ${selectedFile.name} for ${formatMonthList(result.months)}.`,
+        result.import.import_status === "pending"
+          ? `Queued ${selectedFile.name} for ${monthLabel}. Processing continues in the background.`
+          : `Imported ${selectedFile.name} for ${monthLabel}.`,
       );
+      setProcessingImportLabel(`${selectedFile.name} for ${monthLabel}`);
       setSelectedFile(null);
-      await reportState.loadReport(true);
-      if (showSettings) {
-        await provenanceState.loadActiveImports();
+
+      if (result.import.import_status === "pending" || result.import.import_status === "running") {
+        setProcessingImportId(result.import.id);
+        setProcessingImportStatus(result.import.import_status);
+      } else {
+        setProcessingImportId(null);
+        setProcessingImportStatus(null);
+        await reportState.loadReport(true);
+        if (showSettings) {
+          await provenanceState.loadActiveImports();
+        }
       }
     } catch (error) {
       setUploadError(error instanceof Error ? error.message : "Unable to upload transaction report");
@@ -180,6 +280,15 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
           createError={createError}
           onCreateProfile={() => void handleCreateProfile()}
         />
+      ) : null}
+
+      {profile && processingImportId ? (
+        <div className="rounded-3xl border border-[#0a6fd6]/20 bg-[#eff6ff] px-5 py-4 text-sm text-[#0f172a] shadow-[0_20px_60px_rgba(10,59,130,0.08)] backdrop-blur md:px-6">
+          Processing Monthly P&amp;L import in the background.
+          {" "}
+          Status: <span className="font-semibold capitalize">{processingImportStatus ?? "pending"}</span>.
+          The report will refresh automatically when it finishes.
+        </div>
       ) : null}
 
       {profile && showSettings ? (

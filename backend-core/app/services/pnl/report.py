@@ -7,6 +7,7 @@ net earnings) are computed at query time — never stored.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
@@ -52,9 +53,6 @@ EXPENSE_BUCKETS = [
     ("advertising", "Advertising", "expenses"),
     ("service_fee", "Other Service Fees", "expenses"),
 ]
-
-LEDGER_PAGE_SIZE = 1_000
-
 
 def _q(d: Decimal) -> str:
     """Quantize to 2 decimal places and return string."""
@@ -114,22 +112,6 @@ class PNLReportService:
     def __init__(self, db: Client) -> None:
         self.db = db
 
-    def _fetch_all_rows(self, build_query, *, page_size: int = 1000) -> list[dict[str, Any]]:
-        rows: list[dict[str, Any]] = []
-        start = 0
-
-        while True:
-            response = build_query(start, page_size).execute()
-            batch = response.data if isinstance(response.data, list) else []
-            rows.extend(batch)
-
-            if len(batch) < page_size:
-                break
-
-            start += page_size
-
-        return rows
-
     def build_report(
         self,
         profile_id: str,
@@ -138,23 +120,41 @@ class PNLReportService:
         start_month: str | None = None,
         end_month: str | None = None,
     ) -> dict[str, Any]:
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(
+                self.build_report_async(
+                    profile_id,
+                    filter_mode=filter_mode,
+                    start_month=start_month,
+                    end_month=end_month,
+                )
+            )
+        raise RuntimeError("build_report() cannot run inside an event loop; use build_report_async()")
+
+    async def build_report_async(
+        self,
+        profile_id: str,
+        *,
+        filter_mode: str = "ytd",
+        start_month: str | None = None,
+        end_month: str | None = None,
+    ) -> dict[str, Any]:
         """Build the full P&L report for a profile."""
-        profile = self._get_profile(profile_id)
+        profile = await asyncio.to_thread(self._get_profile, profile_id)
         period_start, period_end = _resolve_months(filter_mode, start_month, end_month)
         month_keys = _month_range(period_start, period_end)
 
         if not month_keys:
             return self._empty_report(profile, month_keys)
 
-        # Load ledger bucket totals per month (only from active import months)
-        bucket_totals = self._load_ledger_totals(profile_id, period_start, period_end)
-
-        # Load COGS per month
-        cogs_totals = self._load_cogs_totals(profile_id, period_start, period_end)
-
-        # Load warnings data
-        unmapped_totals = self._load_unmapped_totals(profile_id, period_start, period_end)
-        active_months = self._load_active_months(profile_id, period_start, period_end)
+        bucket_totals, cogs_totals, unmapped_totals, active_months = await asyncio.gather(
+            asyncio.to_thread(self._load_ledger_totals, profile_id, period_start, period_end),
+            asyncio.to_thread(self._load_cogs_totals, profile_id, period_start, period_end),
+            asyncio.to_thread(self._load_unmapped_totals, profile_id, period_start, period_end),
+            asyncio.to_thread(self._load_active_months, profile_id, period_start, period_end),
+        )
 
         # Build line items
         line_items: list[dict[str, Any]] = []
@@ -268,36 +268,68 @@ class PNLReportService:
         self, profile_id: str, start: date, end: date
     ) -> dict[str, dict[str, Decimal]]:
         """Return {bucket: {month_iso: total}} from active import months only."""
+        active_ids = self._active_import_month_ids(profile_id, start, end)
+        if not active_ids:
+            return {}
+
+        summary_totals = self._load_bucket_totals_from_summary_table(
+            profile_id=profile_id,
+            start=start,
+            end=end,
+            active_import_month_ids=active_ids,
+        )
+        if summary_totals is not None:
+            return summary_totals
+
         rpc_totals = self._load_ledger_totals_via_rpc(profile_id, start, end)
         if rpc_totals is not None:
             return rpc_totals
 
-        rows = self._fetch_all_rows(
-            lambda offset, page_size: (
-                self.db.table("monthly_pnl_ledger_entries")
-                .select("entry_month, ledger_bucket, amount, import_month_id")
+        raise RuntimeError(
+            "Failed to load Monthly P&L ledger totals from both summary table and RPC."
+        )
+
+    def _load_bucket_totals_from_summary_table(
+        self,
+        *,
+        profile_id: str,
+        start: date,
+        end: date,
+        active_import_month_ids: set[str],
+    ) -> dict[str, dict[str, Decimal]] | None:
+        try:
+            response = (
+                self.db.table("monthly_pnl_import_month_bucket_totals")
+                .select("import_month_id, entry_month, ledger_bucket, amount")
                 .eq("profile_id", profile_id)
                 .gte("entry_month", start.isoformat())
                 .lte("entry_month", end.isoformat())
-                .order("id")
-                .range(offset, offset + page_size - 1)
-            ),
-            page_size=LEDGER_PAGE_SIZE,
-        )
+                .execute()
+            )
+        except Exception:
+            return None
 
-        # Load active import_month IDs to filter
-        active_ids = self._active_import_month_ids(profile_id, start, end)
+        rows = response.data if isinstance(response.data, list) else []
+        if not rows:
+            return None
 
         totals: dict[str, dict[str, Decimal]] = {}
+        matched_row_count = 0
         for row in rows:
-            if row.get("import_month_id") not in active_ids:
+            if str(row.get("import_month_id") or "") not in active_import_month_ids:
                 continue
-            bucket = row["ledger_bucket"]
-            month = row["entry_month"]
-            amount = Decimal(str(row["amount"]))
+            bucket = row.get("ledger_bucket")
+            month = row.get("entry_month")
+            if not bucket or not month:
+                continue
+            matched_row_count += 1
+            amount = Decimal(str(row.get("amount", "0")))
             if bucket not in totals:
                 totals[bucket] = {}
             totals[bucket][month] = totals[bucket].get(month, Decimal("0")) + amount
+
+        if matched_row_count == 0:
+            return None
         return totals
 
     def _load_ledger_totals_via_rpc(

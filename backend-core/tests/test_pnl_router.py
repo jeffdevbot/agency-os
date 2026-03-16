@@ -129,7 +129,7 @@ class TestTransactionUpload:
 
     def test_successful_upload(self, monkeypatch):
         fake_svc = MagicMock()
-        fake_svc.import_file.return_value = {
+        fake_svc.enqueue_file.return_value = {
             "import": {"id": "imp-1"},
             "months": [{"entry_month": "2026-01-01", "raw_row_count": 1}],
             "summary": {
@@ -161,7 +161,7 @@ class TestTransactionUpload:
         from app.services.pnl.profiles import PNLDuplicateFileError
 
         fake_svc = MagicMock()
-        fake_svc.import_file.side_effect = PNLDuplicateFileError("already imported")
+        fake_svc.enqueue_file.side_effect = PNLDuplicateFileError("already imported")
         monkeypatch.setattr(pnl, "_get_import_service", lambda: fake_svc)
         app.dependency_overrides[pnl.require_admin_user] = _override_admin
 
@@ -180,7 +180,7 @@ class TestTransactionUpload:
         from app.services.pnl.profiles import PNLNotFoundError
 
         fake_svc = MagicMock()
-        fake_svc.import_file.side_effect = PNLNotFoundError("not found")
+        fake_svc.enqueue_file.side_effect = PNLNotFoundError("not found")
         monkeypatch.setattr(pnl, "_get_import_service", lambda: fake_svc)
         app.dependency_overrides[pnl.require_admin_user] = _override_admin
 

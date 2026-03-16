@@ -156,7 +156,7 @@ async def upload_transaction_report(
     file: UploadFile = File(...),
     user=Depends(require_admin_user),
 ):
-    """Upload an Amazon Monthly Unified Transaction Report CSV."""
+    """Upload and queue an Amazon Monthly Unified Transaction Report CSV."""
     file_name = file.filename or "unknown.csv"
     lower_name = file_name.lower()
     if not lower_name.endswith((".csv", ".txt", ".tsv")):
@@ -188,7 +188,7 @@ async def upload_transaction_report(
     user_id = str(user.get("sub") or "").strip() or None
     svc = _get_import_service()
     try:
-        result = svc.import_file(
+        result = svc.enqueue_file(
             profile_id=profile_id,
             file_name=file_name,
             file_bytes=file_bytes,
@@ -209,7 +209,7 @@ async def upload_transaction_report(
 
 
 @router.get("/profiles/{profile_id}/report")
-def get_pnl_report(
+async def get_pnl_report(
     profile_id: str,
     filter_mode: str = Query("ytd", pattern="^(ytd|last_3|last_6|last_12|range)$"),
     start_month: str | None = Query(None),
@@ -219,7 +219,7 @@ def get_pnl_report(
     """Build and return the Monthly P&L report."""
     svc = _get_report_service()
     try:
-        report = svc.build_report(
+        report = await svc.build_report_async(
             profile_id,
             filter_mode=filter_mode,
             start_month=start_month,

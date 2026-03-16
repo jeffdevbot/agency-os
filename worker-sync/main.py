@@ -13,6 +13,7 @@ if str(BACKEND_CORE) not in sys.path:
     sys.path.insert(0, str(BACKEND_CORE))
 
 from app.services.wbr.nightly_sync import WBRNightlySyncService  # noqa: E402
+from app.services.pnl.worker import PNLImportWorkerService  # noqa: E402
 
 
 def _env_int(name: str, default: int, *, minimum: int | None = None) -> int:
@@ -49,16 +50,18 @@ async def _run_forever() -> None:
         run_minute=run_minute,
         worker_user_id=worker_user_id,
     )
+    pnl_imports = PNLImportWorkerService(db)
 
     print(
-        f"[worker-sync] starting WBR nightly sync loop "
+        f"[worker-sync] starting WBR + Monthly P&L worker loop "
         f"(tz={timezone_name}, run_at={run_hour:02d}:{run_minute:02d}, poll={poll_seconds}s)"
     )
 
     while True:
         try:
-            summary = await service.run_pending()
-            print(f"[worker-sync] {summary}")
+            pnl_summary = pnl_imports.run_pending()
+            wbr_summary = await service.run_pending()
+            print(f"[worker-sync] pnl={pnl_summary} wbr={wbr_summary}")
         except Exception as exc:  # noqa: BLE001
             print(f"[worker-sync] error: {exc}")
         await asyncio.sleep(poll_seconds)

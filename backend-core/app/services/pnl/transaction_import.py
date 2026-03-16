@@ -23,6 +23,8 @@ from supabase import Client
 from .profiles import PNLDuplicateFileError, PNLNotFoundError, PNLValidationError
 
 SOURCE_TYPE = "amazon_transaction_upload"
+IMPORT_STORAGE_BUCKET = "monthly-pnl-imports"
+ASYNC_IMPORT_META_FLAG = "async_import_v1"
 
 # ── CSV header aliases ───────────────────────────────────────────────
 
@@ -217,6 +219,16 @@ class MappingRule:
     match_operator: str
     target_bucket: str
     priority: int
+
+
+@dataclass
+class PreparedImport:
+    raw_rows: list[ParsedRawRow]
+    month_slices: dict[date, MonthSlice]
+    sorted_months: list[date]
+    period_start: date
+    period_end: date
+    import_scope: str
 
 
 # ── CSV Parsing ──────────────────────────────────────────────────────
@@ -624,6 +636,59 @@ class TransactionImportService:
     def __init__(self, db: Client) -> None:
         self.db = db
 
+    def enqueue_file(
+        self,
+        *,
+        profile_id: str,
+        file_name: str,
+        file_bytes: bytes,
+        user_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Persist the file and queue import work for background processing."""
+        profile = self._get_profile(profile_id)
+        file_sha256 = hashlib.sha256(file_bytes).hexdigest()
+        superseded_import = self._check_duplicate(profile_id, file_sha256)
+        prepared = self._prepare_import(
+            profile_id=profile_id,
+            marketplace_code=str(profile.get("marketplace_code", "US")),
+            file_bytes=file_bytes,
+        )
+
+        storage_path = self._build_storage_path(profile_id, file_name, file_sha256)
+        self._upload_source_file(storage_path, file_bytes)
+
+        try:
+            import_record = self._create_import(
+                profile_id=profile_id,
+                file_name=file_name,
+                file_sha256=file_sha256,
+                period_start=prepared.period_start.isoformat(),
+                period_end=prepared.period_end.isoformat(),
+                import_scope=prepared.import_scope,
+                row_count=len(prepared.raw_rows),
+                user_id=user_id,
+                supersedes_import_id=(
+                    str(superseded_import["id"])
+                    if superseded_import and superseded_import.get("import_status") == "success"
+                    else None
+                ),
+                storage_path=storage_path,
+                raw_meta={
+                    ASYNC_IMPORT_META_FLAG: True,
+                    "queued_at": datetime.now(UTC).isoformat(),
+                    "file_size_bytes": len(file_bytes),
+                },
+            )
+        except Exception:
+            self._delete_source_file(storage_path)
+            raise
+
+        return {
+            "import": import_record,
+            "months": self._build_pending_month_summaries(prepared),
+            "summary": self._build_import_summary(prepared),
+        }
+
     def import_file(
         self,
         *,
@@ -633,48 +698,105 @@ class TransactionImportService:
         user_id: str | None = None,
     ) -> dict[str, Any]:
         """Full import pipeline: parse → store → expand → activate."""
-        # 1. Validate profile exists
         profile = self._get_profile(profile_id)
-
-        # 2. Compute file hash for duplicate guard
         file_sha256 = hashlib.sha256(file_bytes).hexdigest()
-
-        # 3. Check for a currently running duplicate and find any prior import
         superseded_import = self._check_duplicate(profile_id, file_sha256)
+        prepared = self._prepare_import(
+            profile_id=profile_id,
+            marketplace_code=str(profile.get("marketplace_code", "US")),
+            file_bytes=file_bytes,
+        )
+        import_record = self._create_import(
+            profile_id=profile_id,
+            file_name=file_name,
+            file_sha256=file_sha256,
+            period_start=prepared.period_start.isoformat(),
+            period_end=prepared.period_end.isoformat(),
+            import_scope=prepared.import_scope,
+            row_count=len(prepared.raw_rows),
+            user_id=user_id,
+            supersedes_import_id=(
+                str(superseded_import["id"])
+                if superseded_import and superseded_import.get("import_status") == "success"
+                else None
+            ),
+        )
+        return self._run_import(
+            import_id=str(import_record["id"]),
+            profile_id=profile_id,
+            prepared=prepared,
+            superseded_import_id=(
+                str(superseded_import["id"])
+                if superseded_import and superseded_import.get("import_status") == "success"
+                else None
+            ),
+        )
 
-        # 4. Parse CSV
+    def process_import(self, import_id: str) -> dict[str, Any]:
+        """Run a previously queued import from its staged source file."""
+        import_record = self._get_import(import_id)
+        profile_id = str(import_record.get("profile_id") or "").strip()
+        if not profile_id:
+            raise PNLValidationError(f"Import {import_id} is missing profile_id")
+
+        storage_path = str(import_record.get("storage_path") or "").strip()
+        if not storage_path:
+            raise PNLValidationError(f"Import {import_id} has no staged source file")
+
+        profile = self._get_profile(profile_id)
+        file_bytes = self._download_source_file(storage_path)
+        prepared = self._prepare_import(
+            profile_id=profile_id,
+            marketplace_code=str(profile.get("marketplace_code", "US")),
+            file_bytes=file_bytes,
+        )
+
+        return self._run_import(
+            import_id=import_id,
+            profile_id=profile_id,
+            prepared=prepared,
+            superseded_import_id=(
+                str(import_record["supersedes_import_id"])
+                if import_record.get("supersedes_import_id")
+                else None
+            ),
+            already_running=str(import_record.get("import_status") or "").strip() == "running",
+        )
+
+    def _prepare_import(
+        self,
+        *,
+        profile_id: str,
+        marketplace_code: str,
+        file_bytes: bytes,
+    ) -> PreparedImport:
         header_values, header_map, data_rows = parse_transaction_csv(file_bytes)
         raw_rows = parse_raw_rows(header_values, header_map, data_rows)
-
-        # 5. Load mapping rules
         rules = self._load_mapping_rules(
-            marketplace_code=str(profile.get("marketplace_code", "US")),
+            marketplace_code=marketplace_code,
             profile_id=profile_id,
         )
 
-        # 6. Expand raw rows into ledger entries, grouped by month
-        months: dict[date, MonthSlice] = {}
+        month_slices: dict[date, MonthSlice] = {}
         for raw_row in raw_rows:
             if raw_row.entry_month is None:
                 continue
-            if raw_row.entry_month not in months:
-                months[raw_row.entry_month] = MonthSlice(entry_month=raw_row.entry_month)
-            month_slice = months[raw_row.entry_month]
+            if raw_row.entry_month not in month_slices:
+                month_slices[raw_row.entry_month] = MonthSlice(entry_month=raw_row.entry_month)
+            month_slice = month_slices[raw_row.entry_month]
             month_slice.raw_rows.append(raw_row)
 
-            entries = expand_raw_row_to_ledger(raw_row, rules, profile_id)
-            for entry in entries:
+            for entry in expand_raw_row_to_ledger(raw_row, rules, profile_id):
                 month_slice.ledger_entries.append(entry)
                 if entry.is_mapped:
                     month_slice.mapped_amount += entry.amount
                 else:
                     month_slice.unmapped_amount += entry.amount
 
-        if not months:
+        if not month_slices:
             raise PNLValidationError("No rows with valid dates found in transaction file")
 
-        # 7. Determine period and scope
-        sorted_months = sorted(months.keys())
+        sorted_months = sorted(month_slices)
         period_start = sorted_months[0]
         period_end = sorted_months[-1]
         if len(sorted_months) == 1:
@@ -684,66 +806,82 @@ class TransactionImportService:
         else:
             import_scope = "multi_month"
 
-        # 8. Create import record
-        import_record = self._create_import(
-            profile_id=profile_id,
-            file_name=file_name,
-            file_sha256=file_sha256,
-            period_start=period_start.isoformat(),
-            period_end=period_end.isoformat(),
+        return PreparedImport(
+            raw_rows=raw_rows,
+            month_slices=month_slices,
+            sorted_months=sorted_months,
+            period_start=period_start,
+            period_end=period_end,
             import_scope=import_scope,
-            row_count=len(raw_rows),
-            user_id=user_id,
-            supersedes_import_id=(
-                str(superseded_import["id"])
-                if superseded_import and superseded_import.get("import_status") == "success"
-                else None
-            ),
         )
-        import_id = str(import_record["id"])
 
+    def _run_import(
+        self,
+        *,
+        import_id: str,
+        profile_id: str,
+        prepared: PreparedImport,
+        superseded_import_id: str | None,
+        already_running: bool = False,
+    ) -> dict[str, Any]:
         try:
-            # 9. Update import status to running
-            self._update_import_status(import_id, "running")
+            if not already_running:
+                self._update_import_status(import_id, "running")
 
-            # 10. Process each month slice
             month_summaries: list[dict[str, Any]] = []
-            for entry_month in sorted_months:
-                month_slice = months[entry_month]
-                summary = self._process_month_slice(
-                    import_id=import_id,
-                    profile_id=profile_id,
-                    month_slice=month_slice,
+            for entry_month in prepared.sorted_months:
+                month_summaries.append(
+                    self._process_month_slice(
+                        import_id=import_id,
+                        profile_id=profile_id,
+                        month_slice=prepared.month_slices[entry_month],
+                    )
                 )
-                month_summaries.append(summary)
 
-            if superseded_import and superseded_import.get("import_status") == "success":
+            if superseded_import_id:
                 self._deactivate_superseded_months(
-                    superseded_import_id=str(superseded_import["id"]),
-                    retained_months=set(sorted_months),
+                    superseded_import_id=superseded_import_id,
+                    retained_months=set(prepared.sorted_months),
                 )
 
-            # 11. Update import to success
             self._update_import_status(import_id, "success")
-
-            # 12. Re-read import so response reflects final status/timestamps
             final_import = self._get_import(import_id)
 
             return {
                 "import": final_import,
                 "months": month_summaries,
-                "summary": {
-                    "total_raw_rows": len(raw_rows),
-                    "total_months": len(sorted_months),
-                    "period_start": period_start.isoformat(),
-                    "period_end": period_end.isoformat(),
-                    "import_scope": import_scope,
-                },
+                "summary": self._build_import_summary(prepared),
             }
-
         except Exception as exc:
             self._update_import_status(import_id, "error", error_message=str(exc))
             raise
+
+    def _build_import_summary(self, prepared: PreparedImport) -> dict[str, Any]:
+        return {
+            "total_raw_rows": len(prepared.raw_rows),
+            "total_months": len(prepared.sorted_months),
+            "period_start": prepared.period_start.isoformat(),
+            "period_end": prepared.period_end.isoformat(),
+            "import_scope": prepared.import_scope,
+        }
+
+    def _build_pending_month_summaries(self, prepared: PreparedImport) -> list[dict[str, Any]]:
+        pending_months: list[dict[str, Any]] = []
+        for entry_month in prepared.sorted_months:
+            month_slice = prepared.month_slices[entry_month]
+            pending_months.append(
+                {
+                    "entry_month": entry_month.isoformat(),
+                    "import_month_id": None,
+                    "raw_row_count": len(month_slice.raw_rows),
+                    "ledger_row_count": len(month_slice.ledger_entries),
+                    "mapped_amount": str(month_slice.mapped_amount),
+                    "unmapped_amount": str(month_slice.unmapped_amount),
+                    "import_status": "pending",
+                    "is_active": False,
+                }
+            )
+        return pending_months
 
     def _get_profile(self, profile_id: str) -> dict[str, Any]:
         response = (
@@ -861,6 +999,8 @@ class TransactionImportService:
         row_count: int,
         user_id: str | None,
         supersedes_import_id: str | None,
+        storage_path: str | None = None,
+        raw_meta: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "profile_id": profile_id,
@@ -872,12 +1012,15 @@ class TransactionImportService:
             "import_scope": import_scope,
             "import_status": "pending",
             "row_count": row_count,
-            "started_at": datetime.now(UTC).isoformat(),
         }
         if supersedes_import_id:
             payload["supersedes_import_id"] = supersedes_import_id
         if user_id:
             payload["initiated_by"] = user_id
+        if storage_path:
+            payload["storage_path"] = storage_path
+        if raw_meta:
+            payload["raw_meta"] = raw_meta
 
         try:
             response = self.db.table("monthly_pnl_imports").insert(payload).execute()
@@ -899,9 +1042,14 @@ class TransactionImportService:
         self, import_id: str, status: str, *, error_message: str | None = None
     ) -> None:
         payload: dict[str, Any] = {"import_status": status}
+        if status == "running":
+            payload["started_at"] = datetime.now(UTC).isoformat()
+            payload["error_message"] = None
         if status in ("success", "error"):
             payload["finished_at"] = datetime.now(UTC).isoformat()
-        if error_message:
+            if status == "success":
+                payload["error_message"] = None
+        if error_message is not None:
             payload["error_message"] = error_message
         self.db.table("monthly_pnl_imports").update(payload).eq("id", import_id).execute()
 
@@ -937,6 +1085,14 @@ class TransactionImportService:
 
             # 3. Insert ledger entries
             self._insert_ledger_entries(
+                import_id=import_id,
+                import_month_id=import_month_id,
+                profile_id=profile_id,
+                entry_month=entry_month,
+                entries=month_slice.ledger_entries,
+            )
+
+            self._insert_bucket_totals(
                 import_id=import_id,
                 import_month_id=import_month_id,
                 profile_id=profile_id,
@@ -1055,6 +1211,34 @@ class TransactionImportService:
         ]
         self._insert_payloads("monthly_pnl_ledger_entries", payloads)
 
+    def _insert_bucket_totals(
+        self,
+        *,
+        import_id: str,
+        import_month_id: str,
+        profile_id: str,
+        entry_month: date,
+        entries: list[LedgerEntry],
+    ) -> None:
+        totals: dict[str, Decimal] = {}
+        for entry in entries:
+            totals[entry.ledger_bucket] = totals.get(entry.ledger_bucket, Decimal("0")) + entry.amount
+
+        payloads = [
+            {
+                "import_id": import_id,
+                "import_month_id": import_month_id,
+                "profile_id": profile_id,
+                "entry_month": entry_month.isoformat(),
+                "ledger_bucket": bucket,
+                "amount": str(amount),
+            }
+            for bucket, amount in totals.items()
+            if amount != 0
+        ]
+        if payloads:
+            self._insert_payloads("monthly_pnl_import_month_bucket_totals", payloads)
+
     def _update_import_month_status(self, import_month_id: str, status: str) -> None:
         (
             self.db.table("monthly_pnl_import_months")
@@ -1161,3 +1345,26 @@ class TransactionImportService:
         midpoint = len(chunk) // 2
         self._insert_chunk(table_name, chunk[:midpoint])
         self._insert_chunk(table_name, chunk[midpoint:])
+
+    def _build_storage_path(self, profile_id: str, file_name: str, file_sha256: str) -> str:
+        safe_name = re.sub(r"[^A-Za-z0-9._-]+", "-", file_name.strip() or "upload.csv").strip("-")
+        if not safe_name:
+            safe_name = "upload.csv"
+        timestamp = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
+        return f"{profile_id}/{timestamp}-{file_sha256[:12]}-{safe_name}"
+
+    def _upload_source_file(self, storage_path: str, file_bytes: bytes) -> None:
+        self.db.storage.from_(IMPORT_STORAGE_BUCKET).upload(
+            storage_path,
+            file_bytes,
+            {"content-type": "text/csv"},
+        )
+
+    def _download_source_file(self, storage_path: str) -> bytes:
+        return self.db.storage.from_(IMPORT_STORAGE_BUCKET).download(storage_path)
+
+    def _delete_source_file(self, storage_path: str) -> None:
+        try:
+            self.db.storage.from_(IMPORT_STORAGE_BUCKET).remove([storage_path])
+        except Exception:
+            return

@@ -624,6 +624,61 @@ def _gateway_error() -> PostgrestAPIError:
 
 
 class TestTransactionImportService:
+    def test_enqueue_file_stages_source_and_returns_pending_months(self):
+        profiles = _chain_table([{"id": "p1", "marketplace_code": "US"}])
+        imports_no_dup = _chain_table([])
+        imports_insert = _chain_table([{"id": "imp-queued", "import_status": "pending"}])
+        rules = _chain_table([])
+
+        created_import_payloads: list[dict] = []
+
+        def insert_with_capture(payload):
+            created_import_payloads.append(payload)
+            return imports_insert
+
+        imports_insert.insert = insert_with_capture
+
+        call_counts: dict[str, int] = {}
+
+        def table_router(name: str) -> MagicMock:
+            call_counts.setdefault(name, 0)
+            call_counts[name] += 1
+            if name == "monthly_pnl_profiles":
+                return profiles
+            if name == "monthly_pnl_mapping_rules":
+                return rules
+            if name == "monthly_pnl_imports":
+                if call_counts[name] == 1:
+                    return imports_no_dup
+                return imports_insert
+            return _chain_table()
+
+        storage_bucket = MagicMock()
+        storage_bucket.upload.return_value = MagicMock()
+        storage = MagicMock()
+        storage.from_.return_value = storage_bucket
+
+        csv_data = (
+            '"date/time","type","order id","sku","description","product sales","total",'
+            '"Transaction Release Date"\n'
+            '"Jan 15, 2026","Order","111","SKU1","Widget","10.00","10.00","Jan 20, 2026"\n'
+        ).encode("utf-8")
+
+        db = MagicMock()
+        db.table.side_effect = table_router
+        db.rpc.return_value = _chain_rpc()
+        db.storage = storage
+
+        svc = TransactionImportService(db)
+        result = svc.enqueue_file(profile_id="p1", file_name="test.csv", file_bytes=csv_data)
+
+        assert result["import"]["import_status"] == "pending"
+        assert result["months"][0]["entry_month"] == "2026-01-01"
+        assert result["months"][0]["import_status"] == "pending"
+        storage_bucket.upload.assert_called_once()
+        assert created_import_payloads[0]["storage_path"].endswith("test.csv")
+        assert created_import_payloads[0]["raw_meta"]["async_import_v1"] is True
+
     def test_rejects_running_duplicate_file(self):
         profiles = _chain_table([{"id": "p1", "marketplace_code": "US"}])
         imports = _chain_table([{"id": "existing-import", "import_status": "running"}])

@@ -29,6 +29,33 @@ push into earlier 2025 months.
 7. Supabase has been upgraded from Free to Pro, but Monthly P&L is still slow
    enough that query-shape and request-lifecycle problems remain more important
    than pricing-tier assumptions.
+8. On 2026-03-16, the real wide-range report bottleneck was identified live:
+   a later migration had overwritten the faster `active_months` RPC with an
+   older `EXISTS` version, so the report path still scanned the raw ledger.
+9. On 2026-03-16, live migration
+   `20260316213000_add_monthly_pnl_import_month_bucket_totals.sql` was applied.
+   It backfilled `monthly_pnl_import_month_bucket_totals` and rewired
+   `pnl_report_bucket_totals(...)` to read those precomputed month totals.
+10. On the validation profile, the exact wide range
+    `2025-01-01` through `2026-02-01` now executes at about `4.5 ms` at the
+    function boundary instead of roughly `7.3 s`.
+11. On 2026-03-16, live migration
+    `20260316224500_claim_monthly_pnl_pending_imports.sql` was applied. It
+    adds `pnl_claim_pending_imports(...)`, which atomically claims queued async
+    imports with `FOR UPDATE SKIP LOCKED` and flips them from `pending` to
+    `running` in one query.
+12. The backend report service now runs its independent totals/warnings reads
+    concurrently and no longer falls back to paginated raw-ledger aggregation.
+    If both the summary table and RPC fail, the report now errors fast instead
+    of silently degrading into a long scan.
+13. The frontend upload flow now keeps queued imports in a visible
+    "processing in background" state and polls import status every `5` seconds
+    until the import leaves `pending` / `running`, then refreshes the report.
+14. On 2026-03-16, live migration
+    `20260316232000_cleanup_validation_profile_stranded_monthly_pnl_state.sql`
+    deactivated the orphaned Jan/Apr/May 2025 active slices on the validation
+    profile and marked the stranded retry import
+    `0fe50885-fce4-48ec-afa6-a9dce5cef716` as `error`.
 
 ## Validated and active state
 
@@ -61,41 +88,25 @@ That means:
 
 ### Current active month coverage on the validation/backfill profile
 
-As of the latest live check, the active month slices are:
+As of the latest live check after the cleanup migration, the active month
+slices are:
 
-1. `2025-01-01`
-   - active import `65d24015-7602-49f2-8c7f-2b9f29bab56a`
-   - source `jan-mar2025-whoosh-us.csv`
-   - parent import status `error`
-   - this month is active only because the multi-month upload partially
-     succeeded before the request died
-2. `2025-04-01`
-   - active import `0fe50885-fce4-48ec-afa6-a9dce5cef716`
-   - source `apr-june2025-whoosh-us.csv`
-   - parent import status still `running`
-   - likely a stranded partial retry, not a trusted finished import
-3. `2025-05-01`
-   - active import `37b0af74-0e7f-411a-b6aa-1c82b5cd827a`
-   - source `apr-june2025-whoosh-us.csv`
-   - parent import status `error`
-   - the newer retry created a second May slice that is still `pending`, so
-     May currently has overlapping historical state
-4. `2025-07-01`
+1. `2025-07-01`
    - active import `5aa0f621-e9d7-4129-9f11-5b6597910eaa`
    - import status `success`
-5. `2025-08-01`
+2. `2025-08-01`
    - active import `73eb37c5-6001-4699-82a1-e8de8f8cd861`
    - import status `success`
-6. `2025-09-01`
+3. `2025-09-01`
    - active import `276cde82-45ca-48a4-a8f0-f15e8b54e3e2`
    - import status `success`
-7. `2025-10-01`
+4. `2025-10-01`
    - active import `16468c3d-8a56-4eb2-8124-5e1b53a9168b`
    - import status `success`
-8. `2025-11-01`
+5. `2025-11-01`
    - active import `0626222a-dc9c-4be5-a2ba-9de27b093494`
    - import status `success`
-9. `2025-12-01`
+6. `2025-12-01`
    - active import `c84cade9-6633-427f-b4b0-2371d0aca344`
    - import status `success`
 
@@ -105,17 +116,53 @@ As of the latest live check, the active month slices are:
    - import `65d24015-7602-49f2-8c7f-2b9f29bab56a`
    - import month status `error`
    - not active
-2. `2025-03-01`
+2. `2025-01-01`
+   - import `65d24015-7602-49f2-8c7f-2b9f29bab56a`
+   - import month status still `success`, but explicitly deactivated on
+     `2026-03-16` because it came from a failed multi-month import
+   - not active
+3. `2025-03-01`
    - no imported month slice yet
-3. `2025-06-01`
+4. `2025-04-01`
+   - import `0fe50885-fce4-48ec-afa6-a9dce5cef716`
+   - import month status still `success`, but explicitly deactivated on
+     `2026-03-16` because the retry import was stranded
+   - not active
+5. `2025-05-01`
+   - older import `37b0af74-0e7f-411a-b6aa-1c82b5cd827a`
+   - import month status still `success`, but explicitly deactivated on
+     `2026-03-16` because the parent import is `error`
+   - newer retry import `0fe50885-fce4-48ec-afa6-a9dce5cef716`
+   - retry month status changed from `pending` to `error` on `2026-03-16`
+   - not active
+6. `2025-06-01`
    - import `37b0af74-0e7f-411a-b6aa-1c82b5cd827a`
    - import month status `error`
    - not active
-4. `2026-01-01`
+7. `2026-01-01`
    - older stale carryover slice exists on a historical December import
    - not active
-5. `2026-02-01`
+8. `2026-02-01`
    - no imported month slice yet
+
+## 2026-03-16 validation-profile cleanup
+
+These live state changes were applied intentionally and should be preserved:
+
+1. Deactivated `2025-01-01` active slice from failed import
+   `65d24015-7602-49f2-8c7f-2b9f29bab56a`
+2. Deactivated `2025-04-01` active slice from stranded retry import
+   `0fe50885-fce4-48ec-afa6-a9dce5cef716`
+3. Deactivated `2025-05-01` active slice from failed import
+   `37b0af74-0e7f-411a-b6aa-1c82b5cd827a`
+4. Changed retry May slice on import `0fe50885-fce4-48ec-afa6-a9dce5cef716`
+   from `pending` to `error`
+5. Changed import `0fe50885-fce4-48ec-afa6-a9dce5cef716` from `running` to
+   `error`
+6. Confirmed validated November import `0626222a-dc9c-4be5-a2ba-9de27b093494`
+   remains active
+7. Confirmed validated December import `c84cade9-6633-427f-b4b0-2371d0aca344`
+   remains active
 
 ## What was confirmed
 
@@ -184,49 +231,84 @@ Inference:
 2. the correct product fix is an async/background import path with status
    polling, not continued reliance on long blocking requests
 
+### 5. The real report bottleneck was repeated aggregation from raw ledger rows
+
+The wide-range failure was not caused by the mixed early-2025 active/error
+month state alone.
+
+What was found live:
+
+1. the current validation profile has about `1.5M` ledger rows across active
+   and historical imports
+2. the live `pnl_report_bucket_totals(...)` function had been overwritten by
+   the later `optimize_monthly_pnl_report_rpc_exists` migration
+3. that version still planned as a near-full ledger scan and took about
+   `7.3 s` for `2025-01-01` through `2026-02-01`
+4. the durable fix was to materialize per-import-month bucket totals once and
+   read those on the report path instead of regrouping raw ledger facts on
+   every request
+
+Live state after the fix:
+
+1. `monthly_pnl_import_month_bucket_totals` now has `437` backfilled rows for
+   the validation profile
+2. `pnl_report_bucket_totals(...)` now reads that table and the same wide range
+   executes in about `4.5 ms`
+3. this preserves the validated November/December active imports because it is
+   a derived-summary change only
+
 ## Current open blockers
 
-### 1. Wide range report can still fail after the earlier RPC optimization
+### 1. The original wide-range failure root cause has been fixed at the DB layer
 
-The user reproduced this after the latest Render deploy by changing the report
-range to `2025-01-01` through `2026-02-01`.
+The earlier failure for
+`filter_mode=range&start_month=2025-01-01&end_month=2026-02-01` is now
+understood.
 
-Recent Render log lines:
+1. the bad path was an outdated RPC definition, not just "Supabase tier"
+2. the live DB now uses precomputed import-month bucket totals instead
+3. current deployed backend code should benefit immediately because it already
+   calls `pnl_report_bucket_totals(...)`
+4. one remaining follow-up is to verify the full HTTP route in production after
+   this migration rather than only at the SQL function boundary
 
-1. `GET /admin/pnl/profiles/c8e854cf-b989-4e3f-8cf4-58a43507c67a/report?filter_mode=range&start_month=2025-12-01&end_month=2026-02-01` -> `200`
-2. `GET /admin/pnl/profiles/c8e854cf-b989-4e3f-8cf4-58a43507c67a/report?filter_mode=range&start_month=2025-01-01&end_month=2026-02-01` -> `500`
-3. same wide-range request immediately retried -> `500`
+### 2. Monthly P&L page load still needs backend deploy + real UX verification
 
-Meaning:
+The main DB bottleneck is now addressed, but the end-to-end page still needs to
+be rechecked after the backend/frontend deploy that uses the queued import flow
+and summary-table-first report code.
 
-1. the earlier DB optimization improved one major bottleneck
-2. but the full `2025-01` through `2026-02` report still is not reliable
-3. the next session should trace this exact range through live Render logs,
-   backend code, and Supabase logs instead of assuming the first RPC fix closed
-   the issue
+Remaining likely contributors:
 
-### 2. Monthly P&L page load still feels too slow
-
-Even when the page does not hard-fail, the P&L route still feels too heavy for
-normal use.
-
-Most likely remaining contributors:
-
-1. wide-range report query shape still too expensive
-2. backend fallback behavior is still too costly when the primary path fails
-3. the page still waits on more data than it should during first paint
+1. currently deployed backend still contains the old heavy ledger fallback path
+   if the RPC ever errors
+2. the route still resolves client/profile before report fetch on first paint
+3. the live page has not yet been manually timed again after the new DB summary
+   table landed
 
 ### 3. Multi-month upload support is not productized yet
 
 The user wants to backfill multiple months at a time. Right now that is not
 trustworthy enough to recommend.
 
-Next real fix:
+Code now prepared locally:
 
-1. create an async/background import flow
-2. return an import/job ID immediately
-3. let the frontend poll status
-4. keep partial month activation crash-safe and resumable
+1. upload endpoint now stages the source file to Supabase Storage and queues the
+   import instead of trying to finish inside one request
+2. new worker code processes queued async imports through `worker-sync`
+3. import processing now writes `monthly_pnl_import_month_bucket_totals` during
+   execution so future reports stay fast
+
+Still required:
+
+1. deploy `backend-core` and `worker-sync`
+2. verify the full authenticated `/admin/pnl/.../report` route in production
+   after deploy rather than only SQL-level timings
+3. manually exercise the queued-upload UI in production and confirm the
+   polling banner transitions cleanly through `pending` / `running` / terminal
+   states
+4. resume backfilling missing early-2025 months with the async worker flow
+   instead of the old synchronous request path
 
 ## December 2025 final numbers
 
@@ -252,6 +334,9 @@ These Monthly P&L migrations are live in Supabase:
 6. `20260316195500_fix_monthly_pnl_removal_and_refund_other_mapping.sql`
 7. `20260316203000_add_monthly_pnl_manual_model_rules.sql`
 8. `20260316173000_optimize_monthly_pnl_report_rpc_exists.sql`
+9. `20260316213000_add_monthly_pnl_import_month_bucket_totals.sql`
+10. `20260316224500_claim_monthly_pnl_pending_imports.sql`
+11. `20260316232000_cleanup_validation_profile_stranded_monthly_pnl_state.sql`
 
 ## Relevant commits now on `main`
 
@@ -281,16 +366,15 @@ These Monthly P&L migrations are live in Supabase:
 
 ## Recommended next-session plan
 
-1. Reproduce and trace the exact report failure for
-   `start_month=2025-01-01&end_month=2026-02-01`
-2. Inspect whether the current mixed active/pending month state from the failed
-   multi-month uploads is part of the wide-range failure
-3. Decide whether to clean up the stranded `0fe50885-fce4-48ec-afa6-a9dce5cef716`
-   retry before deeper report debugging
-4. Design and implement async/background Monthly P&L imports so multi-month
-   backfills stop depending on a long blocking request
-5. After reliability is fixed, do another speed pass on report loading and
-   first paint
+1. Deploy `backend-core` and `worker-sync` so the atomic worker-claim path and
+   fast-fail/concurrent report code are live
+2. Verify the authenticated production report route for
+   `start_month=2025-01-01&end_month=2026-02-01` after deploy
+3. Run a real queued multi-month upload in production and watch the new polling
+   UX through completion
+4. Backfill the missing early-2025 months using the async worker path
+5. Measure first-paint/page-load again after deploy and decide whether any
+   remaining latency is frontend orchestration rather than database time
 
 ## Where the code lives
 

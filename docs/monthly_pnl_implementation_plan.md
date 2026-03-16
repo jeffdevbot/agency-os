@@ -8,7 +8,10 @@ _Last updated: 2026-03-16 (ET)_
 > as design/reference context, but some sections remain forward-looking for
 > work that is not done yet, especially COGS workflow, async/background import
 > execution for multi-month uploads, and the remaining report-speed/productization
-> follow-ons.
+> follow-ons. As of 2026-03-16, the live DB also has
+> `monthly_pnl_import_month_bucket_totals` plus a rewritten
+> `pnl_report_bucket_totals(...)` function so report reads can use precomputed
+> month summaries instead of regrouping raw ledger rows.
 
 This document defines the recommended implementation plan for a new
 client-facing `Monthly P&L` report in Ecomlabs Tools.

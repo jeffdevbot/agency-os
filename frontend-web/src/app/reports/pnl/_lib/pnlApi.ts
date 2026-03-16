@@ -52,6 +52,11 @@ export type PnlUploadResult = {
   months: PnlImportMonth[];
 };
 
+export type PnlImportSummary = {
+  import: PnlImport;
+  months: PnlImportMonth[];
+};
+
 export type PnlLineItem = {
   key: string;
   label: string;
@@ -234,5 +239,28 @@ export async function getPnlReport(
     months: (data.months ?? []) as string[],
     line_items: (data.line_items ?? []) as PnlLineItem[],
     warnings: (data.warnings ?? []) as PnlWarning[],
+  };
+}
+
+export async function getPnlImportSummary(
+  token: string,
+  profileId: string,
+  importId: string,
+): Promise<PnlImportSummary> {
+  const response = await fetch(
+    `${getBackendUrl()}/admin/pnl/profiles/${profileId}/imports/${importId}`,
+    {
+      method: "GET",
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  );
+  if (!response.ok) {
+    const detail = await parseErrorDetail(response);
+    throw new Error(detail);
+  }
+  const data = await response.json();
+  return {
+    import: data.import as PnlImport,
+    months: (data.months ?? []) as PnlImportMonth[],
   };
 }

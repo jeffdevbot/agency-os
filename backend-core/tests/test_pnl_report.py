@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -170,40 +170,66 @@ FAKE_ACTIVE_MONTHS = [
 class TestPNLReportService:
     def _make_service(self):
         profiles_table = _chain_table([FAKE_PROFILE])
-        ledger_table = _chain_table(FAKE_LEDGER_ENTRIES)
+        summary_table = _chain_table([
+            {
+                "import_month_id": row["import_month_id"],
+                "entry_month": row["entry_month"],
+                "ledger_bucket": row["ledger_bucket"],
+                "amount": row["amount"],
+            }
+            for row in FAKE_LEDGER_ENTRIES
+        ])
         # COGS column is "amount" (matches schema), not "cogs_amount"
         cogs_table = _chain_table([
             {"entry_month": "2026-01-01", "amount": "30.00"},
         ])
 
-        call_count = {"import_months": 0}
+        class ImportMonthsTable:
+            def __init__(self):
+                self._selection = ""
 
-        def import_months_factory():
-            call_count["import_months"] += 1
-            if call_count["import_months"] == 1:
-                # _active_import_month_ids call
-                return _chain_table([{"id": "im1"}, {"id": "im2"}])
-            elif call_count["import_months"] == 2:
-                # _load_unmapped_totals call
-                return _chain_table(FAKE_ACTIVE_MONTHS)
-            else:
-                # _load_active_months call
-                return _chain_table([
-                    {"entry_month": "2026-01-01"},
-                    {"entry_month": "2026-02-01"},
-                ])
+            def select(self, fields):
+                self._selection = fields
+                return self
+
+            def eq(self, *_args, **_kwargs):
+                return self
+
+            def gte(self, *_args, **_kwargs):
+                return self
+
+            def lte(self, *_args, **_kwargs):
+                return self
+
+            def order(self, *_args, **_kwargs):
+                return self
+
+            def execute(self):
+                response = MagicMock()
+                if self._selection == "id":
+                    response.data = [{"id": "im1"}, {"id": "im2"}]
+                elif "unmapped_amount" in self._selection:
+                    response.data = FAKE_ACTIVE_MONTHS
+                else:
+                    response.data = [
+                        {"entry_month": "2026-01-01"},
+                        {"entry_month": "2026-02-01"},
+                    ]
+                return response
+
+        import_months_table = ImportMonthsTable()
 
         db = MagicMock()
 
         def table_router(name):
             if name == "monthly_pnl_profiles":
                 return profiles_table
-            elif name == "monthly_pnl_ledger_entries":
-                return ledger_table
+            elif name == "monthly_pnl_import_month_bucket_totals":
+                return summary_table
             elif name == "monthly_pnl_cogs_monthly":
                 return cogs_table
             elif name == "monthly_pnl_import_months":
-                return import_months_factory()
+                return import_months_table
             return _chain_table()
 
         db.table.side_effect = table_router
@@ -219,40 +245,10 @@ class TestPNLReportService:
         assert len(report["line_items"]) > 0
         assert isinstance(report["warnings"], list)
 
-    def test_report_paginates_ledger_rows_beyond_first_1000(self):
+    def test_report_raises_when_summary_and_rpc_are_unavailable(self):
         profiles_table = _chain_table([FAKE_PROFILE])
-        page_1 = [
-            {"entry_month": "2026-01-01", "ledger_bucket": "product_sales", "amount": "1.00", "import_month_id": "im1"}
-            for _ in range(1000)
-        ]
-        page_2 = [
-            {"entry_month": "2026-01-01", "ledger_bucket": "product_sales", "amount": "1.00", "import_month_id": "im1"}
-        ]
-        current_offset = {"value": 0}
-
         ledger_table = MagicMock()
-        ledger_table.select.return_value = ledger_table
-        ledger_table.eq.return_value = ledger_table
-        ledger_table.gte.return_value = ledger_table
-        ledger_table.lte.return_value = ledger_table
-        ledger_table.order.return_value = ledger_table
-
-        def range_side_effect(start: int, end: int):
-            current_offset["value"] = start
-            return ledger_table
-
-        def execute_side_effect():
-            response = MagicMock()
-            if current_offset["value"] == 0:
-                response.data = page_1
-            elif current_offset["value"] == 1000:
-                response.data = page_2
-            else:
-                response.data = []
-            return response
-
-        ledger_table.range.side_effect = range_side_effect
-        ledger_table.execute.side_effect = execute_side_effect
+        ledger_table.select.side_effect = AssertionError("raw-ledger fallback should never run")
 
         cogs_table = _chain_table([])
 
@@ -271,6 +267,8 @@ class TestPNLReportService:
         def table_router(name):
             if name == "monthly_pnl_profiles":
                 return profiles_table
+            if name == "monthly_pnl_import_month_bucket_totals":
+                return _chain_table([])
             if name == "monthly_pnl_ledger_entries":
                 return ledger_table
             if name == "monthly_pnl_cogs_monthly":
@@ -280,15 +278,13 @@ class TestPNLReportService:
             return _chain_table()
 
         db.table.side_effect = table_router
+        db.rpc.side_effect = RuntimeError("rpc failed")
 
         svc = PNLReportService(db)
-        report = svc.build_report(
-            "p1", filter_mode="range", start_month="2026-01-01", end_month="2026-01-01"
-        )
-
-        items = {li["key"]: li for li in report["line_items"]}
-        assert items["product_sales"]["months"]["2026-01-01"] == "1001.00"
-        assert ledger_table.range.call_count == 2
+        with pytest.raises(RuntimeError, match="Failed to load Monthly P&L ledger totals"):
+            svc.build_report(
+                "p1", filter_mode="range", start_month="2026-01-01", end_month="2026-01-01"
+            )
 
     def test_report_uses_bucket_totals_rpc_when_available(self):
         profiles_table = _chain_table([FAKE_PROFILE])
@@ -299,6 +295,8 @@ class TestPNLReportService:
         def import_months_factory():
             call_count["import_months"] += 1
             if call_count["import_months"] == 1:
+                return _chain_table([{"id": "im1"}])
+            if call_count["import_months"] == 2:
                 return _chain_table([{"entry_month": "2026-01-01", "unmapped_amount": "0"}])
             return _chain_table([{"entry_month": "2026-01-01"}])
 
@@ -337,6 +335,64 @@ class TestPNLReportService:
         assert items["advertising"]["months"]["2026-01-01"] == "-25.00"
         db.rpc.assert_called_once()
 
+    def test_report_uses_summary_table_before_rpc(self):
+        profiles_table = _chain_table([FAKE_PROFILE])
+        cogs_table = _chain_table([])
+        summary_table = _chain_table([
+            {
+                "import_month_id": "im1",
+                "entry_month": "2026-01-01",
+                "ledger_bucket": "product_sales",
+                "amount": "120.00",
+            },
+            {
+                "import_month_id": "im1",
+                "entry_month": "2026-01-01",
+                "ledger_bucket": "advertising",
+                "amount": "-20.00",
+            },
+        ])
+
+        call_count = {"import_months": 0}
+
+        def import_months_factory():
+            call_count["import_months"] += 1
+            if call_count["import_months"] == 1:
+                return _chain_table([{"id": "im1"}])
+            if call_count["import_months"] == 2:
+                return _chain_table([{"entry_month": "2026-01-01", "unmapped_amount": "0"}])
+            return _chain_table([{"entry_month": "2026-01-01"}])
+
+        ledger_table = MagicMock()
+        ledger_table.select.side_effect = AssertionError("ledger fallback should not run")
+
+        db = MagicMock()
+
+        def table_router(name):
+            if name == "monthly_pnl_profiles":
+                return profiles_table
+            if name == "monthly_pnl_import_month_bucket_totals":
+                return summary_table
+            if name == "monthly_pnl_ledger_entries":
+                return ledger_table
+            if name == "monthly_pnl_cogs_monthly":
+                return cogs_table
+            if name == "monthly_pnl_import_months":
+                return import_months_factory()
+            return _chain_table()
+
+        db.table.side_effect = table_router
+        db.rpc.side_effect = AssertionError("rpc should not run when summary rows exist")
+
+        svc = PNLReportService(db)
+        report = svc.build_report(
+            "p1", filter_mode="range", start_month="2026-01-01", end_month="2026-01-01"
+        )
+
+        items = {li["key"]: li for li in report["line_items"]}
+        assert items["product_sales"]["months"]["2026-01-01"] == "120.00"
+        assert items["advertising"]["months"]["2026-01-01"] == "-20.00"
+
     def test_report_line_item_keys(self):
         svc = self._make_service()
         report = svc.build_report(
@@ -371,6 +427,8 @@ class TestPNLReportService:
         def import_months_factory():
             call_count["import_months"] += 1
             if call_count["import_months"] == 1:
+                return _chain_table([{"id": "im1"}])
+            if call_count["import_months"] == 2:
                 return _chain_table([{"entry_month": "2026-01-01", "unmapped_amount": "0"}])
             return _chain_table([{"entry_month": "2026-01-01"}])
 
@@ -574,14 +632,14 @@ class TestPNLReportService:
 class TestReportRouter:
     def test_report_endpoint_success(self, monkeypatch):
         fake_svc = MagicMock()
-        fake_svc.build_report.return_value = {
+        fake_svc.build_report_async = AsyncMock(return_value={
             "profile": FAKE_PROFILE,
             "months": ["2026-01-01"],
             "line_items": [{"key": "product_sales", "label": "Product Sales",
                             "category": "revenue", "is_derived": False,
                             "months": {"2026-01-01": "100.00"}}],
             "warnings": [],
-        }
+        })
         monkeypatch.setattr(pnl, "_get_report_service", lambda: fake_svc)
         app.dependency_overrides[pnl.require_admin_user] = _override_admin
 
@@ -603,7 +661,7 @@ class TestReportRouter:
         from app.services.pnl.profiles import PNLNotFoundError
 
         fake_svc = MagicMock()
-        fake_svc.build_report.side_effect = PNLNotFoundError("not found")
+        fake_svc.build_report_async = AsyncMock(side_effect=PNLNotFoundError("not found"))
         monkeypatch.setattr(pnl, "_get_report_service", lambda: fake_svc)
         app.dependency_overrides[pnl.require_admin_user] = _override_admin
 
@@ -619,7 +677,7 @@ class TestReportRouter:
         from app.services.pnl.profiles import PNLValidationError
 
         fake_svc = MagicMock()
-        fake_svc.build_report.side_effect = PNLValidationError("bad filter")
+        fake_svc.build_report_async = AsyncMock(side_effect=PNLValidationError("bad filter"))
         monkeypatch.setattr(pnl, "_get_report_service", lambda: fake_svc)
         app.dependency_overrides[pnl.require_admin_user] = _override_admin
 
@@ -634,12 +692,12 @@ class TestReportRouter:
 
     def test_report_default_filter_ytd(self, monkeypatch):
         fake_svc = MagicMock()
-        fake_svc.build_report.return_value = {
+        fake_svc.build_report_async = AsyncMock(return_value={
             "profile": FAKE_PROFILE,
             "months": [],
             "line_items": [],
             "warnings": [],
-        }
+        })
         monkeypatch.setattr(pnl, "_get_report_service", lambda: fake_svc)
         app.dependency_overrides[pnl.require_admin_user] = _override_admin
 
@@ -651,18 +709,18 @@ class TestReportRouter:
 
         assert resp.status_code == 200
         # Verify service was called with ytd default
-        call_kwargs = fake_svc.build_report.call_args
+        call_kwargs = fake_svc.build_report_async.call_args
         assert call_kwargs.kwargs["filter_mode"] == "ytd"
 
     def test_report_range_params_passed_to_service(self, monkeypatch):
         """Backend correctly passes start_month/end_month to service for range mode."""
         fake_svc = MagicMock()
-        fake_svc.build_report.return_value = {
+        fake_svc.build_report_async = AsyncMock(return_value={
             "profile": FAKE_PROFILE,
             "months": ["2025-06-01"],
             "line_items": [],
             "warnings": [],
-        }
+        })
         monkeypatch.setattr(pnl, "_get_report_service", lambda: fake_svc)
         app.dependency_overrides[pnl.require_admin_user] = _override_admin
 
@@ -680,7 +738,7 @@ class TestReportRouter:
             app.dependency_overrides.pop(pnl.require_admin_user, None)
 
         assert resp.status_code == 200
-        call_kwargs = fake_svc.build_report.call_args
+        call_kwargs = fake_svc.build_report_async.call_args
         assert call_kwargs.kwargs["filter_mode"] == "range"
         assert call_kwargs.kwargs["start_month"] == "2025-06-01"
         assert call_kwargs.kwargs["end_month"] == "2025-09-01"
