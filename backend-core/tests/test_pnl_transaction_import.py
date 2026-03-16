@@ -318,6 +318,33 @@ class TestLedgerExpansion:
         assert buckets["shipping_credits"] == Decimal("2.50")
         assert buckets["referral_fees"] == Decimal("-1.50")
         assert buckets["fba_fees"] == Decimal("-3.00")
+
+    def test_refund_other_and_product_sales_coalesce_into_single_refunds_bucket(self):
+        raw_row = ParsedRawRow(
+            row_index=7140,
+            posted_at=datetime(2025, 11, 10, tzinfo=UTC),
+            release_at=datetime(2025, 11, 11, tzinfo=UTC),
+            order_id="111-REFUND",
+            sku="SKU-REFUND",
+            raw_type="Refund",
+            raw_description="Refund with product sales and other",
+            entry_month=date(2025, 11, 1),
+            amounts={
+                "product_sales": Decimal("-19.99"),
+                "marketplace_withheld_tax": Decimal("1.77"),
+                "selling_fees": Decimal("2.40"),
+                "other": Decimal("4.00"),
+            },
+            raw_payload={},
+        )
+
+        entries = expand_raw_row_to_ledger(raw_row, _make_rules(), None)
+        buckets = {e.ledger_bucket: e.amount for e in entries}
+
+        assert len([e for e in entries if e.ledger_bucket == "refunds"]) == 1
+        assert buckets["refunds"] == Decimal("-15.99")
+        assert buckets["marketplace_withheld_tax"] == Decimal("1.77")
+        assert buckets["referral_fees"] == Decimal("2.40")
         assert all(e.is_mapped for e in entries)
 
     def test_refund_row_maps_to_refund_buckets(self):
@@ -512,13 +539,11 @@ class TestLedgerExpansion:
             raw_payload={},
         )
         entries = expand_raw_row_to_ledger(raw_row, _make_rules(), None)
-        refund_amounts = sorted(
-            [e.amount for e in entries if e.ledger_bucket == "refunds"],
-            key=lambda value: value,
-        )
+        refunds_entries = [e for e in entries if e.ledger_bucket == "refunds"]
 
-        assert refund_amounts == [Decimal("-10.00"), Decimal("3.60")]
-        assert len(entries) == 2
+        assert len(refunds_entries) == 1
+        assert refunds_entries[0].amount == Decimal("-6.40")
+        assert len(entries) == 1
 
     def test_row_with_no_entry_month_produces_no_entries(self):
         raw_row = ParsedRawRow(

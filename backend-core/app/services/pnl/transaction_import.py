@@ -546,7 +546,42 @@ def expand_raw_row_to_ledger(
                 source_row_index=raw_row.row_index,
             ))
 
-    return entries
+    return _coalesce_entries_by_bucket(entries)
+
+
+def _coalesce_entries_by_bucket(entries: list[LedgerEntry]) -> list[LedgerEntry]:
+    """Merge same-bucket entries for a single source row.
+
+    The ledger table enforces uniqueness on (import_id, source_row_index,
+    ledger_bucket), so a raw row that maps multiple source columns into the same
+    bucket must be collapsed before insert.
+    """
+    merged: dict[str, LedgerEntry] = {}
+
+    for entry in entries:
+        existing = merged.get(entry.ledger_bucket)
+        if existing is None:
+            merged[entry.ledger_bucket] = LedgerEntry(
+                entry_month=entry.entry_month,
+                posted_at=entry.posted_at,
+                order_id=entry.order_id,
+                sku=entry.sku,
+                raw_type=entry.raw_type,
+                raw_description=entry.raw_description,
+                ledger_bucket=entry.ledger_bucket,
+                amount=entry.amount,
+                is_mapped=entry.is_mapped,
+                mapping_rule_id=entry.mapping_rule_id,
+                source_row_index=entry.source_row_index,
+            )
+            continue
+
+        existing.amount += entry.amount
+        existing.is_mapped = existing.is_mapped and entry.is_mapped
+        if existing.mapping_rule_id is None:
+            existing.mapping_rule_id = entry.mapping_rule_id
+
+    return [entry for entry in merged.values() if entry.amount != 0]
 
 
 # ── Import orchestration ─────────────────────────────────────────────
