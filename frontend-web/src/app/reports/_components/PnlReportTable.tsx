@@ -1,17 +1,17 @@
 "use client";
 
-import type { PnlLineItem } from "../pnl/_lib/pnlApi";
 import {
   amountClass,
   formatAmount,
   formatMonth,
   lineItemRowClass,
+  type PnlPresentedLineItem,
   SUMMARY_KEYS,
 } from "../pnl/_lib/pnlDisplay";
 
 type Props = {
   months: string[];
-  lineItems: PnlLineItem[];
+  lineItems: PnlPresentedLineItem[];
 };
 
 export default function PnlReportTable({ months, lineItems }: Props) {
@@ -57,7 +57,7 @@ export default function PnlReportTable({ months, lineItems }: Props) {
                       key={month}
                       className={`whitespace-nowrap px-3 py-2.5 text-right tabular-nums ${amountClass(value, item)}`}
                     >
-                      {formatAmount(value)}
+                      {formatAmount(value, item.display_format)}
                     </td>
                   );
                 })}

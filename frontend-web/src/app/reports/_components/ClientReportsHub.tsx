@@ -52,8 +52,8 @@ export default function ClientReportsHub({ clientSlug }: Props) {
           {summary?.client.name ?? "Client Reports"}
         </h1>
         <p className="mt-2 text-sm text-[#4c576f]">
-          Select the marketplace, then choose the reporting surface. WBR and Monthly P&amp;L are
-          separate products that now live side by side under `/reports`.
+          Select the marketplace, then open either the weekly operating view or the monthly
+          finance view.
         </p>
 
         <div className="mt-6 flex flex-wrap gap-3">
@@ -84,7 +84,7 @@ export default function ClientReportsHub({ clientSlug }: Props) {
           </p>
         ) : null}
 
-        <div className="mt-6 grid gap-4 md:grid-cols-2">
+        <div className="mt-6 space-y-4">
           {loading ? (
             <div className="rounded-2xl border border-slate-200 bg-white p-5 text-sm text-[#64748b]">
               Loading marketplace profiles...
@@ -103,98 +103,136 @@ export default function ClientReportsHub({ clientSlug }: Props) {
               return (
                 <div
                   key={marketplace.marketplace_code}
-                  className="rounded-2xl border border-slate-200 bg-white p-5 shadow transition hover:-translate-y-0.5 hover:shadow-lg"
+                  className="rounded-3xl border border-slate-200 bg-white p-5 shadow transition hover:-translate-y-0.5 hover:shadow-lg md:p-6"
                 >
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
-                      <p className="text-lg font-semibold text-[#0f172a]">
+                      <p className="text-xl font-semibold text-[#0f172a]">
                         {marketplace.marketplace_code} Marketplace
                       </p>
                       <p className="mt-1 text-sm text-[#4c576f]">
                         {wbrProfile?.display_name ??
-                          "Use this marketplace route to access either WBR or Monthly P&L."}
+                          "Choose the operating report or finance report for this marketplace."}
                       </p>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <span
-                        className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                          wbrProfile
-                            ? "bg-[#e8eefc] text-[#0a6fd6]"
-                            : "bg-[#f1f5f9] text-[#64748b]"
-                        }`}
-                      >
-                        {wbrProfile ? "WBR configured" : "WBR not configured"}
-                      </span>
-                      <span
-                        className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                          pnlProfile
-                            ? "bg-[#fff4dd] text-[#9a5b16]"
-                            : "bg-[#f8fafc] text-[#64748b]"
-                        }`}
-                      >
-                        {pnlProfile ? "Monthly P&L profile ready" : "Monthly P&L profile not created"}
-                      </span>
                     </div>
                   </div>
 
-                  {wbrProfile ? (
-                    <p className="mt-3 text-sm text-[#4c576f]">
-                      WBR: {wbrProfile.display_name} • Week start: {wbrProfile.week_start_day} •
-                      Status: {wbrProfile.status}
-                    </p>
-                  ) : (
-                    <p className="mt-3 text-sm text-[#4c576f]">
-                      WBR setup is still optional for Monthly P&amp;L on this marketplace route.
-                    </p>
-                  )}
+                  <div className="mt-5 grid gap-4 xl:grid-cols-2">
+                    <div className="rounded-2xl border border-[#dbe4f0] bg-[#f7faff] p-5">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[#0a6fd6]">
+                            WBR
+                          </p>
+                          <p className="mt-2 text-lg font-semibold text-[#0f172a]">
+                            Weekly Business Review
+                          </p>
+                          <p className="mt-2 text-sm text-[#4c576f]">
+                            Operational reporting with live traffic, sales, advertising, inventory,
+                            and sync workflows.
+                          </p>
+                        </div>
+                        <span
+                          className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                            wbrProfile
+                              ? "bg-[#e8eefc] text-[#0a6fd6]"
+                              : "bg-white text-[#64748b]"
+                          }`}
+                        >
+                          {wbrProfile ? "Configured" : "Not configured"}
+                        </span>
+                      </div>
 
-                  {pnlProfile ? (
-                    <p className="mt-1 text-sm text-[#4c576f]">
-                      Monthly P&amp;L: {pnlProfile.currency_code} • Status: {pnlProfile.status}
-                    </p>
-                  ) : (
-                    <p className="mt-1 text-sm text-[#4c576f]">
-                      Open Monthly P&amp;L to create the finance profile and upload transaction
-                      data.
-                    </p>
-                  )}
+                      {wbrProfile ? (
+                        <p className="mt-4 text-sm text-[#4c576f]">
+                          {wbrProfile.display_name} • Week start: {wbrProfile.week_start_day} •
+                          Status: {wbrProfile.status}
+                        </p>
+                      ) : (
+                        <p className="mt-4 text-sm text-[#4c576f]">
+                          Create a WBR profile if this marketplace needs the weekly operating
+                          surface.
+                        </p>
+                      )}
 
-                  <div className="mt-4 flex flex-wrap gap-3">
-                    <Link
-                      href={`/reports/${clientSlug}/${marketplaceSlug}/pnl`}
-                      className="rounded-xl bg-[#0f172a] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#1e293b]"
-                    >
-                      {pnlProfile ? "Open Monthly P&L" : "Open Monthly P&L Setup"}
-                    </Link>
-                    {wbrProfile ? (
-                      <>
-                        <Link
-                          href={`/reports/${clientSlug}/${marketplaceSlug}/wbr`}
-                          className="rounded-xl bg-[#0a6fd6] px-4 py-2 text-sm font-semibold text-white shadow-[0_15px_30px_rgba(10,111,214,0.2)] transition hover:bg-[#0959ab]"
+                      <div className="mt-4 flex flex-wrap items-center gap-3">
+                        {wbrProfile ? (
+                          <>
+                            <Link
+                              href={`/reports/${clientSlug}/${marketplaceSlug}/wbr`}
+                              className="rounded-xl bg-[#0a6fd6] px-4 py-2 text-sm font-semibold text-white shadow-[0_15px_30px_rgba(10,111,214,0.2)] transition hover:bg-[#0959ab]"
+                            >
+                              Open WBR
+                            </Link>
+                            <Link
+                              href={`/reports/${clientSlug}/${marketplaceSlug}/wbr/settings`}
+                              className="text-sm font-semibold text-[#0a6fd6] hover:underline"
+                            >
+                              Settings
+                            </Link>
+                            <Link
+                              href={`/reports/${clientSlug}/${marketplaceSlug}/wbr/sync`}
+                              className="text-sm font-semibold text-[#0a6fd6] hover:underline"
+                            >
+                              Sync
+                            </Link>
+                          </>
+                        ) : (
+                          <Link
+                            href="/reports/wbr/setup"
+                            className="rounded-xl bg-[#0a6fd6] px-4 py-2 text-sm font-semibold text-white shadow-[0_15px_30px_rgba(10,111,214,0.2)] transition hover:bg-[#0959ab]"
+                          >
+                            Set up WBR
+                          </Link>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl border border-[#eadfcb] bg-[#fff8ed] p-5">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[#9a5b16]">
+                            Monthly P&amp;L
+                          </p>
+                          <p className="mt-2 text-lg font-semibold text-[#0f172a]">
+                            Monthly Profit &amp; Loss
+                          </p>
+                          <p className="mt-2 text-sm text-[#4c576f]">
+                            Finance reporting from Amazon transaction uploads, separate from WBR
+                            syncs and row modeling.
+                          </p>
+                        </div>
+                        <span
+                          className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                            pnlProfile
+                              ? "bg-[#fff4dd] text-[#9a5b16]"
+                              : "bg-white text-[#64748b]"
+                          }`}
                         >
-                          Open WBR
-                        </Link>
+                          {pnlProfile ? "Profile ready" : "Profile not created"}
+                        </span>
+                      </div>
+
+                      {pnlProfile ? (
+                        <p className="mt-4 text-sm text-[#4c576f]">
+                          Currency: {pnlProfile.currency_code} • Status: {pnlProfile.status}
+                        </p>
+                      ) : (
+                        <p className="mt-4 text-sm text-[#4c576f]">
+                          Open Monthly P&amp;L to create the finance profile and upload transaction
+                          data.
+                        </p>
+                      )}
+
+                      <div className="mt-4 flex flex-wrap items-center gap-3">
                         <Link
-                          href={`/reports/${clientSlug}/${marketplaceSlug}/wbr/settings`}
-                          className="text-sm font-semibold text-[#0a6fd6] hover:underline"
+                          href={`/reports/${clientSlug}/${marketplaceSlug}/pnl`}
+                          className="rounded-xl bg-[#0f172a] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#1e293b]"
                         >
-                          Settings
+                          {pnlProfile ? "Open Monthly P&L" : "Open Monthly P&L Setup"}
                         </Link>
-                        <Link
-                          href={`/reports/${clientSlug}/${marketplaceSlug}/wbr/sync`}
-                          className="text-sm font-semibold text-[#0a6fd6] hover:underline"
-                        >
-                          Sync
-                        </Link>
-                      </>
-                    ) : (
-                      <Link
-                        href="/reports/wbr/setup"
-                        className="text-sm font-semibold text-[#0a6fd6] hover:underline"
-                      >
-                        Set up WBR
-                      </Link>
-                    )}
+                      </div>
+                    </div>
                   </div>
                 </div>
               );

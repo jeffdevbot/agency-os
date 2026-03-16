@@ -1,7 +1,7 @@
 "use client";
 
+import PnlMonthRangePicker from "./PnlMonthRangePicker";
 import type { PnlFilterMode, PnlProfile } from "../pnl/_lib/pnlApi";
-import { FILTER_OPTIONS } from "../pnl/_lib/pnlDisplay";
 
 type Props = {
   clientName: string;
@@ -11,10 +11,12 @@ type Props = {
   rangeStart: string;
   rangeEnd: string;
   refreshing: boolean;
+  settingsOpen: boolean;
   onFilterModeChange: (value: PnlFilterMode) => void;
   onRangeStartChange: (value: string) => void;
   onRangeEndChange: (value: string) => void;
   onRefresh: () => void;
+  onToggleSettings: () => void;
 };
 
 export default function PnlReportHeader({
@@ -25,10 +27,12 @@ export default function PnlReportHeader({
   rangeStart,
   rangeEnd,
   refreshing,
+  settingsOpen,
   onFilterModeChange,
   onRangeStartChange,
   onRangeEndChange,
   onRefresh,
+  onToggleSettings,
 }: Props) {
   return (
     <div className="rounded-3xl bg-white/95 p-5 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur md:p-6">
@@ -39,13 +43,18 @@ export default function PnlReportHeader({
             {clientName} - {marketplaceCode.toUpperCase()}
           </p>
           <p className="mt-2 text-sm text-[#64748b]">
-            Standalone finance reporting surface. This does not reuse WBR syncs, row trees, or
-            WBR section tabs.
+            Monthly finance reporting from uploaded Amazon transaction data.
           </p>
         </div>
 
         {profile ? (
           <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+            <button
+              onClick={onToggleSettings}
+              className="text-sm font-semibold text-[#64748b] transition hover:text-[#0f172a] hover:underline"
+            >
+              {settingsOpen ? "Hide settings" : "Settings"}
+            </button>
             <button
               onClick={onRefresh}
               disabled={refreshing}
@@ -58,52 +67,16 @@ export default function PnlReportHeader({
       </div>
 
       {profile ? (
-        <>
-          <div className="mt-4 flex flex-wrap items-center gap-2">
-            {FILTER_OPTIONS.map((opt) => (
-              <button
-                key={opt.value}
-                onClick={() => onFilterModeChange(opt.value)}
-                className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${
-                  filterMode === opt.value
-                    ? "bg-[#0f172a] text-white"
-                    : "bg-[#f1f5f9] text-[#475569] hover:bg-[#e2e8f0]"
-                }`}
-              >
-                {opt.label}
-              </button>
-            ))}
-            <button
-              onClick={() => onFilterModeChange("range")}
-              className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${
-                filterMode === "range"
-                  ? "bg-[#0f172a] text-white"
-                  : "bg-[#f1f5f9] text-[#475569] hover:bg-[#e2e8f0]"
-              }`}
-            >
-              Custom Range
-            </button>
-          </div>
-
-          {filterMode === "range" ? (
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <label className="text-sm text-[#475569]">From</label>
-              <input
-                type="month"
-                value={rangeStart.slice(0, 7)}
-                onChange={(e) => onRangeStartChange(`${e.target.value}-01`)}
-                className="rounded-lg border border-[#e2e8f0] px-3 py-1.5 text-sm text-[#0f172a]"
-              />
-              <label className="text-sm text-[#475569]">To</label>
-              <input
-                type="month"
-                value={rangeEnd.slice(0, 7)}
-                onChange={(e) => onRangeEndChange(`${e.target.value}-01`)}
-                className="rounded-lg border border-[#e2e8f0] px-3 py-1.5 text-sm text-[#0f172a]"
-              />
-            </div>
-          ) : null}
-        </>
+        <div className="mt-5 flex flex-wrap items-center gap-3">
+          <PnlMonthRangePicker
+            filterMode={filterMode}
+            rangeStart={rangeStart}
+            rangeEnd={rangeEnd}
+            onFilterModeChange={onFilterModeChange}
+            onRangeStartChange={onRangeStartChange}
+            onRangeEndChange={onRangeEndChange}
+          />
+        </div>
       ) : null}
     </div>
   );

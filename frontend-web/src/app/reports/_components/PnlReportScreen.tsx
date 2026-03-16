@@ -6,8 +6,9 @@ import { usePnlActiveImports } from "../pnl/_lib/usePnlActiveImports";
 import {
   currentMonthISO,
   formatMonthList,
-  sixMonthsAgoISO,
+  monthsAgoISO,
 } from "../pnl/_lib/pnlDisplay";
+import { buildPresentedPnlReport } from "../pnl/_lib/pnlPresentation";
 import { useResolvedPnlProfile } from "../pnl/_lib/useResolvedPnlProfile";
 import { usePnlReport } from "../pnl/_lib/usePnlReport";
 import {
@@ -30,9 +31,10 @@ type Props = {
 export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) {
   const supabase = useMemo(() => getBrowserSupabaseClient(), []);
   const resolved = useResolvedPnlProfile(clientSlug, marketplaceCode);
-  const [filterMode, setFilterMode] = useState<PnlFilterMode>("ytd");
-  const [rangeStart, setRangeStart] = useState<string>(sixMonthsAgoISO());
+  const [filterMode, setFilterMode] = useState<PnlFilterMode>("last_3");
+  const [rangeStart, setRangeStart] = useState<string>(monthsAgoISO(2));
   const [rangeEnd, setRangeEnd] = useState<string>(currentMonthISO());
+  const [showSettings, setShowSettings] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [createPending, setCreatePending] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -51,7 +53,14 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
   const months = report?.months ?? [];
   const lineItems = report?.line_items ?? [];
   const warnings = report?.warnings ?? [];
-  const provenanceState = usePnlActiveImports(profileId, months);
+  const presentedReport = useMemo(
+    () => buildPresentedPnlReport(months, lineItems, warnings),
+    [lineItems, months, warnings],
+  );
+  const provenanceState = usePnlActiveImports(
+    showSettings ? profileId : null,
+    showSettings ? months : [],
+  );
 
   const handleCreateProfile = async () => {
     const resolvedSummary = resolved.resolved;
@@ -101,6 +110,9 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
       );
       setSelectedFile(null);
       await reportState.loadReport(true);
+      if (showSettings) {
+        await provenanceState.loadActiveImports();
+      }
     } catch (error) {
       setUploadError(error instanceof Error ? error.message : "Unable to upload transaction report");
     } finally {
@@ -143,10 +155,12 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
         rangeStart={rangeStart}
         rangeEnd={rangeEnd}
         refreshing={reportState.refreshing}
+        settingsOpen={showSettings}
         onFilterModeChange={setFilterMode}
         onRangeStartChange={setRangeStart}
         onRangeEndChange={setRangeEnd}
         onRefresh={() => void reportState.loadReport(true)}
+        onToggleSettings={() => setShowSettings((value) => !value)}
       />
 
       {!profile ? (
@@ -158,30 +172,41 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
         />
       ) : null}
 
-      {profile ? (
-        <PnlUploadCard
-          selectedFileName={selectedFile?.name ?? null}
-          uploadPending={uploadPending}
-          uploadError={uploadError}
-          uploadSuccess={uploadSuccess}
-          onFileChange={setSelectedFile}
-          onUpload={() => void handleUpload()}
-        />
+      {profile && showSettings ? (
+        <div className="rounded-3xl bg-white/95 p-5 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur md:p-6">
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h2 className="text-lg font-semibold text-[#0f172a]">Monthly P&amp;L settings</h2>
+              <p className="mt-1 text-sm text-[#64748b]">
+                Upload backfill files and inspect the active import provenance for this
+                marketplace.
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-5 space-y-3">
+            <PnlUploadCard
+              selectedFileName={selectedFile?.name ?? null}
+              uploadPending={uploadPending}
+              uploadError={uploadError}
+              uploadSuccess={uploadSuccess}
+              onFileChange={setSelectedFile}
+              onUpload={() => void handleUpload()}
+            />
+            <PnlProvenanceCard
+              monthsInView={months}
+              activeImports={provenanceState.activeImports}
+              loading={provenanceState.loading}
+              errorMessage={provenanceState.errorMessage}
+            />
+          </div>
+        </div>
       ) : null}
 
-      {profile ? (
-        <PnlProvenanceCard
-          monthsInView={months}
-          activeImports={provenanceState.activeImports}
-          loading={provenanceState.loading}
-          errorMessage={provenanceState.errorMessage}
-        />
-      ) : null}
-
-      {warnings.length > 0 ? (
+      {presentedReport.warnings.length > 0 ? (
         <div className="rounded-3xl bg-white/95 p-5 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur md:p-6">
           <div className="space-y-2">
-            {warnings.map((warning, index) => (
+            {presentedReport.warnings.map((warning, index) => (
               <PnlWarningBanner key={index} warning={warning} />
             ))}
           </div>
@@ -196,8 +221,8 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
         </div>
       ) : null}
 
-      {months.length > 0 && lineItems.length > 0 ? (
-        <PnlReportTable months={months} lineItems={lineItems} />
+      {months.length > 0 && presentedReport.lineItems.length > 0 ? (
+        <PnlReportTable months={months} lineItems={presentedReport.lineItems} />
       ) : null}
 
       {profile && months.length === 0 && !reportState.errorMessage ? (

@@ -1,5 +1,11 @@
 import type { PnlImportMonth, PnlLineItem } from "./pnlApi";
 
+export type PnlValueFormat = "currency" | "percent";
+
+export type PnlPresentedLineItem = PnlLineItem & {
+  display_format?: PnlValueFormat;
+};
+
 export const FILTER_OPTIONS = [
   { value: "ytd", label: "Year to Date" },
   { value: "last_3", label: "Last 3 Months" },
@@ -15,6 +21,8 @@ export const SUMMARY_KEYS = new Set([
   "total_expenses",
   "net_earnings",
   "cogs",
+  "contribution_margin",
+  "net_margin",
 ]);
 
 export function formatMonth(iso: string): string {
@@ -22,9 +30,15 @@ export function formatMonth(iso: string): string {
   return d.toLocaleDateString("en-US", { month: "short", year: "numeric" });
 }
 
-export function formatAmount(value: string): string {
+export function formatAmount(value: string, format: PnlValueFormat = "currency"): string {
   const n = parseFloat(value);
   if (Number.isNaN(n)) return value;
+  if (format === "percent") {
+    return `${n.toLocaleString("en-US", {
+      minimumFractionDigits: 1,
+      maximumFractionDigits: 1,
+    })}%`;
+  }
   return n.toLocaleString("en-US", {
     style: "currency",
     currency: "USD",
@@ -46,13 +60,13 @@ export function formatTimestamp(value: string | null): string {
   });
 }
 
-export function lineItemRowClass(item: PnlLineItem): string {
+export function lineItemRowClass(item: PnlPresentedLineItem): string {
   if (item.key === "net_earnings") return "bg-[#0f172a] text-white font-semibold";
   if (SUMMARY_KEYS.has(item.key)) return "bg-[#f1f5f9] font-semibold";
   return "";
 }
 
-export function amountClass(value: string, item: PnlLineItem): string {
+export function amountClass(value: string, item: PnlPresentedLineItem): string {
   const n = parseFloat(value);
   if (Number.isNaN(n) || n === 0) return "text-[#94a3b8]";
   if (item.key === "net_earnings") return n < 0 ? "text-[#fca5a5]" : "text-white";
@@ -64,8 +78,12 @@ export function currentMonthISO(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
 }
 
-export function sixMonthsAgoISO(): string {
+export function monthsAgoISO(monthsBack: number): string {
   const d = new Date();
-  d.setMonth(d.getMonth() - 5);
+  d.setMonth(d.getMonth() - monthsBack);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+}
+
+export function formatMonthRangeLabel(startMonth: string, endMonth: string): string {
+  return `${formatMonth(startMonth)} - ${formatMonth(endMonth)}`;
 }
