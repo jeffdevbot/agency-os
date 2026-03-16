@@ -15,6 +15,42 @@ export type PnlProfile = {
   updated_at: string | null;
 };
 
+export type CreatePnlProfileRequest = {
+  clientId: string;
+  marketplaceCode: string;
+  currencyCode?: string;
+  notes?: string | null;
+};
+
+export type PnlImportMonth = {
+  id: string;
+  entry_month: string;
+  import_status: string;
+  is_active: boolean;
+  raw_row_count: number;
+  ledger_row_count: number;
+  mapped_amount: string;
+  unmapped_amount: string;
+};
+
+export type PnlImport = {
+  id: string;
+  profile_id: string;
+  source_filename: string | null;
+  import_status: string;
+  row_count: number;
+  error_message: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+export type PnlUploadResult = {
+  import: PnlImport;
+  months: PnlImportMonth[];
+};
+
 export type PnlLineItem = {
   key: string;
   label: string;
@@ -74,6 +110,67 @@ export async function listPnlProfiles(
   }
   const data = await response.json();
   return (data?.profiles ?? []) as PnlProfile[];
+}
+
+export async function createPnlProfile(
+  token: string,
+  request: CreatePnlProfileRequest,
+): Promise<PnlProfile> {
+  const response = await fetch(
+    `${getBackendUrl()}/admin/pnl/profiles`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        client_id: request.clientId,
+        marketplace_code: request.marketplaceCode,
+        currency_code: request.currencyCode ?? "USD",
+        notes: request.notes ?? null,
+      }),
+    },
+  );
+
+  if (!response.ok) {
+    const detail = await parseErrorDetail(response);
+    throw new Error(detail);
+  }
+
+  const data = await response.json();
+  return data.profile as PnlProfile;
+}
+
+export async function uploadPnlTransactionReport(
+  token: string,
+  profileId: string,
+  file: File,
+): Promise<PnlUploadResult> {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const response = await fetch(
+    `${getBackendUrl()}/admin/pnl/profiles/${profileId}/transaction-upload`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: formData,
+    },
+  );
+
+  if (!response.ok) {
+    const detail = await parseErrorDetail(response);
+    throw new Error(detail);
+  }
+
+  const data = await response.json();
+  return {
+    import: data.import as PnlImport,
+    months: (data.months ?? []) as PnlImportMonth[],
+  };
 }
 
 export async function getPnlReport(

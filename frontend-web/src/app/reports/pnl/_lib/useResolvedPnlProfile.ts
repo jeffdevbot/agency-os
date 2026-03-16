@@ -13,7 +13,7 @@ const normalizeMarketplaceCode = (value: string) => value.trim().toUpperCase();
 
 export type PnlClientSummary = {
   client: Client;
-  profile: PnlProfile;
+  profile: PnlProfile | null;
 };
 
 export function useResolvedPnlProfile(clientSlug: string, marketplaceCode: string) {
@@ -42,13 +42,7 @@ export function useResolvedPnlProfile(clientSlug: string, marketplaceCode: strin
         (p) => normalizeMarketplaceCode(p.marketplace_code) === normalizeMarketplaceCode(marketplaceCode),
       );
 
-      if (!matched) {
-        throw new Error(
-          `No P&L profile found for ${client.name} / ${normalizeMarketplaceCode(marketplaceCode)}.`,
-        );
-      }
-
-      setResolved({ client, profile: matched });
+      setResolved({ client, profile: matched ?? null });
     } catch (error) {
       setResolved(null);
       setErrorMessage(error instanceof Error ? error.message : "Unable to resolve P&L route");

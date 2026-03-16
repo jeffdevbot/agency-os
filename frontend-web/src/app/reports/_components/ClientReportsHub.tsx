@@ -58,7 +58,8 @@ export default function ClientReportsHub({ clientSlug }: Props) {
           {summary?.client.name ?? "Client Reports"}
         </h1>
         <p className="mt-2 text-sm text-[#4c576f]">
-          Select a marketplace-specific WBR profile. Settings and sync operations live inside each marketplace.
+          Select a marketplace-specific report surface for this client. WBR and Monthly P&amp;L now
+          live side by side at the marketplace level.
         </p>
 
         <div className="mt-6 flex flex-wrap gap-3">
@@ -117,16 +118,16 @@ export default function ClientReportsHub({ clientSlug }: Props) {
 
                 <div className="mt-4 flex flex-wrap gap-3">
                   <Link
-                    href={`/reports/${clientSlug}/${profile.marketplace_code.toLowerCase()}/wbr`}
-                    className="text-sm font-semibold text-[#0a6fd6] hover:underline"
+                    href={`/reports/${clientSlug}/${profile.marketplace_code.toLowerCase()}/pnl`}
+                    className="rounded-xl bg-[#0f172a] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#1e293b]"
                   >
-                    Open WBR
+                    Monthly P&amp;L
                   </Link>
                   <Link
-                    href={`/reports/${clientSlug}/${profile.marketplace_code.toLowerCase()}/pnl`}
-                    className="text-sm font-semibold text-[#0a6fd6] hover:underline"
+                    href={`/reports/${clientSlug}/${profile.marketplace_code.toLowerCase()}/wbr`}
+                    className="rounded-xl bg-[#0a6fd6] px-4 py-2 text-sm font-semibold text-white shadow-[0_15px_30px_rgba(10,111,214,0.2)] transition hover:bg-[#0959ab]"
                   >
-                    Monthly P&L
+                    Open WBR
                   </Link>
                   <Link
                     href={`/reports/${clientSlug}/${profile.marketplace_code.toLowerCase()}/wbr/settings`}
