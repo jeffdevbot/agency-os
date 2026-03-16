@@ -4,9 +4,9 @@ import { useMemo, useState } from "react";
 import { getBrowserSupabaseClient } from "@/lib/supabaseClient";
 import { usePnlActiveImports } from "../pnl/_lib/usePnlActiveImports";
 import {
-  currentMonthISO,
   formatMonthList,
-  monthsAgoISO,
+  lastCompletedMonthISO,
+  monthsBeforeISO,
 } from "../pnl/_lib/pnlDisplay";
 import { buildPresentedPnlReport } from "../pnl/_lib/pnlPresentation";
 import { useResolvedPnlProfile } from "../pnl/_lib/useResolvedPnlProfile";
@@ -31,9 +31,11 @@ type Props = {
 export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) {
   const supabase = useMemo(() => getBrowserSupabaseClient(), []);
   const resolved = useResolvedPnlProfile(clientSlug, marketplaceCode);
-  const [filterMode, setFilterMode] = useState<PnlFilterMode>("last_3");
-  const [rangeStart, setRangeStart] = useState<string>(monthsAgoISO(2));
-  const [rangeEnd, setRangeEnd] = useState<string>(currentMonthISO());
+  const defaultRangeEnd = useMemo(() => lastCompletedMonthISO(), []);
+  const defaultRangeStart = useMemo(() => monthsBeforeISO(defaultRangeEnd, 2), [defaultRangeEnd]);
+  const [filterMode, setFilterMode] = useState<PnlFilterMode>("range");
+  const [rangeStart, setRangeStart] = useState<string>(defaultRangeStart);
+  const [rangeEnd, setRangeEnd] = useState<string>(defaultRangeEnd);
   const [showSettings, setShowSettings] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [createPending, setCreatePending] = useState(false);

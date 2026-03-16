@@ -78,8 +78,20 @@ export function currentMonthISO(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
 }
 
+export function lastCompletedMonthISO(): string {
+  const d = new Date();
+  d.setMonth(d.getMonth() - 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+}
+
 export function monthsAgoISO(monthsBack: number): string {
   const d = new Date();
+  d.setMonth(d.getMonth() - monthsBack);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+}
+
+export function monthsBeforeISO(anchorMonth: string, monthsBack: number): string {
+  const d = new Date(`${anchorMonth}T00:00:00`);
   d.setMonth(d.getMonth() - monthsBack);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
 }
