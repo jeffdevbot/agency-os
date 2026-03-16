@@ -27,13 +27,11 @@ REVENUE_BUCKETS = [
 
 REFUND_BUCKETS = [
     ("refunds", "Product Refunds", "refunds"),
+    ("fba_inventory_credit", "FBA Inventory Credits", "refunds"),
     ("shipping_credit_refunds", "Shipping Credit Refunds", "refunds"),
     ("gift_wrap_credit_refunds", "Gift Wrap Credit Refunds", "refunds"),
+    ("promotional_rebates", "Promotional Rebates", "refunds"),
     ("promotional_rebate_refunds", "Promotional Rebate Refunds", "refunds"),
-]
-
-PROMO_BUCKETS = [
-    ("promotional_rebates", "Promotional Rebates", "promos"),
 ]
 
 EXPENSE_BUCKETS = [
@@ -48,7 +46,6 @@ EXPENSE_BUCKETS = [
     ("other_transaction_fees", "Other Transaction Fees", "expenses"),
     ("marketplace_withheld_tax", "Marketplace Withheld Tax", "expenses"),
     ("service_fee", "Other Service Fees", "expenses"),
-    ("fba_inventory_credit", "FBA Inventory Credits", "expenses"),
 ]
 
 # Buckets excluded from the P&L (non-operational)
@@ -71,22 +68,10 @@ def _resolve_months(
 
     if filter_mode == "ytd":
         return date(today.year, 1, 1), first_of_this_month
-    elif filter_mode == "last_3":
-        m = today.month - 3
-        y = today.year
-        while m < 1:
-            m += 12
-            y -= 1
-        return date(y, m, 1), first_of_this_month
-    elif filter_mode == "last_6":
-        m = today.month - 6
-        y = today.year
-        while m < 1:
-            m += 12
-            y -= 1
-        return date(y, m, 1), first_of_this_month
-    elif filter_mode == "last_12":
-        m = today.month - 12
+    elif filter_mode in ("last_3", "last_6", "last_12"):
+        # "last_N" = current month + previous N-1 months (N total)
+        n = {"last_3": 3, "last_6": 6, "last_12": 12}[filter_mode]
+        m = today.month - (n - 1)
         y = today.year
         while m < 1:
             m += 12
@@ -162,23 +147,18 @@ class PNLReportService:
             month_keys, [b[0] for b in REVENUE_BUCKETS], bucket_totals,
         ))
 
-        # Refunds section
+        # Refunds & adjustments section
         for key, label, cat in REFUND_BUCKETS:
             line_items.append(self._bucket_line(key, label, cat, month_keys, bucket_totals))
         line_items.append(self._derived_line(
-            "total_refunds", "Total Refunds", "summary",
+            "total_refunds", "Total Refunds & Adjustments", "summary",
             month_keys, [b[0] for b in REFUND_BUCKETS], bucket_totals,
         ))
 
-        # Promos
-        for key, label, cat in PROMO_BUCKETS:
-            line_items.append(self._bucket_line(key, label, cat, month_keys, bucket_totals))
-
-        # Net Revenue = Gross Revenue + Refunds + Promos
+        # Net Revenue = Gross Revenue + Refunds/Adjustments
         net_rev_sources = (
             [b[0] for b in REVENUE_BUCKETS]
             + [b[0] for b in REFUND_BUCKETS]
-            + [b[0] for b in PROMO_BUCKETS]
         )
         line_items.append(self._derived_line(
             "total_net_revenue", "Total Net Revenue", "summary",
@@ -315,7 +295,7 @@ class PNLReportService:
         """Return {month_iso: total_cogs}."""
         response = (
             self.db.table("monthly_pnl_cogs_monthly")
-            .select("entry_month, cogs_amount")
+            .select("entry_month, amount")
             .eq("profile_id", profile_id)
             .gte("entry_month", start.isoformat())
             .lte("entry_month", end.isoformat())
@@ -325,7 +305,7 @@ class PNLReportService:
         totals: dict[str, Decimal] = {}
         for row in rows:
             month = row["entry_month"]
-            amount = Decimal(str(row["cogs_amount"]))
+            amount = Decimal(str(row["amount"]))
             totals[month] = totals.get(month, Decimal("0")) + amount
         return totals
 

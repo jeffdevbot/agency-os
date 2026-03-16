@@ -58,12 +58,27 @@ function amountClass(value: string, item: PnlLineItem): string {
 
 // ── Component ────────────────────────────────────────────────────────
 
+function currentMonthISO(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+}
+
+function sixMonthsAgoISO(): string {
+  const d = new Date();
+  d.setMonth(d.getMonth() - 5);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+}
+
 export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) {
   const resolved = useResolvedPnlProfile(clientSlug, marketplaceCode);
   const [filterMode, setFilterMode] = useState<PnlFilterMode>("ytd");
+  const [rangeStart, setRangeStart] = useState(sixMonthsAgoISO);
+  const [rangeEnd, setRangeEnd] = useState(currentMonthISO);
   const reportState = usePnlReport(
     resolved.resolved?.profile.id ?? null,
     filterMode,
+    filterMode === "range" ? rangeStart : undefined,
+    filterMode === "range" ? rangeEnd : undefined,
   );
 
   // Loading state
@@ -137,7 +152,35 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
               {opt.label}
             </button>
           ))}
+          <button
+            onClick={() => setFilterMode("range")}
+            className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${
+              filterMode === "range"
+                ? "bg-[#0f172a] text-white"
+                : "bg-[#f1f5f9] text-[#475569] hover:bg-[#e2e8f0]"
+            }`}
+          >
+            Custom Range
+          </button>
         </div>
+        {filterMode === "range" && (
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <label className="text-sm text-[#475569]">From</label>
+            <input
+              type="month"
+              value={rangeStart.slice(0, 7)}
+              onChange={(e) => setRangeStart(e.target.value + "-01")}
+              className="rounded-lg border border-[#e2e8f0] px-3 py-1.5 text-sm text-[#0f172a]"
+            />
+            <label className="text-sm text-[#475569]">To</label>
+            <input
+              type="month"
+              value={rangeEnd.slice(0, 7)}
+              onChange={(e) => setRangeEnd(e.target.value + "-01")}
+              className="rounded-lg border border-[#e2e8f0] px-3 py-1.5 text-sm text-[#0f172a]"
+            />
+          </div>
+        )}
       </div>
 
       {/* Warnings */}
