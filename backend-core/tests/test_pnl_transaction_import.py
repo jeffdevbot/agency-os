@@ -106,6 +106,15 @@ def _make_rules() -> list[MappingRule]:
             target_bucket="chargebacks",
             priority=20,
         ),
+        MappingRule(
+            id="rule-removal",
+            profile_id=None,
+            source_type="amazon_transaction_upload",
+            match_spec={"type": "FBA Inventory Fee", "description": "FBA Removal Order"},
+            match_operator="starts_with",
+            target_bucket="fba_removal_order_fees",
+            priority=10,
+        ),
     ]
 
 
@@ -442,9 +451,29 @@ class TestLedgerExpansion:
         assert entries[0].is_mapped is True
         assert entries[0].mapping_rule_id == "rule-chargeback"
 
-    def test_liquidations_split_into_proceeds_and_fees(self):
+    def test_fba_removal_order_description_prefix_maps_to_removal_bucket(self):
         raw_row = ParsedRawRow(
             row_index=7,
+            posted_at=datetime(2025, 12, 9, tzinfo=UTC),
+            release_at=datetime(2025, 12, 9, tzinfo=UTC),
+            order_id="114-7325620-2303403",
+            sku=None,
+            raw_type="FBA Inventory Fee",
+            raw_description="FBA Removal Order: Disposal Fee",
+            entry_month=date(2025, 12, 1),
+            amounts={"other": Decimal("-3.95")},
+            raw_payload={},
+        )
+        entries = expand_raw_row_to_ledger(raw_row, _make_rules(), None)
+
+        assert len(entries) == 1
+        assert entries[0].ledger_bucket == "fba_removal_order_fees"
+        assert entries[0].amount == Decimal("-3.95")
+        assert entries[0].mapping_rule_id == "rule-removal"
+
+    def test_liquidations_split_into_proceeds_and_fees(self):
+        raw_row = ParsedRawRow(
+            row_index=8,
             posted_at=datetime(2025, 12, 12, tzinfo=UTC),
             release_at=datetime(2025, 12, 17, tzinfo=UTC),
             order_id=None,
@@ -466,6 +495,31 @@ class TestLedgerExpansion:
         assert buckets["liquidation_fees"] == Decimal("-7.50")
         assert buckets["unmapped"] == Decimal("-1.25")
 
+    def test_refund_other_maps_to_refunds_bucket(self):
+        raw_row = ParsedRawRow(
+            row_index=9,
+            posted_at=datetime(2025, 12, 15, tzinfo=UTC),
+            release_at=datetime(2025, 12, 15, tzinfo=UTC),
+            order_id="111-2295089-9668224",
+            sku="1FGAMZDUO",
+            raw_type="Refund",
+            raw_description="WHOOSH! Screen Shine Duo",
+            entry_month=date(2025, 12, 1),
+            amounts={
+                "product_sales": Decimal("-10.00"),
+                "other": Decimal("3.60"),
+            },
+            raw_payload={},
+        )
+        entries = expand_raw_row_to_ledger(raw_row, _make_rules(), None)
+        refund_amounts = sorted(
+            [e.amount for e in entries if e.ledger_bucket == "refunds"],
+            key=lambda value: value,
+        )
+
+        assert refund_amounts == [Decimal("-10.00"), Decimal("3.60")]
+        assert len(entries) == 2
+
     def test_row_with_no_entry_month_produces_no_entries(self):
         raw_row = ParsedRawRow(
             row_index=0,
@@ -482,7 +536,7 @@ class TestLedgerExpansion:
         entries = expand_raw_row_to_ledger(raw_row, _make_rules(), None)
         assert entries == []
 
-    def test_other_column_on_order_row_is_unmapped(self):
+    def test_other_column_on_order_row_maps_to_other_transaction_fees(self):
         raw_row = ParsedRawRow(
             row_index=0,
             posted_at=datetime(2026, 1, 1, tzinfo=UTC),
@@ -496,10 +550,10 @@ class TestLedgerExpansion:
             raw_payload={},
         )
         entries = expand_raw_row_to_ledger(raw_row, _make_rules(), None)
-        unmapped = [e for e in entries if not e.is_mapped]
-        assert len(unmapped) == 1
-        assert unmapped[0].ledger_bucket == "unmapped"
-        assert unmapped[0].amount == Decimal("-2.00")
+        other_fees = [e for e in entries if e.ledger_bucket == "other_transaction_fees"]
+        assert len(other_fees) == 1
+        assert other_fees[0].amount == Decimal("-2.00")
+        assert other_fees[0].is_mapped is True
 
 
 # ── Service integration tests (mocked DB) ────────────────────────────

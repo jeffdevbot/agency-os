@@ -470,20 +470,50 @@ def expand_raw_row_to_ledger(
         is_refund = (raw_type or "").strip() == "Refund"
         for col_name, amount in raw_row.amounts.items():
             if col_name == "other":
-                # "other" column on normal rows → unmapped unless there's a rule
-                entries.append(LedgerEntry(
-                    entry_month=raw_row.entry_month,
-                    posted_at=raw_row.posted_at,
-                    order_id=raw_row.order_id,
-                    sku=raw_row.sku,
-                    raw_type=raw_type,
-                    raw_description=raw_description,
-                    ledger_bucket="unmapped",
-                    amount=amount,
-                    is_mapped=False,
-                    mapping_rule_id=None,
-                    source_row_index=raw_row.row_index,
-                ))
+                # The manual workbook treats Order/Refund "other" amounts as
+                # real P&L lines rather than generic unmapped noise.
+                if normalized_type == "Order":
+                    entries.append(LedgerEntry(
+                        entry_month=raw_row.entry_month,
+                        posted_at=raw_row.posted_at,
+                        order_id=raw_row.order_id,
+                        sku=raw_row.sku,
+                        raw_type=raw_type,
+                        raw_description=raw_description,
+                        ledger_bucket="other_transaction_fees",
+                        amount=amount,
+                        is_mapped=True,
+                        mapping_rule_id=None,
+                        source_row_index=raw_row.row_index,
+                    ))
+                elif normalized_type == "Refund":
+                    entries.append(LedgerEntry(
+                        entry_month=raw_row.entry_month,
+                        posted_at=raw_row.posted_at,
+                        order_id=raw_row.order_id,
+                        sku=raw_row.sku,
+                        raw_type=raw_type,
+                        raw_description=raw_description,
+                        ledger_bucket="refunds",
+                        amount=amount,
+                        is_mapped=True,
+                        mapping_rule_id=None,
+                        source_row_index=raw_row.row_index,
+                    ))
+                else:
+                    entries.append(LedgerEntry(
+                        entry_month=raw_row.entry_month,
+                        posted_at=raw_row.posted_at,
+                        order_id=raw_row.order_id,
+                        sku=raw_row.sku,
+                        raw_type=raw_type,
+                        raw_description=raw_description,
+                        ledger_bucket="unmapped",
+                        amount=amount,
+                        is_mapped=False,
+                        mapping_rule_id=None,
+                        source_row_index=raw_row.row_index,
+                    ))
                 continue
 
             base_bucket = COLUMN_BUCKET_MAP.get(col_name)
