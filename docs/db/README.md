@@ -7,7 +7,12 @@
 
 ## Regeneration
 
-- Run `scripts/db/generate-schema-master.sh` after schema migrations.
+- Run `scripts/db/generate-schema-master.sh --linked` after schema migrations when
+  your Supabase CLI project link is configured.
+- Or run `scripts/db/generate-schema-master.sh --db-url "$SUPABASE_DB_URL"` when
+  you want to target a specific remote database explicitly.
+- Use `scripts/db/generate-schema-master.sh --check` to detect drift without
+  overwriting the file.
 - Commit migration + refreshed `docs/db/schema_master.md` in the same PR.
 
 ## Legacy Schema Docs
