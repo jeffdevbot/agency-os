@@ -38,18 +38,17 @@ EXPENSE_BUCKETS = [
     ("referral_fees", "Referral Fees", "expenses"),
     ("fba_fees", "FBA Fulfillment Fees", "expenses"),
     ("advertising", "Advertising", "expenses"),
+    ("promotions_fees", "Promotions Fees", "expenses"),
     ("subscription_fees", "Subscription Fees", "expenses"),
     ("fba_monthly_storage_fees", "FBA Monthly Storage Fees", "expenses"),
     ("fba_long_term_storage_fees", "FBA Long-Term Storage Fees", "expenses"),
     ("fba_removal_order_fees", "FBA Removal / Disposal Fees", "expenses"),
     ("inbound_placement_and_defect_fees", "Inbound Placement & Defect Fees", "expenses"),
     ("other_transaction_fees", "Other Transaction Fees", "expenses"),
-    ("marketplace_withheld_tax", "Marketplace Withheld Tax", "expenses"),
     ("service_fee", "Other Service Fees", "expenses"),
 ]
 
-# Buckets excluded from the P&L (non-operational)
-NON_PNL_BUCKETS = {"non_pnl_transfer", "unmapped"}
+LEDGER_PAGE_SIZE = 1_000
 
 
 def _q(d: Decimal) -> str:
@@ -264,6 +263,10 @@ class PNLReportService:
         self, profile_id: str, start: date, end: date
     ) -> dict[str, dict[str, Decimal]]:
         """Return {bucket: {month_iso: total}} from active import months only."""
+        rpc_totals = self._load_ledger_totals_via_rpc(profile_id, start, end)
+        if rpc_totals is not None:
+            return rpc_totals
+
         rows = self._fetch_all_rows(
             lambda offset, page_size: (
                 self.db.table("monthly_pnl_ledger_entries")
@@ -273,7 +276,8 @@ class PNLReportService:
                 .lte("entry_month", end.isoformat())
                 .order("id")
                 .range(offset, offset + page_size - 1)
-            )
+            ),
+            page_size=LEDGER_PAGE_SIZE,
         )
 
         # Load active import_month IDs to filter
@@ -286,6 +290,37 @@ class PNLReportService:
             bucket = row["ledger_bucket"]
             month = row["entry_month"]
             amount = Decimal(str(row["amount"]))
+            if bucket not in totals:
+                totals[bucket] = {}
+            totals[bucket][month] = totals[bucket].get(month, Decimal("0")) + amount
+        return totals
+
+    def _load_ledger_totals_via_rpc(
+        self, profile_id: str, start: date, end: date
+    ) -> dict[str, dict[str, Decimal]] | None:
+        try:
+            response = self.db.rpc(
+                "pnl_report_bucket_totals",
+                {
+                    "p_profile_id": profile_id,
+                    "p_start_month": start.isoformat(),
+                    "p_end_month": end.isoformat(),
+                },
+            ).execute()
+        except Exception:
+            return None
+
+        rows = response.data
+        if not isinstance(rows, list):
+            return None
+
+        totals: dict[str, dict[str, Decimal]] = {}
+        for row in rows:
+            bucket = row.get("ledger_bucket")
+            month = row.get("entry_month")
+            if not bucket or not month:
+                continue
+            amount = Decimal(str(row.get("amount", "0")))
             if bucket not in totals:
                 totals[bucket] = {}
             totals[bucket][month] = totals[bucket].get(month, Decimal("0")) + amount

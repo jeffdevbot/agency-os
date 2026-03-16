@@ -79,6 +79,15 @@ def _make_rules() -> list[MappingRule]:
             target_bucket="subscription_fees",
             priority=10,
         ),
+        MappingRule(
+            id="rule-vine",
+            profile_id=None,
+            source_type="amazon_transaction_upload",
+            match_spec={"type": "Amazon Fees", "description": "Vine Enrollment Fee"},
+            match_operator="exact_fields",
+            target_bucket="promotions_fees",
+            priority=10,
+        ),
     ]
 
 
@@ -335,6 +344,26 @@ class TestLedgerExpansion:
         entries = expand_raw_row_to_ledger(raw_row, _make_rules(), None)
         assert len(entries) == 1
         assert entries[0].ledger_bucket == "non_pnl_transfer"
+
+    def test_amazon_fees_vine_maps_to_promotions_fees(self):
+        raw_row = ParsedRawRow(
+            row_index=4,
+            posted_at=datetime(2026, 2, 10, tzinfo=UTC),
+            release_at=datetime(2026, 2, 12, tzinfo=UTC),
+            order_id=None,
+            sku=None,
+            raw_type="Amazon Fees",
+            raw_description="Vine Enrollment Fee",
+            entry_month=date(2026, 2, 1),
+            amounts={"selling_fees": Decimal("-200.00")},
+            raw_payload={},
+        )
+        entries = expand_raw_row_to_ledger(raw_row, _make_rules(), None)
+        assert len(entries) == 1
+        assert entries[0].ledger_bucket == "promotions_fees"
+        assert entries[0].amount == Decimal("-200.00")
+        assert entries[0].is_mapped is True
+        assert entries[0].mapping_rule_id == "rule-vine"
 
     def test_row_with_no_entry_month_produces_no_entries(self):
         raw_row = ParsedRawRow(

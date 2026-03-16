@@ -154,6 +154,8 @@ FAKE_LEDGER_ENTRIES = [
     {"entry_month": "2026-01-01", "ledger_bucket": "referral_fees", "amount": "-15.00", "import_month_id": "im1"},
     {"entry_month": "2026-01-01", "ledger_bucket": "fba_fees", "amount": "-8.00", "import_month_id": "im1"},
     {"entry_month": "2026-01-01", "ledger_bucket": "advertising", "amount": "-25.00", "import_month_id": "im1"},
+    {"entry_month": "2026-01-01", "ledger_bucket": "promotions_fees", "amount": "-4.00", "import_month_id": "im1"},
+    {"entry_month": "2026-01-01", "ledger_bucket": "marketplace_withheld_tax", "amount": "-12.00", "import_month_id": "im1"},
     {"entry_month": "2026-01-01", "ledger_bucket": "non_pnl_transfer", "amount": "-500.00", "import_month_id": "im1"},
     {"entry_month": "2026-02-01", "ledger_bucket": "product_sales", "amount": "200.00", "import_month_id": "im2"},
     {"entry_month": "2026-02-01", "ledger_bucket": "referral_fees", "amount": "-30.00", "import_month_id": "im2"},
@@ -288,6 +290,53 @@ class TestPNLReportService:
         assert items["product_sales"]["months"]["2026-01-01"] == "1001.00"
         assert ledger_table.range.call_count == 2
 
+    def test_report_uses_bucket_totals_rpc_when_available(self):
+        profiles_table = _chain_table([FAKE_PROFILE])
+        cogs_table = _chain_table([])
+
+        call_count = {"import_months": 0}
+
+        def import_months_factory():
+            call_count["import_months"] += 1
+            if call_count["import_months"] == 1:
+                return _chain_table([{"entry_month": "2026-01-01", "unmapped_amount": "0"}])
+            return _chain_table([{"entry_month": "2026-01-01"}])
+
+        ledger_table = MagicMock()
+        ledger_table.select.side_effect = AssertionError("ledger fallback should not run")
+
+        rpc_chain = MagicMock()
+        rpc_chain.execute.return_value = MagicMock(data=[
+            {"entry_month": "2026-01-01", "ledger_bucket": "product_sales", "amount": "100.00"},
+            {"entry_month": "2026-01-01", "ledger_bucket": "advertising", "amount": "-25.00"},
+        ])
+
+        db = MagicMock()
+
+        def table_router(name):
+            if name == "monthly_pnl_profiles":
+                return profiles_table
+            if name == "monthly_pnl_ledger_entries":
+                return ledger_table
+            if name == "monthly_pnl_cogs_monthly":
+                return cogs_table
+            if name == "monthly_pnl_import_months":
+                return import_months_factory()
+            return _chain_table()
+
+        db.table.side_effect = table_router
+        db.rpc.return_value = rpc_chain
+
+        svc = PNLReportService(db)
+        report = svc.build_report(
+            "p1", filter_mode="range", start_month="2026-01-01", end_month="2026-01-01"
+        )
+
+        items = {li["key"]: li for li in report["line_items"]}
+        assert items["product_sales"]["months"]["2026-01-01"] == "100.00"
+        assert items["advertising"]["months"]["2026-01-01"] == "-25.00"
+        db.rpc.assert_called_once()
+
     def test_report_line_item_keys(self):
         svc = self._make_service()
         report = svc.build_report(
@@ -303,6 +352,7 @@ class TestPNLReportService:
         assert "total_net_revenue" in keys
         assert "cogs" in keys
         assert "gross_profit" in keys
+        assert "promotions_fees" in keys
         assert "total_expenses" in keys
         assert "net_earnings" in keys
 
@@ -379,11 +429,11 @@ class TestPNLReportService:
             "p1", filter_mode="range", start_month="2026-01-01", end_month="2026-02-01"
         )
         items = {li["key"]: li for li in report["line_items"]}
-        # Jan expenses: referral=-15, fba=-8, advertising=-25 → total=-48
-        # (fba_inventory_credit is no longer in expenses)
-        assert items["total_expenses"]["months"]["2026-01-01"] == "-48.00"
-        # Jan net_earnings: gross_profit=62 + expenses=-48 → 14
-        assert items["net_earnings"]["months"]["2026-01-01"] == "14.00"
+        # Jan expenses: referral=-15, fba=-8, advertising=-25, promotions=-4 → total=-52
+        # marketplace_withheld_tax is excluded as pass-through tax.
+        assert items["total_expenses"]["months"]["2026-01-01"] == "-52.00"
+        # Jan net_earnings: gross_profit=62 + expenses=-52 → 10
+        assert items["net_earnings"]["months"]["2026-01-01"] == "10.00"
 
     def test_fba_inventory_credit_not_in_expenses(self):
         """fba_inventory_credit moved to refunds section, should not appear as an expense."""
@@ -404,6 +454,7 @@ class TestPNLReportService:
         keys = [li["key"] for li in report["line_items"]]
         assert "non_pnl_transfer" not in keys
         assert "unmapped" not in keys
+        assert "marketplace_withheld_tax" not in keys
 
     def test_derived_lines_flagged(self):
         svc = self._make_service()

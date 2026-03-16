@@ -4,6 +4,34 @@ _Last updated: 2026-03-16 (ET)_
 
 This is the fast restart point for the current Monthly P&L build.
 
+## Current status after the latest debugging session
+
+This is the actual state as of the end of the March 16 session:
+
+1. Real production re-import of `/Users/jeff/Downloads/2025DecMonthlyUnifiedTransaction.csv` succeeded.
+2. Profile under test:
+   - `c8e854cf-b989-4e3f-8cf4-58a43507c67a`
+3. Successful replacement import:
+   - `c18a2d89-bd83-4662-86d2-d59afec26e53`
+   - created `2026-03-16 13:24:31+00`
+   - finished `2026-03-16 13:25:47+00`
+4. The stale bad import month slices are no longer active.
+   - Active month set is now only `2025-12-01`
+   - Old `2026-01-01` slice from the bad import is inactive
+5. The earlier upload failures were real duplicate-SHA DB failures on the old unique index state.
+6. The remaining production problem is now the report path, not the upload path.
+   - `GET /admin/pnl/profiles/{profile_id}/report` works but is too slow live
+   - direct measurement against production took about `92s` for Dec 2025
+   - local report build against live data with the old row-by-row path took about `42s`
+7. Local code changes were made but are not deployed yet.
+8. New local migrations were added but are not applied live yet:
+   - `20260316190000_add_monthly_pnl_vine_fee_mapping.sql`
+   - `20260316191000_add_monthly_pnl_report_bucket_totals_rpc.sql`
+9. Focused backend tests pass locally:
+   - `backend-core/tests/test_pnl_report.py`
+   - `backend-core/tests/test_pnl_transaction_import.py`
+   - result: `67 passed`
+
 ## Current shipped state
 
 Relevant commits on `main`:
@@ -24,14 +52,18 @@ Monthly P&L foundation migration was applied live:
 
 1. `20260315200000_monthly_pnl_phase1_foundation.sql`
 
-Follow-up migration exists in repo but may or may not be applied live:
+This follow-up migration now appears effectively live because same-SHA successful
+re-imports are now possible while prior successful imports still exist:
 
 1. `20260316173000_allow_monthly_pnl_reimport_same_sha.sql`
 
 Important:
 
-1. `f4acff1` added a backend fallback so same-file reimport should still work even if the follow-up unique-index migration was not applied yet.
-2. The migration is still the correct schema state and should be applied eventually.
+1. Earlier failed re-import attempts on March 16 still show the old duplicate-SHA DB error in `monthly_pnl_imports.error_message`.
+2. Later successful re-imports with the same SHA prove the live DB no longer blocks them the old way.
+3. Two newer migrations exist locally but are not applied live yet:
+   - `20260316190000_add_monthly_pnl_vine_fee_mapping.sql`
+   - `20260316191000_add_monthly_pnl_report_bucket_totals_rpc.sql`
 
 ## Current user-facing routes
 
@@ -80,7 +112,8 @@ Admin/backend routes:
 
 ## Real live validation status
 
-This is **not** fully working yet in production.
+This is still **not fully production-correct**, but the state is materially
+better than at the start of the session.
 
 ### Actual user session outcome
 
@@ -88,19 +121,20 @@ Using the real file:
 
 1. `/Users/jeff/Downloads/2025DecMonthlyUnifiedTransaction.csv`
 
-Observed:
+Observed across the full debugging sequence:
 
-1. Initial upload eventually ran.
-2. Report values were wrong.
-3. A bad `Jan 2026` column appeared even though the file is a December 2025 transaction export.
-4. Same-file reupload originally failed with:
-   - `This file has already been imported (import ...)`
-5. After the reimport/supersede fixes were pushed, the next live symptom became:
-   - `Transaction import failed`
-   - backend log: `POST /admin/pnl/profiles/{profile_id}/transaction-upload HTTP/1.1" 500`
-6. After refresh, the user saw:
-   - `Failed to list P&L profiles`
-   even though the visible backend log snippet showed `GET /admin/pnl/profiles?... 200`
+1. Initial upload ran but produced wrong values.
+2. A bad `Jan 2026` column appeared because the old importer used release date first.
+3. Same-file reupload originally failed on duplicate SHA handling.
+4. Multiple March 16 reupload attempts then failed with duplicate key errors on:
+   - `uq_monthly_pnl_imports_profile_source_sha256`
+5. Production replacement import later succeeded:
+   - `7462325a-c020-4a63-a382-1ccfc422fa36`
+6. A second real production replacement import also succeeded:
+   - `c18a2d89-bd83-4662-86d2-d59afec26e53`
+7. The bad January slice is now inactive.
+8. The next live blocker is the report path being too slow.
+9. Production `GET /report` can return eventually, but it is not safe at current latency.
 
 ### Why the bad January column existed
 
@@ -110,11 +144,15 @@ That caused December file rows to spill into `2026-01-01` month slices.
 
 That behavior reproduced the live bad January values almost exactly.
 
-### Why January is probably still showing
+### Why January is no longer showing
 
-The stale `Jan 2026` month slice will remain visible until a successful replacement import supersedes/deactivates it.
+The successful replacement import superseded the bad old import and deactivated
+its month slices.
 
-If reupload fails, the old bad active month slice remains active.
+Current active slice state for the validation profile:
+
+1. `2025-12-01` active on import `c18a2d89-bd83-4662-86d2-d59afec26e53`
+2. `2026-01-01` inactive on old import `32ca51f6-5939-43f9-bf60-224e0eb24c52`
 
 ## Real file observations
 
@@ -132,38 +170,55 @@ Important reconciliation note:
 
 ## Known remaining open issues
 
-### 1. Live `transaction-upload` still returns 500
+### 1. Report endpoint is too slow live
 
-Most recent symptom:
+What was confirmed:
 
-1. `POST /admin/pnl/profiles/c8e854cf-b989-4e3f-8cf4-58a43507c67a/transaction-upload HTTP/1.1" 500`
+1. Direct production call to:
+   - `GET /admin/pnl/profiles/{profile_id}/report?filter_mode=range&start_month=2025-12-01&end_month=2025-12-01`
+   completed in about `92s`
+2. Local report build against live Supabase data with the current deployed logic took about `42s`
+3. Root cause is the report service paging through every ledger row for active months instead of aggregating server-side
 
-Most likely causes to verify first:
+Local fix prepared:
 
-1. Latest backend deploy from `f4acff1` was not yet live when the user tested.
-2. The fallback path in `f4acff1` is not the failing path; some other PostgREST/database error is occurring during import.
-3. There is a second DB constraint failure after the import insert retry.
+1. Added RPC-first aggregation path in:
+   - `backend-core/app/services/pnl/report.py`
+2. Added migration:
+   - `20260316191000_add_monthly_pnl_report_bucket_totals_rpc.sql`
+3. The service falls back to the older row-fetch path if the RPC is unavailable
 
-### 2. Stale active January month slice remains visible
+### 2. December reconciliation is still not fully aligned
 
-This is likely just a consequence of the failed replacement import.
+Important current findings:
 
-If not, inspect `monthly_pnl_import_months` for active stale rows after the next successful retry.
+1. Live production report before the local undeployed fix showed:
+   - `marketplace_withheld_tax` as an expense, overstating expenses by about `23,491.38`
+2. Local fix removes `marketplace_withheld_tax` from expense lines because it behaves like pass-through tax for this file
+3. Local fix also adds:
+   - `promotions_fees`
+   - `Amazon Fees / Vine Enrollment Fee -> promotions_fees`
+4. Even after those changes, December still does not fully match the agency manual spreadsheet
 
-### 3. `Failed to list P&L profiles` after refresh
+Post-fix expected December deltas versus the manual spreadsheet are roughly:
 
-This needs investigation.
+1. `product_sales`: `+1,734.53`
+2. `shipping_credits`: `+35.16`
+3. `total_net_revenue`: `+1,723.90`
+4. `referral_fees`: `-258.68`
+5. `fba_fees`: `-375.21`
+6. `promotions_fees`: still `+245.00` lighter than manual
+7. `total_expenses` excluding withheld tax: `-388.91`
+8. `COGS` is still missing entirely in-system, so bottom-line reconciliation cannot finish yet
 
-The visible user-provided log snippet showed:
+### 3. Supabase MCP auth is complete, but this chat session is stale
 
-1. `GET /admin/pnl/profiles?... 200`
+What was confirmed:
 
-So the frontend may be:
-
-1. surfacing a stale/generic error
-2. failing on response parsing
-3. racing against another request and mapping the wrong error to the page
-4. or the relevant failing request was not included in the log snippet
+1. `codex mcp login supabase --enable rmcp_client` succeeded
+2. This current chat still sees stale MCP worker state and returns:
+   - `Auth required`
+3. The next fresh chat should be used to test Supabase MCP first
 
 ## What the numbers should roughly be
 
@@ -219,17 +274,22 @@ Tests:
 
 ## First debugging steps for the next session
 
-1. Confirm the latest backend commit deployed on Render:
-   - `f4acff1`
-2. Reproduce the upload with the real December file.
-3. Capture the full backend exception/trace for the `500` on:
-   - `POST /admin/pnl/profiles/{profile_id}/transaction-upload`
-4. Inspect live DB rows for this profile:
-   - `monthly_pnl_imports`
-   - `monthly_pnl_import_months`
-5. Confirm whether active Jan 2026 rows are still tied to the old import.
-6. If the replacement import still fails, patch the exact failing DB/service path rather than guessing.
-7. Once upload succeeds, compare the rendered December report against the manual spreadsheet and fix remaining mapping/model deltas.
+1. Start in a fresh chat and test Supabase MCP immediately.
+2. Read:
+   - `docs/monthly_pnl_handoff.md`
+   - `docs/monthly_pnl_resume_prompt.md`
+   - `docs/monthly_pnl_implementation_plan.md`
+3. Confirm local uncommitted P&L changes still match:
+   - `backend-core/app/services/pnl/report.py`
+   - `backend-core/tests/test_pnl_report.py`
+   - `backend-core/tests/test_pnl_transaction_import.py`
+   - `supabase/migrations/20260316190000_add_monthly_pnl_vine_fee_mapping.sql`
+   - `supabase/migrations/20260316191000_add_monthly_pnl_report_bucket_totals_rpc.sql`
+4. Apply the two new P&L migrations live.
+5. Deploy the backend with the RPC-based report aggregation change.
+6. Re-test live `GET /report` latency for Dec 2025.
+7. Re-run December reconciliation against the manual spreadsheet.
+8. Investigate the remaining `~1.7k` net revenue delta and `~245` promotions-fee delta.
 
 ## Useful live SQL checks
 
@@ -292,11 +352,17 @@ order by entry_month desc;
 
 ## Current bottom line
 
-The project is **past the schema/prototype stage** but **not yet production-correct**.
+The project is **past the import-recovery stage**.
 
-The next session should focus on:
+What is already true:
 
-1. getting the replacement import to succeed live
-2. clearing the stale January month slice through that successful supersede flow
-3. reconciling December totals against the manual spreadsheet
+1. real live re-import succeeded
+2. stale January carryover is gone
+3. import supersede flow works live for the validation profile
 
+What is still left:
+
+1. ship the report performance fix
+2. apply the Vine/promotions mapping improvement live
+3. continue December reconciliation
+4. load COGS if the goal is to finish full net-earnings parity
