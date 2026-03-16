@@ -58,6 +58,12 @@ export type PnlImportSummary = {
   months: PnlImportMonth[];
 };
 
+export type PnlCogsMonth = {
+  entry_month: string;
+  amount: string;
+  has_data: boolean;
+};
+
 export type PnlLineItem = {
   key: string;
   label: string;
@@ -264,4 +270,47 @@ export async function getPnlImportSummary(
     import: data.import as PnlImport,
     months: (data.months ?? []) as PnlImportMonth[],
   };
+}
+
+export async function listPnlCogsMonths(
+  token: string,
+  profileId: string,
+): Promise<PnlCogsMonth[]> {
+  const response = await fetch(
+    `${getBackendUrl()}/admin/pnl/profiles/${profileId}/cogs-monthly`,
+    {
+      method: "GET",
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  );
+  if (!response.ok) {
+    const detail = await parseErrorDetail(response);
+    throw new Error(detail);
+  }
+  const data = await response.json();
+  return (data?.months ?? []) as PnlCogsMonth[];
+}
+
+export async function savePnlCogsMonths(
+  token: string,
+  profileId: string,
+  entries: Array<{ entry_month: string; amount: string | null }>,
+): Promise<PnlCogsMonth[]> {
+  const response = await fetch(
+    `${getBackendUrl()}/admin/pnl/profiles/${profileId}/cogs-monthly`,
+    {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ entries }),
+    },
+  );
+  if (!response.ok) {
+    const detail = await parseErrorDetail(response);
+    throw new Error(detail);
+  }
+  const data = await response.json();
+  return (data?.months ?? []) as PnlCogsMonth[];
 }

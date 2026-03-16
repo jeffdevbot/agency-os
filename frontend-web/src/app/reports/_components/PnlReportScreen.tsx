@@ -17,6 +17,9 @@ import {
   uploadPnlTransactionReport,
   type PnlFilterMode,
 } from "../pnl/_lib/pnlApi";
+import { usePnlCogsMonths } from "../pnl/_lib/usePnlCogsMonths";
+import type { PnlDisplayMode } from "../pnl/_lib/pnlPresentation";
+import PnlCogsCard from "./PnlCogsCard";
 import PnlProfileSetupCard from "./PnlProfileSetupCard";
 import PnlProvenanceCard from "./PnlProvenanceCard";
 import PnlReportHeader from "./PnlReportHeader";
@@ -38,6 +41,8 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
   const [rangeStart, setRangeStart] = useState<string>(defaultRangeStart);
   const [rangeEnd, setRangeEnd] = useState<string>(defaultRangeEnd);
   const [showSettings, setShowSettings] = useState(false);
+  const [displayMode, setDisplayMode] = useState<PnlDisplayMode>("dollars");
+  const [showTotals, setShowTotals] = useState(true);
   const [createError, setCreateError] = useState<string | null>(null);
   const [createPending, setCreatePending] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -60,13 +65,14 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
   const lineItems = report?.line_items ?? [];
   const warnings = report?.warnings ?? [];
   const presentedReport = useMemo(
-    () => buildPresentedPnlReport(months, lineItems, warnings),
-    [lineItems, months, warnings],
+    () => buildPresentedPnlReport(months, lineItems, warnings, displayMode),
+    [displayMode, lineItems, months, warnings],
   );
   const provenanceState = usePnlActiveImports(
     showSettings ? profileId : null,
     showSettings ? months : [],
   );
+  const cogsState = usePnlCogsMonths(profileId, showSettings);
 
   useEffect(() => {
     setUploadError(null);
@@ -121,7 +127,10 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
         }
         await reportState.loadReport(true);
         if (showSettings) {
-          await provenanceState.loadActiveImports();
+          await Promise.all([
+            provenanceState.loadActiveImports(),
+            status === "success" ? cogsState.loadMonths() : Promise.resolve(),
+          ]);
         }
       } catch (error) {
         if (cancelled) {
@@ -149,6 +158,7 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
   }, [
     processingImportId,
     processingImportLabel,
+    cogsState.loadMonths,
     profileId,
     provenanceState.loadActiveImports,
     reportState.loadReport,
@@ -222,7 +232,10 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
         setProcessingImportStatus(null);
         await reportState.loadReport(true);
         if (showSettings) {
-          await provenanceState.loadActiveImports();
+          await Promise.all([
+            provenanceState.loadActiveImports(),
+            cogsState.loadMonths(),
+          ]);
         }
       }
     } catch (error) {
@@ -230,6 +243,13 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
     } finally {
       setUploadPending(false);
     }
+  };
+
+  const handleSaveCogs = async (
+    entries: Array<{ entry_month: string; amount: string | null }>,
+  ) => {
+    await cogsState.saveMonths(entries);
+    await reportState.loadReport(true);
   };
 
   if (resolved.loading || (profileId !== null && reportState.loading)) {
@@ -267,10 +287,14 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
         rangeStart={rangeStart}
         rangeEnd={rangeEnd}
         settingsOpen={showSettings}
+        displayMode={displayMode}
+        showTotals={showTotals}
         onFilterModeChange={setFilterMode}
         onRangeStartChange={setRangeStart}
         onRangeEndChange={setRangeEnd}
         onToggleSettings={() => setShowSettings((value) => !value)}
+        onDisplayModeChange={setDisplayMode}
+        onToggleTotals={() => setShowTotals((value) => !value)}
       />
 
       {!profile ? (
@@ -312,6 +336,13 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
               onFileChange={handleFileChange}
               onUpload={() => void handleUpload()}
             />
+            <PnlCogsCard
+              months={cogsState.months}
+              loading={cogsState.loading}
+              saving={cogsState.saving}
+              errorMessage={cogsState.errorMessage}
+              onSave={handleSaveCogs}
+            />
             <PnlProvenanceCard
               monthsInView={months}
               activeImports={provenanceState.activeImports}
@@ -341,7 +372,11 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
       ) : null}
 
       {months.length > 0 && presentedReport.lineItems.length > 0 ? (
-        <PnlReportTable months={months} lineItems={presentedReport.lineItems} />
+        <PnlReportTable
+          months={months}
+          lineItems={presentedReport.lineItems}
+          showTotals={showTotals}
+        />
       ) : null}
 
       {profile && months.length === 0 && !reportState.errorMessage ? (

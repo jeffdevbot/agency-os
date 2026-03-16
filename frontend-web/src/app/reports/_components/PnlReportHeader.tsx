@@ -2,6 +2,7 @@
 
 import PnlMonthRangePicker from "./PnlMonthRangePicker";
 import type { PnlFilterMode, PnlProfile } from "../pnl/_lib/pnlApi";
+import type { PnlDisplayMode } from "../pnl/_lib/pnlPresentation";
 
 type Props = {
   clientName: string;
@@ -11,10 +12,14 @@ type Props = {
   rangeStart: string;
   rangeEnd: string;
   settingsOpen: boolean;
+  displayMode: PnlDisplayMode;
+  showTotals: boolean;
   onFilterModeChange: (value: PnlFilterMode) => void;
   onRangeStartChange: (value: string) => void;
   onRangeEndChange: (value: string) => void;
   onToggleSettings: () => void;
+  onDisplayModeChange: (value: PnlDisplayMode) => void;
+  onToggleTotals: () => void;
 };
 
 export default function PnlReportHeader({
@@ -25,10 +30,14 @@ export default function PnlReportHeader({
   rangeStart,
   rangeEnd,
   settingsOpen,
+  displayMode,
+  showTotals,
   onFilterModeChange,
   onRangeStartChange,
   onRangeEndChange,
   onToggleSettings,
+  onDisplayModeChange,
+  onToggleTotals,
 }: Props) {
   return (
     <div className="relative z-20 rounded-3xl bg-white/95 p-5 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur md:p-6">
@@ -71,6 +80,43 @@ export default function PnlReportHeader({
               onRangeStartChange={onRangeStartChange}
               onRangeEndChange={onRangeEndChange}
             />
+            <div className="flex flex-wrap items-center gap-3 lg:justify-end">
+              <div className="flex items-center rounded-full border border-[#dbe4f0] bg-[#f8fafc] p-1">
+                <button
+                  type="button"
+                  onClick={() => onDisplayModeChange("dollars")}
+                  className={`rounded-full px-3 py-1.5 text-sm font-semibold transition ${
+                    displayMode === "dollars"
+                      ? "bg-[#0f172a] text-white"
+                      : "text-[#475569] hover:text-[#0f172a]"
+                  }`}
+                >
+                  Dollars
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onDisplayModeChange("percent")}
+                  className={`rounded-full px-3 py-1.5 text-sm font-semibold transition ${
+                    displayMode === "percent"
+                      ? "bg-[#0f172a] text-white"
+                      : "text-[#475569] hover:text-[#0f172a]"
+                  }`}
+                >
+                  % of Revenue
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={onToggleTotals}
+                className={`rounded-full border px-3 py-1.5 text-sm font-semibold transition ${
+                  showTotals
+                    ? "border-[#0f172a] bg-[#0f172a] text-white"
+                    : "border-[#dbe4f0] bg-white text-[#475569] hover:border-[#94a3b8] hover:text-[#0f172a]"
+                }`}
+              >
+                {showTotals ? "Hide totals" : "Show totals"}
+              </button>
+            </div>
             <button
               onClick={onToggleSettings}
               className="pr-1 text-sm font-semibold text-[#64748b] transition hover:text-[#0f172a] hover:underline"

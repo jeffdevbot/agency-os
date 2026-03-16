@@ -45,6 +45,15 @@ class CreateProfileRequest(BaseModel):
     notes: str | None = None
 
 
+class SaveCogsMonthEntry(BaseModel):
+    entry_month: str = Field(..., pattern=r"^\d{4}-\d{2}-01$")
+    amount: str | float | int | None = None
+
+
+class SaveCogsMonthsRequest(BaseModel):
+    entries: list[SaveCogsMonthEntry] = Field(default_factory=list)
+
+
 # ── Profile endpoints ────────────────────────────────────────────────
 
 
@@ -145,6 +154,44 @@ def list_import_months(
         raise HTTPException(status_code=404, detail=str(exc))
     except Exception:
         raise HTTPException(status_code=500, detail="Failed to list import months")
+
+
+@router.get("/profiles/{profile_id}/cogs-monthly")
+def list_cogs_months(
+    profile_id: str,
+    user=Depends(require_admin_user),
+):
+    svc = _get_profile_service()
+    try:
+        months = svc.list_cogs_month_totals(profile_id)
+        return {"ok": True, "months": months}
+    except PNLNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except PNLValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to list COGS months")
+
+
+@router.put("/profiles/{profile_id}/cogs-monthly")
+def save_cogs_months(
+    profile_id: str,
+    body: SaveCogsMonthsRequest,
+    user=Depends(require_admin_user),
+):
+    svc = _get_profile_service()
+    try:
+        months = svc.save_cogs_month_totals(
+            profile_id,
+            [entry.model_dump() for entry in body.entries],
+        )
+        return {"ok": True, "months": months}
+    except PNLNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except PNLValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to save COGS months")
 
 
 # ── Transaction upload endpoint ──────────────────────────────────────

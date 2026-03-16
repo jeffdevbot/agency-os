@@ -97,6 +97,71 @@ class TestProfileEndpoints:
         assert resp.status_code == 400
         assert "already exists" in resp.json()["detail"].lower()
 
+    def test_list_cogs_months(self, monkeypatch):
+        fake_svc = MagicMock()
+        fake_svc.list_cogs_month_totals.return_value = [
+            {"entry_month": "2026-01-01", "amount": "1200.00", "has_data": True}
+        ]
+        monkeypatch.setattr(pnl, "_get_profile_service", lambda: fake_svc)
+        app.dependency_overrides[pnl.require_admin_user] = _override_admin
+
+        try:
+            with TestClient(app) as client:
+                resp = client.get("/admin/pnl/profiles/p1/cogs-monthly")
+        finally:
+            app.dependency_overrides.pop(pnl.require_admin_user, None)
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is True
+        assert data["months"] == [
+            {"entry_month": "2026-01-01", "amount": "1200.00", "has_data": True}
+        ]
+
+    def test_save_cogs_months(self, monkeypatch):
+        fake_svc = MagicMock()
+        fake_svc.save_cogs_month_totals.return_value = [
+            {"entry_month": "2026-01-01", "amount": "1200.00", "has_data": True}
+        ]
+        monkeypatch.setattr(pnl, "_get_profile_service", lambda: fake_svc)
+        app.dependency_overrides[pnl.require_admin_user] = _override_admin
+
+        try:
+            with TestClient(app) as client:
+                resp = client.put(
+                    "/admin/pnl/profiles/p1/cogs-monthly",
+                    json={"entries": [{"entry_month": "2026-01-01", "amount": "1200.00"}]},
+                )
+        finally:
+            app.dependency_overrides.pop(pnl.require_admin_user, None)
+
+        assert resp.status_code == 200
+        assert resp.json()["ok"] is True
+        fake_svc.save_cogs_month_totals.assert_called_once_with(
+            "p1",
+            [{"entry_month": "2026-01-01", "amount": "1200.00"}],
+        )
+
+    def test_save_cogs_months_validation_error_returns_400(self, monkeypatch):
+        from app.services.pnl.profiles import PNLValidationError
+
+        fake_svc = MagicMock()
+        fake_svc.save_cogs_month_totals.side_effect = PNLValidationError("invalid cogs")
+        monkeypatch.setattr(pnl, "_get_profile_service", lambda: fake_svc)
+        app.dependency_overrides[pnl.require_admin_user] = _override_admin
+
+        try:
+            with TestClient(app) as client:
+                resp = client.put(
+                    "/admin/pnl/profiles/p1/cogs-monthly",
+                    json={"entries": [{"entry_month": "2026-01-01", "amount": "oops"}]},
+                )
+        finally:
+            app.dependency_overrides.pop(pnl.require_admin_user, None)
+
+        assert resp.status_code == 400
+        assert "invalid cogs" in resp.json()["detail"]
+
 
 class TestTransactionUpload:
     def test_rejects_non_csv_file(self, monkeypatch):

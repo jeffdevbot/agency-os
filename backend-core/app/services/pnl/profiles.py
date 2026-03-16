@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from decimal import Decimal, InvalidOperation
 import re
 from typing import Any
 
@@ -158,3 +159,114 @@ class PNLProfileService:
         months = months_resp.data if isinstance(months_resp.data, list) else []
 
         return {"import": imp_rows[0], "months": months}
+
+    def list_cogs_month_totals(self, profile_id: str) -> list[dict[str, Any]]:
+        self.get_profile(profile_id)
+
+        active_months_resp = (
+            self.db.table("monthly_pnl_import_months")
+            .select("entry_month")
+            .eq("profile_id", profile_id)
+            .eq("is_active", True)
+            .order("entry_month")
+            .limit(36)
+            .execute()
+        )
+        active_month_rows = (
+            active_months_resp.data if isinstance(active_months_resp.data, list) else []
+        )
+        active_months = {
+            str(row.get("entry_month") or "").strip()
+            for row in active_month_rows
+            if row.get("entry_month")
+        }
+
+        cogs_resp = (
+            self.db.table("monthly_pnl_cogs_monthly")
+            .select("entry_month, amount")
+            .eq("profile_id", profile_id)
+            .order("entry_month")
+            .execute()
+        )
+        cogs_rows = cogs_resp.data if isinstance(cogs_resp.data, list) else []
+        totals_by_month: dict[str, Decimal] = {}
+        for row in cogs_rows:
+            entry_month = str(row.get("entry_month") or "").strip()
+            if not entry_month:
+                continue
+            totals_by_month[entry_month] = totals_by_month.get(entry_month, Decimal("0")) + Decimal(
+                str(row.get("amount") or "0")
+            )
+
+        all_months = sorted(active_months | set(totals_by_month.keys()))
+        return [
+            {
+                "entry_month": month,
+                "amount": format(totals_by_month.get(month, Decimal("0")).quantize(Decimal("0.01")), "f"),
+                "has_data": month in active_months,
+            }
+            for month in all_months
+        ]
+
+    def save_cogs_month_totals(
+        self,
+        profile_id: str,
+        entries: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        self.get_profile(profile_id)
+
+        normalized: dict[str, Decimal | None] = {}
+        for entry in entries:
+            raw_month = str(entry.get("entry_month") or "").strip()
+            if not re.fullmatch(r"\d{4}-\d{2}-01", raw_month):
+                raise PNLValidationError("entry_month must be the first day of a month (YYYY-MM-01)")
+            raw_amount = entry.get("amount")
+            if raw_amount in (None, ""):
+                normalized[raw_month] = None
+                continue
+            try:
+                normalized[raw_month] = Decimal(str(raw_amount)).quantize(Decimal("0.01"))
+            except (InvalidOperation, ValueError) as exc:
+                raise PNLValidationError(f"Invalid COGS amount for {raw_month}") from exc
+
+        existing_resp = (
+            self.db.table("monthly_pnl_cogs_monthly")
+            .select("id, entry_month, sku, asin, amount")
+            .eq("profile_id", profile_id)
+            .execute()
+        )
+        existing_rows = existing_resp.data if isinstance(existing_resp.data, list) else []
+        existing_month_totals = {
+            str(row.get("entry_month") or "").strip(): row
+            for row in existing_rows
+            if not row.get("sku") and not row.get("asin") and row.get("entry_month")
+        }
+
+        for entry_month, amount in normalized.items():
+            existing = existing_month_totals.get(entry_month)
+            if amount is None:
+                if existing:
+                    (
+                        self.db.table("monthly_pnl_cogs_monthly")
+                        .delete()
+                        .eq("id", existing["id"])
+                        .execute()
+                    )
+                continue
+
+            payload = {
+                "profile_id": profile_id,
+                "entry_month": entry_month,
+                "amount": format(amount, "f"),
+            }
+            if existing:
+                (
+                    self.db.table("monthly_pnl_cogs_monthly")
+                    .update({"amount": payload["amount"]})
+                    .eq("id", existing["id"])
+                    .execute()
+                )
+            else:
+                self.db.table("monthly_pnl_cogs_monthly").insert(payload).execute()
+
+        return self.list_cogs_month_totals(profile_id)

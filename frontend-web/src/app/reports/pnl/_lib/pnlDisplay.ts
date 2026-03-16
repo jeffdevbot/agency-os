@@ -4,6 +4,7 @@ export type PnlValueFormat = "currency" | "percent";
 
 export type PnlPresentedLineItem = PnlLineItem & {
   display_format?: PnlValueFormat;
+  total_value?: string;
 };
 
 export const FILTER_OPTIONS: ReadonlyArray<{ value: PnlFilterMode; label: string }> = [

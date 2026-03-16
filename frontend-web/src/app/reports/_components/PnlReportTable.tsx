@@ -12,9 +12,10 @@ import {
 type Props = {
   months: string[];
   lineItems: PnlPresentedLineItem[];
+  showTotals: boolean;
 };
 
-export default function PnlReportTable({ months, lineItems }: Props) {
+export default function PnlReportTable({ months, lineItems, showTotals }: Props) {
   return (
     <div className="rounded-3xl bg-white/95 p-5 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur md:p-6">
       <div className="overflow-x-auto">
@@ -32,6 +33,11 @@ export default function PnlReportTable({ months, lineItems }: Props) {
                   {formatMonth(month)}
                 </th>
               ))}
+              {showTotals ? (
+                <th className="whitespace-nowrap border-b border-[#e2e8f0] bg-[#f7faff] px-3 py-3 text-right font-semibold text-[#334155]">
+                  Total
+                </th>
+              ) : null}
             </tr>
           </thead>
           <tbody>
@@ -74,6 +80,13 @@ export default function PnlReportTable({ months, lineItems }: Props) {
                       </td>
                     );
                   })}
+                  {showTotals ? (
+                    <td
+                      className={`whitespace-nowrap border-b border-[#f1f5f9] bg-[#f8fafc] px-3 py-2.5 text-right font-semibold tabular-nums ${amountClass(item.total_value ?? "0.00", item)}`}
+                    >
+                      {formatAmount(item.total_value ?? "0.00", item.display_format)}
+                    </td>
+                  ) : null}
                 </tr>
               );
             })}
