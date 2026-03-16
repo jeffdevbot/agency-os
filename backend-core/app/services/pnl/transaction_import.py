@@ -255,8 +255,10 @@ def parse_raw_rows(
         posted_at = _parse_datetime(_pick(row, header_map, "date_time"))
         release_at = _parse_datetime(_pick(row, header_map, "transaction_release_date"))
 
-        # Canonical month: Transaction Release Date first, fallback to date/time
-        canonical_dt = release_at or posted_at
+        # Canonical month: posted date/time first, fallback to release date.
+        # For Monthly P&L backfills, operators expect the statement month to
+        # align with the transaction's posted month from the source report.
+        canonical_dt = posted_at or release_at
         entry_month = _entry_month_from_dt(canonical_dt) if canonical_dt else None
 
         order_id = _pick(row, header_map, "order_id") or None
@@ -492,8 +494,8 @@ class TransactionImportService:
         # 2. Compute file hash for duplicate guard
         file_sha256 = hashlib.sha256(file_bytes).hexdigest()
 
-        # 3. Check for duplicate
-        self._check_duplicate(profile_id, file_sha256)
+        # 3. Check for a currently running duplicate and find any prior import
+        superseded_import = self._check_duplicate(profile_id, file_sha256)
 
         # 4. Parse CSV
         header_values, header_map, data_rows = parse_transaction_csv(file_bytes)
@@ -547,6 +549,11 @@ class TransactionImportService:
             import_scope=import_scope,
             row_count=len(raw_rows),
             user_id=user_id,
+            supersedes_import_id=(
+                str(superseded_import["id"])
+                if superseded_import and superseded_import.get("import_status") == "success"
+                else None
+            ),
         )
         import_id = str(import_record["id"])
 
@@ -564,6 +571,12 @@ class TransactionImportService:
                     month_slice=month_slice,
                 )
                 month_summaries.append(summary)
+
+            if superseded_import and superseded_import.get("import_status") == "success":
+                self._deactivate_superseded_months(
+                    superseded_import_id=str(superseded_import["id"]),
+                    retained_months=set(sorted_months),
+                )
 
             # 11. Update import to success
             self._update_import_status(import_id, "success")
@@ -613,24 +626,36 @@ class TransactionImportService:
             raise PNLNotFoundError(f"Import {import_id} not found")
         return rows[0]
 
-    def _check_duplicate(self, profile_id: str, file_sha256: str) -> None:
+    def _check_duplicate(self, profile_id: str, file_sha256: str) -> dict[str, Any] | None:
         response = (
             self.db.table("monthly_pnl_imports")
-            .select("id, import_status")
+            .select("id, import_status, created_at")
             .eq("profile_id", profile_id)
             .eq("source_type", SOURCE_TYPE)
             .eq("source_file_sha256", file_sha256)
-            .limit(1)
+            .order("created_at", desc=True)
+            .limit(20)
             .execute()
         )
         rows = response.data if isinstance(response.data, list) else []
         if rows:
+            running_import = next((row for row in rows if row.get("import_status") == "running"), None)
+            if running_import:
+                raise PNLDuplicateFileError(
+                    f"This file has already been imported (import {running_import['id']})"
+                )
+
+            successful_import = next((row for row in rows if row.get("import_status") == "success"), None)
+            if successful_import:
+                return successful_import
+
             status = rows[0].get("import_status")
-            # Allow retry of same file after a previous errored import
-            if status in ("success", "running"):
+            if status == "running":
                 raise PNLDuplicateFileError(
                     f"This file has already been imported (import {rows[0]['id']})"
                 )
+            return rows[0]
+        return None
 
     def _load_mapping_rules(
         self, marketplace_code: str, profile_id: str
@@ -672,6 +697,7 @@ class TransactionImportService:
         import_scope: str,
         row_count: int,
         user_id: str | None,
+        supersedes_import_id: str | None,
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "profile_id": profile_id,
@@ -685,6 +711,8 @@ class TransactionImportService:
             "row_count": row_count,
             "started_at": datetime.now(UTC).isoformat(),
         }
+        if supersedes_import_id:
+            payload["supersedes_import_id"] = supersedes_import_id
         if user_id:
             payload["initiated_by"] = user_id
         response = self.db.table("monthly_pnl_imports").insert(payload).execute()
@@ -882,3 +910,31 @@ class TransactionImportService:
                 "p_import_month_id": import_month_id,
             },
         ).execute()
+
+    def _deactivate_superseded_months(
+        self,
+        *,
+        superseded_import_id: str,
+        retained_months: set[date],
+    ) -> None:
+        response = (
+            self.db.table("monthly_pnl_import_months")
+            .select("id, entry_month")
+            .eq("import_id", superseded_import_id)
+            .eq("is_active", True)
+            .execute()
+        )
+        rows = response.data if isinstance(response.data, list) else []
+        for row in rows:
+            raw_entry_month = row.get("entry_month")
+            if not raw_entry_month:
+                continue
+            entry_month = date.fromisoformat(str(raw_entry_month))
+            if entry_month in retained_months:
+                continue
+            (
+                self.db.table("monthly_pnl_import_months")
+                .update({"is_active": False})
+                .eq("id", row["id"])
+                .execute()
+            )

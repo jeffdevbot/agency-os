@@ -136,15 +136,16 @@ class TestParseRawRows:
         assert order_row.amounts["selling_fees"] == Decimal("-1.50")
         assert order_row.amounts["fba_fees"] == Decimal("-3.00")
 
-    def test_canonical_month_uses_release_date(self):
-        """Transaction Release Date is the canonical month, not date/time."""
-        header_values, header_map, data_rows = parse_transaction_csv(SAMPLE_CSV.encode("utf-8"))
+    def test_canonical_month_uses_posted_date(self):
+        """date/time is canonical month; release date is only a fallback."""
+        csv_cross_month = (
+            '"date/time","type","order id","sku","description","product sales","total","Transaction Release Date"\n'
+            '"Dec 31, 2025 11:59:59 PM PST","Order","111","SKU1","Thing","5.00","5.00","Jan 02, 2026 12:00:00 AM PST"\n'
+        )
+        header_values, header_map, data_rows = parse_transaction_csv(csv_cross_month.encode("utf-8"))
         raw_rows = parse_raw_rows(header_values, header_map, data_rows)
 
-        # Row 0: date/time = Jan 15, release = Jan 20 → both January → Jan 2026
-        assert raw_rows[0].entry_month == date(2026, 1, 1)
-        # Row 2: date/time = Feb 01, release = Feb 05 → Feb 2026
-        assert raw_rows[2].entry_month == date(2026, 2, 1)
+        assert raw_rows[0].entry_month == date(2025, 12, 1)
 
     def test_fallback_to_datetime_when_no_release(self):
         csv_no_release = (
@@ -403,9 +404,9 @@ def _db_with_tables(**tables: MagicMock) -> MagicMock:
 
 
 class TestTransactionImportService:
-    def test_rejects_duplicate_file(self):
+    def test_rejects_running_duplicate_file(self):
         profiles = _chain_table([{"id": "p1", "marketplace_code": "US"}])
-        imports = _chain_table([{"id": "existing-import", "import_status": "success"}])
+        imports = _chain_table([{"id": "existing-import", "import_status": "running"}])
         db = _db_with_tables(monthly_pnl_profiles=profiles, monthly_pnl_imports=imports)
 
         svc = TransactionImportService(db)
@@ -585,19 +586,96 @@ class TestTransactionImportService:
         )
         assert result["summary"]["total_raw_rows"] == 1
 
-    def test_duplicate_blocks_on_success_status(self):
-        """Same-SHA file with status 'success' should still be blocked."""
+    def test_allows_reimport_after_success_and_deactivates_stale_months(self):
+        """A successful import can be replaced by re-uploading the same file."""
         profiles = _chain_table([{"id": "p1", "marketplace_code": "US"}])
-        imports = _chain_table([{"id": "existing-import", "import_status": "success"}])
-        db = _db_with_tables(monthly_pnl_profiles=profiles, monthly_pnl_imports=imports)
+        imports_dup_check = _chain_table([{
+            "id": "old-imp",
+            "import_status": "success",
+            "created_at": "2026-01-10T00:00:00+00:00",
+        }])
+        imports_insert = _chain_table([{"id": "imp-new", "import_status": "pending"}])
+        imports_update = _chain_table([{}])
+        imports_final = _chain_table([{"id": "imp-new", "import_status": "success"}])
+        rules = _chain_table([])
+        import_months_insert = _chain_table([{"id": "im-new"}])
+        raw_rows_insert = _chain_table([{}])
+        ledger_insert = _chain_table([{}])
+
+        stale_month_updates: list[dict] = []
+        import_months_update = _chain_table([{}])
+        original_update = import_months_update.update
+
+        def tracking_update(payload):
+            stale_month_updates.append(payload)
+            return original_update(payload)
+
+        import_months_update.update = tracking_update
+        old_import_active_months = _chain_table([
+            {"id": "old-dec", "entry_month": "2025-12-01"},
+            {"id": "old-jan", "entry_month": "2026-01-01"},
+        ])
+
+        created_import_payloads: list[dict] = []
+
+        def insert_with_capture(payload):
+            created_import_payloads.append(payload)
+            return imports_insert
+
+        imports_insert.insert = insert_with_capture
+
+        call_counts: dict[str, int] = {}
+
+        def table_router(name: str) -> MagicMock:
+            call_counts.setdefault(name, 0)
+            call_counts[name] += 1
+            if name == "monthly_pnl_profiles":
+                return profiles
+            if name == "monthly_pnl_mapping_rules":
+                return rules
+            if name == "monthly_pnl_imports":
+                count = call_counts[name]
+                if count == 1:
+                    return imports_dup_check
+                if count == 2:
+                    return imports_insert
+                if count <= 4:
+                    return imports_update
+                return imports_final
+            if name == "monthly_pnl_import_months":
+                count = call_counts[name]
+                if count == 1:
+                    return import_months_insert
+                if count == 2:
+                    return import_months_update
+                if count == 3:
+                    return old_import_active_months
+                return import_months_update
+            if name == "monthly_pnl_raw_rows":
+                return raw_rows_insert
+            if name == "monthly_pnl_ledger_entries":
+                return ledger_insert
+            return _chain_table()
+
+        csv_data = (
+            '"date/time","type","order id","sku","description","product sales","total","Transaction Release Date"\n'
+            '"Dec 15, 2025","Order","111","SKU1","Widget","10.00","10.00","Jan 02, 2026"\n'
+        ).encode("utf-8")
+
+        db = MagicMock()
+        db.table.side_effect = table_router
+        db.rpc.return_value = _chain_rpc()
 
         svc = TransactionImportService(db)
-        with pytest.raises(PNLDuplicateFileError, match="already been imported"):
-            svc.import_file(
-                profile_id="p1",
-                file_name="test.csv",
-                file_bytes=SAMPLE_CSV.encode("utf-8"),
-            )
+        result = svc.import_file(
+            profile_id="p1",
+            file_name="test.csv",
+            file_bytes=csv_data,
+        )
+
+        assert result["summary"]["total_raw_rows"] == 1
+        assert created_import_payloads[0]["supersedes_import_id"] == "old-imp"
+        assert {"is_active": False} in stale_month_updates
 
     def test_import_month_starts_as_pending(self):
         """Import month should be created with 'pending', not 'success'."""
