@@ -28,6 +28,7 @@ from ..services.wbr.profiles import WBRNotFoundError, WBRValidationError, WBRPro
 from ..services.wbr.section1_report import Section1ReportService
 from ..services.wbr.section2_report import Section2ReportService
 from ..services.wbr.section3_report import Section3ReportService
+from ..services.wbr.sync_runs import WBRSyncRunService
 from ..services.wbr.workbook import WbrWorkbookExportService
 from ..services.wbr.windsor_business_sync import WindsorBusinessSyncService
 
@@ -67,6 +68,10 @@ def _get_asin_mapping_service() -> AsinMappingService:
 
 def _get_windsor_business_sync_service() -> WindsorBusinessSyncService:
     return WindsorBusinessSyncService(_get_supabase())
+
+
+def _get_sync_run_service() -> WBRSyncRunService:
+    return WBRSyncRunService(_get_supabase())
 
 
 def _get_section1_report_service() -> Section1ReportService:
@@ -545,7 +550,7 @@ async def list_sync_runs(
     source_type: str = Query("windsor_business"),
     user=Depends(require_admin_user),
 ):
-    svc = _get_windsor_business_sync_service()
+    svc = _get_sync_run_service()
     try:
         runs = svc.list_sync_runs(profile_id, source_type=source_type)
         return {"ok": True, "runs": runs}

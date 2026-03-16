@@ -269,6 +269,23 @@ Permanent delete is blocked when:
 3. `POST /admin/wbr/profiles/{profile_id}/sync-runs/windsor-business/daily-refresh`
 4. `GET /admin/wbr/profiles/{profile_id}/section1-report?weeks=4`
 
+## Repo hardening follow-ups
+
+Recent repo-only hardening landed after the initial Section 3 rollout:
+
+1. `list_sync_runs` no longer routes all source types through `WindsorBusinessSyncService`.
+2. The router now uses a small generic `WBRSyncRunService`, so sync-run listing stays source-agnostic for:
+   - `windsor_business`
+   - `windsor_inventory`
+   - `windsor_returns`
+   - `amazon_ads`
+   - `pacvue_import`
+   - `listing_import`
+3. A follow-up migration exists in repo to harden Section 3 sync constraints:
+   - dynamically replace the `wbr_sync_runs.source_type` CHECK without relying on the original auto-generated constraint name
+   - add `sync_run_id` validator triggers for `wbr_inventory_asin_snapshots` and `wbr_returns_asin_daily`
+4. If a future environment is initialized from migrations only, that hardening migration should be applied as part of WBR setup.
+
 ### Amazon Ads + Section 2
 
 1. `POST /admin/wbr/profiles/{profile_id}/amazon-ads/connect`
