@@ -26,9 +26,16 @@ finished live.
 6. The UI unmapped warning is now gone for December 2025.
 7. The `/reports` frontend now treats WBR and Monthly P&L as separate sibling
    report surfaces at the marketplace level. The shared header exposes a WBR /
-   Monthly P&L switcher, and the client hub shows each surface independently.
-8. The Monthly P&L page now shows active import provenance in-product:
-   filename, timestamps, import ID, and active months for the current view.
+   Monthly P&L switcher, and the client page now presents each surface as its
+   own marketplace card.
+8. The Monthly P&L page now defaults to the last `3` completed months, exposes
+   the month-range picker in the top-right header actions, and keeps upload +
+   provenance tools behind a subtle `Settings` panel.
+9. When no COGS exists in view, the UI now suppresses the old missing-COGS
+   warning and presents `Contribution Profit` plus `Contribution Margin (%)`
+   instead of implying net-profit completeness.
+10. November 2025 backfill now imports successfully after the duplicate-ledger
+    coalescing fix, and the user validated November to the penny as well.
 
 ## What was confirmed
 
@@ -188,6 +195,24 @@ as:
 The first rule matched only exact description `FBA Removal Order`. This was
 changed to a `starts_with` rule.
 
+### 5. Refund rows could collide on the same ledger bucket during import
+
+Some Amazon rows can populate more than one source amount column that maps into
+the same report bucket on the same raw row. The real November 2025 file exposed
+this with `Refund` rows where both `product sales` and `other` should roll into
+`refunds`.
+
+Old importer behavior:
+
+1. emitted multiple ledger rows with the same `(import_id, source_row_index,
+   ledger_bucket)`
+2. hit the unique constraint and surfaced a generic frontend import failure
+
+Fixed behavior:
+
+1. coalesce same-bucket ledger rows per raw source row before insert
+2. preserve the correct summed amount while avoiding duplicate-key failures
+
 ## Live migrations now applied
 
 These Monthly P&L migrations are now live in Supabase:
@@ -206,6 +231,11 @@ These Monthly P&L migrations are now live in Supabase:
 2. `fcd0f9e` - align Monthly P&L with manual workbook mappings
 3. `676851d` - optimize Monthly P&L report RPC for active months
 4. `586c5a9` - map remaining Monthly P&L workbook edge cases
+5. `a4559cc` - clarify report surfaces and split P&L screen
+6. `3fecb54` - refine Monthly P&L report UX
+7. `6e5e55a` - coalesce duplicate P&L ledger buckets
+8. `96d99c9` - fix Monthly P&L month-picker layering
+9. `c164ae9` - default Monthly P&L to completed months
 
 ## Important note about the active December data
 
@@ -243,7 +273,7 @@ move from one-month debugging to productizing the workflow.
      mapping logic
 4. `Deploy verification`
    - before any future re-import testing, confirm Render is serving the latest
-     backend commits (`676851d`, `586c5a9`) so the import path itself matches
+     backend commits (`586c5a9`, `6e5e55a`) so the import path itself matches
      the now-correct live DB state
 
 ### What not to do casually

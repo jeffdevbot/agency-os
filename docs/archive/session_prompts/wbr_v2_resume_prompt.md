@@ -6,7 +6,7 @@ Current default assumption as of March 16, 2026:
 
 1. The current WBR version is effectively done and live.
 2. Monthly P&L is a separate reporting track and should be resumed from
-   `docs/monthly_pnl_resume_prompt.md`, not from this prompt.
+   `docs/monthly_pnl_handoff.md`, not from this prompt.
 3. If the next session is about clarifying reporting surfaces, route language,
    or navigation between WBR and Monthly P&L, treat that as cross-cutting
    product cleanup rather than core WBR feature development.
@@ -18,7 +18,7 @@ Start by reading, in this order:
 1. `docs/wbr_v2_handoff.md`
 2. `PROJECT_STATUS.md`
 3. `docs/wbr_v2_schema_plan.md`
-4. `docs/wbr_v2_prototype_plan.md`
+4. `docs/archive/session_prompts/wbr_v2_prototype_plan.md`
 5. `backend-core/app/routers/wbr.py`
 6. `backend-core/app/services/wbr/windsor_business_sync.py`
 7. `backend-core/app/services/wbr/windsor_inventory_sync.py`

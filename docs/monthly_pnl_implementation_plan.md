@@ -1,6 +1,13 @@
 # Monthly P&L Implementation Plan
 
-_Last updated: 2026-03-15 (ET)_
+_Last updated: 2026-03-16 (ET)_
+
+> Status: Monthly P&L v1 is partially shipped. The backfill-first import
+> pipeline, standalone `/reports/.../pnl` surface, provenance/settings UI, and
+> workbook-aligned transaction mapping are live. This document is still useful
+> as design/reference context, but some sections remain forward-looking for
+> work that is not done yet, especially COGS workflow and export/productization
+> follow-ons.
 
 This document defines the recommended implementation plan for a new
 client-facing `Monthly P&L` report in Ecomlabs Tools.

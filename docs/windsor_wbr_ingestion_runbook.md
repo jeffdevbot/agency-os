@@ -1,7 +1,8 @@
 # Windsor WBR Section 1 Ingestion Runbook
 
 > Broader WBR state and restart context live in `docs/wbr_v2_handoff.md`,
-> `docs/wbr_v2_schema_plan.md`, and `docs/wbr_v2_prototype_plan.md`. This
+> `docs/wbr_v2_schema_plan.md`, and
+> `docs/archive/session_prompts/wbr_v2_prototype_plan.md`. This
 > runbook is intentionally narrower: it documents the live Windsor-based
 > Section 1 ingestion path only.
 

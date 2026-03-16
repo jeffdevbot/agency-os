@@ -304,7 +304,7 @@ Recent repo-only hardening landed after the initial Section 3 rollout:
 
 1. `docs/wbr_v2_handoff.md`
 2. `docs/wbr_v2_schema_plan.md`
-3. `docs/wbr_v2_prototype_plan.md`
+3. `docs/archive/session_prompts/wbr_v2_prototype_plan.md`
 4. `PROJECT_STATUS.md`
 
 ### Backend
