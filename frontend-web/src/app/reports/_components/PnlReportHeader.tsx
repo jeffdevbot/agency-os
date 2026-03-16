@@ -10,12 +10,10 @@ type Props = {
   filterMode: PnlFilterMode;
   rangeStart: string;
   rangeEnd: string;
-  refreshing: boolean;
   settingsOpen: boolean;
   onFilterModeChange: (value: PnlFilterMode) => void;
   onRangeStartChange: (value: string) => void;
   onRangeEndChange: (value: string) => void;
-  onRefresh: () => void;
   onToggleSettings: () => void;
 };
 
@@ -26,12 +24,10 @@ export default function PnlReportHeader({
   filterMode,
   rangeStart,
   rangeEnd,
-  refreshing,
   settingsOpen,
   onFilterModeChange,
   onRangeStartChange,
   onRangeEndChange,
-  onRefresh,
   onToggleSettings,
 }: Props) {
   return (
@@ -48,7 +44,7 @@ export default function PnlReportHeader({
         </div>
 
         {profile ? (
-          <div className="flex flex-wrap items-start gap-3 lg:justify-end">
+          <div className="flex flex-wrap items-center gap-4 lg:justify-end">
             <PnlMonthRangePicker
               filterMode={filterMode}
               rangeStart={rangeStart}
@@ -59,16 +55,9 @@ export default function PnlReportHeader({
             />
             <button
               onClick={onToggleSettings}
-              className="pt-3 text-sm font-semibold text-[#64748b] transition hover:text-[#0f172a] hover:underline"
+              className="text-sm font-semibold text-[#64748b] transition hover:text-[#0f172a] hover:underline"
             >
               {settingsOpen ? "Hide settings" : "Settings"}
-            </button>
-            <button
-              onClick={onRefresh}
-              disabled={refreshing}
-              className="rounded-xl border border-[#e2e8f0] bg-white px-4 py-2 text-sm font-medium text-[#334155] transition hover:border-[#94a3b8] disabled:opacity-50 lg:mt-2"
-            >
-              {refreshing ? "Refreshing..." : "Refresh"}
             </button>
           </div>
         ) : null}

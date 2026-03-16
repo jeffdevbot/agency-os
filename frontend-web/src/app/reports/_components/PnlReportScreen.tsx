@@ -156,12 +156,10 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
         filterMode={filterMode}
         rangeStart={rangeStart}
         rangeEnd={rangeEnd}
-        refreshing={reportState.refreshing}
         settingsOpen={showSettings}
         onFilterModeChange={setFilterMode}
         onRangeStartChange={setRangeStart}
         onRangeEndChange={setRangeEnd}
-        onRefresh={() => void reportState.loadReport(true)}
         onToggleSettings={() => setShowSettings((value) => !value)}
       />
 
