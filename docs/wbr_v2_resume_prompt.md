@@ -1,5 +1,16 @@
 # WBR v2 Resume Prompt
 
+Use this prompt only if the user is explicitly reopening WBR-specific work.
+
+Current default assumption as of March 16, 2026:
+
+1. The current WBR version is effectively done and live.
+2. Monthly P&L is a separate reporting track and should be resumed from
+   `docs/monthly_pnl_resume_prompt.md`, not from this prompt.
+3. If the next session is about clarifying reporting surfaces, route language,
+   or navigation between WBR and Monthly P&L, treat that as cross-cutting
+   product cleanup rather than core WBR feature development.
+
 You are continuing WBR v2 work in `/Users/jeff/code/agency-os`.
 
 Start by reading, in this order:
@@ -52,10 +63,11 @@ Context you should assume:
 Immediate goal for the next session:
 
 1. Start from the current issue or request, assuming Sections 1, 2, and 3 are live and Amazon Ads sync uses the queued/background report flow.
-2. Avoid god-file bloat.
-3. Keep the route structure and backend contract intact unless a concrete bug requires a change.
-4. Preserve current admin/settings/sync functionality, including nightly worker behavior.
-5. Prefer extending the current modular report components rather than re-consolidating them into the old report screen.
+2. Treat this as a bugfix or targeted enhancement path, not an open-ended prototype buildout.
+3. Avoid god-file bloat.
+4. Keep the route structure and backend contract intact unless a concrete bug requires a change.
+5. Preserve current admin/settings/sync functionality, including nightly worker behavior.
+6. Prefer extending the current modular report components rather than re-consolidating them into the old report screen.
 
 Constraints:
 

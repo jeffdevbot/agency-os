@@ -1,5 +1,13 @@
 # WBR v2 Prototype Plan
 
+> Status: the current WBR version is effectively shipped. This document now
+> serves primarily as historical planning context for the shipped WBR rollout,
+> not as the default next-session work queue.
+>
+> Monthly P&L is a separate reporting product. Follow
+> `docs/monthly_pnl_handoff.md` and `docs/monthly_pnl_implementation_plan.md`
+> for P&L work rather than treating it as WBR follow-on scope.
+
 > The concrete database design for this plan lives in `docs/wbr_v2_schema_plan.md`.
 
 This document defines the next WBR prototype beyond the original
@@ -41,7 +49,7 @@ As of March 15, 2026:
 
 The sections below still capture the design rationale that led to the shipped
 implementation. Where they read like forward-looking rollout steps, treat them
-as historical planning context rather than pending work.
+as historical planning context rather than the current default backlog.
 
 ## Why this doc exists
 

@@ -3,9 +3,10 @@ Continue Monthly P&L work in `agency-os`.
 Read first:
 
 1. `docs/monthly_pnl_handoff.md`
-2. `docs/monthly_pnl_implementation_plan.md`
-3. `PROJECT_STATUS.md`
-4. `AGENTS.md`
+2. `README.md`
+3. `docs/monthly_pnl_implementation_plan.md`
+4. `PROJECT_STATUS.md`
+5. `AGENTS.md`
 
 Current reality as of March 16, 2026:
 
@@ -27,6 +28,8 @@ Current reality as of March 16, 2026:
    optimizing the `pnl_report_bucket_totals` RPC to read active month IDs first.
 8. The remaining work is no longer December debugging. It is productization:
    COGS, provenance, source-drift UX, and broader validation.
+9. WBR should now be treated as a separate shipped reporting product, not as
+   the umbrella bucket for Monthly P&L work.
 
 Important context:
 
@@ -59,14 +62,16 @@ Relevant live migrations:
 
 Suggested next-session task order:
 
-1. Confirm the latest backend deploy is serving the importer/report fixes if any
+1. Clean up the docs and frontend language so WBR and Monthly P&L are clearly
+   separate reporting surfaces.
+2. Confirm the latest backend deploy is serving the importer/report fixes if any
    new live import testing will be done.
-2. Add or design the Monthly P&L COGS path so gross profit / net earnings can
-   reconcile, not just the revenue and expense sections.
-3. Add import provenance to the UI:
+3. Add import provenance to the Monthly P&L UI:
    active filename, import timestamp, maybe import ID.
 4. Decide how to communicate Amazon source-drift behavior in product/UI/docs.
-5. Validate another month or profile to make sure the workbook-aligned mappings
+5. Add or design the Monthly P&L COGS path so gross profit / net earnings can
+   reconcile, not just the revenue and expense sections.
+6. Validate another month or profile to make sure the workbook-aligned mappings
    generalize beyond this one December case.
 
 Deliverable expectation for the next session:
@@ -74,4 +79,5 @@ Deliverable expectation for the next session:
 1. Do not redo December 2025 from scratch.
 2. Preserve the validated live December state unless the user explicitly asks
    to replace it.
-3. Move Monthly P&L from one-off debugging toward an operable workflow.
+3. Move Monthly P&L from one-off debugging toward an operable standalone
+   workflow, including clearer distinction from WBR in docs and UI.
