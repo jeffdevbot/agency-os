@@ -249,8 +249,9 @@ def parse_raw_rows(
     """Convert CSV data rows into ParsedRawRow objects."""
     results: list[ParsedRawRow] = []
     for row_index, row in enumerate(data_rows):
-        raw_type = _pick(row, header_map, "type")
-        if not raw_type:
+        raw_type = _pick(row, header_map, "type") or None
+        raw_description = _pick(row, header_map, "description") or None
+        if not raw_type and not raw_description:
             continue
 
         posted_at = _parse_datetime(_pick(row, header_map, "date_time"))
@@ -264,7 +265,6 @@ def parse_raw_rows(
 
         order_id = _pick(row, header_map, "order_id") or None
         sku = _pick(row, header_map, "sku") or None
-        raw_description = _pick(row, header_map, "description") or None
 
         # Extract financial amounts from all mapped columns
         amounts: dict[str, Decimal] = {}
@@ -379,32 +379,78 @@ def expand_raw_row_to_ledger(
 
     For normal Order/Refund rows, each financial column becomes a ledger entry.
     For special rows (Service Fee, FBA Inventory Fee, Transfer, Adjustment, etc.),
-    the matching rule determines the bucket and we use the 'total' or 'other'
-    amount columns.
+    the matching rule determines the bucket and we roll up every parsed amount
+    column into that single bucket.
     """
     if raw_row.entry_month is None:
         return []
 
     raw_type = raw_row.raw_type
     raw_description = raw_row.raw_description
+    normalized_type = (raw_type or "").strip()
 
     # Check if a mapping rule matches this row type
     rule = find_matching_rule(rules, raw_type, raw_description, profile_id)
 
     # For rows matched by a type-based rule (Service Fee, FBA Inventory Fee,
     # Transfer, Adjustment), the rule determines the single bucket.
-    # The amount comes from the "other" or "total" column (whichever is non-zero),
-    # or the sum of all amount columns.
-    is_type_rule_row = rule is not None and raw_type not in ("Order", "Refund", "")
+    # The amount comes from the sum of all parsed amount columns so special
+    # rows that spread money across multiple fields still reconcile correctly.
+    is_type_rule_row = rule is not None and normalized_type not in ("Order", "Refund")
 
     entries: list[LedgerEntry] = []
 
+    if normalized_type == "Liquidations":
+        handled_columns = {"product_sales", "other_transaction_fees"}
+        if raw_row.amounts.get("product_sales", Decimal("0")) != 0:
+            entries.append(LedgerEntry(
+                entry_month=raw_row.entry_month,
+                posted_at=raw_row.posted_at,
+                order_id=raw_row.order_id,
+                sku=raw_row.sku,
+                raw_type=raw_type,
+                raw_description=raw_description,
+                ledger_bucket="fba_liquidation_proceeds",
+                amount=raw_row.amounts["product_sales"],
+                is_mapped=True,
+                mapping_rule_id=None,
+                source_row_index=raw_row.row_index,
+            ))
+        if raw_row.amounts.get("other_transaction_fees", Decimal("0")) != 0:
+            entries.append(LedgerEntry(
+                entry_month=raw_row.entry_month,
+                posted_at=raw_row.posted_at,
+                order_id=raw_row.order_id,
+                sku=raw_row.sku,
+                raw_type=raw_type,
+                raw_description=raw_description,
+                ledger_bucket="liquidation_fees",
+                amount=raw_row.amounts["other_transaction_fees"],
+                is_mapped=True,
+                mapping_rule_id=None,
+                source_row_index=raw_row.row_index,
+            ))
+        for col_name, amount in raw_row.amounts.items():
+            if col_name in handled_columns or amount == 0:
+                continue
+            entries.append(LedgerEntry(
+                entry_month=raw_row.entry_month,
+                posted_at=raw_row.posted_at,
+                order_id=raw_row.order_id,
+                sku=raw_row.sku,
+                raw_type=raw_type,
+                raw_description=raw_description,
+                ledger_bucket="unmapped",
+                amount=amount,
+                is_mapped=False,
+                mapping_rule_id=None,
+                source_row_index=raw_row.row_index,
+            ))
+        return entries
+
     if is_type_rule_row:
         # Single-bucket row driven by mapping rule
-        # Use "other" amount if available, otherwise sum all amounts
-        amount = raw_row.amounts.get("other", Decimal("0"))
-        if amount == 0:
-            amount = sum(raw_row.amounts.values(), Decimal("0"))
+        amount = sum(raw_row.amounts.values(), Decimal("0"))
         if amount != 0:
             entries.append(LedgerEntry(
                 entry_month=raw_row.entry_month,

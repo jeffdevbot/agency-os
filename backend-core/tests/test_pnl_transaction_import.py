@@ -88,6 +88,24 @@ def _make_rules() -> list[MappingRule]:
             target_bucket="promotions_fees",
             priority=10,
         ),
+        MappingRule(
+            id="rule-price-discount",
+            profile_id=None,
+            source_type="amazon_transaction_upload",
+            match_spec={"description": "Price Discount"},
+            match_operator="starts_with",
+            target_bucket="promotions_fees",
+            priority=10,
+        ),
+        MappingRule(
+            id="rule-chargeback",
+            profile_id=None,
+            source_type="amazon_transaction_upload",
+            match_spec={"type": "Chargeback Refund"},
+            match_operator="exact_fields",
+            target_bucket="chargebacks",
+            priority=20,
+        ),
     ]
 
 
@@ -156,6 +174,19 @@ class TestParseRawRows:
         raw_rows = parse_raw_rows(header_values, header_map, data_rows)
 
         assert raw_rows[0].entry_month == date(2025, 12, 1)
+
+    def test_keeps_blank_type_rows_when_description_present(self):
+        csv_blank_type = (
+            '"date/time","type","description","other transaction fees","total"\n'
+            '"Dec 10, 2025 12:00:00 AM PST","","Price Discount - 03eb6711","-245.00","-245.00"\n'
+        )
+        header_values, header_map, data_rows = parse_transaction_csv(csv_blank_type.encode("utf-8"))
+        raw_rows = parse_raw_rows(header_values, header_map, data_rows)
+
+        assert len(raw_rows) == 1
+        assert raw_rows[0].raw_type is None
+        assert raw_rows[0].raw_description == "Price Discount - 03eb6711"
+        assert raw_rows[0].amounts["other_transaction_fees"] == Decimal("-245.00")
 
     def test_fallback_to_datetime_when_no_release(self):
         csv_no_release = (
@@ -364,6 +395,76 @@ class TestLedgerExpansion:
         assert entries[0].amount == Decimal("-200.00")
         assert entries[0].is_mapped is True
         assert entries[0].mapping_rule_id == "rule-vine"
+
+    def test_blank_type_price_discount_maps_to_promotions_fees(self):
+        raw_row = ParsedRawRow(
+            row_index=5,
+            posted_at=datetime(2025, 12, 10, tzinfo=UTC),
+            release_at=datetime(2025, 12, 15, tzinfo=UTC),
+            order_id=None,
+            sku=None,
+            raw_type=None,
+            raw_description="Price Discount - 03eb6711",
+            entry_month=date(2025, 12, 1),
+            amounts={"other_transaction_fees": Decimal("-245.00")},
+            raw_payload={},
+        )
+        entries = expand_raw_row_to_ledger(raw_row, _make_rules(), None)
+        assert len(entries) == 1
+        assert entries[0].ledger_bucket == "promotions_fees"
+        assert entries[0].amount == Decimal("-245.00")
+        assert entries[0].mapping_rule_id == "rule-price-discount"
+
+    def test_chargeback_refund_sums_all_amount_columns(self):
+        raw_row = ParsedRawRow(
+            row_index=6,
+            posted_at=datetime(2025, 12, 11, tzinfo=UTC),
+            release_at=datetime(2025, 12, 16, tzinfo=UTC),
+            order_id="111-CCC",
+            sku="SKU3",
+            raw_type="Chargeback Refund",
+            raw_description=None,
+            entry_month=date(2025, 12, 1),
+            amounts={
+                "product_sales": Decimal("-10.00"),
+                "shipping_credits": Decimal("-1.00"),
+                "promotional_rebates": Decimal("0.25"),
+                "selling_fees": Decimal("0.50"),
+                "other": Decimal("-0.75"),
+            },
+            raw_payload={},
+        )
+        entries = expand_raw_row_to_ledger(raw_row, _make_rules(), None)
+
+        assert len(entries) == 1
+        assert entries[0].ledger_bucket == "chargebacks"
+        assert entries[0].amount == Decimal("-11.00")
+        assert entries[0].is_mapped is True
+        assert entries[0].mapping_rule_id == "rule-chargeback"
+
+    def test_liquidations_split_into_proceeds_and_fees(self):
+        raw_row = ParsedRawRow(
+            row_index=7,
+            posted_at=datetime(2025, 12, 12, tzinfo=UTC),
+            release_at=datetime(2025, 12, 17, tzinfo=UTC),
+            order_id=None,
+            sku=None,
+            raw_type="Liquidations",
+            raw_description=None,
+            entry_month=date(2025, 12, 1),
+            amounts={
+                "product_sales": Decimal("125.00"),
+                "other_transaction_fees": Decimal("-7.50"),
+                "other": Decimal("-1.25"),
+            },
+            raw_payload={},
+        )
+        entries = expand_raw_row_to_ledger(raw_row, _make_rules(), None)
+        buckets = {e.ledger_bucket: e.amount for e in entries}
+
+        assert buckets["fba_liquidation_proceeds"] == Decimal("125.00")
+        assert buckets["liquidation_fees"] == Decimal("-7.50")
+        assert buckets["unmapped"] == Decimal("-1.25")
 
     def test_row_with_no_entry_month_produces_no_entries(self):
         raw_row = ParsedRawRow(

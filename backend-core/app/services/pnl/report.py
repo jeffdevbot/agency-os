@@ -23,6 +23,8 @@ REVENUE_BUCKETS = [
     ("product_sales", "Product Sales", "revenue"),
     ("shipping_credits", "Shipping Credits", "revenue"),
     ("gift_wrap_credits", "Gift Wrap Credits", "revenue"),
+    ("promotional_rebate_refunds", "Promotional Rebate Refunds", "revenue"),
+    ("fba_liquidation_proceeds", "FBA Liquidation Proceeds", "revenue"),
 ]
 
 REFUND_BUCKETS = [
@@ -31,20 +33,23 @@ REFUND_BUCKETS = [
     ("shipping_credit_refunds", "Shipping Credit Refunds", "refunds"),
     ("gift_wrap_credit_refunds", "Gift Wrap Credit Refunds", "refunds"),
     ("promotional_rebates", "Promotional Rebates", "refunds"),
-    ("promotional_rebate_refunds", "Promotional Rebate Refunds", "refunds"),
+    ("a_to_z_guarantee_claims", "A-to-z Guarantee Claims", "refunds"),
+    ("chargebacks", "Chargebacks", "refunds"),
 ]
 
 EXPENSE_BUCKETS = [
     ("referral_fees", "Referral Fees", "expenses"),
     ("fba_fees", "FBA Fulfillment Fees", "expenses"),
-    ("advertising", "Advertising", "expenses"),
-    ("promotions_fees", "Promotions Fees", "expenses"),
-    ("subscription_fees", "Subscription Fees", "expenses"),
+    ("other_transaction_fees", "Other Transaction Fees", "expenses"),
     ("fba_monthly_storage_fees", "FBA Monthly Storage Fees", "expenses"),
     ("fba_long_term_storage_fees", "FBA Long-Term Storage Fees", "expenses"),
     ("fba_removal_order_fees", "FBA Removal / Disposal Fees", "expenses"),
+    ("subscription_fees", "Subscription Fees", "expenses"),
     ("inbound_placement_and_defect_fees", "Inbound Placement & Defect Fees", "expenses"),
-    ("other_transaction_fees", "Other Transaction Fees", "expenses"),
+    ("inbound_shipping_and_duties", "Inbound Shipping Fees & Duties", "expenses"),
+    ("liquidation_fees", "Liquidation Fees", "expenses"),
+    ("promotions_fees", "Promotions Fees", "expenses"),
+    ("advertising", "Advertising", "expenses"),
     ("service_fee", "Other Service Fees", "expenses"),
 ]
 

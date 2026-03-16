@@ -344,17 +344,77 @@ class TestPNLReportService:
         )
         keys = [li["key"] for li in report["line_items"]]
         assert "product_sales" in keys
+        assert "promotional_rebate_refunds" in keys
+        assert "fba_liquidation_proceeds" in keys
         assert "total_gross_revenue" in keys
         assert "refunds" in keys
         assert "fba_inventory_credit" in keys
         assert "promotional_rebates" in keys
+        assert "a_to_z_guarantee_claims" in keys
+        assert "chargebacks" in keys
         assert "total_refunds" in keys
         assert "total_net_revenue" in keys
         assert "cogs" in keys
         assert "gross_profit" in keys
+        assert "inbound_shipping_and_duties" in keys
+        assert "liquidation_fees" in keys
         assert "promotions_fees" in keys
         assert "total_expenses" in keys
         assert "net_earnings" in keys
+
+    def test_manual_model_buckets_roll_into_correct_sections(self):
+        profiles_table = _chain_table([FAKE_PROFILE])
+        cogs_table = _chain_table([])
+
+        call_count = {"import_months": 0}
+
+        def import_months_factory():
+            call_count["import_months"] += 1
+            if call_count["import_months"] == 1:
+                return _chain_table([{"entry_month": "2026-01-01", "unmapped_amount": "0"}])
+            return _chain_table([{"entry_month": "2026-01-01"}])
+
+        rpc_chain = MagicMock()
+        rpc_chain.execute.return_value = MagicMock(data=[
+            {"entry_month": "2026-01-01", "ledger_bucket": "product_sales", "amount": "100.00"},
+            {"entry_month": "2026-01-01", "ledger_bucket": "promotional_rebate_refunds", "amount": "2.00"},
+            {"entry_month": "2026-01-01", "ledger_bucket": "fba_liquidation_proceeds", "amount": "15.00"},
+            {"entry_month": "2026-01-01", "ledger_bucket": "refunds", "amount": "-10.00"},
+            {"entry_month": "2026-01-01", "ledger_bucket": "a_to_z_guarantee_claims", "amount": "-3.00"},
+            {"entry_month": "2026-01-01", "ledger_bucket": "chargebacks", "amount": "-4.00"},
+            {"entry_month": "2026-01-01", "ledger_bucket": "inbound_shipping_and_duties", "amount": "-7.00"},
+            {"entry_month": "2026-01-01", "ledger_bucket": "liquidation_fees", "amount": "-1.50"},
+        ])
+
+        db = MagicMock()
+
+        def table_router(name):
+            if name == "monthly_pnl_profiles":
+                return profiles_table
+            if name == "monthly_pnl_cogs_monthly":
+                return cogs_table
+            if name == "monthly_pnl_import_months":
+                return import_months_factory()
+            return _chain_table()
+
+        db.table.side_effect = table_router
+        db.rpc.return_value = rpc_chain
+
+        svc = PNLReportService(db)
+        report = svc.build_report(
+            "p1", filter_mode="range", start_month="2026-01-01", end_month="2026-01-01"
+        )
+
+        items = {li["key"]: li for li in report["line_items"]}
+        assert items["promotional_rebate_refunds"]["category"] == "revenue"
+        assert items["fba_liquidation_proceeds"]["category"] == "revenue"
+        assert items["a_to_z_guarantee_claims"]["category"] == "refunds"
+        assert items["chargebacks"]["category"] == "refunds"
+        assert items["inbound_shipping_and_duties"]["category"] == "expenses"
+        assert items["liquidation_fees"]["category"] == "expenses"
+        assert items["total_gross_revenue"]["months"]["2026-01-01"] == "117.00"
+        assert items["total_refunds"]["months"]["2026-01-01"] == "-17.00"
+        assert items["total_expenses"]["months"]["2026-01-01"] == "-8.50"
 
     def test_revenue_totals(self):
         svc = self._make_service()
@@ -390,7 +450,7 @@ class TestPNLReportService:
         assert items["promotional_rebates"]["category"] == "refunds"
 
     def test_total_refunds_sums_all_refund_buckets(self):
-        """Total Refunds = refunds + fba_inventory_credit + shipping_credit_refunds + ... + promotional_rebates."""
+        """Total Refunds = refunds + refund adjustments + claims + chargebacks."""
         svc = self._make_service()
         report = svc.build_report(
             "p1", filter_mode="range", start_month="2026-01-01", end_month="2026-02-01"
