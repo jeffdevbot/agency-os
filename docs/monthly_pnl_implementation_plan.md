@@ -2,16 +2,14 @@
 
 _Last updated: 2026-03-16 (ET)_
 
-> Status: Monthly P&L v1 is partially shipped. The backfill-first import
-> pipeline, standalone `/reports/.../pnl` surface, provenance/settings UI, and
-> workbook-aligned transaction mapping are live. This document is still useful
-> as design/reference context, but some sections remain forward-looking for
-> work that is not done yet, especially COGS workflow, async/background import
-> execution for multi-month uploads, and the remaining report-speed/productization
-> follow-ons. As of 2026-03-16, the live DB also has
-> `monthly_pnl_import_month_bucket_totals` plus a rewritten
-> `pnl_report_bucket_totals(...)` function so report reads can use precomputed
-> month summaries instead of regrouping raw ledger rows.
+> Status: Monthly P&L v1 is shipped. The backfill-first import pipeline,
+> standalone `/reports/.../pnl` surface, provenance/settings UI, workbook-aligned
+> transaction mapping, async/background imports with worker-based processing,
+> pre-computed bucket summary table, concurrent report queries, and frontend
+> import polling are all live. Phases 1, 2, and 4 from the original build order
+> below are complete. Phase 3 (COGS) has the table but not the entry workflow.
+> Phase 5 (Windsor) is next. See "v2 roadmap" at the bottom for the planned
+> feature sequence.
 
 This document defines the recommended implementation plan for a new
 client-facing `Monthly P&L` report in Ecomlabs Tools.
@@ -169,84 +167,94 @@ This gives us:
 3. strong auditability
 4. future Windsor/direct-SP-API flexibility
 
-## Proposed database model
+## Database model (shipped)
+
+All tables below are live. Created in
+`20260315200000_monthly_pnl_phase1_foundation.sql` unless noted otherwise.
+Table 8 was added post-ship for report performance.
 
 ### 1. `monthly_pnl_profiles`
 
 One P&L configuration per client + marketplace.
 
-Suggested fields:
+Columns:
 
-1. `id`
+1. `id uuid primary key default gen_random_uuid()`
 2. `client_id uuid not null references public.agency_clients(id) on delete restrict`
-3. `marketplace_code`
-4. `currency_code`
-5. `status` (`draft`, `active`, `archived`)
-6. `notes`
-7. timestamps
+3. `marketplace_code text not null`
+4. `currency_code text not null default 'USD'`
+5. `status text not null default 'draft'` — check: `draft`, `active`, `archived`
+6. `notes text`
+7. `created_by uuid references public.profiles(id)`
+8. `updated_by uuid references public.profiles(id)`
+9. `created_at timestamptz not null default now()`
+10. `updated_at timestamptz not null default now()`
 
 Constraints/indexes:
 
-1. unique index on `(client_id, marketplace_code)` for active profiles
+1. unique index on `(client_id, marketplace_code)`
 
 ### 2. `monthly_pnl_imports`
 
-Tracks uploaded files or automated source pulls.
+Tracks uploaded files and automated source pulls. Also serves as the job
+record for async/background imports.
 
-Suggested fields:
+Columns:
 
-1. `id`
-2. `profile_id`
-3. `source_type`
-   - `amazon_transaction_upload`
-   - `windsor_settlement`
-   - `cogs_upload`
-4. `period_start`
-5. `period_end`
-6. `source_filename`
-7. `storage_path`
-8. `source_file_sha256`
-9. `import_scope`
-   - `single_month`
-   - `multi_month`
-   - `full_year`
-10. `supersedes_import_id nullable`
-11. `import_status`
-12. `row_count`
-13. `error_message`
-14. `raw_meta jsonb`
-15. timestamps
+1. `id uuid primary key default gen_random_uuid()`
+2. `profile_id uuid not null references monthly_pnl_profiles(id) on delete cascade`
+3. `source_type text not null` — check: `amazon_transaction_upload`, `windsor_settlement`, `cogs_upload`
+4. `period_start date`
+5. `period_end date`
+6. `source_filename text`
+7. `storage_path text`
+8. `source_file_sha256 text`
+9. `import_scope text` — check: `single_month`, `multi_month`, `full_year`
+10. `supersedes_import_id uuid references monthly_pnl_imports(id) on delete set null`
+11. `import_status text not null default 'pending'` — check: `pending`, `running`, `success`, `error`
+12. `row_count integer not null default 0` — check: `>= 0`
+13. `error_message text`
+14. `raw_meta jsonb not null default '{}'`
+15. `initiated_by uuid references public.profiles(id)`
+16. `started_at timestamptz`
+17. `finished_at timestamptz`
+18. `created_at timestamptz not null default now()`
+19. `updated_at timestamptz not null default now()`
 
 Constraints/indexes:
 
-1. unique index on `(profile_id, source_type, source_file_sha256)`
+1. unique index on `(profile_id, source_type, source_file_sha256)` where `import_status = 'running'` — allows re-upload of the same file after success
 2. index on `(profile_id, source_type, period_start, period_end)`
 3. index on `(profile_id, import_status)`
 
 Notes:
 
-1. `source_file_sha256` is the duplicate-upload guard.
-2. Activation should happen at the month-slice level, not the whole-file import level.
+1. `source_file_sha256` blocks duplicate concurrent uploads but allows re-imports.
+2. `started_at` / `finished_at` track async job lifecycle.
+3. `raw_meta` stores the `async_import_v1` flag for queued imports.
+4. Activation happens at the month-slice level, not the whole-file import level.
 
 ### 3. `monthly_pnl_import_months`
 
-Tracks month-level slices emitted from one file import or automated source pull.
+Month-level slices emitted from one import. The atomic-swap control surface
+for report-visible months.
 
-Suggested fields:
+Columns:
 
-1. `id`
-2. `profile_id`
-3. `import_id`
-4. `source_type`
-5. `entry_month`
-6. `import_status`
+1. `id uuid primary key default gen_random_uuid()`
+2. `profile_id uuid not null references monthly_pnl_profiles(id) on delete cascade`
+3. `import_id uuid not null references monthly_pnl_imports(id) on delete cascade`
+4. `source_type text not null` — check: `amazon_transaction_upload`, `windsor_settlement`, `cogs_upload`
+5. `entry_month date not null`
+6. `import_status text not null default 'pending'` — check: `pending`, `running`, `success`, `error`
 7. `is_active boolean not null default false`
-8. `supersedes_import_month_id nullable`
-9. `raw_row_count`
-10. `ledger_row_count`
+8. `supersedes_import_month_id uuid references monthly_pnl_import_months(id) on delete set null`
+9. `raw_row_count integer not null default 0` — check: `>= 0`
+10. `ledger_row_count integer not null default 0` — check: `>= 0`
 11. `mapped_amount numeric(18,2) not null default 0`
 12. `unmapped_amount numeric(18,2) not null default 0`
-13. timestamps
+13. `created_at timestamptz not null default now()`
+14. `updated_at timestamptz not null default now()`
 
 Constraints/indexes:
 
@@ -256,29 +264,31 @@ Constraints/indexes:
 
 Notes:
 
-1. This table is the atomic-swap control surface for report-visible months.
-2. The report service should resolve months through active `monthly_pnl_import_months`, not directly from imports.
+1. The report service resolves months through active import months, not directly
+   from imports.
+2. Only one import month can be active per profile + source_type + entry_month.
 
 ### 4. `monthly_pnl_raw_rows`
 
-Stores the raw parsed source row for audit/debugging.
+Raw parsed source rows preserved for audit/debugging.
 
-Suggested fields:
+Columns:
 
-1. `id`
-2. `import_id`
-3. `profile_id`
-4. `import_month_id nullable`
-5. `source_type`
-6. `row_index`
-7. `posted_at`
-8. `order_id`
-9. `sku`
-10. `raw_type`
-11. `raw_description`
-12. `release_at`
-13. `raw_payload jsonb`
-14. timestamps
+1. `id uuid primary key default gen_random_uuid()`
+2. `import_id uuid not null references monthly_pnl_imports(id) on delete cascade`
+3. `profile_id uuid not null references monthly_pnl_profiles(id) on delete cascade`
+4. `import_month_id uuid references monthly_pnl_import_months(id) on delete set null`
+5. `source_type text not null` — check: `amazon_transaction_upload`, `windsor_settlement`, `cogs_upload`
+6. `row_index integer not null` — check: `>= 0`
+7. `posted_at timestamptz`
+8. `order_id text`
+9. `sku text`
+10. `raw_type text`
+11. `raw_description text`
+12. `release_at timestamptz`
+13. `raw_payload jsonb not null default '{}'`
+14. `created_at timestamptz not null default now()`
+15. `updated_at timestamptz not null default now()`
 
 Constraints/indexes:
 
@@ -287,341 +297,367 @@ Constraints/indexes:
 3. index on `(import_id, posted_at)`
 4. index on `(import_id, release_at)`
 
-Notes:
-
-1. `row_index` uniqueness prevents duplicate raw-row ingestion within one import retry path.
-2. `profile_id` should be denormalized onto raw rows for RLS consistency and efficient profile-scoped QA queries.
-
 ### 5. `monthly_pnl_ledger_entries`
 
-Canonical normalized ledger rows used for the report.
+Canonical normalized ledger rows. The report reads from these (via the summary
+table or RPC aggregation).
 
-Suggested fields:
+Columns:
 
-1. `id`
-2. `profile_id`
-3. `import_id`
-4. `import_month_id nullable`
-5. `entry_month` (`date`, normalized to first day of month)
-6. `posted_at`
-7. `order_id`
-8. `sku`
-9. `source_type`
-10. `source_subtype`
-11. `raw_type`
-12. `raw_description`
-13. `ledger_bucket`
+1. `id uuid primary key default gen_random_uuid()`
+2. `profile_id uuid not null references monthly_pnl_profiles(id) on delete cascade`
+3. `import_id uuid not null references monthly_pnl_imports(id) on delete cascade`
+4. `import_month_id uuid references monthly_pnl_import_months(id) on delete set null`
+5. `entry_month date not null`
+6. `posted_at timestamptz`
+7. `order_id text`
+8. `sku text`
+9. `source_type text not null` — check: `amazon_transaction_upload`, `windsor_settlement`, `cogs_upload`
+10. `source_subtype text`
+11. `raw_type text`
+12. `raw_description text`
+13. `ledger_bucket text not null`
 14. `amount numeric(18,2) not null`
-15. `currency_code`
-16. `is_mapped boolean`
-17. `mapping_rule_id nullable`
-18. `source_row_index nullable`
-19. `raw_payload jsonb`
-20. timestamps
+15. `currency_code text not null default 'USD'`
+16. `is_mapped boolean not null default false`
+17. `mapping_rule_id uuid references monthly_pnl_mapping_rules(id) on delete set null`
+18. `source_row_index integer`
+19. `raw_payload jsonb not null default '{}'`
+20. `created_at timestamptz not null default now()`
+21. `updated_at timestamptz not null default now()`
 
-`ledger_bucket` should be the canonical internal category, for example:
+#### Ledger buckets (canonical)
+
+Revenue:
 
 1. `product_sales`
 2. `shipping_credits`
 3. `gift_wrap_credits`
-4. `promotional_rebates`
-5. `refunds`
-6. `fba_inventory_credit`
-7. `shipping_credit_refunds`
-8. `gift_wrap_credit_refunds`
-9. `promotional_rebate_refunds`
-10. `referral_fees`
-11. `fba_fees`
-12. `other_transaction_fees`
-13. `fba_monthly_storage_fees`
-14. `fba_long_term_storage_fees`
-15. `fba_removal_order_fees`
-16. `subscription_fees`
-17. `inbound_placement_and_defect_fees`
-18. `inbound_shipping_and_duties`
-19. `liquidation_fees`
-20. `advertising`
-21. `marketplace_withheld_tax`
-22. `non_pnl_transfer`
-23. `unmapped`
+4. `promotional_rebate_refunds`
+5. `fba_liquidation_proceeds`
+
+Refunds:
+
+1. `refunds`
+2. `fba_inventory_credit`
+3. `shipping_credit_refunds`
+4. `gift_wrap_credit_refunds`
+5. `promotional_rebates`
+6. `a_to_z_guarantee_claims`
+7. `chargebacks`
+
+Expenses:
+
+1. `referral_fees`
+2. `fba_fees`
+3. `other_transaction_fees`
+4. `fba_monthly_storage_fees`
+5. `fba_long_term_storage_fees`
+6. `fba_removal_order_fees`
+7. `subscription_fees`
+8. `inbound_placement_and_defect_fees`
+9. `inbound_shipping_and_duties`
+10. `liquidation_fees`
+11. `promotions_fees`
+12. `advertising`
+
+Stored but excluded from report totals:
+
+1. `non_pnl_transfer` — cash movement / disbursements (excluded from P&L, used for disbursements tab)
+2. `unmapped` — rows that did not match any mapping rule
+3. `marketplace_withheld_tax` — pass-through tax, not a P&L item
 
 Constraints/indexes:
 
-1. unique index on `(import_id, source_row_index, ledger_bucket, amount, coalesce(order_id, ''), coalesce(sku, ''))`
+1. unique index on `(import_id, source_row_index, ledger_bucket)` where `source_row_index is not null`
 2. index on `(profile_id, entry_month, ledger_bucket)`
 3. index on `(profile_id, entry_month, is_mapped)`
 4. index on `(profile_id, source_type, entry_month)`
-
-Notes:
-
-1. The uniqueness rule is meant to block duplicate ledger expansion during retries.
-2. The exact dedupe key can be adjusted during implementation, but v1 must not allow silent month doubling from import retries.
-3. During implementation, prefer a stable source-row-based uniqueness rule over amount-included dedupe where the source identity is reliable.
+5. index on `(import_month_id, entry_month, ledger_bucket)` — added in `20260316194500` for RPC optimization
 
 ### 6. `monthly_pnl_mapping_rules`
 
 Deterministic mapping rules from raw row patterns to canonical ledger buckets.
+Profile-specific rules always win before priority is considered.
 
-Suggested fields:
+Columns:
 
-1. `id`
-2. `profile_id nullable`
-   - null for global default rules
-3. `marketplace_code`
-4. `source_type`
-5. `match_spec jsonb`
-6. `match_operator`
-7. `match_value`
-8. `target_bucket`
-9. `priority`
-10. `active`
-11. timestamps
+1. `id uuid primary key default gen_random_uuid()`
+2. `profile_id uuid references monthly_pnl_profiles(id) on delete cascade` — null for global default rules
+3. `marketplace_code text not null default 'US'`
+4. `source_type text not null` — check: `amazon_transaction_upload`, `windsor_settlement`
+5. `match_spec jsonb not null default '{}'`
+6. `match_operator text not null default 'exact_fields'` — check: `exact_fields`, `contains`, `starts_with`, `regex`
+7. `target_bucket text not null`
+8. `priority integer not null default 100`
+9. `active boolean not null default true`
+10. `created_at timestamptz not null default now()`
+11. `updated_at timestamptz not null default now()`
 
 Example rule:
 
-1. `source_type = amazon_transaction_upload`
-2. `match_spec = {"type":"Service Fee","description":"Cost of Advertising"}`
-3. `match_operator = exact_fields`
-4. `match_value = null`
-5. `target_bucket = advertising`
+1. `source_type = 'amazon_transaction_upload'`
+2. `match_spec = {"type": "Service Fee", "description": "Cost of Advertising"}`
+3. `match_operator = 'exact_fields'`
+4. `target_bucket = 'advertising'`
+
+Constraints/indexes:
+
+1. index on `(source_type, marketplace_code, active, priority)` — for rule lookup
+2. index on `(profile_id)` where `profile_id is not null` — for profile-specific rules
+3. unique index on `(marketplace_code, source_type, match_spec, match_operator)` where `profile_id is null` — for global seed rules
 
 Notes:
 
-1. The mapping rule should not depend on a pipe-delimited freeform string like `type|description`.
-2. Use structured matching so implementation mistakes do not silently unmap money.
-3. If both a global rule and a profile-specific rule match, the profile-specific rule should always win before priority is considered.
+1. 36+ global seed rules are shipped across the Phase 1 migration and follow-up
+   migrations (`20260316190000`, `20260316195500`, `20260316203000`).
+2. All seed rules are for `source_type = 'amazon_transaction_upload'`. Windsor
+   settlement rules will need to be seeded when that source is implemented.
+3. The mapping layer is dual: Order/Refund rows use column-based expansion
+   (each CSV amount column maps to a bucket), while all other row types use
+   rule-based matching against `match_spec`.
 
 ### 7. `monthly_pnl_cogs_monthly`
 
-Optional COGS source.
+Optional COGS source. Table exists but entry workflow is not yet built (see
+v2-4 in the roadmap).
 
-Suggested fields:
+Columns:
 
-1. `id`
-2. `profile_id`
-3. `entry_month`
-4. `sku nullable`
-5. `asin nullable`
+1. `id uuid primary key default gen_random_uuid()`
+2. `profile_id uuid not null references monthly_pnl_profiles(id) on delete cascade`
+3. `entry_month date not null`
+4. `sku text`
+5. `asin text`
 6. `amount numeric(18,2) not null`
-7. `currency_code`
-8. `source_import_id`
-9. timestamps
-
-v1 can support client-month total COGS without SKU granularity if needed.
+7. `currency_code text not null default 'USD'`
+8. `source_import_id uuid references monthly_pnl_imports(id) on delete set null`
+9. `created_at timestamptz not null default now()`
+10. `updated_at timestamptz not null default now()`
 
 Constraints/indexes:
 
 1. unique index on `(profile_id, entry_month, coalesce(sku, ''), coalesce(asin, ''))`
 
+### 8. `monthly_pnl_import_month_bucket_totals`
+
+Pre-computed per-month bucket totals for report performance. Populated at
+import time and backfilled for historical data.
+
+Added in `20260316213000_add_monthly_pnl_import_month_bucket_totals.sql`.
+
+Columns:
+
+1. `id uuid primary key default gen_random_uuid()`
+2. `profile_id uuid not null references monthly_pnl_profiles(id) on delete cascade`
+3. `import_id uuid not null references monthly_pnl_imports(id) on delete cascade`
+4. `import_month_id uuid not null references monthly_pnl_import_months(id) on delete cascade`
+5. `entry_month date not null`
+6. `ledger_bucket text not null`
+7. `amount numeric(18,2) not null default 0`
+8. `created_at timestamptz not null default now()`
+9. `updated_at timestamptz not null default now()`
+
+Constraints/indexes:
+
+1. unique index on `(import_month_id, ledger_bucket)`
+2. index on `(profile_id, entry_month, import_month_id)`
+
+Notes:
+
+1. The report service reads this table first for bucket totals. Falls back to
+   the `pnl_report_bucket_totals()` RPC if the table query fails.
+2. Rows are inserted during `_insert_bucket_totals()` in `transaction_import.py`
+   when each month slice is activated.
+
 ## Raw-source normalization rules
 
-### A. Monthly Unified Transaction Report normalization
+### A. Monthly Unified Transaction Report normalization (shipped)
 
-For transaction-report uploads, each source row can yield multiple ledger rows.
+Each source row can yield multiple ledger rows. The importer uses a dual
+approach:
 
-Example:
+1. **Column-based expansion** for Order and Refund rows: each CSV amount
+   column (`product sales`, `shipping credits`, `fba fees`, etc.) maps to a
+   ledger bucket via `COLUMN_BUCKET_MAP`. Refund rows remap revenue columns
+   to their refund-side buckets (e.g. `product_sales` → `refunds`,
+   `shipping_credits` → `shipping_credit_refunds`).
+2. **Rule-based matching** for all other row types (Service Fee, FBA Inventory
+   Fee, Transfer, Adjustment, etc.): the row's `type` and `description` are
+   matched against `monthly_pnl_mapping_rules` using `match_spec` /
+   `match_operator`. Matched rows roll all amount columns into the single
+   rule-determined bucket.
+3. **Special handling** for Liquidations: `product_sales` →
+   `fba_liquidation_proceeds`, `other_transaction_fees` → `liquidation_fees`.
+4. **Same-bucket coalescing**: if a single raw row emits multiple ledger
+   entries into the same bucket, they are coalesced (summed) before insert to
+   avoid unique-constraint violations.
 
-One raw Amazon row may generate:
-
-1. `product_sales`
-2. `shipping_credits`
-3. `gift_wrap_credits`
-4. `promotional_rebates`
-5. `marketplace_withheld_tax`
-6. `referral_fees`
-7. `fba_fees`
-8. `other_transaction_fees`
-9. `other`-mapped fee rows
-
-This is preferable to preserving the source row as one indivisible record,
-because the P&L is bucket-based, not row-based.
-
-### B. Windsor settlement normalization
+### B. Windsor settlement normalization (not yet implemented)
 
 For Windsor settlement rows, each source row usually produces one ledger row.
 
-Mapping is based on:
+Windsor settlement fields: `posted_date`, `transaction_type`, `amount_type`,
+`amount_description`, `amount`, `order_id`, `sku`, `total_amount`.
+
+Mapping will be based on:
 
 1. `transaction_type`
 2. `amount_type`
 3. `amount_description`
 
-### C. Transfers and payouts
+See "Ensuring consistent mapping across sources" below.
 
-Rows representing cash movement only must be stored but excluded from P&L.
+### C. Transfers and payouts (shipped)
 
-Example:
+Rows representing cash movement are stored as `non_pnl_transfer` and excluded
+from P&L totals. Matched by mapping rules against Transfer-type rows and payout
+descriptions like `To your account ending in ...`.
 
-1. `Transfer`
-2. payout rows like `To your account ending in ...`
+### Ensuring consistent mapping across sources
 
-These should map to `non_pnl_transfer`.
+Both CSV uploads and future Windsor settlement must produce the same ledger
+buckets for the same economic events. The mapping rules table already
+supports `source_type` scoping, so each source gets its own rules that target
+the shared canonical buckets.
 
-## Initial US P&L row mapping
+When Windsor settlement is implemented:
+
+1. Seed `windsor_settlement` rules in a migration, one rule per bucket, using
+   Windsor's `transaction_type` / `amount_type` / `amount_description` as
+   `match_spec` fields.
+2. Validate by importing the same month from both sources and comparing bucket
+   totals. Any delta indicates a mapping gap.
+3. The report service does not need to change — it reads from
+   `monthly_pnl_import_month_bucket_totals` regardless of source type.
+4. If both sources exist for the same month, a source precedence rule is
+   needed. Recommended: Windsor wins for recent months (last 3), CSV wins for
+   historical. The precedence should be configurable per profile.
+
+## US P&L row mapping
 
 ### Revenue section
 
-1. `Product sales`
-   - transaction upload:
-     - `product sales`
-   - Windsor settlement:
-     - `ItemPrice / Principal`
-2. `Shipping credits`
-   - transaction upload:
-     - `shipping credits`
-   - Windsor settlement:
-     - `ItemPrice / Shipping`
-3. `Gift wrap credits`
-   - transaction upload:
-     - `gift wrap credits`
-   - Windsor settlement:
-     - likely dedicated gift-wrap descriptions if present
-4. `Promotional rebate refunds`
-   - transaction upload:
-     - positive rebate-related adjustment/refund lines as found
-   - Windsor settlement:
-     - promotion-related positive reversal descriptions
-5. `FBA liquidation proceeds`
-   - map once observed
-6. `Amazon Shipping Reimbursement Adj`
-   - map once observed
+1. `product_sales` — SHIPPED
+   - CSV: `product sales` column on Order rows
+   - Windsor: `ItemPrice / Principal`
+2. `shipping_credits` — SHIPPED
+   - CSV: `shipping credits` column on Order rows
+   - Windsor: `ItemPrice / Shipping`
+3. `gift_wrap_credits` — SHIPPED
+   - CSV: `gift wrap credits` column on Order rows
+   - Windsor: dedicated gift-wrap descriptions if present
+4. `promotional_rebate_refunds` — SHIPPED
+   - CSV: positive rebate-related adjustment/refund lines
+   - Windsor: promotion-related positive reversal descriptions
+5. `fba_liquidation_proceeds` — SHIPPED
+   - CSV: `product_sales` column on Liquidations rows
 
 ### Refund section
 
-1. `Refunds`
-   - transaction upload:
-     - negative `product sales` on `Refund` rows
-   - Windsor settlement:
-     - `Refund` transaction rows against principal
-2. `FBA inventory credit`
-   - transaction upload:
-     - `Adjustment / FBA Inventory Reimbursement - *`
-   - Windsor settlement:
-     - `FBA Inventory Reimbursement / *`
-3. `Shipping credit refunds`
-   - transaction upload:
-     - negative `shipping credits` on refund rows
-   - Windsor settlement:
-     - refund shipping rows
-4. `Gift wrap credits refunds`
-   - map when observed
-5. `Promotional rebates`
-   - transaction upload:
-     - `promotional rebates`
-   - Windsor settlement:
-     - `Promotion / Principal|Shipping`
-6. `A-to-z Guarantee claims`
-   - map when observed
-7. `Chargebacks`
-   - map when observed
+1. `refunds` — SHIPPED
+   - CSV: negative `product sales` on Refund rows
+   - Windsor: `Refund` transaction rows against principal
+2. `fba_inventory_credit` — SHIPPED
+   - CSV: `Adjustment / FBA Inventory Reimbursement - *` via rule
+   - Windsor: `FBA Inventory Reimbursement / *`
+3. `shipping_credit_refunds` — SHIPPED
+   - CSV: negative `shipping credits` on Refund rows
+   - Windsor: refund shipping rows
+4. `gift_wrap_credit_refunds` — SHIPPED
+   - CSV: negative `gift wrap credits` on Refund rows
+   - Windsor: map when observed
+5. `promotional_rebates` — SHIPPED
+   - CSV: `promotional rebates` column
+   - Windsor: `Promotion / Principal|Shipping`
+6. `a_to_z_guarantee_claims` — SHIPPED
+   - CSV: `A-to-z Guarantee Claim` via rule
+   - Windsor: map when observed
+7. `chargebacks` — SHIPPED
+   - CSV: `Chargeback Refund` via rule
+   - Windsor: map when observed
 
 ### Expense section
 
-1. `Referral fees`
-   - transaction upload:
-     - `selling fees`
-   - Windsor settlement:
-     - `ItemFees / Commission`
-2. `FBA fees`
-   - transaction upload:
-     - `fba fees`
-   - Windsor settlement:
-     - `ItemFees / FBAPerUnitFulfillmentFee`
-3. `Other transaction fees`
-   - transaction upload:
-     - `other transaction fees`
-   - Windsor settlement:
-     - `SalesTaxServiceFee`
-     - `ShippingChargeback`
-     - `RefundCommission`
-     - other non-FBA/non-referral fee descriptions
-4. `FBA monthly storage fees`
-   - transaction upload:
-     - `FBA Inventory Fee / FBA storage fee`
-   - Windsor settlement:
-     - `other-transaction / Storage Fee`
-5. `FBA long-term storage fees`
-   - transaction upload:
-     - `FBA Inventory Fee / FBA Long-Term Storage Fee`
-   - Windsor settlement:
-     - `other-transaction / StorageRenewalBilling` or explicit long-term storage descriptions
-6. `FBA removal order fees`
-   - transaction upload:
-     - `FBA Inventory Fee / FBA Removal Order: Disposal Fee`
-   - Windsor settlement:
-     - `other-transaction / RemovalComplete`
-     - `other-transaction / DisposalComplete`
-7. `Subscription fees`
-   - transaction upload:
-     - `Service Fee / Subscription`
-   - Windsor settlement:
-     - `other-transaction / Subscription Fee`
-8. `Inbound placement & defect fees`
-   - transaction upload:
-     - `Service Fee / FBA Inbound Placement Service Fee`
-   - Windsor settlement:
-     - `other-transaction / FBA Inbound Placement Service Fee`
-9. `Inbound shipping fees & duties`
-   - map only if observed in source
-10. `Liquidation fees`
-   - map when observed
-11. `Promotions fees`
-   - transaction upload:
-     - coupon participation/performance fees if kept separate
-   - Windsor settlement:
-     - `Coupon Participation Fee`
-     - `Coupon Performance Based Fee`
-12. `Advertising`
-   - transaction upload:
-     - `Service Fee / Cost of Advertising`
-   - Windsor settlement:
-     - `Cost of Advertising / TransactionTotalAmount`
+1. `referral_fees` — SHIPPED
+   - CSV: `selling fees` column (renamed to `referral_fees` in `COLUMN_BUCKET_MAP`)
+   - Windsor: `ItemFees / Commission`
+2. `fba_fees` — SHIPPED
+   - CSV: `fba fees` column, plus `Fee Adjustment` via rule
+   - Windsor: `ItemFees / FBAPerUnitFulfillmentFee`
+3. `other_transaction_fees` — SHIPPED
+   - CSV: `other transaction fees` column, plus `FBA Transaction fees` via rule
+   - Windsor: `SalesTaxServiceFee`, `ShippingChargeback`, `RefundCommission`
+4. `fba_monthly_storage_fees` — SHIPPED
+   - CSV: `FBA Inventory Fee / FBA storage fee`, `Capacity Reservation Fee` via rules
+   - Windsor: `other-transaction / Storage Fee`
+5. `fba_long_term_storage_fees` — SHIPPED
+   - CSV: `FBA Inventory Fee / FBA Long-Term Storage Fee` via rule
+   - Windsor: `other-transaction / StorageRenewalBilling`
+6. `fba_removal_order_fees` — SHIPPED
+   - CSV: `FBA Removal Order*`, `FBA Disposal Fee` via `starts_with` rules
+   - Windsor: `other-transaction / RemovalComplete`, `DisposalComplete`
+7. `subscription_fees` — SHIPPED
+   - CSV: `Service Fee / Subscription` via rule
+   - Windsor: `other-transaction / Subscription Fee`
+8. `inbound_placement_and_defect_fees` — SHIPPED
+   - CSV: `FBA Inbound Placement Service Fee`, `Inbound Defect Fee`,
+     `Unplanned Service Charge` via rules
+   - Windsor: `other-transaction / FBA Inbound Placement Service Fee`
+9. `inbound_shipping_and_duties` — SHIPPED
+   - CSV: `Shipping Services`, `FBA International Freight...` via rules
+   - Windsor: map when observed
+10. `liquidation_fees` — SHIPPED
+    - CSV: `other_transaction_fees` column on Liquidations rows
+    - Windsor: map when observed
+11. `promotions_fees` — SHIPPED
+    - CSV: `Amazon Fees`, `Coupon Redemption Fee`, `Vine Enrollment Fee`,
+      `Price Discount`, `Deal` via rules
+    - Windsor: `Coupon Participation Fee`, `Coupon Performance Based Fee`
+12. `advertising` — SHIPPED
+    - CSV: `Service Fee / Cost of Advertising`, `Refund for Advertiser` via rules
+    - Windsor: `Cost of Advertising / TransactionTotalAmount`
 
-### Derived rows
+### Derived rows (shipped)
 
-These should not be stored as source facts:
+Computed in the report service, not stored as source facts:
 
-1. `Total Gross Revenue`
-2. `Total Refunds`
-3. `Total Net Revenue`
-4. `Gross Profit`
-5. `Total Expenses`
-6. `Net Earnings`
-
-They should be computed in the report service.
+1. `Total Gross Revenue` — sum of revenue buckets
+2. `Total Refunds` — sum of refund buckets
+3. `Total Net Revenue` — revenue + refunds
+4. `Gross Profit` — net revenue minus COGS (or `Contribution Profit` when COGS absent)
+5. `Total Expenses` — sum of expense buckets
+6. `Net Earnings` — gross profit + expenses
 
 ## UI plan
 
-### Reporting home
+### Reporting home — SHIPPED
 
-Add a new report card:
+Amazon P&L appears as a report card alongside WBR on the client marketplace
+page.
 
-1. `Monthly P&L`
+### Main route — SHIPPED
 
-### Main route
+`/reports/[clientSlug]/[marketplaceCode]/pnl`
 
-Recommended route shape:
+### Main screen — SHIPPED
 
-1. `/reports/[clientSlug]/[marketplaceCode]/pnl`
+1. Header with month-range picker (in header actions area)
+2. P&L table with all revenue / refund / expense rows
+3. Upload / import history in a subtle settings panel
+4. Background import polling with visible processing banner
+5. Contribution Profit / Contribution Margin framing when COGS absent
+6. Header now emphasizes account + marketplace and uses the `Amazon P&L`
+   product name in the UI
 
-### Main screen
+### Filters — SHIPPED
 
-Sections:
-
-1. Header / filters
-2. Source freshness / upload status
-3. P&L table
-4. Unmapped warnings
-5. Export actions
-
-### Filters
-
-v1 filters:
-
-1. `YTD`
-2. `Last 3 / 6 / 12 months`
-3. explicit month range
-4. `Include COGS` on/off if missing
+1. `Last 3 Months` (default)
+2. `Last 12 Months`
+3. `Last Year` (previous calendar year)
+4. `YTD`
+5. Explicit month range
+6. COGS toggle not yet built (see v2-4)
 
 ### Supporting screens
 
@@ -782,29 +818,34 @@ Minimum requirement:
 6. `Source drift`
    - Amazon file schemas and Windsor labels may change
 
-## Recommended build order
+## Recommended build order (v1)
 
-### Phase 1: Foundation
+> Phases 1, 2, and 4 are complete. Remaining v1 items (COGS workflow, Windsor,
+> CA expansion) plus new features (% view, agency fees, disbursements, Excel
+> export, totals toggle, annual comparison) are tracked in the **v2 roadmap**
+> section below.
+
+### Phase 1: Foundation — SHIPPED
 
 1. Add P&L profile/import/ledger/mapping tables
 2. Add transaction report upload backend
 3. Add normalized ledger expansion
 4. Add unmapped QA output
 
-### Phase 2: First usable report
+### Phase 2: First usable report — SHIPPED (except Excel export)
 
 1. Add Monthly P&L route
 2. Add month filters
 3. Render derived rows
-4. Add Excel export
+4. ~~Add Excel export~~ — moved to v2 roadmap item 5
 
-### Phase 3: COGS
+### Phase 3: COGS — TABLE EXISTS, WORKFLOW NOT BUILT
 
 1. Add COGS import
 2. Fold COGS into gross profit / net earnings
 3. Add missing-COGS warnings
 
-### Phase 4: Validation
+### Phase 4: Validation — SHIPPED
 
 1. Reconcile multiple months against manual agency spreadsheets
 2. Harden mappings for observed edge labels
@@ -822,6 +863,162 @@ Minimum requirement:
 1. Add CA marketplace profile support
 2. Introduce marketplace-specific mapping packs
 3. Validate tax and fee-label differences
+
+## v2 roadmap
+
+Planned feature sequence after v1 shipped state.
+
+Recommended ordering principle:
+
+1. ship low-risk report improvements first
+2. complete the core finance model before internal add-ons
+3. validate Windsor as the second ingestion path before polishing exports
+4. defer comparison/reporting layers until the underlying data model is richer
+   and stable
+
+### v2-0: Totals column toggle — LOW difficulty
+
+Add an optional "Total" column after the last month column that sums each row
+across all visible months. Toggled on/off from the report header, similar to
+how toggles work in the WBR. Default off so the table stays compact.
+
+Frontend-only. No backend changes, no new queries — the data is already in the
+response. Just sum each row's month values client-side when the toggle is on.
+
+### v2-1: Percent-of-revenue view — LOW difficulty
+
+Frontend-only display mode. Each expense and refund line shows
+`[amount] / [Total Net Revenue]` as a percentage for that month. Revenue rows
+and totals stay as dollar amounts. Gross Profit row shows margin %.
+
+UI: add report tabs similar to WBR section tabs. Suggested tab names:
+`Dollars` and `% of Revenue` (or `$` and `%`). Same report, different lens.
+
+No backend changes, no new tables, no new queries.
+
+### v2-2: COGS entry workflow — MEDIUM difficulty
+
+The `monthly_pnl_cogs_monthly` table already exists (Phase 1 migration). It
+supports per-profile, per-month, optional per-SKU amounts. The work is the
+entry UI and report integration.
+
+1. Settings toggle: "Enable COGS" on/off per profile. When off, report shows
+   "Contribution Profit" framing (already implemented). When on and data
+   exists, report shows "Gross Profit" / "Net Margin (%)" framing.
+2. COGS entry screen: list SKUs observed in `monthly_pnl_ledger_entries` for
+   active months, with an amount input per SKU per month. Empty values are
+   allowed — partial entry is the default state, not an error.
+3. Partial COGS is fine. If a client has provided COGS for 10 of 15 SKUs, the
+   report should still show Gross Profit using the available data and flag
+   which SKUs are missing.
+4. The SKU list is derived from ledger data, not manually maintained.
+
+### v2-3: Windsor settlement backfill — MEDIUM difficulty
+
+Reuse existing Windsor OAuth and sync infrastructure from WBR. The settlement
+feed is a different API shape from the business/ads feeds — not a copy-paste.
+
+1. Settings panel: connect Windsor settlement as a source for this P&L profile.
+2. Backfill trigger: pull last 3 months of settlement data.
+3. Normalizer: map Windsor `transaction_type` / `amount_type` /
+   `amount_description` into existing ledger buckets (mappings already spec'd
+   in "Source B" section above).
+4. Month activation using existing `monthly_pnl_import_months` pattern.
+5. Validate Windsor-sourced months against uploaded CSV months before trusting.
+6. Source precedence rule needed: when both Windsor and CSV data exist for the
+   same month, which wins? Recommend Windsor for recent months, CSV for
+   historical.
+
+### v2-4: Windsor weekly auto-refresh — LOW-MEDIUM difficulty
+
+Depends on v2-3 being validated.
+
+1. Add `windsor_settlement` source type to worker-sync loop.
+2. Per-profile toggle in settings: "Auto-refresh from Windsor" on/off.
+3. Weekly job pulls latest settlement window and upserts into ledger.
+4. Follow WBR nightly refresh pattern for job orchestration.
+
+### v2-5: Agency Fees — LOW difficulty
+
+Optional per-month agency management fee entry.
+
+1. New table `monthly_pnl_agency_fees` (profile_id, entry_month, amount,
+   notes, timestamps). One row per profile per month.
+2. Settings toggle: "Show Agency Fees" on/off per profile.
+3. Entry UI in settings area: list of active months with an amount input next
+   to each. Pre-populate month list from active import months.
+4. Report integration: when toggled on, add "Agency Fees" as the last expense
+   line item. Flows into Total Expenses and Net Earnings automatically.
+
+### v2-6: Disbursements tab — LOW-MEDIUM difficulty
+
+The importer already maps Transfer / payout rows to the `non_pnl_transfer`
+ledger bucket. This data is saved but excluded from the P&L totals (correctly).
+
+1. Add a third report tab (after `$` and `%`): `Disbursements`.
+2. Query `monthly_pnl_ledger_entries` where
+   `ledger_bucket = 'non_pnl_transfer'`, grouped by month.
+3. Show monthly disbursement totals, optionally broken out by settlement ID if
+   captured in raw data.
+4. No new tables needed. Lightweight backend endpoint or filter on existing
+   report query.
+
+Important gate:
+
+1. verify that `non_pnl_transfer` rows capture what the manual process shows
+   for disbursements before shipping
+2. do not treat this as a pure UI task until that reconciliation is proven
+
+### v2-7: Export to XLSX — LOW-MEDIUM difficulty
+
+Follow the WBR Excel export pattern. By this point the report includes all
+core views and major optional rows, so the export captures the complete
+picture without forcing early churn in workbook structure.
+
+1. Multi-sheet workbook: one sheet per report tab (Dollars, % of Revenue,
+   Disbursements).
+2. Include COGS and Agency Fees rows when enabled.
+3. Match the on-screen formatting (bold totals, section grouping, month
+   columns).
+
+### v2-8: Annual / year-over-year comparison — MEDIUM-HIGH difficulty
+
+Requires 12+ months of clean data to be useful. Design TBD.
+
+Initial suggestion: start with a YoY comparison table, not charts.
+
+1. Columns: metric name, current year YTD, prior year same period, delta (%).
+2. Metrics: Net Revenue, Total Refunds, Gross Profit, Total Expenses, Net
+   Earnings, plus top expense lines.
+3. Handle months with no prior-year data gracefully (show N/A, not zero).
+4. Charts can follow once the useful metrics are identified from table usage.
+5. Comparison basis options: same months last year, trailing 12 vs prior 12,
+   or quarter-over-quarter.
+
+## Recommended build order (v2)
+
+Recommended execution order from here:
+
+1. `v2-0` Totals column toggle
+2. `v2-1` Percent-of-revenue view
+3. `v2-2` COGS entry workflow
+4. `v2-3` Windsor settlement backfill
+5. `v2-4` Windsor weekly auto-refresh
+6. `v2-5` Agency Fees
+7. `v2-6` Disbursements tab
+8. `v2-7` Export to XLSX
+9. `v2-8` Annual / year-over-year comparison
+
+Why this order:
+
+1. start with two low-risk display wins that improve usability immediately
+2. complete the core profitability model before layering on internal agency
+   economics
+3. validate Windsor as the second ingestion path before spending time on export
+   polish
+4. defer disbursements until the `non_pnl_transfer` mapping is reconciled
+5. leave YoY analysis last because it depends on a richer, stable dataset and a
+   settled report surface
 
 ## Recommendation
 
