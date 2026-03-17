@@ -10,6 +10,8 @@ from supabase import Client
 
 from .profiles import WBRNotFoundError
 
+_PAGE_SIZE = 1000
+
 
 @dataclass(frozen=True)
 class WeekBucket:
@@ -349,14 +351,14 @@ class Section3ReportService:
         return response.data if isinstance(response.data, list) else []
 
     def _list_active_asin_mappings(self, profile_id: str) -> list[dict[str, Any]]:
-        response = (
-            self.db.table("wbr_asin_row_map")
-            .select("child_asin,row_id")
-            .eq("profile_id", profile_id)
-            .eq("active", True)
-            .execute()
+        return self._select_all(
+            "wbr_asin_row_map",
+            "child_asin,row_id",
+            [
+                ("eq", "profile_id", profile_id),
+                ("eq", "active", True),
+            ],
         )
-        return response.data if isinstance(response.data, list) else []
 
     def _list_latest_inventory(self, profile_id: str) -> list[dict[str, Any]]:
         """Fetch the most recent inventory snapshot for the profile."""
@@ -374,33 +376,59 @@ class Section3ReportService:
             return []
 
         snapshot_date = latest_rows[0]["snapshot_date"]
-        response = (
-            self.db.table("wbr_inventory_asin_snapshots")
-            .select("child_asin,instock,working,reserved_plus_fc_transfer,receiving_plus_intransit,source_row_count")
-            .eq("profile_id", profile_id)
-            .eq("snapshot_date", snapshot_date)
-            .execute()
+        return self._select_all(
+            "wbr_inventory_asin_snapshots",
+            "child_asin,instock,working,reserved_plus_fc_transfer,receiving_plus_intransit,source_row_count",
+            [
+                ("eq", "profile_id", profile_id),
+                ("eq", "snapshot_date", snapshot_date),
+            ],
         )
-        return response.data if isinstance(response.data, list) else []
 
     def _list_returns(self, profile_id: str, *, date_from: date, date_to: date) -> list[dict[str, Any]]:
-        response = (
-            self.db.table("wbr_returns_asin_daily")
-            .select("return_date,child_asin,return_units")
-            .eq("profile_id", profile_id)
-            .gte("return_date", date_from.isoformat())
-            .lte("return_date", date_to.isoformat())
-            .execute()
+        return self._select_all(
+            "wbr_returns_asin_daily",
+            "return_date,child_asin,return_units",
+            [
+                ("eq", "profile_id", profile_id),
+                ("gte", "return_date", date_from.isoformat()),
+                ("lte", "return_date", date_to.isoformat()),
+            ],
         )
-        return response.data if isinstance(response.data, list) else []
 
     def _list_business_facts(self, profile_id: str, *, date_from: date, date_to: date) -> list[dict[str, Any]]:
-        response = (
-            self.db.table("wbr_business_asin_daily")
-            .select("report_date,child_asin,unit_sales")
-            .eq("profile_id", profile_id)
-            .gte("report_date", date_from.isoformat())
-            .lte("report_date", date_to.isoformat())
-            .execute()
+        return self._select_all(
+            "wbr_business_asin_daily",
+            "report_date,child_asin,unit_sales",
+            [
+                ("eq", "profile_id", profile_id),
+                ("gte", "report_date", date_from.isoformat()),
+                ("lte", "report_date", date_to.isoformat()),
+            ],
         )
-        return response.data if isinstance(response.data, list) else []
+
+    def _select_all(
+        self,
+        table_name: str,
+        columns: str,
+        filters: list[tuple[str, str, Any]],
+        *,
+        page_size: int = _PAGE_SIZE,
+    ) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        offset = 0
+
+        while True:
+            query = self.db.table(table_name).select(columns)
+            for op, field, value in filters:
+                query = getattr(query, op)(field, value)
+
+            response = query.range(offset, offset + page_size - 1).execute()
+            batch = response.data if isinstance(response.data, list) else []
+            rows.extend(batch)
+
+            if len(batch) < page_size:
+                break
+            offset += page_size
+
+        return rows

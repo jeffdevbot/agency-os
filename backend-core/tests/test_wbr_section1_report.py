@@ -13,6 +13,7 @@ def _chain_table(response_data: list[dict] | None = None) -> MagicMock:
     table.eq.return_value = table
     table.gte.return_value = table
     table.lte.return_value = table
+    table.range.return_value = table
     table.limit.return_value = table
     resp = MagicMock()
     resp.data = response_data if response_data is not None else []
@@ -184,3 +185,64 @@ def test_build_report_counts_unmapped_activity(monkeypatch):
     assert report["qa"]["unmapped_asin_count"] == 1
     assert report["qa"]["unmapped_fact_rows"] == 1
     assert report["qa"]["fact_row_count"] == 1
+
+
+def test_build_report_paginates_business_facts(monkeypatch):
+    class _FakeDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 3, 13, 12, 0, 0, tzinfo=tz or UTC)
+
+    monkeypatch.setattr(report_module, "datetime", _FakeDateTime)
+
+    first_page = [
+        {
+            "report_date": "2026-03-02",
+            "child_asin": "ASIN1",
+            "page_views": 1,
+            "unit_sales": 1,
+            "sales": "2.00",
+        }
+        for _ in range(1000)
+    ]
+    second_page = [
+        {
+            "report_date": "2026-02-24",
+            "child_asin": "ASIN1",
+            "page_views": 1,
+            "unit_sales": 0,
+            "sales": "0.00",
+        }
+        for _ in range(100)
+    ]
+
+    db = _multi_table_db(
+        {
+            "wbr_profiles": [_chain_table([{"id": "profile-1", "week_start_day": "monday"}])],
+            "wbr_rows": [
+                _chain_table(
+                    [
+                        {
+                            "id": "leaf-1",
+                            "row_label": "Screen Shine | Pro",
+                            "row_kind": "leaf",
+                            "parent_row_id": None,
+                            "sort_order": 1,
+                            "active": True,
+                        }
+                    ]
+                )
+            ],
+            "wbr_asin_row_map": [_chain_table([{"child_asin": "ASIN1", "row_id": "leaf-1"}])],
+            "wbr_business_asin_daily": [_chain_table(first_page), _chain_table(second_page)],
+        }
+    )
+
+    report = Section1ReportService(db).build_report("profile-1", weeks=4)
+
+    row = report["rows"][0]
+    assert row["weeks"][2]["page_views"] == 100
+    assert row["weeks"][3]["page_views"] == 1000
+    assert row["weeks"][3]["unit_sales"] == 1000
+    assert row["weeks"][3]["sales"] == "2000.00"
+    assert report["qa"]["fact_row_count"] == 1100

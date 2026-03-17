@@ -2,14 +2,39 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import UTC, date, datetime
 from unittest.mock import MagicMock
 
 import pytest
 
+import app.services.wbr.section3_report as report_module
 from app.services.wbr.windsor_inventory_sync import WindsorInventorySyncService
 from app.services.wbr.windsor_returns_sync import WindsorReturnsSyncService
 from app.services.wbr.section3_report import Section3ReportService, _previous_full_weeks
+
+
+def _chain_table(response_data: list[dict] | None = None) -> MagicMock:
+    table = MagicMock()
+    table.select.return_value = table
+    table.eq.return_value = table
+    table.gte.return_value = table
+    table.lte.return_value = table
+    table.range.return_value = table
+    table.order.return_value = table
+    table.limit.return_value = table
+    table.execute.return_value = MagicMock(data=response_data if response_data is not None else [])
+    return table
+
+
+def _multi_table_db(mapping: dict[str, list[MagicMock]]) -> MagicMock:
+    iterators = {name: iter(tables) for name, tables in mapping.items()}
+
+    def router(name: str) -> MagicMock:
+        return next(iterators[name])
+
+    db = MagicMock()
+    db.table.side_effect = router
+    return db
 
 
 # ---- Inventory aggregation tests ----
@@ -462,3 +487,59 @@ def test_previous_full_weeks_monday_start():
     assert len(buckets) == 2
     for bucket in buckets:
         assert bucket.start.weekday() == 0  # Monday
+
+
+def test_build_report_paginates_business_facts(monkeypatch):
+    class _FakeDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 3, 13, 12, 0, 0, tzinfo=tz or UTC)
+
+    monkeypatch.setattr(report_module, "datetime", _FakeDateTime)
+
+    first_page = [
+        {
+            "report_date": "2026-03-02",
+            "child_asin": "ASIN1",
+            "unit_sales": 1,
+        }
+        for _ in range(1000)
+    ]
+    second_page = [
+        {
+            "report_date": "2026-02-24",
+            "child_asin": "ASIN1",
+            "unit_sales": 1,
+        }
+        for _ in range(100)
+    ]
+
+    db = _multi_table_db(
+        {
+            "wbr_profiles": [_chain_table([{"id": "profile-1", "week_start_day": "monday"}])],
+            "wbr_rows": [
+                _chain_table(
+                    [
+                        {
+                            "id": "leaf-1",
+                            "row_label": "Screen Shine | Pro",
+                            "row_kind": "leaf",
+                            "parent_row_id": None,
+                            "sort_order": 1,
+                            "active": True,
+                        }
+                    ]
+                )
+            ],
+            "wbr_asin_row_map": [_chain_table([{"child_asin": "ASIN1", "row_id": "leaf-1"}])],
+            "wbr_inventory_asin_snapshots": [_chain_table([{"snapshot_date": "2026-03-16"}]), _chain_table([])],
+            "wbr_returns_asin_daily": [_chain_table([])],
+            "wbr_business_asin_daily": [_chain_table(first_page), _chain_table(second_page)],
+        }
+    )
+
+    report = Section3ReportService(db).build_report("profile-1", weeks=4)
+
+    row = report["rows"][0]
+    assert row["_unit_sales_4w"] == 1100
+    assert row["_unit_sales_2w"] == 1100
