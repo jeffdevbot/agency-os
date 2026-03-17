@@ -372,6 +372,65 @@ class TestMappingRules:
         assert match is not None
         assert match.target_bucket == "fba_removal_order_fees"
 
+    def test_starts_with_operator_matches_coupon_redemption_suffix(self):
+        rule = MappingRule(
+            id="r1",
+            profile_id=None,
+            source_type="amazon_transaction_upload",
+            match_spec={
+                "type": "Service Fee",
+                "description": "Coupon Redemption Fee",
+            },
+            match_operator="starts_with",
+            target_bucket="promotions_fees",
+            priority=10,
+        )
+        match = find_matching_rule(
+            [rule],
+            "Service Fee",
+            "Coupon Redemption Fee: Save 5% on THORINOX Stainless Steel Wall Mount Shelves",
+        )
+        assert match is not None
+        assert match.target_bucket == "promotions_fees"
+
+    def test_exact_fields_matches_vine_enrolment_fee_variant(self):
+        rule = MappingRule(
+            id="r1",
+            profile_id=None,
+            source_type="amazon_transaction_upload",
+            match_spec={
+                "type": "Service Fee",
+                "description": "Vine Enrolment Fee",
+            },
+            match_operator="exact_fields",
+            target_bucket="promotions_fees",
+            priority=10,
+        )
+        match = find_matching_rule([rule], "Service Fee", "Vine Enrolment Fee")
+        assert match is not None
+        assert match.target_bucket == "promotions_fees"
+
+    def test_starts_with_operator_matches_fulfilment_prep_fee_variant(self):
+        rule = MappingRule(
+            id="r1",
+            profile_id=None,
+            source_type="amazon_transaction_upload",
+            match_spec={
+                "type": "FBA Inventory Fee",
+                "description": "Fulfilment by Amazon prep fee",
+            },
+            match_operator="starts_with",
+            target_bucket="inbound_placement_and_defect_fees",
+            priority=10,
+        )
+        match = find_matching_rule(
+            [rule],
+            "FBA Inventory Fee",
+            "Fulfilment by Amazon prep fee: labelling",
+        )
+        assert match is not None
+        assert match.target_bucket == "inbound_placement_and_defect_fees"
+
 
 # ── Ledger expansion tests ───────────────────────────────────────────
 
