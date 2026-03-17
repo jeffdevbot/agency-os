@@ -109,6 +109,7 @@ def test_build_report_rolls_up_leafs_and_parents(monkeypatch):
                         {
                             "report_date": "2026-03-02",
                             "campaign_name": "Campaign A",
+                            "campaign_type": "sponsored_products",
                             "impressions": 1000,
                             "clicks": 50,
                             "spend": "125.00",
@@ -118,6 +119,7 @@ def test_build_report_rolls_up_leafs_and_parents(monkeypatch):
                         {
                             "report_date": "2026-03-03",
                             "campaign_name": "Campaign B",
+                            "campaign_type": "sponsored_brands",
                             "impressions": 500,
                             "clicks": 20,
                             "spend": "50.00",
@@ -172,6 +174,16 @@ def test_build_report_rolls_up_leafs_and_parents(monkeypatch):
     assert rows_by_id["parent-1"]["weeks"][0]["ad_sales"] == "420.00"
     assert rows_by_id["parent-1"]["weeks"][0]["business_sales"] == "1200.00"
     assert rows_by_id["parent-1"]["weeks"][0]["tacos_pct"] == round(175 / 1200, 4)
+    leaf_breakdown = {item["ad_type"]: item for item in rows_by_id["leaf-1"]["ad_type_breakdown"]}
+    assert leaf_breakdown["sponsored_products"]["weeks"][0]["ad_spend"] == "125.00"
+    assert leaf_breakdown["sponsored_products"]["weeks"][0]["tacos_pct"] is None
+    assert leaf_breakdown["sponsored_products"]["weeks"][0]["tacos_available"] is False
+    assert leaf_breakdown["sponsored_brands"]["weeks"][0]["ad_spend"] == "0.00"
+
+    parent_breakdown = {item["ad_type"]: item for item in rows_by_id["parent-1"]["ad_type_breakdown"]}
+    assert parent_breakdown["sponsored_products"]["weeks"][0]["ad_spend"] == "125.00"
+    assert parent_breakdown["sponsored_brands"]["weeks"][0]["ad_spend"] == "50.00"
+    assert parent_breakdown["sponsored_display"]["weeks"][0]["ad_spend"] == "0.00"
 
 
 def test_build_report_counts_unmapped_campaign_activity(monkeypatch):
@@ -194,6 +206,7 @@ def test_build_report_counts_unmapped_campaign_activity(monkeypatch):
                         {
                             "report_date": "2026-03-05",
                             "campaign_name": "Unmapped Campaign",
+                            "campaign_type": "sponsored_products",
                             "impressions": 250,
                             "clicks": 5,
                             "spend": "10.00",
@@ -223,6 +236,7 @@ def test_build_report_counts_unmapped_campaign_activity(monkeypatch):
             "row_kind": "section2_only",
             "parent_row_id": None,
             "sort_order": 1,
+            "ad_type_breakdown": [],
             "weeks": [
                 {
                     "impressions": 250,
@@ -236,6 +250,7 @@ def test_build_report_counts_unmapped_campaign_activity(monkeypatch):
                     "acos_pct": 0.5,
                     "business_sales": "0.00",
                     "tacos_pct": 0,
+                    "tacos_available": True,
                 }
             ],
         }
@@ -275,6 +290,7 @@ def test_build_report_appends_unmapped_legacy_row_without_affecting_mapped_rows(
                         {
                             "report_date": "2026-03-05",
                             "campaign_name": "Tagged Campaign",
+                            "campaign_type": "sponsored_display",
                             "impressions": 100,
                             "clicks": 10,
                             "spend": "25.00",
@@ -284,6 +300,7 @@ def test_build_report_appends_unmapped_legacy_row_without_affecting_mapped_rows(
                         {
                             "report_date": "2026-03-06",
                             "campaign_name": "Legacy Campaign",
+                            "campaign_type": "sponsored_products",
                             "impressions": 200,
                             "clicks": 20,
                             "spend": "50.00",
@@ -322,6 +339,7 @@ def test_build_report_pages_through_large_ads_fact_sets(monkeypatch):
         {
             "report_date": "2026-02-10",
             "campaign_name": "Campaign A",
+            "campaign_type": "sponsored_products",
             "impressions": 1,
             "clicks": 0,
             "spend": "1.00",
@@ -334,6 +352,7 @@ def test_build_report_pages_through_large_ads_fact_sets(monkeypatch):
         {
             "report_date": "2026-02-17",
             "campaign_name": "Campaign A",
+            "campaign_type": "sponsored_products",
             "impressions": 1,
             "clicks": 0,
             "spend": "1.00",

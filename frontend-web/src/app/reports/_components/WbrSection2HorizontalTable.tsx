@@ -4,6 +4,9 @@ import type { WbrSection1Week, WbrSection2Row, WbrSection2RowWeek } from "../wbr
 import {
   buildSection2DisplayRows,
   buildSection2TotalValues,
+  formatSection2MetricValue,
+  isSection2BreakdownRow,
+  isSection2ExpandableRow,
   type WbrSection2MetricKey,
 } from "./wbrSection2RowDisplay";
 
@@ -24,6 +27,8 @@ type Props = {
   expandedMetric?: MetricKey | null;
   selectedRowIds?: Set<string>;
   onRowToggle?: (rowId: string) => void;
+  expandedBreakdownRowId?: string | null;
+  onBreakdownToggle?: (rowId: string) => void;
 };
 
 const METRICS: MetricDefinition[] = [
@@ -39,21 +44,6 @@ const METRICS: MetricDefinition[] = [
   { key: "tacos_pct", title: "TACoS" },
 ];
 
-const formatMetricValue = (metricKey: MetricKey, values: WbrSection2RowWeek): string => {
-  if (metricKey === "ad_spend" || metricKey === "cpc" || metricKey === "ad_sales") {
-    return new Intl.NumberFormat("en-US", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(Number(values[metricKey] || 0));
-  }
-
-  if (metricKey === "ctr_pct" || metricKey === "ad_conversion_rate" || metricKey === "acos_pct" || metricKey === "tacos_pct") {
-    return `${(values[metricKey] * 100).toFixed(1)}%`;
-  }
-
-  return new Intl.NumberFormat("en-US").format(values[metricKey]);
-};
-
 export default function WbrSection2HorizontalTable({
   weeks,
   rows,
@@ -64,8 +54,15 @@ export default function WbrSection2HorizontalTable({
   expandedMetric = null,
   selectedRowIds = new Set<string>(),
   onRowToggle,
+  expandedBreakdownRowId = null,
+  onBreakdownToggle,
 }: Props) {
-  const displayRows = buildSection2DisplayRows(rows, hideEmptyRows, referenceRowOrder);
+  const displayRows = buildSection2DisplayRows(
+    rows,
+    hideEmptyRows,
+    referenceRowOrder,
+    expandedBreakdownRowId ? new Set([expandedBreakdownRowId]) : new Set()
+  );
   const weekIndexes = weeks.map((_, index) => index);
   const displayWeekIndexes = newestFirst ? weekIndexes.reverse() : weekIndexes;
   const totalsByMetric = Object.fromEntries(
@@ -125,11 +122,27 @@ export default function WbrSection2HorizontalTable({
               <tr key={row.id} className="hover:bg-slate-50">
                 <td
                   className={`sticky left-0 z-10 border-b border-slate-200 bg-white px-3 py-2 text-[#0f172a] ${
-                    row.row_kind === "parent" ? "font-semibold" : row.parent_row_id ? "pl-7" : ""
+                    row.row_kind === "parent"
+                      ? "font-semibold"
+                      : row.row_kind === "breakdown"
+                        ? "pl-11 text-[#4c576f]"
+                        : row.parent_row_id
+                          ? "pl-7"
+                          : ""
                   }`}
                 >
                   <div className="flex items-center gap-2">
-                    {expandedMetric ? (
+                    {isSection2ExpandableRow(row) ? (
+                      <button
+                        type="button"
+                        onClick={() => onBreakdownToggle?.(row.id)}
+                        className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-[#d5e2f7] bg-[#f7faff] text-[11px] text-[#4c576f] transition hover:border-[#0a6fd6] hover:text-[#0a6fd6]"
+                        aria-label={`${expandedBreakdownRowId === row.id ? "Collapse" : "Expand"} ${row.row_label} ad type breakdown`}
+                      >
+                        {expandedBreakdownRowId === row.id ? "▾" : "▸"}
+                      </button>
+                    ) : null}
+                    {expandedMetric && !isSection2BreakdownRow(row) ? (
                       <button
                         type="button"
                         onClick={() => onRowToggle?.(row.id)}
@@ -154,7 +167,7 @@ export default function WbrSection2HorizontalTable({
                         index === 0 ? "border-l border-slate-200" : ""
                       }`}
                     >
-                      {formatMetricValue(metric.key, row.weeks[weekIndex])}
+                      {formatSection2MetricValue(metric.key, row, row.weeks[weekIndex] as WbrSection2RowWeek)}
                     </td>
                   ))
                 )}

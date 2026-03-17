@@ -100,16 +100,24 @@ export type WbrSection2RowWeek = {
   ad_sales: string;
   acos_pct: number;
   business_sales: string;
-  tacos_pct: number;
+  tacos_pct: number | null;
+  tacos_available: boolean;
+};
+
+export type WbrSection2AdTypeBreakdown = {
+  ad_type: "sponsored_products" | "sponsored_brands" | "sponsored_display";
+  label: string;
+  weeks: WbrSection2RowWeek[];
 };
 
 export type WbrSection2Row = {
   id: string;
   row_label: string;
-  row_kind: "parent" | "leaf";
+  row_kind: "parent" | "leaf" | "section2_only" | "breakdown";
   parent_row_id: string | null;
   sort_order: number;
   weeks: WbrSection2RowWeek[];
+  ad_type_breakdown: WbrSection2AdTypeBreakdown[];
 };
 
 export type WbrSection2ReportQa = {
@@ -162,6 +170,15 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const asString = (value: unknown): string => (typeof value === "string" ? value : "");
 const asNullableString = (value: unknown): string | null =>
   typeof value === "string" ? value : null;
+const asNullableNumber = (value: unknown): number | null => {
+  if (value == null) return null;
+  if (typeof value === "number") return value;
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    if (!Number.isNaN(parsed)) return parsed;
+  }
+  return null;
+};
 const asNumber = (value: unknown): number => {
   if (typeof value === "number") return value;
   if (typeof value === "string" && value.trim() !== "") {
@@ -331,7 +348,23 @@ const parseSection2RowWeek = (value: unknown): WbrSection2RowWeek => {
     ad_sales: asString(value.ad_sales),
     acos_pct: asNumber(value.acos_pct),
     business_sales: asString(value.business_sales),
-    tacos_pct: asNumber(value.tacos_pct),
+    tacos_pct: asNullableNumber(value.tacos_pct),
+    tacos_available: value.tacos_available !== false,
+  };
+};
+
+const parseSection2AdTypeBreakdown = (value: unknown): WbrSection2AdTypeBreakdown => {
+  if (!isRecord(value) || !Array.isArray(value.weeks)) {
+    throw new Error("Invalid Section 2 ad type breakdown response");
+  }
+  const adType = asString(value.ad_type);
+  return {
+    ad_type:
+      adType === "sponsored_brands" || adType === "sponsored_display"
+        ? adType
+        : "sponsored_products",
+    label: asString(value.label),
+    weeks: value.weeks.map(parseSection2RowWeek),
   };
 };
 
@@ -339,13 +372,20 @@ const parseSection2Row = (value: unknown): WbrSection2Row => {
   if (!isRecord(value) || !Array.isArray(value.weeks)) {
     throw new Error("Invalid Section 2 row response");
   }
+  const rowKind = asString(value.row_kind);
   return {
     id: asString(value.id),
     row_label: asString(value.row_label),
-    row_kind: asString(value.row_kind) === "parent" ? "parent" : "leaf",
+    row_kind:
+      rowKind === "parent" || rowKind === "section2_only" || rowKind === "breakdown"
+        ? rowKind
+        : "leaf",
     parent_row_id: asNullableString(value.parent_row_id),
     sort_order: asNumber(value.sort_order),
     weeks: value.weeks.map(parseSection2RowWeek),
+    ad_type_breakdown: Array.isArray(value.ad_type_breakdown)
+      ? value.ad_type_breakdown.map(parseSection2AdTypeBreakdown)
+      : [],
   };
 };
 

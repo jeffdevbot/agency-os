@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+
 import type { WbrSection1Week, WbrSection2Row } from "../wbr/_lib/wbrSection1Api";
 import WbrTrendChart from "./WbrTrendChart";
 import WbrSection2HorizontalTable from "./WbrSection2HorizontalTable";
@@ -8,6 +10,7 @@ import {
   buildSection2DisplayRows,
   getSection2TotalValue,
   hasAnySection2Activity,
+  isSection2BreakdownRow,
   type WbrSection2MetricKey,
 } from "./wbrSection2RowDisplay";
 import { useWbrChartState } from "./useWbrChartState";
@@ -68,8 +71,14 @@ export default function WbrAdvertisingPane({
   referenceRowOrder,
 }: Props) {
   const chartState = useWbrChartState<WbrSection2MetricKey>();
+  const [expandedBreakdownRowId, setExpandedBreakdownRowId] = useState<string | null>(null);
   const activityPresent = hasAnySection2Activity(rows);
-  const displayRows = buildSection2DisplayRows(rows, hideEmptyRows, referenceRowOrder);
+  const displayRows = buildSection2DisplayRows(
+    rows,
+    hideEmptyRows,
+    referenceRowOrder,
+    expandedBreakdownRowId ? new Set([expandedBreakdownRowId]) : new Set()
+  );
   const expandedMetric = chartState.expandedMetric;
 
   const chartSeries =
@@ -89,6 +98,7 @@ export default function WbrAdvertisingPane({
               ]
             : []),
           ...displayRows
+            .filter((row) => !isSection2BreakdownRow(row))
             .filter((row) => chartState.selectedRowIds.has(row.id))
             .slice(0, SERIES_COLORS.length - 1)
             .map((row, index) => ({
@@ -132,6 +142,10 @@ export default function WbrAdvertisingPane({
           expandedMetric={expandedMetric}
           selectedRowIds={chartState.selectedRowIds}
           onRowToggle={chartState.toggleRow}
+          expandedBreakdownRowId={expandedBreakdownRowId}
+          onBreakdownToggle={(rowId) =>
+            setExpandedBreakdownRowId((current) => (current === rowId ? null : rowId))
+          }
         />
       </>
     );
@@ -161,6 +175,10 @@ export default function WbrAdvertisingPane({
         expandedMetric={expandedMetric}
         selectedRowIds={chartState.selectedRowIds}
         onRowToggle={chartState.toggleRow}
+        expandedBreakdownRowId={expandedBreakdownRowId}
+        onBreakdownToggle={(rowId) =>
+          setExpandedBreakdownRowId((current) => (current === rowId ? null : rowId))
+        }
       />
       <WbrSection2MetricTable
         title="Clicks"
@@ -174,6 +192,10 @@ export default function WbrAdvertisingPane({
         expandedMetric={expandedMetric}
         selectedRowIds={chartState.selectedRowIds}
         onRowToggle={chartState.toggleRow}
+        expandedBreakdownRowId={expandedBreakdownRowId}
+        onBreakdownToggle={(rowId) =>
+          setExpandedBreakdownRowId((current) => (current === rowId ? null : rowId))
+        }
       />
       <WbrSection2MetricTable
         title="CTR"
@@ -187,6 +209,10 @@ export default function WbrAdvertisingPane({
         expandedMetric={expandedMetric}
         selectedRowIds={chartState.selectedRowIds}
         onRowToggle={chartState.toggleRow}
+        expandedBreakdownRowId={expandedBreakdownRowId}
+        onBreakdownToggle={(rowId) =>
+          setExpandedBreakdownRowId((current) => (current === rowId ? null : rowId))
+        }
       />
       <WbrSection2MetricTable
         title="Ad Spend"
@@ -200,6 +226,10 @@ export default function WbrAdvertisingPane({
         expandedMetric={expandedMetric}
         selectedRowIds={chartState.selectedRowIds}
         onRowToggle={chartState.toggleRow}
+        expandedBreakdownRowId={expandedBreakdownRowId}
+        onBreakdownToggle={(rowId) =>
+          setExpandedBreakdownRowId((current) => (current === rowId ? null : rowId))
+        }
       />
       <WbrSection2MetricTable
         title="CPC"
@@ -213,6 +243,10 @@ export default function WbrAdvertisingPane({
         expandedMetric={expandedMetric}
         selectedRowIds={chartState.selectedRowIds}
         onRowToggle={chartState.toggleRow}
+        expandedBreakdownRowId={expandedBreakdownRowId}
+        onBreakdownToggle={(rowId) =>
+          setExpandedBreakdownRowId((current) => (current === rowId ? null : rowId))
+        }
       />
       <WbrSection2MetricTable
         title="Ad Orders"
@@ -226,6 +260,10 @@ export default function WbrAdvertisingPane({
         expandedMetric={expandedMetric}
         selectedRowIds={chartState.selectedRowIds}
         onRowToggle={chartState.toggleRow}
+        expandedBreakdownRowId={expandedBreakdownRowId}
+        onBreakdownToggle={(rowId) =>
+          setExpandedBreakdownRowId((current) => (current === rowId ? null : rowId))
+        }
       />
       <WbrSection2MetricTable
         title="Ad Conversion Rate"
@@ -239,6 +277,10 @@ export default function WbrAdvertisingPane({
         expandedMetric={expandedMetric}
         selectedRowIds={chartState.selectedRowIds}
         onRowToggle={chartState.toggleRow}
+        expandedBreakdownRowId={expandedBreakdownRowId}
+        onBreakdownToggle={(rowId) =>
+          setExpandedBreakdownRowId((current) => (current === rowId ? null : rowId))
+        }
       />
       <WbrSection2MetricTable
         title="Ad Sales"
@@ -252,6 +294,10 @@ export default function WbrAdvertisingPane({
         expandedMetric={expandedMetric}
         selectedRowIds={chartState.selectedRowIds}
         onRowToggle={chartState.toggleRow}
+        expandedBreakdownRowId={expandedBreakdownRowId}
+        onBreakdownToggle={(rowId) =>
+          setExpandedBreakdownRowId((current) => (current === rowId ? null : rowId))
+        }
       />
       <WbrSection2MetricTable
         title="ACoS"
@@ -265,6 +311,10 @@ export default function WbrAdvertisingPane({
         expandedMetric={expandedMetric}
         selectedRowIds={chartState.selectedRowIds}
         onRowToggle={chartState.toggleRow}
+        expandedBreakdownRowId={expandedBreakdownRowId}
+        onBreakdownToggle={(rowId) =>
+          setExpandedBreakdownRowId((current) => (current === rowId ? null : rowId))
+        }
       />
       <WbrSection2MetricTable
         title="TACoS"
@@ -278,6 +328,10 @@ export default function WbrAdvertisingPane({
         expandedMetric={expandedMetric}
         selectedRowIds={chartState.selectedRowIds}
         onRowToggle={chartState.toggleRow}
+        expandedBreakdownRowId={expandedBreakdownRowId}
+        onBreakdownToggle={(rowId) =>
+          setExpandedBreakdownRowId((current) => (current === rowId ? null : rowId))
+        }
       />
     </>
   );

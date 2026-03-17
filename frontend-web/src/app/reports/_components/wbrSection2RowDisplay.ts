@@ -1,6 +1,6 @@
 "use client";
 
-import type { WbrSection2Row, WbrSection1Week } from "../wbr/_lib/wbrSection1Api";
+import type { WbrSection2Row, WbrSection1Week, WbrSection2RowWeek } from "../wbr/_lib/wbrSection1Api";
 
 export type WbrSection2MetricKey =
   | "impressions"
@@ -13,6 +13,10 @@ export type WbrSection2MetricKey =
   | "ad_sales"
   | "acos_pct"
   | "tacos_pct";
+
+export type WbrSection2DisplayRow = WbrSection2Row & {
+  breakdown_parent_id?: string;
+};
 
 const getRowHasActivity = (row: WbrSection2Row): boolean =>
   row.weeks.some(
@@ -43,11 +47,40 @@ const compareRowsByReference = (
   return left.row_label.localeCompare(right.row_label);
 };
 
+export const isSection2BreakdownRow = (row: WbrSection2DisplayRow): boolean => row.row_kind === "breakdown";
+
+export const isSection2ExpandableRow = (row: WbrSection2Row): boolean =>
+  (row.row_kind === "parent" || row.row_kind === "leaf") && row.ad_type_breakdown.length > 0;
+
+export const formatSection2MetricValue = (
+  metricKey: WbrSection2MetricKey,
+  row: WbrSection2DisplayRow,
+  values: WbrSection2RowWeek
+): string => {
+  if (metricKey === "tacos_pct" && row.row_kind === "breakdown" && values.tacos_available === false) {
+    return "—";
+  }
+
+  if (metricKey === "ad_spend" || metricKey === "ad_sales" || metricKey === "cpc") {
+    return new Intl.NumberFormat("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(Number(values[metricKey] || 0));
+  }
+
+  if (metricKey === "ctr_pct" || metricKey === "ad_conversion_rate" || metricKey === "acos_pct" || metricKey === "tacos_pct") {
+    return `${((values[metricKey] ?? 0) * 100).toFixed(1)}%`;
+  }
+
+  return new Intl.NumberFormat("en-US").format(values[metricKey]);
+};
+
 export const buildSection2DisplayRows = (
   rows: WbrSection2Row[],
   hideEmptyRows: boolean,
-  referenceRowOrder: string[]
-): WbrSection2Row[] => {
+  referenceRowOrder: string[],
+  expandedRowIds: Set<string> = new Set()
+): WbrSection2DisplayRow[] => {
   const rowsToDisplay = hideEmptyRows ? rows.filter(getRowHasActivity) : rows;
   const rowOrderMap = new Map(referenceRowOrder.map((rowId, index) => [rowId, index]));
   const childrenByParent = new Map<string, WbrSection2Row[]>();
@@ -68,11 +101,41 @@ export const buildSection2DisplayRows = (
     children.sort((left, right) => compareRowsByReference(left, right, rowOrderMap))
   );
 
-  const ordered: WbrSection2Row[] = [];
+  const ordered: WbrSection2DisplayRow[] = [];
   roots.forEach((root) => {
     ordered.push(root);
+    if (expandedRowIds.has(root.id) && isSection2ExpandableRow(root)) {
+      root.ad_type_breakdown.forEach((breakdown) => {
+        ordered.push({
+          id: `${root.id}__${breakdown.ad_type}`,
+          row_label: breakdown.label,
+          row_kind: "breakdown",
+          parent_row_id: root.id,
+          sort_order: root.sort_order,
+          weeks: breakdown.weeks,
+          ad_type_breakdown: [],
+          breakdown_parent_id: root.id,
+        });
+      });
+    }
     const children = childrenByParent.get(root.id) ?? [];
-    children.forEach((child) => ordered.push(child));
+    children.forEach((child) => {
+      ordered.push(child);
+      if (expandedRowIds.has(child.id) && isSection2ExpandableRow(child)) {
+        child.ad_type_breakdown.forEach((breakdown) => {
+          ordered.push({
+            id: `${child.id}__${breakdown.ad_type}`,
+            row_label: breakdown.label,
+            row_kind: "breakdown",
+            parent_row_id: child.id,
+            sort_order: child.sort_order,
+            weeks: breakdown.weeks,
+            ad_type_breakdown: [],
+            breakdown_parent_id: child.id,
+          });
+        });
+      }
+    });
   });
 
   return ordered;

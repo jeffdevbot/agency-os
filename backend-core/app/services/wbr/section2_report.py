@@ -11,6 +11,11 @@ from .profiles import WBRNotFoundError
 
 UNMAPPED_LEGACY_ROW_ID = "__section2_unmapped_legacy__"
 UNMAPPED_LEGACY_ROW_LABEL = "Unmapped / Legacy Campaigns"
+AD_TYPE_BREAKDOWN_ORDER = (
+    ("sponsored_products", "Sponsored Products"),
+    ("sponsored_brands", "Sponsored Brands"),
+    ("sponsored_display", "Sponsored Display"),
+)
 
 
 @dataclass(frozen=True)
@@ -47,6 +52,56 @@ def _previous_full_weeks(week_start_day: str, weeks: int) -> list[WeekBucket]:
 
 def _decimal_to_string(value: Decimal) -> str:
     return format(value.quantize(Decimal("0.01")), "f")
+
+
+def _empty_week_metrics() -> dict[str, Decimal | int]:
+    return {
+        "impressions": 0,
+        "clicks": 0,
+        "ad_spend": Decimal("0.00"),
+        "ad_orders": 0,
+        "ad_sales": Decimal("0.00"),
+        "business_sales": Decimal("0.00"),
+    }
+
+
+def _normalize_campaign_type(value: Any) -> str:
+    raw = str(value or "sponsored_products").strip().lower()
+    if raw in {key for key, _label in AD_TYPE_BREAKDOWN_ORDER}:
+        return raw
+    return "sponsored_products"
+
+
+def _build_week_response(
+    values: dict[str, Decimal | int],
+    *,
+    tacos_available: bool = True,
+) -> dict[str, Any]:
+    impressions = int(values["impressions"])
+    clicks = int(values["clicks"])
+    ad_spend = Decimal(str(values["ad_spend"]))
+    ad_orders = int(values["ad_orders"])
+    ad_sales = Decimal(str(values["ad_sales"]))
+    business_sales = Decimal(str(values["business_sales"]))
+
+    return {
+        "impressions": impressions,
+        "clicks": clicks,
+        "ctr_pct": 0 if impressions == 0 else round(clicks / impressions, 4),
+        "ad_spend": _decimal_to_string(ad_spend),
+        "cpc": "0.00" if clicks == 0 else _decimal_to_string(ad_spend / Decimal(str(clicks))),
+        "ad_orders": ad_orders,
+        "ad_conversion_rate": 0 if clicks == 0 else round(ad_orders / clicks, 4),
+        "ad_sales": _decimal_to_string(ad_sales),
+        "acos_pct": 0 if ad_sales == 0 else round(float(ad_spend / ad_sales), 4),
+        "business_sales": _decimal_to_string(business_sales),
+        "tacos_pct": (
+            0
+            if business_sales == 0
+            else round(float(ad_spend / business_sales), 4)
+        ) if tacos_available else None,
+        "tacos_available": tacos_available,
+    }
 
 
 class Section2ReportService:
@@ -105,33 +160,20 @@ class Section2ReportService:
                 cursor += timedelta(days=1)
 
         leaf_values: dict[str, list[dict[str, Decimal | int]]] = {
-            row_id: [
-                {
-                    "impressions": 0,
-                    "clicks": 0,
-                    "ad_spend": Decimal("0.00"),
-                    "ad_orders": 0,
-                    "ad_sales": Decimal("0.00"),
-                    "business_sales": Decimal("0.00"),
-                }
-                for _ in week_buckets
-            ]
+            row_id: [_empty_week_metrics() for _ in week_buckets]
+            for row_id in leaf_ids
+        }
+        leaf_ad_type_values: dict[str, dict[str, list[dict[str, Decimal | int]]]] = {
+            row_id: {
+                ad_type: [_empty_week_metrics() for _ in week_buckets]
+                for ad_type, _label in AD_TYPE_BREAKDOWN_ORDER
+            }
             for row_id in leaf_ids
         }
 
         unmapped_campaigns: set[str] = set()
         unmapped_fact_rows = 0
-        unmapped_values = [
-            {
-                "impressions": 0,
-                "clicks": 0,
-                "ad_spend": Decimal("0.00"),
-                "ad_orders": 0,
-                "ad_sales": Decimal("0.00"),
-                "business_sales": Decimal("0.00"),
-            }
-            for _ in week_buckets
-        ]
+        unmapped_values = [_empty_week_metrics() for _ in week_buckets]
 
         for fact in facts:
             report_date = date.fromisoformat(str(fact["report_date"]))
@@ -140,6 +182,7 @@ class Section2ReportService:
                 continue
 
             campaign_name = str(fact.get("campaign_name") or "").strip()
+            campaign_type = _normalize_campaign_type(fact.get("campaign_type"))
             row_id = mapping_by_campaign.get(campaign_name)
             if not row_id:
                 unmapped_fact_rows += 1
@@ -164,6 +207,13 @@ class Section2ReportService:
             leaf_week["ad_orders"] = int(leaf_week["ad_orders"]) + int(fact.get("orders") or 0)
             leaf_week["ad_sales"] = Decimal(str(leaf_week["ad_sales"])) + Decimal(str(fact.get("sales") or "0"))
 
+            ad_type_week = leaf_ad_type_values[row_id][campaign_type][week_index]
+            ad_type_week["impressions"] = int(ad_type_week["impressions"]) + int(fact.get("impressions") or 0)
+            ad_type_week["clicks"] = int(ad_type_week["clicks"]) + int(fact.get("clicks") or 0)
+            ad_type_week["ad_spend"] = Decimal(str(ad_type_week["ad_spend"])) + Decimal(str(fact.get("spend") or "0"))
+            ad_type_week["ad_orders"] = int(ad_type_week["ad_orders"]) + int(fact.get("orders") or 0)
+            ad_type_week["ad_sales"] = Decimal(str(ad_type_week["ad_sales"])) + Decimal(str(fact.get("sales") or "0"))
+
         for fact in business_facts:
             report_date = date.fromisoformat(str(fact["report_date"]))
             week_index = week_index_by_date.get(report_date)
@@ -179,21 +229,20 @@ class Section2ReportService:
             leaf_week["business_sales"] = Decimal(str(leaf_week["business_sales"])) + Decimal(str(fact.get("sales") or "0"))
 
         row_totals: dict[str, list[dict[str, Decimal | int]]] = {
-            row_id: [
-                {
-                    "impressions": 0,
-                    "clicks": 0,
-                    "ad_spend": Decimal("0.00"),
-                    "ad_orders": 0,
-                    "ad_sales": Decimal("0.00"),
-                    "business_sales": Decimal("0.00"),
-                }
-                for _ in week_buckets
-            ]
+            row_id: [_empty_week_metrics() for _ in week_buckets]
             for row_id in row_by_id
         }
         for row_id, values in leaf_values.items():
             row_totals[row_id] = values
+        row_ad_type_totals: dict[str, dict[str, list[dict[str, Decimal | int]]]] = {
+            row_id: {
+                ad_type: [_empty_week_metrics() for _ in week_buckets]
+                for ad_type, _label in AD_TYPE_BREAKDOWN_ORDER
+            }
+            for row_id in row_by_id
+        }
+        for row_id, values_by_type in leaf_ad_type_values.items():
+            row_ad_type_totals[row_id] = values_by_type
 
         parent_children: dict[str, list[str]] = {}
         for row in rows:
@@ -226,6 +275,24 @@ class Section2ReportService:
                     parent_weeks[week_index]["business_sales"] = Decimal(
                         str(parent_weeks[week_index]["business_sales"])
                     ) + Decimal(str(child_week["business_sales"]))
+                    for ad_type, _label in AD_TYPE_BREAKDOWN_ORDER:
+                        child_ad_type_week = row_ad_type_totals[child_id][ad_type][week_index]
+                        parent_ad_type_week = row_ad_type_totals[parent_id][ad_type][week_index]
+                        parent_ad_type_week["impressions"] = int(parent_ad_type_week["impressions"]) + int(
+                            child_ad_type_week["impressions"]
+                        )
+                        parent_ad_type_week["clicks"] = int(parent_ad_type_week["clicks"]) + int(
+                            child_ad_type_week["clicks"]
+                        )
+                        parent_ad_type_week["ad_spend"] = Decimal(str(parent_ad_type_week["ad_spend"])) + Decimal(
+                            str(child_ad_type_week["ad_spend"])
+                        )
+                        parent_ad_type_week["ad_orders"] = int(parent_ad_type_week["ad_orders"]) + int(
+                            child_ad_type_week["ad_orders"]
+                        )
+                        parent_ad_type_week["ad_sales"] = Decimal(str(parent_ad_type_week["ad_sales"])) + Decimal(
+                            str(child_ad_type_week["ad_sales"])
+                        )
 
         display_rows = list(rows)
         if unmapped_fact_rows > 0:
@@ -249,6 +316,17 @@ class Section2ReportService:
         for row in ordered_rows:
             row_id = str(row["id"])
             week_values = row_totals[row_id]
+            ad_type_breakdown = [
+                {
+                    "ad_type": ad_type,
+                    "label": label,
+                    "weeks": [
+                        _build_week_response(values, tacos_available=False)
+                        for values in row_ad_type_totals[row_id][ad_type]
+                    ],
+                }
+                for ad_type, label in AD_TYPE_BREAKDOWN_ORDER
+            ] if row_id in row_ad_type_totals else []
             response_rows.append(
                 {
                     "id": row_id,
@@ -256,40 +334,8 @@ class Section2ReportService:
                     "row_kind": row.get("row_kind"),
                     "parent_row_id": row.get("parent_row_id"),
                     "sort_order": row.get("sort_order"),
-                    "weeks": [
-                        {
-                            "impressions": int(values["impressions"]),
-                            "clicks": int(values["clicks"]),
-                            "ctr_pct": 0
-                            if int(values["impressions"]) == 0
-                            else round(int(values["clicks"]) / int(values["impressions"]), 4),
-                            "ad_spend": _decimal_to_string(Decimal(str(values["ad_spend"]))),
-                            "cpc": "0.00"
-                            if int(values["clicks"]) == 0
-                            else _decimal_to_string(
-                                Decimal(str(values["ad_spend"])) / Decimal(str(int(values["clicks"])))
-                            ),
-                            "ad_orders": int(values["ad_orders"]),
-                            "ad_conversion_rate": 0
-                            if int(values["clicks"]) == 0
-                            else round(int(values["ad_orders"]) / int(values["clicks"]), 4),
-                            "ad_sales": _decimal_to_string(Decimal(str(values["ad_sales"]))),
-                            "acos_pct": 0
-                            if Decimal(str(values["ad_sales"])) == 0
-                            else round(
-                                float(Decimal(str(values["ad_spend"])) / Decimal(str(values["ad_sales"]))),
-                                4,
-                            ),
-                            "business_sales": _decimal_to_string(Decimal(str(values["business_sales"]))),
-                            "tacos_pct": 0
-                            if Decimal(str(values["business_sales"])) == 0
-                            else round(
-                                float(Decimal(str(values["ad_spend"])) / Decimal(str(values["business_sales"]))),
-                                4,
-                            ),
-                        }
-                        for values in week_values
-                    ],
+                    "weeks": [_build_week_response(values) for values in week_values],
+                    "ad_type_breakdown": ad_type_breakdown,
                 }
             )
 
