@@ -4,7 +4,11 @@ from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 import app.services.wbr.section2_report as report_module
-from app.services.wbr.section2_report import Section2ReportService
+from app.services.wbr.section2_report import (
+    UNMAPPED_LEGACY_ROW_ID,
+    UNMAPPED_LEGACY_ROW_LABEL,
+    Section2ReportService,
+)
 
 
 def _chain_table(response_data: list[dict] | None = None) -> MagicMock:
@@ -212,6 +216,98 @@ def test_build_report_counts_unmapped_campaign_activity(monkeypatch):
     assert report["qa"]["unmapped_campaign_samples"] == ["Unmapped Campaign"]
     assert report["qa"]["unmapped_fact_rows"] == 1
     assert report["qa"]["fact_row_count"] == 1
+    assert report["rows"] == [
+        {
+            "id": UNMAPPED_LEGACY_ROW_ID,
+            "row_label": UNMAPPED_LEGACY_ROW_LABEL,
+            "row_kind": "section2_only",
+            "parent_row_id": None,
+            "sort_order": 1,
+            "weeks": [
+                {
+                    "impressions": 250,
+                    "clicks": 5,
+                    "ctr_pct": 0.02,
+                    "ad_spend": "10.00",
+                    "cpc": "2.00",
+                    "ad_orders": 1,
+                    "ad_conversion_rate": 0.2,
+                    "ad_sales": "20.00",
+                    "acos_pct": 0.5,
+                    "business_sales": "0.00",
+                    "tacos_pct": 0,
+                }
+            ],
+        }
+    ]
+
+
+def test_build_report_appends_unmapped_legacy_row_without_affecting_mapped_rows(monkeypatch):
+    class _FakeDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 3, 13, 12, 0, 0, tzinfo=tz or UTC)
+
+    monkeypatch.setattr(report_module, "datetime", _FakeDateTime)
+
+    db = _multi_table_db(
+        {
+            "wbr_profiles": [_chain_table([{"id": "profile-1", "week_start_day": "sunday"}])],
+            "wbr_rows": [
+                _chain_table(
+                    [
+                        {
+                            "id": "leaf-1",
+                            "row_label": "Thorinox | TWSS",
+                            "row_kind": "leaf",
+                            "parent_row_id": None,
+                            "sort_order": 1,
+                            "active": True,
+                        }
+                    ]
+                )
+            ],
+            "wbr_pacvue_campaign_map": [_chain_table([{"campaign_name": "Tagged Campaign", "row_id": "leaf-1"}])],
+            "wbr_asin_row_map": [_chain_table([])],
+            "wbr_ads_campaign_daily": [
+                _chain_table(
+                    [
+                        {
+                            "report_date": "2026-03-05",
+                            "campaign_name": "Tagged Campaign",
+                            "impressions": 100,
+                            "clicks": 10,
+                            "spend": "25.00",
+                            "orders": 2,
+                            "sales": "80.00",
+                        },
+                        {
+                            "report_date": "2026-03-06",
+                            "campaign_name": "Legacy Campaign",
+                            "impressions": 200,
+                            "clicks": 20,
+                            "spend": "50.00",
+                            "orders": 4,
+                            "sales": "120.00",
+                        },
+                    ]
+                )
+            ],
+            "wbr_business_asin_daily": [_chain_table([])],
+        }
+    )
+
+    report = Section2ReportService(db).build_report("profile-1", weeks=1)
+
+    rows_by_id = {row["id"]: row for row in report["rows"]}
+    assert rows_by_id["leaf-1"]["weeks"][0]["impressions"] == 100
+    assert rows_by_id["leaf-1"]["weeks"][0]["ad_spend"] == "25.00"
+    assert rows_by_id[UNMAPPED_LEGACY_ROW_ID]["weeks"][0]["impressions"] == 200
+    assert rows_by_id[UNMAPPED_LEGACY_ROW_ID]["weeks"][0]["clicks"] == 20
+    assert rows_by_id[UNMAPPED_LEGACY_ROW_ID]["weeks"][0]["ad_spend"] == "50.00"
+    assert rows_by_id[UNMAPPED_LEGACY_ROW_ID]["weeks"][0]["ad_sales"] == "120.00"
+    assert report["qa"]["mapped_campaign_count"] == 1
+    assert report["qa"]["unmapped_campaign_count"] == 1
 
 
 def test_build_report_pages_through_large_ads_fact_sets(monkeypatch):

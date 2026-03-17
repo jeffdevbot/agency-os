@@ -9,6 +9,9 @@ from supabase import Client
 
 from .profiles import WBRNotFoundError
 
+UNMAPPED_LEGACY_ROW_ID = "__section2_unmapped_legacy__"
+UNMAPPED_LEGACY_ROW_LABEL = "Unmapped / Legacy Campaigns"
+
 
 @dataclass(frozen=True)
 class WeekBucket:
@@ -118,6 +121,17 @@ class Section2ReportService:
 
         unmapped_campaigns: set[str] = set()
         unmapped_fact_rows = 0
+        unmapped_values = [
+            {
+                "impressions": 0,
+                "clicks": 0,
+                "ad_spend": Decimal("0.00"),
+                "ad_orders": 0,
+                "ad_sales": Decimal("0.00"),
+                "business_sales": Decimal("0.00"),
+            }
+            for _ in week_buckets
+        ]
 
         for fact in facts:
             report_date = date.fromisoformat(str(fact["report_date"]))
@@ -129,6 +143,16 @@ class Section2ReportService:
             row_id = mapping_by_campaign.get(campaign_name)
             if not row_id:
                 unmapped_fact_rows += 1
+                unmapped_week = unmapped_values[week_index]
+                unmapped_week["impressions"] = int(unmapped_week["impressions"]) + int(fact.get("impressions") or 0)
+                unmapped_week["clicks"] = int(unmapped_week["clicks"]) + int(fact.get("clicks") or 0)
+                unmapped_week["ad_spend"] = Decimal(str(unmapped_week["ad_spend"])) + Decimal(
+                    str(fact.get("spend") or "0")
+                )
+                unmapped_week["ad_orders"] = int(unmapped_week["ad_orders"]) + int(fact.get("orders") or 0)
+                unmapped_week["ad_sales"] = Decimal(str(unmapped_week["ad_sales"])) + Decimal(
+                    str(fact.get("sales") or "0")
+                )
                 if campaign_name:
                     unmapped_campaigns.add(campaign_name)
                 continue
@@ -203,8 +227,21 @@ class Section2ReportService:
                         str(parent_weeks[week_index]["business_sales"])
                     ) + Decimal(str(child_week["business_sales"]))
 
+        display_rows = list(rows)
+        if unmapped_fact_rows > 0:
+            row_totals[UNMAPPED_LEGACY_ROW_ID] = unmapped_values
+            display_rows.append(
+                {
+                    "id": UNMAPPED_LEGACY_ROW_ID,
+                    "row_label": UNMAPPED_LEGACY_ROW_LABEL,
+                    "row_kind": "section2_only",
+                    "parent_row_id": None,
+                    "sort_order": (max((int(row.get("sort_order") or 0) for row in rows), default=0) + 1),
+                }
+            )
+
         ordered_rows = sorted(
-            rows,
+            display_rows,
             key=lambda row: (int(row.get("sort_order") or 0), str(row.get("row_label") or "").lower()),
         )
 
