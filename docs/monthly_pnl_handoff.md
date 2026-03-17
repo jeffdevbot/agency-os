@@ -3,8 +3,9 @@
 _Last updated: 2026-03-17 (ET)_
 
 This is the current restart point for Monthly P&L after the US v1 validation
-push, the Jan-Dec 2025 Whoosh US backfill, the SKU-based COGS rollout, and the
-latest WBR hardening work.
+push, the Jan-Dec 2025 Whoosh US backfill, the SKU-based COGS rollout, the CA
+parser/mapping rollout, the first live CA validations, and the latest import/UI
+hardening work.
 
 ## Current reality
 
@@ -30,14 +31,14 @@ latest WBR hardening work.
    a later migration had overwritten the faster `active_months` RPC with an
    older `EXISTS` version, so the report path still scanned the raw ledger.
 8. On 2026-03-16, live migration
-   `20260316213000_add_monthly_pnl_import_month_bucket_totals.sql` was applied.
+   `20260316182035_add_monthly_pnl_import_month_bucket_totals.sql` was applied.
    It backfilled `monthly_pnl_import_month_bucket_totals` and rewired
    `pnl_report_bucket_totals(...)` to read those precomputed month totals.
 9. On the validation profile, the exact wide range
     `2025-01-01` through `2026-02-01` now executes at about `4.5 ms` at the
     function boundary instead of roughly `7.3 s`.
 10. On 2026-03-16, live migration
-    `20260316224500_claim_monthly_pnl_pending_imports.sql` was applied. It
+    `20260316184041_claim_monthly_pnl_pending_imports.sql` was applied. It
     adds `pnl_claim_pending_imports(...)`, which atomically claims queued async
     imports with `FOR UPDATE SKIP LOCKED` and flips them from `pending` to
     `running` in one query.
@@ -49,7 +50,7 @@ latest WBR hardening work.
     "processing in background" state and polls import status every `5` seconds
     until the import leaves `pending` / `running`, then refreshes the report.
 13. On 2026-03-16, live migration
-    `20260316232000_cleanup_validation_profile_stranded_monthly_pnl_state.sql`
+    `20260316184040_cleanup_validation_profile_stranded_monthly_pnl_state.sql`
     deactivated the orphaned Jan/Apr/May 2025 active slices on the validation
     profile and marked the stranded retry import
     `0fe50885-fce4-48ec-afa6-a9dce5cef716` as `error`.
@@ -65,7 +66,7 @@ latest WBR hardening work.
     endpoints/UI, and computes report COGS as `net units sold * fixed SKU
     unit cost`.
 17. On 2026-03-17, migration
-    `20260317001000_add_monthly_pnl_sku_cogs_and_unit_summaries.sql` was
+    `20260317023402_add_monthly_pnl_sku_cogs_and_unit_summaries.sql` was
     applied live, and the SKU-based COGS path is now deployed.
 18. The user manually entered several SKU costs on the validation profile and
     confirmed that COGS now appears correctly in the Amazon P&L.
@@ -84,9 +85,33 @@ latest WBR hardening work.
     `20260317150607_seed_monthly_pnl_ca_mapping_rules.sql` was applied. It
     seeded global `CA` `amazon_transaction_upload` mapping rules from the
     shipped `US` rule pack without altering validated US imports.
-23. The next Monthly P&L product goal is no longer CA parser discovery. The
-    immediate next tranche is validating one real CA month end to end on a live
-    CA profile/report path.
+23. On 2026-03-17, live migration
+    `20260317154748_add_monthly_pnl_fulfilment_removal_prefix_rule.sql` was
+    applied to map `Fulfilment by Amazon removal order: disposal fee` into
+    `fba_removal_order_fees` for `US` and `CA`.
+24. On 2026-03-17, live migration
+    `20260317161435_add_monthly_pnl_ca_label_variants.sql` was applied to map
+    observed CA label variants:
+    - `Coupon Redemption Fee...`
+    - `Vine Enrolment Fee`
+    - `Fulfilment by Amazon prep fee...`
+25. Whoosh CA Monthly P&L is now live and manually validated for
+    `2026-01-01` through `2026-02-01` on profile
+    `a5faca8a-4225-4115-8510-0e6b185ee86c`.
+26. Distex CA Monthly P&L is now live with active backfill coverage from
+    `2024-01-01` through `2026-02-01` on profile
+    `faf4307d-80d7-4fa0-8a85-e8b805110860`.
+27. Active CA month slices on both live CA profiles now have
+    `unmapped_amount = 0`.
+28. The async import path now stores progress/heartbeat metadata, marks failed
+    background imports as `error` instead of leaving them stranded in
+    `running`, and the UI surfaces queued/running progress instead of a silent
+    wait.
+29. The SKU-based COGS settings workflow now includes a collapsed SKU list plus
+    CSV export/import round-trip support, with CSV import acting as an
+    authoritative rewrite of the currently loaded SKU set.
+30. The `/reports` hub Monthly P&L card no longer shows a hardcoded currency
+    label, because the product does not perform currency normalization.
 
 ## Validated and active state
 
@@ -159,6 +184,45 @@ The current known active/validated Whoosh US month coverage is:
    - no current validated Whoosh US month slice intended for the report
 2. `2026-02-01`
    - no current validated Whoosh US month slice intended for the report
+
+### Live CA month coverage now active
+
+Whoosh CA:
+
+1. `2026-01-01`
+   - active import `f3b15c0f-c4b0-4915-9749-9bf434fcf032`
+   - source `2026JanMonthlyTransaction.csv`
+   - import status `success`
+2. `2026-02-01`
+   - active import `9df00715-d894-4a8c-a177-16610cb7be7c`
+   - source `2026Feb1-2026Feb28CustomTransaction.csv`
+   - import status `success`
+
+Distex CA:
+
+1. `2024-01-01` through `2024-06-01`
+   - active import `2a6e1270-0615-4694-9738-d468ed4bbf11`
+   - source `2024Jan1-2024Jun30CustomTransaction.csv`
+   - import status `success`
+2. `2024-07-01` through `2024-12-01`
+   - active import `e202dd84-63f9-4926-bab8-f04ed2c3ff0e`
+   - source `2024Jul1-2024Dec31CustomTransaction.csv`
+   - import status `success`
+3. `2025-01-01` through `2025-06-01`
+   - active import `4ba6e484-d27f-4b3c-863c-a3c459731c31`
+   - source `2025Jan1-2025Jun30CustomTransaction.csv`
+   - import status `success`
+4. `2025-07-01` through `2025-11-01`
+   - active import `4272361c-c96b-4923-a0e7-1d63b5a61e6c`
+   - source `2025Jul1-2025Nov30CustomTransaction.csv`
+   - import status `success`
+5. `2025-12-01` through `2026-02-01`
+   - active import `cd307d91-99f6-40b9-8526-09568898d9eb`
+   - source `2025Dec1-2026Feb28CustomTransaction.csv`
+   - import status `success`
+
+Both CA profiles currently report `0` active months with non-zero unmapped
+amounts.
 
 ## Historical note on the 2026-03-16 cleanup
 
@@ -234,29 +298,27 @@ Live state after the fix:
 3. this preserves the validated November/December active imports because it is
    a derived-summary change only
 
-## Current open blocker
+## Current open area
 
-### Live CA profile validation is the next real tranche
+### CA validation is complete; focus shifts to rollout and polish
 
-The parser/rule-compatibility tranche is now done in code and the CA mapping
-seed is live:
+The previous CA parser-discovery and live-validation tranche is done:
 
 1. wide-range performance is fixed
-2. async imports are live
+2. async imports are live with visible progress
 3. 2025 Whoosh US coverage is active Jan through Dec
-4. SKU-based COGS is live and has basic real-user validation
-5. CA parser compatibility and CA global rule seeding are now landed
+4. SKU-based COGS is live and now has CSV round-trip support
+5. Whoosh CA and Distex CA are live on real uploaded transaction reports
+6. active CA month slices currently have zero unmapped totals
 
-The immediate next problem is live CA validation.
+The next work should be chosen intentionally rather than treated as an active
+blocker. The likely buckets are:
 
-Likely work required:
-
-1. create or confirm the target CA Monthly P&L profile in the app
-2. run a real CA transaction upload through the live import flow
-3. inspect the resulting import month, unmapped totals, and report output
-4. decide whether any remaining CA-specific rows need bucket mapping changes or
-   should remain intentionally `unmapped`
-5. verify that the report math and COGS behavior on the CA profile are sensible
+1. broader client/marketplace backfill as the user requests it
+2. narrow mapping additions if future uploads expose new real-world labels
+3. Monthly P&L UX polish that does not disturb validated import math
+4. Windsor settlement ingestion only if/when that automation path becomes the
+   next explicit priority
 
 ## December 2025 final numbers
 
@@ -272,20 +334,21 @@ These match the manual workbook target values to rounding/penny level.
 
 ## Live migrations now applied
 
-These Monthly P&L migrations are live in Supabase:
+These Monthly P&L migrations are currently visible in Supabase:
 
-1. `20260315200000_monthly_pnl_phase1_foundation.sql`
-2. `20260316140918_add_monthly_pnl_vine_fee_mapping.sql`
-3. `20260316140932_add_monthly_pnl_report_bucket_totals_rpc.sql`
-4. `20260316150635_add_monthly_pnl_manual_model_rules.sql`
-5. `20260316154023_optimize_monthly_pnl_report_rpc_active_months.sql`
-6. `20260316154945_fix_monthly_pnl_removal_and_refund_other_mapping.sql`
-7. `20260316172805_optimize_monthly_pnl_report_rpc_exists.sql`
-8. `20260316182035_add_monthly_pnl_import_month_bucket_totals.sql`
-9. `20260316184040_cleanup_validation_profile_stranded_monthly_pnl_state.sql`
-10. `20260316184041_claim_monthly_pnl_pending_imports.sql`
-11. `20260317023402_add_monthly_pnl_sku_cogs_and_unit_summaries.sql`
-12. `20260317150607_seed_monthly_pnl_ca_mapping_rules.sql`
+1. `20260316140918_add_monthly_pnl_vine_fee_mapping.sql`
+2. `20260316140932_add_monthly_pnl_report_bucket_totals_rpc.sql`
+3. `20260316150635_add_monthly_pnl_manual_model_rules.sql`
+4. `20260316154023_optimize_monthly_pnl_report_rpc_active_months.sql`
+5. `20260316154945_fix_monthly_pnl_removal_and_refund_other_mapping.sql`
+6. `20260316172805_optimize_monthly_pnl_report_rpc_exists.sql`
+7. `20260316182035_add_monthly_pnl_import_month_bucket_totals.sql`
+8. `20260316184040_cleanup_validation_profile_stranded_monthly_pnl_state.sql`
+9. `20260316184041_claim_monthly_pnl_pending_imports.sql`
+10. `20260317023402_add_monthly_pnl_sku_cogs_and_unit_summaries.sql`
+11. `20260317150607_seed_monthly_pnl_ca_mapping_rules.sql`
+12. `20260317154748_add_monthly_pnl_fulfilment_removal_prefix_rule.sql`
+13. `20260317161435_add_monthly_pnl_ca_label_variants.sql`
 
 ## Important constraints
 
@@ -293,22 +356,26 @@ These Monthly P&L migrations are live in Supabase:
    the user explicitly wants to change the validated source basis.
 2. Do not redo December 2025 from scratch unless explicitly asked.
 3. Preserve the successful November and December validation state.
-4. Treat WBR as a separate shipped reporting product. Monthly P&L is its own
+4. Preserve the current active CA imports unless the user explicitly wants a
+   replacement or broader backfill.
+5. Treat WBR as a separate shipped reporting product. Monthly P&L is its own
    `/reports/.../pnl` surface, not WBR follow-on scope.
-5. Leave unrelated dirty files alone:
+6. Leave unrelated dirty files alone:
    - `docs/db/schema_master.md`
    - `scripts/db/generate-schema-master.sh`
    - `supabase/.temp/*`
 
 ## Recommended next-session plan
 
-1. Confirm the target CA profile and marketplace context in the live app/DB.
-2. Upload one real CA transaction export through the live Monthly P&L flow.
-3. Inspect the created import/import-month rows, active month state, and any
-   unmapped totals on that CA profile.
-4. Compare the rendered CA report output against expectation for that month.
-5. If residual CA-specific rows remain ambiguous, add the narrowest possible
-   mapping changes and rerun validation.
+1. Confirm the exact client/marketplace scope for the next requested backfill
+   or rollout step.
+2. Preserve the validated Whoosh US and currently active CA import state unless
+   the user explicitly wants to replace it.
+3. If a future upload exposes unmapped rows, inspect the real source labels and
+   add the narrowest possible rule or parser change.
+4. Prefer live data-only mapping migrations over broad importer refactors when
+   the issue is just a new fee label variant.
+5. Keep Monthly P&L UX/product polish separate from WBR concerns.
 
 ## Next-session prompt
 
@@ -329,20 +396,30 @@ Use this prompt to restart the next Monthly P&L session:
 >   `c84cade9-6633-427f-b4b0-2371d0aca344`.
 > - SKU-based COGS is live; do not revert to month-lump COGS entry.
 > - WBR is a separate shipped product and not Monthly P&L scope.
-> - CA parser compatibility changes are already in code and pushed on `main`.
-> - CA global mapping rules were seeded live via
->   `20260317150607_seed_monthly_pnl_ca_mapping_rules.sql`.
+> - CA transaction upload support is live and validated on real profiles:
+>   Whoosh CA (`2026-01` through `2026-02`) and Distex CA (`2024-01` through
+>   `2026-02`).
+> - Active CA month slices currently have `unmapped_amount = 0`.
+> - CA mapping follow-up migrations are already live:
+>   `20260317150607_seed_monthly_pnl_ca_mapping_rules.sql`,
+>   `20260317154748_add_monthly_pnl_fulfilment_removal_prefix_rule.sql`, and
+>   `20260317161435_add_monthly_pnl_ca_label_variants.sql`.
+> - Async import progress/heartbeat UX is live, and SKU-based COGS now supports
+>   CSV export/import in the settings card.
 >
 > Primary goal:
-> - Validate one real CA Monthly P&L month end to end on a live CA profile.
+> - Continue Monthly P&L rollout/polish without disturbing the validated US and
+>   live CA state.
 >
 > Focus:
-> 1. Confirm the target CA profile and upload path.
-> 2. Run a real CA transaction export through the live Monthly P&L importer.
-> 3. Inspect import status, active month state, unmapped totals, and report
->    output.
-> 4. Identify any remaining CA-specific rows that still need mapping changes.
-> 5. Keep any follow-up fixes narrow and low-risk to the validated US path.
+> 1. Confirm the exact next backfill/rollout request before changing data.
+> 2. Preserve validated Whoosh US and the currently active CA imports unless
+>    explicitly asked to replace them.
+> 3. If future uploads expose unmapped rows, inspect the real source labels and
+>    add the narrowest possible parser/mapping fix.
+> 4. Prefer focused ergonomics/polish work over broad refactors.
+> 5. Keep Windsor settlement work out of scope unless it becomes the explicit
+>    next product goal.
 >
 > Constraints:
 > - Do not disturb the validated Whoosh US 2025 state unless explicitly asked.

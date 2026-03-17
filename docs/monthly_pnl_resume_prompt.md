@@ -17,22 +17,34 @@ Current reality:
    `c84cade9-6633-427f-b4b0-2371d0aca344`.
 3. SKU-based COGS is live; do not revert to month-lump COGS entry.
 4. WBR is a separate shipped product and not Monthly P&L scope.
-5. CA parser compatibility changes are already in code and pushed on `main`.
-6. CA global mapping rules were seeded live via
-   `20260317150607_seed_monthly_pnl_ca_mapping_rules.sql`.
+5. CA transaction upload support is live and validated on real profiles:
+   - Whoosh CA profile `a5faca8a-4225-4115-8510-0e6b185ee86c` is active for
+     `2026-01-01` through `2026-02-01`.
+   - Distex CA profile `faf4307d-80d7-4fa0-8a85-e8b805110860` is active for
+     `2024-01-01` through `2026-02-01`.
+6. Active CA month slices currently have `unmapped_amount = 0`.
+7. CA mapping migrations already live:
+   - `20260317150607_seed_monthly_pnl_ca_mapping_rules.sql`
+   - `20260317154748_add_monthly_pnl_fulfilment_removal_prefix_rule.sql`
+   - `20260317161435_add_monthly_pnl_ca_label_variants.sql`
+8. Async import progress/heartbeat UX is live, and SKU-based COGS now supports
+   CSV export/import in the settings card.
 
 Primary goal:
 
-1. Validate one real CA Monthly P&L month end to end on a live CA profile.
+1. Continue Monthly P&L rollout/polish without disturbing the validated US and
+   live CA state.
 
 Focus:
 
-1. Confirm the target CA profile and upload path in the live app/DB.
-2. Run a real CA transaction export through the live Monthly P&L importer.
-3. Inspect import status, active month state, unmapped totals, and report
-   output.
-4. Identify any remaining CA-specific rows that still need mapping changes.
-5. Keep any follow-up fixes narrow and low-risk to the validated US path.
+1. Confirm the exact next client/marketplace request before changing data.
+2. Preserve validated Whoosh US and the currently active CA imports unless the
+   user explicitly wants to replace them.
+3. If future uploads expose unmapped rows, inspect the real source labels and
+   add the narrowest possible parser/mapping fix.
+4. Prefer focused ergonomics/polish work over broad refactors.
+5. Keep Windsor settlement work out of scope unless it becomes the explicit
+   next product goal.
 
 Constraints:
 

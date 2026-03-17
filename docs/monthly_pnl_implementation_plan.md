@@ -10,11 +10,13 @@ _Last updated: 2026-03-17 (ET)_
 > 2025 coverage on the validation profile. Phase 3 (COGS) is also live with the
 > SKU-based model: sold quantities are derived from imported transaction rows,
 > one current fixed unit cost is stored per SKU, and the report computes COGS
-> from those values. Initial real-user verification has been completed on a few
-> live SKUs, but broader validation and bulk-entry ergonomics are still open.
-> The first CA transaction-upload compatibility tranche has now landed in code
-> and CA global mapping rules are seeded live; the next execution focus is live
-> end-to-end validation on a CA profile/report path.
+> from those values. The settings card now also supports collapsed SKU display
+> plus CSV export/import round-trips for bulk editing. CA transaction-upload
+> support is now live and validated on real profiles: Whoosh CA is active for
+> Jan-Feb 2026 and Distex CA is active from Jan 2024 through Feb 2026, with
+> current active CA month slices at `unmapped_amount = 0`. The next execution
+> focus is no longer CA validation; it is whatever the next requested rollout,
+> mapping, or operator-UX improvement turns out to be.
 
 This document defines the recommended implementation plan for a new
 client-facing `Monthly P&L` report in Ecomlabs Tools.
@@ -36,7 +38,7 @@ The plan below assumes a deliberate rollout order:
 
 ### v1 scope
 
-1. `US` marketplace only
+1. `US` marketplace first rollout target
 2. One client-facing Monthly P&L report page under Reporting
 3. Historical backfill via uploaded `Monthly Unified Transaction Report` CSVs
 4. Optional SKU-based COGS management flow
@@ -50,11 +52,15 @@ The plan below assumes a deliberate rollout order:
 
 ### explicitly out of scope for v1
 
-1. Canada or other marketplaces
+1. Canada or other marketplaces in the initial rollout
 2. Direct SP-API finance integration
 3. Fully automated Windsor ingestion as the only source
 4. Multi-currency normalization
 5. Bookkeeping-grade GL integration
+
+Historical note: this section reflects the original v1 rollout plan. Live
+shipped state has since expanded to uploaded CA transaction-report support
+without introducing cross-marketplace currency normalization.
 
 ## Key decisions
 
@@ -178,9 +184,9 @@ This gives us:
 
 ## Database model (shipped)
 
-All tables below are live. Created in
-`20260315200000_monthly_pnl_phase1_foundation.sql` unless noted otherwise.
-Table 8 was added post-ship for report performance.
+All tables below are live. The core tables were introduced in the initial
+Monthly P&L foundation migration set unless noted otherwise. Table 8 was added
+post-ship for report performance.
 
 ### 1. `monthly_pnl_profiles`
 
@@ -454,7 +460,8 @@ Constraints/indexes:
 Pre-computed per-month bucket totals for report performance. Populated at
 import time and backfilled for historical data.
 
-Added in `20260316213000_add_monthly_pnl_import_month_bucket_totals.sql`.
+Added in live migration
+`20260316182035_add_monthly_pnl_import_month_bucket_totals.sql`.
 
 Columns:
 
@@ -482,8 +489,8 @@ Notes:
 
 ### 9. `monthly_pnl_import_month_sku_units`
 
-Derived per-import-month sold unit summaries by SKU. Added in
-`20260317001000_add_monthly_pnl_sku_cogs_and_unit_summaries.sql`.
+Derived per-import-month sold unit summaries by SKU. Added in live migration
+`20260317023402_add_monthly_pnl_sku_cogs_and_unit_summaries.sql`.
 
 Columns:
 
@@ -512,8 +519,8 @@ Notes:
 
 ### 10. `monthly_pnl_sku_cogs`
 
-Current fixed unit cost per SKU for each profile. Added in
-`20260317001000_add_monthly_pnl_sku_cogs_and_unit_summaries.sql`.
+Current fixed unit cost per SKU for each profile. Added in live migration
+`20260317023402_add_monthly_pnl_sku_cogs_and_unit_summaries.sql`.
 
 Columns:
 
@@ -724,7 +731,7 @@ page.
 3. `Last Year` (previous calendar year)
 4. `YTD`
 5. Explicit month range
-6. COGS toggle not yet built (see v2-4)
+6. COGS toggle not yet built
 
 ### Supporting screens
 
@@ -872,8 +879,9 @@ Minimum requirement:
 
 ## Known risks and edge cases
 
-1. `US first only`
-   - CA will likely have different labels and tax treatment.
+1. `US first rollout`
+   - shipped reality now includes CA upload support, so future marketplace
+     expansion should assume more label/tax drift will surface over time.
 2. `Gift wrap / liquidation / claims / chargebacks`
    - may not appear in every sample month
    - mapping must remain extensible
@@ -888,10 +896,10 @@ Minimum requirement:
 
 ## Recommended build order (v1)
 
-> Phases 1, 2, and 4 are complete. Phase 3 is live with initial user
-> verification. The CA parser/rule-compatibility tranche is now landed; the
-> next execution focus is live CA validation, followed by Windsor and the
-> remaining enhancements tracked in the **v2 roadmap** section below.
+> Phases 1, 2, 3, 4, and 6 are now shipped in their current intended form.
+> CA parser/rule compatibility and live CA validation are complete for the
+> current rollout. The remaining larger product track is Windsor automation,
+> plus whatever further ergonomics or mapping additions are requested.
 
 ### Phase 1: Foundation — SHIPPED
 
@@ -907,7 +915,7 @@ Minimum requirement:
 3. Render derived rows
 4. ~~Add Excel export~~ — moved to v2 roadmap item 7
 
-### Phase 3: COGS — SHIPPED, BROADER VALIDATION PENDING
+### Phase 3: COGS — SHIPPED
 
 Implemented shape:
 
@@ -918,11 +926,12 @@ Implemented shape:
 5. show missing-COGS warnings with SKU detail
 6. expose a settings workflow for entering/editing SKU unit costs
 
-Still pending before calling this fully productized:
+Follow-up notes:
 
-1. broader user verification across more live SKUs/months
-2. user decision on whether bulk SKU cost entry needs a CSV helper later
-3. any UX polish needed once a profile has a large SKU list
+1. broader user verification across more live SKUs/months is still useful
+2. bulk SKU cost entry via CSV is now shipped in the settings card
+3. large-profile UX may still need more polish if future clients have much
+   bigger SKU lists
 
 ### Phase 4: Validation — SHIPPED
 
@@ -937,18 +946,19 @@ Still pending before calling this fully productized:
 3. Compare Windsor months vs uploaded months
 4. Only then promote Windsor to the primary recent-period source
 
-### Phase 6: CA expansion
+### Phase 6: CA expansion — SHIPPED FOR UPLOADED TRANSACTION REPORTS
 
-1. Add CA marketplace profile support
-2. Introduce marketplace-specific mapping packs
-3. Validate tax and fee-label differences
-4. Current expected next step: run a real CA month through the live importer and
-   validate the resulting import/report output, then add only the minimal
-   follow-up mapping changes required
+1. CA marketplace profiles are live
+2. marketplace-specific mapping packs are live via `CA` mapping rules
+3. observed CA tax and fee-label differences have been validated on real files
+4. Whoosh CA is live for Jan-Feb 2026 and manually validated
+5. Distex CA is live for Jan 2024-Feb 2026
+6. active CA month slices currently report zero unmapped totals after the
+   follow-up mapping migrations
 
 ## v2 roadmap
 
-Planned feature sequence after v1 shipped state.
+Remaining feature sequence after the currently shipped state.
 
 Recommended ordering principle:
 
@@ -958,25 +968,15 @@ Recommended ordering principle:
 4. defer comparison/reporting layers until the underlying data model is richer
    and stable
 
-### v2-0: Totals column toggle — LOW difficulty
+### v2-0: Totals column toggle — SHIPPED
 
-Add an optional "Total" column after the last month column that sums each row
-across all visible months. Toggled on/off from the report header, similar to
-how toggles work in the WBR. Default off so the table stays compact.
+Shipped on 2026-03-17. The report now supports an optional totals column after
+the last month column, toggled from the report header.
 
-Frontend-only. No backend changes, no new queries — the data is already in the
-response. Just sum each row's month values client-side when the toggle is on.
+### v2-1: Percent-of-revenue view — SHIPPED
 
-### v2-1: Percent-of-revenue view — LOW difficulty
-
-Frontend-only display mode. Each expense and refund line shows
-`[amount] / [Total Net Revenue]` as a percentage for that month. Revenue rows
-and totals stay as dollar amounts. Gross Profit row shows margin %.
-
-UI: add report tabs similar to WBR section tabs. Suggested tab names:
-`Dollars` and `% of Revenue` (or `$` and `%`). Same report, different lens.
-
-No backend changes, no new tables, no new queries.
+Shipped on 2026-03-17. The report now supports `Dollars` and `% of Revenue`
+views in the main table UI.
 
 ### v2-2: COGS entry workflow — MEDIUM difficulty
 
@@ -1019,11 +1019,13 @@ What is done:
 3. settings UI loads sold SKUs for the visible range and saves unit costs
 4. warning banner calls out sold SKUs missing configured COGS
 
-What still needs verification:
+What still benefits from ongoing validation:
 
-1. confirm the settings UX feels workable with a real client SKU list
-2. confirm reported COGS/Gross Profit values against live expected numbers
-3. decide whether bulk SKU cost entry needs a CSV helper in a later pass
+1. confirm the settings UX stays workable as more clients with larger SKU sets
+   are onboarded
+2. confirm reported COGS/Gross Profit values against additional live expected
+   numbers
+3. keep refining large-list ergonomics only if real usage justifies it
 
 ### v2-3: Windsor settlement backfill — MEDIUM difficulty
 

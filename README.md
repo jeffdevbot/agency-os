@@ -15,7 +15,7 @@ Ecomlabs Tools is the internal platform that consolidates our ad analytics, SOP 
 - **Scribe** — `/scribe` (Amazon listing copy generation: project → SKUs → topics → copy). Current specs live under `docs/archive/non_agencyclaw/scribe_lite/`.
 - **Root Keyword Analysis** — `/root-keywords` (4-week hierarchical campaign rollup). Specs: `docs/archive/non_agencyclaw/18_root_keyword_analysis_prd.md`, plan: `docs/archive/non_agencyclaw/19_root_keyword_analysis_plan.md`.
 - **WBR** — `/reports/[clientSlug]/[marketplaceCode]/wbr` (client/marketplace weekly business review workspace with live Section 1 Windsor business reporting, live Section 2 Amazon Ads reporting, live Section 3 inventory + returns reporting, section tabs, inline trend charts for Sections 1 and 2, Excel export, sync QA, nightly refresh controls, and queued/background Ads backfills via `worker-sync`). Current state docs: `docs/wbr_v2_handoff.md`, `docs/wbr_v2_schema_plan.md`; Windsor ops runbook: `docs/windsor_wbr_ingestion_runbook.md`; older WBR planning docs are archived.
-- **Monthly P&L** — `/reports/[clientSlug]/[marketplaceCode]/pnl` finance reporting surface built from uploaded Amazon transaction reports, with a separate import pipeline, ledger model, report service, reconciliation workflow, active-import provenance, and user framing distinct from WBR. Current state docs: `docs/monthly_pnl_handoff.md`, `docs/monthly_pnl_resume_prompt.md`, `docs/monthly_pnl_implementation_plan.md`; older one-off prompts are archived.
+- **Monthly P&L** — `/reports/[clientSlug]/[marketplaceCode]/pnl` finance reporting surface built from uploaded Amazon transaction reports, with a separate import pipeline, normalized ledger model, month-slice activation, active-import provenance, async/background processing, and SKU-based COGS management. Current live rollout covers validated Whoosh US 2025 plus live CA transaction-report profiles for Whoosh and Distex. Current state docs: `docs/monthly_pnl_handoff.md`, `docs/monthly_pnl_resume_prompt.md`, `docs/monthly_pnl_implementation_plan.md`; older one-off prompts are archived.
 - **Command Center (MVP)** — `/command-center` (admin-only; clients → brands → role slots; team roster; Ghost Profiles merge-on-login). Specs: `docs/archive/non_agencyclaw/07_command_center_prd.md`, API: `docs/archive/non_agencyclaw/07_command_center_schema_api.md`, live DB schema: `docs/db/schema_master.md`.
 - **Debrief (MVP)** — `/debrief` (admin-only; sync Meet “Notes by Gemini” into Supabase; manually extract tasks; edit/remove; send to ClickUp once IDs are mapped). Specs: `docs/archive/non_agencyclaw/debrief_prd.md`, plan: `docs/archive/non_agencyclaw/debrief_implementation_plan.md`.
 
@@ -36,9 +36,9 @@ Ecomlabs Tools is the internal platform that consolidates our ad analytics, SOP 
 - `docs/windsor_wbr_ingestion_runbook.md` — Windsor Section 1 ingestion operations for WBR (account scoping, date windows, sync behavior, and batching strategy).
 - `docs/wbr_v2_handoff.md` — Current WBR shipped state, routes, migrations, queued Amazon Ads sync behavior, and restart context.
 - `docs/wbr_v2_schema_plan.md` — WBR schema plan annotated with current implementation status, live migrations, and the current sync-run/job-state notes.
-- `docs/monthly_pnl_handoff.md` — Current Monthly P&L shipped/debugged state, validation notes, live fixes, and restart context.
-- `docs/monthly_pnl_resume_prompt.md` — Current restart prompt for the active Monthly P&L debugging/productization session.
-- `docs/monthly_pnl_implementation_plan.md` — Monthly P&L implementation plan and mapping/reconciliation reference. Treat this as a standalone reporting track, not a WBR appendix.
+- `docs/monthly_pnl_handoff.md` — Current Monthly P&L shipped/debugged state, validated US + CA coverage, live fixes, and restart context.
+- `docs/monthly_pnl_resume_prompt.md` — Current restart prompt for the next Monthly P&L rollout/polish session.
+- `docs/monthly_pnl_implementation_plan.md` — Monthly P&L implementation plan and mapping/reconciliation reference, annotated with the currently shipped state.
 - `docs/archive/session_prompts/` — Historical restart prompts that were useful during active build/debug sessions but are no longer the primary docs entrypoint.
 
 ### Other Specs
@@ -62,7 +62,7 @@ Each doc includes the UX and backend contracts for its domain. Use `docs/db/sche
 |---------|------|---------|
 | `frontend-web` | Next.js | Web UI at tools.ecomlabs.ca |
 | `backend-core` | FastAPI | API endpoints, integrations |
-| `worker-sync` | Background | Render background worker for nightly WBR refresh jobs and future long-running sync work |
+| `worker-sync` | Background | Render background worker for nightly WBR refresh jobs plus long-running Monthly P&L async imports and future sync work |
 
 All services are deployed on Render. See `docs/archive/non_agencyclaw/00_agency_os_architecture.md` for details.
 
