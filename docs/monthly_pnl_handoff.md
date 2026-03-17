@@ -112,6 +112,17 @@ hardening work.
     authoritative rewrite of the currently loaded SKU set.
 30. The `/reports` hub Monthly P&L card no longer shows a hardcoded currency
     label, because the product does not perform currency normalization.
+31. On 2026-03-17, live migration
+    `20260317165228_add_monthly_pnl_other_expenses.sql` was applied. It added
+    manual per-month expense storage plus per-profile visibility toggles for
+    non-Amazon Monthly P&L rows.
+32. The Monthly P&L settings panel now includes `Other expenses`, with:
+    - manual monthly `FBM Fulfillment Fees`
+    - manual monthly `Agency Fees`
+    - show/hide toggles for each row
+    - CSV export/import round-trip for the visible months
+33. Enabled `Other expenses` rows now flow into `Total Expenses` and
+    `Net Earnings` without changing Amazon ingest or mapping behavior.
 
 ## Validated and active state
 
@@ -308,8 +319,10 @@ The previous CA parser-discovery and live-validation tranche is done:
 2. async imports are live with visible progress
 3. 2025 Whoosh US coverage is active Jan through Dec
 4. SKU-based COGS is live and now has CSV round-trip support
-5. Whoosh CA and Distex CA are live on real uploaded transaction reports
-6. active CA month slices currently have zero unmapped totals
+5. manual `Other expenses` are now live for `FBM Fulfillment Fees` and
+   `Agency Fees`
+6. Whoosh CA and Distex CA are live on real uploaded transaction reports
+7. active CA month slices currently have zero unmapped totals
 
 The next work should be chosen intentionally rather than treated as an active
 blocker. The likely buckets are:
@@ -317,7 +330,9 @@ blocker. The likely buckets are:
 1. broader client/marketplace backfill as the user requests it
 2. narrow mapping additions if future uploads expose new real-world labels
 3. Monthly P&L UX polish that does not disturb validated import math
-4. Windsor settlement ingestion only if/when that automation path becomes the
+4. operator workflow/product decisions now that COGS and manual other-expense
+   tooling exist in the settings surface
+5. Windsor settlement ingestion only if/when that automation path becomes the
    next explicit priority
 
 ## December 2025 final numbers
@@ -349,6 +364,7 @@ These Monthly P&L migrations are currently visible in Supabase:
 11. `20260317150607_seed_monthly_pnl_ca_mapping_rules.sql`
 12. `20260317154748_add_monthly_pnl_fulfilment_removal_prefix_rule.sql`
 13. `20260317161435_add_monthly_pnl_ca_label_variants.sql`
+14. `20260317165228_add_monthly_pnl_other_expenses.sql`
 
 ## Important constraints
 
@@ -376,6 +392,8 @@ These Monthly P&L migrations are currently visible in Supabase:
 4. Prefer live data-only mapping migrations over broad importer refactors when
    the issue is just a new fee label variant.
 5. Keep Monthly P&L UX/product polish separate from WBR concerns.
+6. Treat the next session as a product-priority discussion first, not an
+   assumption that a specific tranche must be built immediately.
 
 ## Next-session prompt
 
@@ -404,20 +422,20 @@ Use this prompt to restart the next Monthly P&L session:
 >   `20260317150607_seed_monthly_pnl_ca_mapping_rules.sql`,
 >   `20260317154748_add_monthly_pnl_fulfilment_removal_prefix_rule.sql`, and
 >   `20260317161435_add_monthly_pnl_ca_label_variants.sql`.
-> - Async import progress/heartbeat UX is live, and SKU-based COGS now supports
->   CSV export/import in the settings card.
+> - Async import progress/heartbeat UX is live, SKU-based COGS supports CSV
+>   export/import, and `Other expenses` now supports manual monthly `FBM
+>   Fulfillment Fees` / `Agency Fees` with toggles plus CSV export/import.
 >
 > Primary goal:
-> - Continue Monthly P&L rollout/polish without disturbing the validated US and
->   live CA state.
+> - Work on Monthly P&L and discuss what should come next.
 >
 > Focus:
-> 1. Confirm the exact next backfill/rollout request before changing data.
-> 2. Preserve validated Whoosh US and the currently active CA imports unless
+> 1. Review the current shipped Monthly P&L state first.
+> 2. Decide with the user what the next highest-value Monthly P&L work should
+>    be before changing code or data.
+> 3. Preserve validated Whoosh US and the currently active CA imports unless
 >    explicitly asked to replace them.
-> 3. If future uploads expose unmapped rows, inspect the real source labels and
->    add the narrowest possible parser/mapping fix.
-> 4. Prefer focused ergonomics/polish work over broad refactors.
+> 4. Prefer focused, low-risk follow-up work over broad refactors.
 > 5. Keep Windsor settlement work out of scope unless it becomes the explicit
 >    next product goal.
 >

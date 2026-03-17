@@ -19,6 +19,7 @@ _Last updated: 2026-03-17 (ET)_
 - **Distex CA Monthly P&L backfill is now live from Jan 2024 through Feb 2026:** Multi-range CA uploads were imported successfully into the live Distex CA profile, providing active backfill coverage from `2024-01-01` through `2026-02-01`.
 - **Observed CA unmapped transaction variants were closed out live:** Applied `20260317154748_add_monthly_pnl_fulfilment_removal_prefix_rule` and `20260317161435_add_monthly_pnl_ca_label_variants` to map real CA labels such as removal-order disposal fees, coupon redemption fees, Vine enrolment fees, and FBA prep fees. Active CA months on Whoosh and Distex now sit at `unmapped_amount = 0`.
 - **Monthly P&L COGS settings got the first bulk-edit ergonomics pass:** The COGS card now collapses long SKU lists, supports `See more`, and adds CSV export/import round-trips so operators can bulk-edit SKU unit costs without manual row-by-row web entry.
+- **Monthly P&L other expenses are now live:** Applied `20260317165228_add_monthly_pnl_other_expenses`, adding manual monthly `FBM Fulfillment Fees` and `Agency Fees` rows with per-profile show/hide toggles plus CSV export/import in the settings panel. Enabled rows now flow into `Total Expenses` and `Net Earnings` without affecting Amazon ingest.
 - **Monthly P&L presentation polish continued:** Removed the misleading hardcoded currency label from the `/reports` hub P&L card and fixed the totals-column contrast bug on the `Contribution Profit` row so the summary cell styling stays readable.
 
 ## 2026-03-16 (ET)

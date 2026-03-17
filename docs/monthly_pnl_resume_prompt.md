@@ -29,20 +29,25 @@ Current reality:
    - `20260317161435_add_monthly_pnl_ca_label_variants.sql`
 8. Async import progress/heartbeat UX is live, and SKU-based COGS now supports
    CSV export/import in the settings card.
+9. `Other expenses` is now live in Monthly P&L settings:
+   - manual monthly `FBM Fulfillment Fees`
+   - manual monthly `Agency Fees`
+   - show/hide toggles
+   - CSV export/import
+10. Live migration `20260317165228_add_monthly_pnl_other_expenses.sql` is
+    already applied in Supabase.
 
 Primary goal:
 
-1. Continue Monthly P&L rollout/polish without disturbing the validated US and
-   live CA state.
+1. Work on Monthly P&L and discuss what should come next.
 
 Focus:
 
-1. Confirm the exact next client/marketplace request before changing data.
-2. Preserve validated Whoosh US and the currently active CA imports unless the
+1. Review the current shipped Monthly P&L state first.
+2. Discuss with the user what the next highest-value Monthly P&L work should be.
+3. Preserve validated Whoosh US and the currently active CA imports unless the
    user explicitly wants to replace them.
-3. If future uploads expose unmapped rows, inspect the real source labels and
-   add the narrowest possible parser/mapping fix.
-4. Prefer focused ergonomics/polish work over broad refactors.
+4. Prefer focused, low-risk follow-up work over broad refactors.
 5. Keep Windsor settlement work out of scope unless it becomes the explicit
    next product goal.
 

@@ -1052,17 +1052,23 @@ Depends on v2-3 being validated.
 3. Weekly job pulls latest settlement window and upserts into ledger.
 4. Follow WBR nightly refresh pattern for job orchestration.
 
-### v2-5: Agency Fees — LOW difficulty
+### v2-5: Other expenses — SHIPPED
 
-Optional per-month agency management fee entry.
+Shipped on 2026-03-17 as a broader version of the earlier `Agency Fees` idea.
 
-1. New table `monthly_pnl_agency_fees` (profile_id, entry_month, amount,
-   notes, timestamps). One row per profile per month.
-2. Settings toggle: "Show Agency Fees" on/off per profile.
-3. Entry UI in settings area: list of active months with an amount input next
-   to each. Pre-populate month list from active import months.
-4. Report integration: when toggled on, add "Agency Fees" as the last expense
-   line item. Flows into Total Expenses and Net Earnings automatically.
+Current shipped shape:
+
+1. New tables:
+   - `monthly_pnl_manual_expenses`
+   - `monthly_pnl_manual_expense_settings`
+2. Manual monthly rows currently supported:
+   - `FBM Fulfillment Fees`
+   - `Agency Fees`
+3. Settings UI includes per-row show/hide toggles plus CSV export/import for
+   the visible months.
+4. Enabled rows flow into `Total Expenses` and `Net Earnings` automatically.
+5. This is intentionally additive to the report path and does not change
+   Amazon transaction ingest or mapping behavior.
 
 ### v2-6: Disbursements tab — LOW-MEDIUM difficulty
 
@@ -1091,7 +1097,7 @@ picture without forcing early churn in workbook structure.
 
 1. Multi-sheet workbook: one sheet per report tab (Dollars, % of Revenue,
    Disbursements).
-2. Include COGS and Agency Fees rows when enabled.
+2. Include COGS and enabled `Other expenses` rows when present.
 3. Match the on-screen formatting (bold totals, section grouping, month
    columns).
 
@@ -1113,25 +1119,21 @@ Initial suggestion: start with a YoY comparison table, not charts.
 
 Recommended execution order from here:
 
-1. `v2-0` Totals column toggle
-2. `v2-1` Percent-of-revenue view
-3. `v2-2` COGS entry workflow
-4. `v2-3` Windsor settlement backfill
-5. `v2-4` Windsor weekly auto-refresh
-6. `v2-5` Agency Fees
-7. `v2-6` Disbursements tab
-8. `v2-7` Export to XLSX
-9. `v2-8` Annual / year-over-year comparison
+1. `v2-2` COGS entry workflow
+2. `v2-3` Windsor settlement backfill
+3. `v2-4` Windsor weekly auto-refresh
+4. `v2-6` Disbursements tab
+5. `v2-7` Export to XLSX
+6. `v2-8` Annual / year-over-year comparison
 
 Why this order:
 
-1. start with two low-risk display wins that improve usability immediately
-2. complete the core profitability model before layering on internal agency
-   economics
-3. validate Windsor as the second ingestion path before spending time on export
+1. continue validating the already-shipped COGS and other-expense workflows as
+   more live profiles use them
+2. validate Windsor as the second ingestion path before spending time on export
    polish
-4. defer disbursements until the `non_pnl_transfer` mapping is reconciled
-5. leave YoY analysis last because it depends on a richer, stable dataset and a
+3. defer disbursements until the `non_pnl_transfer` mapping is reconciled
+4. leave YoY analysis last because it depends on a richer, stable dataset and a
    settled report surface
 
 ## Recommendation
