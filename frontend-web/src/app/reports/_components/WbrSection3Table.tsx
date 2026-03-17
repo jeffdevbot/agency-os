@@ -105,95 +105,95 @@ export default function WbrSection3Table({
   const retWeekLabel2 = returnsWeeks.length >= 2 ? returnsWeeks[returnsWeeks.length - 2]?.label : "";
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white px-3 py-3 md:px-4 md:py-3">
+    <div className="rounded-xl border border-slate-200 bg-white px-2 py-2.5 md:px-3 md:py-3">
       <div className="overflow-x-auto">
-        <table className="min-w-max border-separate border-spacing-0 text-left text-[13px] leading-tight md:text-sm">
+        <table className="min-w-max border-separate border-spacing-0 text-left text-[12px] leading-tight md:text-[13px]">
           <thead>
             <tr className="text-sm font-semibold text-[#0f172a]">
               <th
                 rowSpan={2}
-                className="min-w-[280px] border-b border-slate-200 bg-[#f7faff] px-4 py-3 text-left"
+                className="min-w-[220px] border-b border-slate-200 bg-[#f7faff] px-3 py-2.5 text-left md:min-w-[240px]"
               >
                 Style
               </th>
-              <th rowSpan={2} className="border-b border-l border-slate-200 bg-white px-3 py-2 text-right">
+              <th rowSpan={2} className="border-b border-l border-slate-200 bg-white px-2 py-2 text-right">
                 Instock
               </th>
-              <th rowSpan={2} className="border-b border-l border-slate-200 bg-white px-3 py-2 text-right">
+              <th rowSpan={2} className="border-b border-l border-slate-200 bg-white px-2 py-2 text-right">
                 Working
               </th>
               <th
                 rowSpan={2}
-                className="whitespace-nowrap border-b border-l border-slate-200 bg-white px-3 py-2 text-right"
+                className="whitespace-nowrap border-b border-l border-slate-200 bg-white px-2 py-2 text-right"
               >
                 Reserved / FC Transfer
               </th>
               <th
                 rowSpan={2}
-                className="whitespace-nowrap border-b border-l border-slate-200 bg-white px-3 py-2 text-right"
+                className="whitespace-nowrap border-b border-l border-slate-200 bg-white px-2 py-2 text-right"
               >
                 Receiving / Intransit
               </th>
               <th
                 rowSpan={2}
-                className="whitespace-nowrap border-b border-l border-slate-200 bg-white px-3 py-2 text-right"
+                className="whitespace-nowrap border-b border-l border-slate-200 bg-white px-2 py-2 text-right"
               >
                 Weeks of Stock
               </th>
-              <th colSpan={3} className="border-b border-l border-slate-200 bg-white px-3 py-2 text-center">
+              <th colSpan={3} className="border-b border-l border-slate-200 bg-white px-2 py-2 text-center">
                 Returns
               </th>
             </tr>
-            <tr className="text-xs font-semibold uppercase tracking-wide text-[#4c576f]">
-              <th className="whitespace-nowrap border-b border-l border-slate-200 bg-[#f7faff] px-3 py-2 text-right">
+            <tr className="text-[11px] font-semibold uppercase tracking-wide text-[#4c576f] md:text-xs">
+              <th className="whitespace-nowrap border-b border-l border-slate-200 bg-[#f7faff] px-2 py-2 text-right">
                 {retWeekLabel1}
               </th>
-              <th className="whitespace-nowrap border-b border-slate-200 bg-[#f7faff] px-3 py-2 text-right">
+              <th className="whitespace-nowrap border-b border-slate-200 bg-[#f7faff] px-2 py-2 text-right">
                 {retWeekLabel2}
               </th>
-              <th className="border-b border-slate-200 bg-[#f7faff] px-3 py-2 text-right">%</th>
+              <th className="border-b border-slate-200 bg-[#f7faff] px-2 py-2 text-right">%</th>
             </tr>
           </thead>
           <tbody>
             {ordered.map((row) => (
               <tr key={row.id} className="hover:bg-slate-50">
                 <td
-                  className={`border-b border-slate-200 bg-white px-4 py-2 text-[#0f172a] ${
+                  className={`border-b border-slate-200 bg-white px-3 py-2 text-[#0f172a] ${
                     row.row_kind === "parent" ? "font-semibold" : row.parent_row_id ? "pl-6" : "pl-3"
                   }`}
                 >
                   {row.row_label}
                 </td>
-                <td className="border-b border-l border-slate-200 px-3 py-2 text-right text-[#0f172a]">{fmt(row.instock)}</td>
-                <td className="border-b border-l border-slate-200 px-3 py-2 text-right text-[#0f172a]">{fmt(row.working)}</td>
-                <td className="border-b border-l border-slate-200 px-3 py-2 text-right text-[#0f172a]">
+                <td className="border-b border-l border-slate-200 px-2 py-2 text-right text-[#0f172a]">{fmt(row.instock)}</td>
+                <td className="border-b border-l border-slate-200 px-2 py-2 text-right text-[#0f172a]">{fmt(row.working)}</td>
+                <td className="border-b border-l border-slate-200 px-2 py-2 text-right text-[#0f172a]">
                   {fmt(row.reserved_plus_fc_transfer)}
                 </td>
-                <td className="border-b border-l border-slate-200 px-3 py-2 text-right text-[#0f172a]">
+                <td className="border-b border-l border-slate-200 px-2 py-2 text-right text-[#0f172a]">
                   {fmt(row.receiving_plus_intransit)}
                 </td>
-                <td className="border-b border-l border-slate-200 px-3 py-2 text-right text-[#0f172a]">
+                <td className="border-b border-l border-slate-200 px-2 py-2 text-right text-[#0f172a]">
                   {fmtWos(row.weeks_of_stock)}
                 </td>
-                <td className="border-b border-l border-slate-200 px-3 py-2 text-right text-[#0f172a]">
+                <td className="border-b border-l border-slate-200 px-2 py-2 text-right text-[#0f172a]">
                   {fmt(row.returns_week_1)}
                 </td>
-                <td className="border-b border-slate-200 px-3 py-2 text-right text-[#0f172a]">{fmt(row.returns_week_2)}</td>
-                <td className="border-b border-slate-200 px-3 py-2 text-right text-[#0f172a]">{fmtPct(row.return_rate)}</td>
+                <td className="border-b border-slate-200 px-2 py-2 text-right text-[#0f172a]">{fmt(row.returns_week_2)}</td>
+                <td className="border-b border-slate-200 px-2 py-2 text-right text-[#0f172a]">{fmtPct(row.return_rate)}</td>
               </tr>
             ))}
             <tr className="bg-[#f8fafc] font-semibold text-[#0f172a]">
-              <td className="border-t border-slate-200 bg-[#f8fafc] px-4 py-3">Total</td>
-              <td className="border-t border-l border-slate-200 bg-[#f8fafc] px-3 py-3 text-right">{fmt(totalInstock)}</td>
-              <td className="border-t border-l border-slate-200 bg-[#f8fafc] px-3 py-3 text-right">{fmt(totalWorking)}</td>
-              <td className="border-t border-l border-slate-200 bg-[#f8fafc] px-3 py-3 text-right">{fmt(totalReservedFc)}</td>
-              <td className="border-t border-l border-slate-200 bg-[#f8fafc] px-3 py-3 text-right">
+              <td className="border-t border-slate-200 bg-[#f8fafc] px-3 py-2.5">Total</td>
+              <td className="border-t border-l border-slate-200 bg-[#f8fafc] px-2 py-2.5 text-right">{fmt(totalInstock)}</td>
+              <td className="border-t border-l border-slate-200 bg-[#f8fafc] px-2 py-2.5 text-right">{fmt(totalWorking)}</td>
+              <td className="border-t border-l border-slate-200 bg-[#f8fafc] px-2 py-2.5 text-right">{fmt(totalReservedFc)}</td>
+              <td className="border-t border-l border-slate-200 bg-[#f8fafc] px-2 py-2.5 text-right">
                 {fmt(totalReceivingIntransit)}
               </td>
-              <td className="border-t border-l border-slate-200 bg-[#f8fafc] px-3 py-3 text-right">{fmtWos(totalWos)}</td>
-              <td className="border-t border-l border-slate-200 bg-[#f8fafc] px-3 py-3 text-right">{fmt(totalRetW1)}</td>
-              <td className="border-t border-slate-200 bg-[#f8fafc] px-3 py-3 text-right">{fmt(totalRetW2)}</td>
-              <td className="border-t border-slate-200 bg-[#f8fafc] px-3 py-3 text-right">{fmtPct(totalReturnRate)}</td>
+              <td className="border-t border-l border-slate-200 bg-[#f8fafc] px-2 py-2.5 text-right">{fmtWos(totalWos)}</td>
+              <td className="border-t border-l border-slate-200 bg-[#f8fafc] px-2 py-2.5 text-right">{fmt(totalRetW1)}</td>
+              <td className="border-t border-slate-200 bg-[#f8fafc] px-2 py-2.5 text-right">{fmt(totalRetW2)}</td>
+              <td className="border-t border-slate-200 bg-[#f8fafc] px-2 py-2.5 text-right">{fmtPct(totalReturnRate)}</td>
             </tr>
           </tbody>
         </table>

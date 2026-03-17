@@ -168,19 +168,19 @@ export default function PnlMonthRangePicker({
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
-        className="flex min-w-[18rem] items-center justify-between gap-3 rounded-[1.5rem] border border-[#dbe4f0] bg-white px-5 py-4 text-left shadow-sm transition hover:border-[#94a3b8] lg:min-w-[22rem]"
+        className="flex min-w-[16rem] items-center justify-between gap-3 rounded-[1.5rem] border border-[#dbe4f0] bg-white px-4 py-3 text-left shadow-sm transition hover:border-[#94a3b8] lg:min-w-[19rem]"
       >
         <span className="flex items-center gap-4">
-          <span className="rounded-2xl bg-[#f7faff] p-3 text-[#0a6fd6]">
-            <CalendarDays className="h-5 w-5" />
+          <span className="rounded-2xl bg-[#f7faff] p-2.5 text-[#0a6fd6]">
+            <CalendarDays className="h-4.5 w-4.5" />
           </span>
           <span>
             <span className="block text-xs font-semibold uppercase tracking-[0.16em] text-[#64748b]">
               Reporting window
             </span>
-            <span className="mt-1 block text-base font-semibold text-[#0f172a]">{triggerLabel}</span>
+            <span className="mt-0.5 block text-[0.95rem] font-semibold text-[#0f172a]">{triggerLabel}</span>
             {filterMode === "range" ? (
-              <span className="block text-sm text-[#64748b]">{yearSummary}</span>
+              <span className="block text-xs text-[#64748b]">{yearSummary}</span>
             ) : null}
           </span>
         </span>

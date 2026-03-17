@@ -44,38 +44,38 @@ export default function PnlReportHeader({
   onExport,
 }: Props) {
   return (
-    <div className="relative z-20 rounded-3xl bg-white/95 p-5 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur md:p-6">
-      <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+    <div className="relative z-20 rounded-3xl bg-white/95 p-4 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur md:p-5">
+      <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
         <div className="min-w-0 flex-1">
           <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[#9a5b16]">
             Amazon Finance Reporting
           </p>
-          <h1 className="mt-2 text-3xl font-semibold text-[#0f172a] md:text-[2.35rem]">
+          <h1 className="mt-2 text-3xl font-semibold text-[#0f172a] md:text-[2.15rem]">
             Amazon P&amp;L
           </h1>
-          <div className="mt-4 flex flex-wrap items-center gap-3">
-            <div className="rounded-2xl border border-[#dbe4f0] bg-[#f8fafc] px-4 py-3">
+          <div className="mt-3 flex flex-wrap items-center gap-2.5">
+            <div className="rounded-2xl border border-[#dbe4f0] bg-[#f8fafc] px-3.5 py-2.5">
               <p className="text-[0.7rem] font-semibold uppercase tracking-[0.18em] text-[#64748b]">
                 Account
               </p>
-              <p className="mt-1 text-lg font-semibold text-[#0f172a] md:text-xl">{clientName}</p>
+              <p className="mt-1 text-base font-semibold text-[#0f172a] md:text-lg">{clientName}</p>
             </div>
-            <div className="rounded-2xl border border-[#dbe4f0] bg-white px-4 py-3">
+            <div className="rounded-2xl border border-[#dbe4f0] bg-white px-3.5 py-2.5">
               <p className="text-[0.7rem] font-semibold uppercase tracking-[0.18em] text-[#64748b]">
                 Marketplace
               </p>
-              <p className="mt-1 text-lg font-semibold text-[#0a6fd6] md:text-xl">
+              <p className="mt-1 text-base font-semibold text-[#0a6fd6] md:text-lg">
                 {marketplaceCode.toUpperCase()}
               </p>
             </div>
           </div>
-          <p className="mt-4 text-sm text-[#64748b] md:text-base">
+          <p className="mt-3 text-sm text-[#64748b] md:text-[0.95rem]">
             Monthly finance reporting from uploaded Amazon transaction data.
           </p>
         </div>
 
         {profile ? (
-          <div className="flex shrink-0 flex-col items-start gap-3 lg:items-end">
+          <div className="flex shrink-0 flex-col items-start gap-2.5 xl:items-end">
             <PnlMonthRangePicker
               filterMode={filterMode}
               rangeStart={rangeStart}
@@ -84,12 +84,12 @@ export default function PnlReportHeader({
               onRangeStartChange={onRangeStartChange}
               onRangeEndChange={onRangeEndChange}
             />
-            <div className="flex flex-wrap items-center gap-3 lg:justify-end">
+            <div className="flex flex-wrap items-center gap-2 xl:justify-end">
               <div className="flex items-center rounded-full border border-[#dbe4f0] bg-[#f8fafc] p-1">
                 <button
                   type="button"
                   onClick={() => onDisplayModeChange("dollars")}
-                  className={`rounded-full px-3 py-1.5 text-sm font-semibold transition ${
+                  className={`rounded-full px-2.5 py-1.5 text-sm font-semibold transition ${
                     displayMode === "dollars"
                       ? "bg-[#0f172a] text-white"
                       : "text-[#475569] hover:text-[#0f172a]"
@@ -100,7 +100,7 @@ export default function PnlReportHeader({
                 <button
                   type="button"
                   onClick={() => onDisplayModeChange("percent")}
-                  className={`rounded-full px-3 py-1.5 text-sm font-semibold transition ${
+                  className={`rounded-full px-2.5 py-1.5 text-sm font-semibold transition ${
                     displayMode === "percent"
                       ? "bg-[#0f172a] text-white"
                       : "text-[#475569] hover:text-[#0f172a]"
@@ -113,14 +113,14 @@ export default function PnlReportHeader({
                 type="button"
                 onClick={onExport}
                 disabled={exportPending}
-                className="rounded-full border border-[#dbe4f0] bg-white px-3 py-1.5 text-sm font-semibold text-[#0a6fd6] transition hover:border-[#94a3b8] hover:text-[#0f172a] disabled:cursor-not-allowed disabled:text-[#94a3b8]"
+                className="rounded-full border border-[#dbe4f0] bg-white px-2.5 py-1.5 text-sm font-semibold text-[#0a6fd6] transition hover:border-[#94a3b8] hover:text-[#0f172a] disabled:cursor-not-allowed disabled:text-[#94a3b8]"
               >
                 {exportPending ? "Exporting..." : "Export to Excel"}
               </button>
               <button
                 type="button"
                 onClick={onToggleTotals}
-                className={`rounded-full border px-3 py-1.5 text-sm font-semibold transition ${
+                className={`rounded-full border px-2.5 py-1.5 text-sm font-semibold transition ${
                   showTotals
                     ? "border-[#0f172a] bg-[#0f172a] text-white"
                     : "border-[#dbe4f0] bg-white text-[#475569] hover:border-[#94a3b8] hover:text-[#0f172a]"

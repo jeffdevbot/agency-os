@@ -65,7 +65,7 @@ export default function WbrSection1ReportScreen({ clientSlug, marketplaceCode }:
 
   return (
     <main className="space-y-3">
-      <div className="rounded-3xl bg-white/95 p-5 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur md:p-6">
+      <div className="rounded-3xl bg-white/95 p-4 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur md:p-5">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <h1 className="text-2xl font-semibold text-[#0f172a] md:text-[2rem]">Weekly Business Review</h1>
@@ -84,7 +84,7 @@ export default function WbrSection1ReportScreen({ clientSlug, marketplaceCode }:
                 })
               }
               disabled={workbookExport.exporting}
-              className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-[#0a6fd6] shadow-sm transition hover:-translate-y-0.5 hover:shadow disabled:cursor-not-allowed disabled:text-slate-400 md:text-sm"
+              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-[#0a6fd6] shadow-sm transition hover:-translate-y-0.5 hover:shadow disabled:cursor-not-allowed disabled:text-slate-400 md:text-sm"
               title="Download the current WBR as an Excel workbook"
             >
               {workbookExport.exporting ? "Exporting..." : "Export to Excel"}
@@ -98,13 +98,13 @@ export default function WbrSection1ReportScreen({ clientSlug, marketplaceCode }:
                 void section3ReportState.loadReport(true);
               }}
               disabled={reportState.refreshing}
-              className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-[#0a6fd6] shadow-sm transition hover:-translate-y-0.5 hover:shadow disabled:cursor-not-allowed disabled:text-slate-400 md:text-sm"
+              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-[#0a6fd6] shadow-sm transition hover:-translate-y-0.5 hover:shadow disabled:cursor-not-allowed disabled:text-slate-400 md:text-sm"
               title="Reload the current profile and report data"
             >
               {reportState.refreshing ? "Refreshing..." : "Refresh"}
             </button>
 
-            <label className="inline-flex items-center gap-2 rounded-lg border border-[#c7d8f5] bg-[#f7faff] px-3 py-1.5 text-xs text-[#0f172a] md:text-sm">
+            <label className="inline-flex items-center gap-2 rounded-lg border border-[#c7d8f5] bg-[#f7faff] px-2.5 py-1.5 text-xs text-[#0f172a] md:text-sm">
               <input
                 type="checkbox"
                 checked={hideEmptyRows}
@@ -114,7 +114,7 @@ export default function WbrSection1ReportScreen({ clientSlug, marketplaceCode }:
               <span className="font-medium">Hide empty rows</span>
             </label>
 
-            <label className="inline-flex items-center gap-2 rounded-lg border border-[#c7d8f5] bg-[#f7faff] px-3 py-1.5 text-xs text-[#0f172a] md:text-sm">
+            <label className="inline-flex items-center gap-2 rounded-lg border border-[#c7d8f5] bg-[#f7faff] px-2.5 py-1.5 text-xs text-[#0f172a] md:text-sm">
               <input
                 type="checkbox"
                 checked={newestFirst}
@@ -124,7 +124,7 @@ export default function WbrSection1ReportScreen({ clientSlug, marketplaceCode }:
               <span className="font-medium">Newest first</span>
             </label>
 
-            <label className="inline-flex items-center gap-2 rounded-lg border border-[#c7d8f5] bg-[#f7faff] px-3 py-1.5 text-xs text-[#0f172a] md:text-sm">
+            <label className="inline-flex items-center gap-2 rounded-lg border border-[#c7d8f5] bg-[#f7faff] px-2.5 py-1.5 text-xs text-[#0f172a] md:text-sm">
               <input
                 type="checkbox"
                 checked={horizontalLayout}

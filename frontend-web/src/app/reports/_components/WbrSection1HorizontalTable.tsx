@@ -61,14 +61,14 @@ export default function WbrSection1HorizontalTable({
   ) as Record<MetricKey, string[]>;
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white px-3 py-3 md:px-4 md:py-3">
+    <div className="rounded-xl border border-slate-200 bg-white px-2 py-2.5 md:px-3 md:py-3">
       <div className="overflow-x-auto">
-        <table className="min-w-max border-separate border-spacing-0 text-left text-[13px] leading-tight md:text-sm">
+        <table className="min-w-max border-separate border-spacing-0 text-left text-[12px] leading-tight md:text-[13px]">
           <thead>
             <tr className="text-sm font-semibold text-[#0f172a]">
               <th
                 rowSpan={2}
-                className="sticky left-0 z-20 min-w-[280px] border-b border-slate-200 bg-[#f7faff] px-4 py-3 text-left"
+                className="sticky left-0 z-20 min-w-[220px] border-b border-slate-200 bg-[#f7faff] px-3 py-2.5 text-left md:min-w-[240px]"
               >
                 Style
               </th>
@@ -76,7 +76,7 @@ export default function WbrSection1HorizontalTable({
                 <th
                   key={metric.key}
                   colSpan={displayWeekIndexes.length}
-                  className="border-b border-l border-slate-200 bg-white px-3 py-2 text-center"
+                  className="border-b border-l border-slate-200 bg-white px-2 py-2 text-center"
                 >
                   {onMetricClick ? (
                     <button
@@ -93,12 +93,12 @@ export default function WbrSection1HorizontalTable({
                 </th>
               ))}
             </tr>
-            <tr className="text-xs font-semibold uppercase tracking-wide text-[#4c576f]">
+            <tr className="text-[11px] font-semibold uppercase tracking-wide text-[#4c576f] md:text-xs">
               {METRICS.flatMap((metric) =>
                 displayWeekIndexes.map((weekIndex, index) => (
                   <th
                     key={`${metric.key}-${weeks[weekIndex]?.start ?? weekIndex}`}
-                    className={`whitespace-nowrap border-b border-slate-200 bg-[#f7faff] px-3 py-2 text-right ${
+                    className={`whitespace-nowrap border-b border-slate-200 bg-[#f7faff] px-2 py-2 text-right ${
                       index === 0 ? "border-l border-slate-200" : ""
                     }`}
                   >
@@ -112,7 +112,7 @@ export default function WbrSection1HorizontalTable({
             {displayRows.map((row) => (
               <tr key={row.id} className="hover:bg-slate-50">
                 <td
-                  className={`sticky left-0 z-10 border-b border-slate-200 bg-white px-4 py-2 text-[#0f172a] ${
+                  className={`sticky left-0 z-10 border-b border-slate-200 bg-white px-3 py-2 text-[#0f172a] ${
                     row.row_kind === "parent" ? "font-semibold" : row.parent_row_id ? "pl-7" : ""
                   }`}
                 >
@@ -138,7 +138,7 @@ export default function WbrSection1HorizontalTable({
                   displayWeekIndexes.map((weekIndex, index) => (
                     <td
                       key={`${row.id}-${metric.key}-${weekIndex}`}
-                      className={`border-b border-slate-200 px-3 py-2 text-right text-[#0f172a] ${
+                      className={`border-b border-slate-200 px-2 py-2 text-right text-[#0f172a] ${
                         index === 0 ? "border-l border-slate-200" : ""
                       }`}
                     >
@@ -149,14 +149,14 @@ export default function WbrSection1HorizontalTable({
               </tr>
             ))}
             <tr className="font-semibold text-[#0f172a]">
-              <td className="sticky left-0 z-10 border-t border-slate-200 bg-[#f8fafc] px-4 py-3">
+              <td className="sticky left-0 z-10 border-t border-slate-200 bg-[#f8fafc] px-3 py-2.5">
                 Total
               </td>
               {METRICS.flatMap((metric) =>
                 displayWeekIndexes.map((weekIndex, index) => (
                   <td
                     key={`total-${metric.key}-${weekIndex}`}
-                    className={`border-t border-slate-200 bg-[#f8fafc] px-3 py-3 text-right ${
+                    className={`border-t border-slate-200 bg-[#f8fafc] px-2 py-2.5 text-right ${
                       index === 0 ? "border-l border-slate-200" : ""
                     }`}
                   >
