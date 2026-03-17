@@ -10,7 +10,7 @@ export default function ReportsHeader() {
 
   return (
     <header className="border-b border-slate-200 bg-white px-4 py-4 shadow-sm">
-      <div className="mx-auto flex w-full max-w-[1536px] flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+      <div className="mx-auto flex w-full max-w-[1664px] flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <Link href="/reports" className="flex flex-col">
           <span className="text-2xl font-extrabold leading-none text-[#0f172a]">
             {headerState.title}
