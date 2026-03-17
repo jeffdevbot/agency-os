@@ -17,7 +17,7 @@ export default async function ReportsLayout({
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#eaf2ff] via-[#dce8ff] to-[#cddcf8]">
       <ReportsHeader />
-      <div className="mx-auto w-full max-w-[1664px] px-4 py-5 xl:px-4 xl:py-7">{children}</div>
+      <div className="mx-auto w-full max-w-[1560px] px-4 py-5 xl:px-4 xl:py-7">{children}</div>
     </div>
   );
 }
