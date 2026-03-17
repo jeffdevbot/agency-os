@@ -36,15 +36,22 @@ Current reality:
    - CSV export/import
 10. Live migration `20260317165228_add_monthly_pnl_other_expenses.sql` is
     already applied in Supabase.
+11. Excel export is live, with `Dollars` and `% of Revenue` tabs.
+12. Payout rows are live at the bottom of the report, sourced from
+    `non_pnl_transfer`.
+13. Current P&L UI/workbook formatting uses accounting-style negatives with
+    brackets, and the UI now shows whole-number display values.
 
 Primary goal:
 
-1. Work on Monthly P&L and discuss what should come next.
+1. Work on Monthly P&L and explore the remaining implementation-plan items with
+   the user to decide what should come next.
 
 Focus:
 
 1. Review the current shipped Monthly P&L state first.
-2. Discuss with the user what the next highest-value Monthly P&L work should be.
+2. Review the remaining items in `docs/monthly_pnl_implementation_plan.md` and
+   discuss with the user what the next highest-value Monthly P&L work should be.
 3. Preserve validated Whoosh US and the currently active CA imports unless the
    user explicitly wants to replace them.
 4. Prefer focused, low-risk follow-up work over broad refactors.

@@ -4,8 +4,8 @@ _Last updated: 2026-03-17 (ET)_
 
 This is the current restart point for Monthly P&L after the US v1 validation
 push, the Jan-Dec 2025 Whoosh US backfill, the SKU-based COGS rollout, the CA
-parser/mapping rollout, the first live CA validations, and the latest import/UI
-hardening work.
+parser/mapping rollout, the first live CA validations, the Excel export/payout
+follow-up work, and the latest import/UI hardening work.
 
 ## Current reality
 
@@ -123,6 +123,25 @@ hardening work.
     - CSV export/import round-trip for the visible months
 33. Enabled `Other expenses` rows now flow into `Total Expenses` and
     `Net Earnings` without changing Amazon ingest or mapping behavior.
+34. The Amazon P&L header now includes Excel export. The workbook mirrors the
+    selected report window and totals visibility, with a `Dollars` tab and a
+    `% of Revenue` tab using the same report builder logic as the UI.
+35. P&L workbook export now derives currency from marketplace, uses
+    accounting-style negative formats with brackets instead of red minus
+    formatting, and names files as
+    `account-marketplace-pnl-start-end.xlsx`.
+36. The shared `/reports` shell and P&L table spacing were widened/tightened so
+    full-year views fit more cleanly on common desktop screens, while smaller
+    screens simply scroll horizontally.
+37. P&L presentation now uses accounting-style brackets for negative values and
+    whole-number display in the UI. In `% of Revenue`, the refund band from
+    `Product Refunds` through `Total Refunds & Adjustments` uses
+    `Total Gross Revenue` as the denominator; lower rows continue to use
+    `Total Net Revenue`.
+38. The report now appends `Payout ($)` and `Payout (%)` after
+    `Contribution Profit` / `Contribution Margin (%)`, with payout sourced from
+    the existing `non_pnl_transfer` ledger bucket and payout percent calculated
+    against `Total Net Revenue`.
 
 ## Validated and active state
 
@@ -311,7 +330,7 @@ Live state after the fix:
 
 ## Current open area
 
-### CA validation is complete; focus shifts to rollout and polish
+### CA validation is complete; focus shifts to the remaining implementation-plan items
 
 The previous CA parser-discovery and live-validation tranche is done:
 
@@ -325,13 +344,15 @@ The previous CA parser-discovery and live-validation tranche is done:
 7. active CA month slices currently have zero unmapped totals
 
 The next work should be chosen intentionally rather than treated as an active
-blocker. The likely buckets are:
+blocker. The likely buckets are the remaining Monthly P&L items from the
+implementation plan, prioritized with the user. The most likely buckets are:
 
 1. broader client/marketplace backfill as the user requests it
 2. narrow mapping additions if future uploads expose new real-world labels
-3. Monthly P&L UX polish that does not disturb validated import math
-4. operator workflow/product decisions now that COGS and manual other-expense
-   tooling exist in the settings surface
+3. low-risk report/operator additions such as disbursement reconciliation,
+   remaining export polish, or drillback/provenance improvements
+4. operator workflow/product decisions now that COGS, payouts, and manual
+   other-expense tooling exist in the settings surface
 5. Windsor settlement ingestion only if/when that automation path becomes the
    next explicit priority
 
@@ -383,17 +404,17 @@ These Monthly P&L migrations are currently visible in Supabase:
 
 ## Recommended next-session plan
 
-1. Confirm the exact client/marketplace scope for the next requested backfill
-   or rollout step.
+1. Review the remaining unchecked items in
+   `docs/monthly_pnl_implementation_plan.md` with the user before picking the
+   next build target.
 2. Preserve the validated Whoosh US and currently active CA import state unless
    the user explicitly wants to replace it.
 3. If a future upload exposes unmapped rows, inspect the real source labels and
    add the narrowest possible rule or parser change.
-4. Prefer live data-only mapping migrations over broad importer refactors when
-   the issue is just a new fee label variant.
+4. Prefer focused report/mapping follow-ups over broad importer refactors.
 5. Keep Monthly P&L UX/product polish separate from WBR concerns.
-6. Treat the next session as a product-priority discussion first, not an
-   assumption that a specific tranche must be built immediately.
+6. Treat the next session as a product-priority discussion first, centered on
+   the remaining implementation-plan items rather than assumed emergency work.
 
 ## Next-session prompt
 
@@ -425,14 +446,18 @@ Use this prompt to restart the next Monthly P&L session:
 > - Async import progress/heartbeat UX is live, SKU-based COGS supports CSV
 >   export/import, and `Other expenses` now supports manual monthly `FBM
 >   Fulfillment Fees` / `Agency Fees` with toggles plus CSV export/import.
+> - Excel export is live, payout rows are live at the bottom of the report, and
+>   the current P&L UI/workbook uses accounting-style negative formatting.
 >
 > Primary goal:
-> - Work on Monthly P&L and discuss what should come next.
+> - Work on Monthly P&L and explore the remaining implementation-plan items
+>   with the user to decide what should come next.
 >
 > Focus:
 > 1. Review the current shipped Monthly P&L state first.
-> 2. Decide with the user what the next highest-value Monthly P&L work should
->    be before changing code or data.
+> 2. Review the remaining items in the implementation plan and decide with the
+>    user what the next highest-value Monthly P&L work should be before
+>    changing code or data.
 > 3. Preserve validated Whoosh US and the currently active CA imports unless
 >    explicitly asked to replace them.
 > 4. Prefer focused, low-risk follow-up work over broad refactors.
