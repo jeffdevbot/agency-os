@@ -36,6 +36,12 @@ const statusClasses: Record<WbrPacvueImportBatch["import_status"], string> = {
   error: "border-rose-200 bg-rose-50 text-rose-800",
 };
 
+const formatFileSize = (bytes: number): string => {
+  if (bytes <= 0) return "0 B";
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+};
+
 export default function PacvueImportCard({
   loadingBatches,
   refreshingBatches,
@@ -108,8 +114,15 @@ export default function PacvueImportCard({
           </div>
         </div>
         <div className="mt-3 space-y-1 text-xs text-[#64748b]">
-          <p>Metadata rows above the real header are fine. Only `.xlsx` and `.xlsm` are supported.</p>
-          {selectedFile ? <p>Selected: {selectedFile.name}</p> : null}
+          <p>
+            Metadata rows above the real header are fine. Only `.xlsx` and `.xlsm` are supported,
+            up to 40MB.
+          </p>
+          {selectedFile ? (
+            <p>
+              Selected: {selectedFile.name} ({formatFileSize(selectedFile.size)})
+            </p>
+          ) : null}
         </div>
       </div>
 

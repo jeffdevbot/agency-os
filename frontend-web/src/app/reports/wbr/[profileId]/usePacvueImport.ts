@@ -9,6 +9,9 @@ import {
   type WbrPacvueImportResult,
 } from "../_lib/wbrApi";
 
+const MAX_PACVUE_UPLOAD_MB = 40;
+const MAX_PACVUE_UPLOAD_BYTES = MAX_PACVUE_UPLOAD_MB * 1024 * 1024;
+
 type UsePacvueImportOptions = {
   onImportSuccess?: () => Promise<void> | void;
 };
@@ -76,6 +79,14 @@ export function usePacvueImport(profileId: string, options?: UsePacvueImportOpti
         return;
       }
 
+      if (file.size > MAX_PACVUE_UPLOAD_BYTES) {
+        setErrorMessage(
+          `Pacvue workbook exceeds the ${MAX_PACVUE_UPLOAD_MB}MB upload limit. Export a smaller file and try again.`
+        );
+        setSuccessMessage(null);
+        return;
+      }
+
       setUploading(true);
       setErrorMessage(null);
       setSuccessMessage(null);
@@ -92,7 +103,15 @@ export function usePacvueImport(profileId: string, options?: UsePacvueImportOpti
           await options.onImportSuccess();
         }
       } catch (error) {
-        setErrorMessage(error instanceof Error ? error.message : "Failed to import Pacvue workbook");
+        if (error instanceof TypeError && error.message === "Failed to fetch") {
+          setErrorMessage(
+            `Pacvue workbook upload failed before the server responded. If the file is large, keep it under ${MAX_PACVUE_UPLOAD_MB}MB and try again.`
+          );
+        } else {
+          setErrorMessage(
+            error instanceof Error ? error.message : "Failed to import Pacvue workbook"
+          );
+        }
       } finally {
         setUploading(false);
       }
