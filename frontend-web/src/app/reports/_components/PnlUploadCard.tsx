@@ -5,6 +5,8 @@ type Props = {
   uploadPending: boolean;
   uploadError: string | null;
   uploadSuccess: string | null;
+  processingStatus: string | null;
+  processingLines: string[];
   onFileChange: (file: File | null) => void;
   onUpload: () => void;
 };
@@ -14,6 +16,8 @@ export default function PnlUploadCard({
   uploadPending,
   uploadError,
   uploadSuccess,
+  processingStatus,
+  processingLines,
   onFileChange,
   onUpload,
 }: Props) {
@@ -60,6 +64,20 @@ export default function PnlUploadCard({
         <p className="mt-4 rounded-xl border border-[#86efac]/40 bg-[#dcfce7] px-4 py-3 text-sm text-[#166534]">
           {uploadSuccess}
         </p>
+      ) : null}
+      {processingStatus ? (
+        <div className="mt-4 rounded-xl border border-[#0a6fd6]/20 bg-[#eff6ff] px-4 py-3 text-sm text-[#0f172a]">
+          <p>
+            Background import status:
+            {" "}
+            <span className="font-semibold capitalize">{processingStatus}</span>
+          </p>
+          {processingLines.map((line) => (
+            <p key={line} className="mt-1 text-[#334155]">
+              {line}
+            </p>
+          ))}
+        </div>
       ) : null}
       {uploadError ? (
         <p className="mt-4 rounded-xl border border-[#f87171]/40 bg-[#fee2e2] px-4 py-3 text-sm text-[#991b1b]">

@@ -15,8 +15,10 @@ import {
   createPnlProfile,
   getPnlImportSummary,
   uploadPnlTransactionReport,
+  type PnlImport,
   type PnlFilterMode,
 } from "../pnl/_lib/pnlApi";
+import { buildPnlImportProgressLines } from "../pnl/_lib/pnlImportProgress";
 import { usePnlSkuCogs } from "../pnl/_lib/usePnlSkuCogs";
 import type { PnlDisplayMode } from "../pnl/_lib/pnlPresentation";
 import PnlCogsCard from "./PnlCogsCard";
@@ -50,6 +52,7 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
   const [uploadPending, setUploadPending] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [processingImportId, setProcessingImportId] = useState<string | null>(null);
+  const [processingImport, setProcessingImport] = useState<PnlImport | null>(null);
   const [processingImportStatus, setProcessingImportStatus] = useState<string | null>(null);
   const [processingImportLabel, setProcessingImportLabel] = useState<string | null>(null);
 
@@ -75,6 +78,10 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
   const cogsStartMonth = months[0] ?? null;
   const cogsEndMonth = months.length > 0 ? months[months.length - 1] : null;
   const cogsState = usePnlSkuCogs(profileId, cogsStartMonth, cogsEndMonth, showSettings);
+  const processingLines = useMemo(
+    () => buildPnlImportProgressLines(processingImport),
+    [processingImport],
+  );
 
   useEffect(() => {
     setUploadError(null);
@@ -109,6 +116,7 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
         }
 
         const status = summary.import.import_status;
+        setProcessingImport(summary.import);
         setProcessingImportStatus(status);
 
         if (status === "pending" || status === "running") {
@@ -119,6 +127,7 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
         }
 
         setProcessingImportId(null);
+        setProcessingImport(null);
         if (status === "success") {
           setUploadSuccess(
             `Finished importing ${processingImportLabel ?? "the queued Amazon P&L upload"}.`,
@@ -225,6 +234,7 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
       );
       setProcessingImportLabel(`${selectedFile.name} for ${monthLabel}`);
       setSelectedFile(null);
+      setProcessingImport(result.import);
 
       if (result.import.import_status === "pending" || result.import.import_status === "running") {
         setProcessingImportId(result.import.id);
@@ -313,7 +323,13 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
           Processing Amazon P&amp;L import in the background.
           {" "}
           Status: <span className="font-semibold capitalize">{processingImportStatus ?? "pending"}</span>.
+          {" "}
           The report will refresh automatically when it finishes.
+          {processingLines.map((line) => (
+            <p key={line} className="mt-1 text-[#334155]">
+              {line}
+            </p>
+          ))}
         </div>
       ) : null}
 
@@ -335,6 +351,8 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
               uploadPending={uploadPending}
               uploadError={uploadError}
               uploadSuccess={uploadSuccess}
+              processingStatus={processingImportStatus}
+              processingLines={processingLines}
               onFileChange={handleFileChange}
               onUpload={() => void handleUpload()}
             />

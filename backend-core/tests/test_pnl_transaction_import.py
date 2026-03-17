@@ -16,6 +16,7 @@ import pytest
 from app.services.pnl.profiles import PNLDuplicateFileError, PNLNotFoundError, PNLValidationError
 from app.services.pnl.sku_units import SkuUnitSourceRow, summarize_sku_units
 from app.services.pnl.transaction_import import (
+    ASYNC_IMPORT_PROGRESS_KEY,
     LedgerEntry,
     MappingRule,
     MonthSlice,
@@ -868,6 +869,11 @@ class TestTransactionImportService:
         storage_bucket.upload.assert_called_once()
         assert created_import_payloads[0]["storage_path"].endswith("test.csv")
         assert created_import_payloads[0]["raw_meta"]["async_import_v1"] is True
+        progress = created_import_payloads[0]["raw_meta"][ASYNC_IMPORT_PROGRESS_KEY]
+        assert progress["stage"] == "queued"
+        assert progress["total_raw_rows"] == 1
+        assert progress["total_months"] == 1
+        assert progress["months_total"] == 1
 
     def test_rejects_running_duplicate_file(self):
         profiles = _chain_table([{"id": "p1", "marketplace_code": "US"}])
@@ -1118,6 +1124,30 @@ class TestTransactionImportService:
 
         assert result["summary"]["total_raw_rows"] == 1
         svc._mark_import_stale_error.assert_called_once_with("stale-imp")
+
+    def test_process_import_marks_pre_run_failure_as_error(self):
+        svc = TransactionImportService(MagicMock())
+        svc.store = MagicMock()
+        svc.store.get_import.return_value = {
+            "id": "imp-1",
+            "profile_id": "p1",
+            "storage_path": "p1/upload.csv",
+            "import_status": "running",
+        }
+        svc.store.get_profile.return_value = {"id": "p1", "marketplace_code": "CA"}
+        svc._download_source_file = MagicMock(side_effect=RuntimeError("download failed"))
+
+        with pytest.raises(RuntimeError, match="download failed"):
+            svc.process_import("imp-1")
+
+        svc.store.update_import_status.assert_called_once_with(
+            "imp-1",
+            "error",
+            error_message="download failed",
+        )
+        last_meta_patch = svc.store.merge_import_raw_meta.call_args_list[-1].args[1]
+        assert last_meta_patch[ASYNC_IMPORT_PROGRESS_KEY]["stage"] == "error"
+        assert last_meta_patch[ASYNC_IMPORT_PROGRESS_KEY]["last_error"] == "download failed"
 
     def test_allows_reimport_after_success_and_deactivates_stale_months(self):
         """A successful import can be replaced by re-uploading the same file."""

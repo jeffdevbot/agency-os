@@ -27,6 +27,16 @@ _TRANSIENT_INSERT_ERROR_MARKERS = (
 )
 
 
+def _merge_json_object(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(base)
+    for key, value in patch.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _merge_json_object(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
 def _is_transient_insert_error(exc: PostgrestAPIError) -> bool:
     text = str(exc)
     return any(marker in text for marker in _TRANSIENT_INSERT_ERROR_MARKERS)
@@ -171,6 +181,17 @@ class TransactionImportStore:
         (
             self.db.table("monthly_pnl_imports")
             .update({"source_file_sha256": None})
+            .eq("id", import_id)
+            .execute()
+        )
+
+    def merge_import_raw_meta(self, import_id: str, patch: dict[str, Any]) -> None:
+        import_record = self.get_import(import_id)
+        raw_meta = import_record.get("raw_meta")
+        merged = _merge_json_object(raw_meta if isinstance(raw_meta, dict) else {}, patch)
+        (
+            self.db.table("monthly_pnl_imports")
+            .update({"raw_meta": merged})
             .eq("id", import_id)
             .execute()
         )

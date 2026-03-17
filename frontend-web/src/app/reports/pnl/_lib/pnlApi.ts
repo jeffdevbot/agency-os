@@ -46,6 +46,7 @@ export type PnlImport = {
   finished_at: string | null;
   created_at: string | null;
   updated_at: string | null;
+  raw_meta?: Record<string, unknown> | null;
 };
 
 export type PnlUploadResult = {

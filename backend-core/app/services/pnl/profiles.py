@@ -121,7 +121,7 @@ class PNLProfileService:
             self.db.table("monthly_pnl_imports")
             .select(
                 "id, profile_id, source_type, source_filename, import_status, row_count, "
-                "error_message, started_at, finished_at, created_at, updated_at"
+                "error_message, started_at, finished_at, created_at, updated_at, raw_meta"
             )
             .eq("profile_id", profile_id)
             .order("created_at", desc=True)

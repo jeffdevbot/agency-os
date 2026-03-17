@@ -29,6 +29,7 @@ from .transaction_import_store import TransactionImportStore
 SOURCE_TYPE = "amazon_transaction_upload"
 IMPORT_STORAGE_BUCKET = "monthly-pnl-imports"
 ASYNC_IMPORT_META_FLAG = "async_import_v1"
+ASYNC_IMPORT_PROGRESS_KEY = "async_import_progress_v1"
 STALE_RUNNING_IMPORT_AGE = timedelta(minutes=15)
 
 
@@ -46,6 +47,10 @@ def _parse_db_timestamp(value: Any) -> datetime | None:
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=UTC)
     return parsed.astimezone(UTC)
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(UTC).isoformat()
 
 
 # ── Import orchestration ─────────────────────────────────────────────
@@ -73,6 +78,7 @@ class TransactionImportService:
             marketplace_code=str(profile.get("marketplace_code", "US")),
             file_bytes=file_bytes,
         )
+        queued_at = _utc_now_iso()
 
         storage_path = self._build_storage_path(profile_id, file_name, file_sha256)
         self._upload_source_file(storage_path, file_bytes)
@@ -96,8 +102,14 @@ class TransactionImportService:
                 storage_path=storage_path,
                 raw_meta={
                     ASYNC_IMPORT_META_FLAG: True,
-                    "queued_at": datetime.now(UTC).isoformat(),
+                    "queued_at": queued_at,
                     "file_size_bytes": len(file_bytes),
+                    ASYNC_IMPORT_PROGRESS_KEY: self._build_progress_payload(
+                        prepared=prepared,
+                        stage="queued",
+                        detail="Queued for worker-sync background processing",
+                        heartbeat_at=queued_at,
+                    ),
                 },
             )
         except Exception:
@@ -164,14 +176,33 @@ class TransactionImportService:
         storage_path = str(import_record.get("storage_path") or "").strip()
         if not storage_path:
             raise PNLValidationError(f"Import {import_id} has no staged source file")
-
-        profile = self.store.get_profile(profile_id)
-        file_bytes = self._download_source_file(storage_path)
-        prepared = self._prepare_import(
-            profile_id=profile_id,
-            marketplace_code=str(profile.get("marketplace_code", "US")),
-            file_bytes=file_bytes,
-        )
+        try:
+            self._update_import_progress(
+                import_id,
+                stage="loading_source",
+                detail="Worker claimed the import and is loading the staged file",
+            )
+            profile = self.store.get_profile(profile_id)
+            file_bytes = self._download_source_file(storage_path)
+            self._update_import_progress(
+                import_id,
+                stage="preparing",
+                detail="Parsing the staged transaction export",
+            )
+            prepared = self._prepare_import(
+                profile_id=profile_id,
+                marketplace_code=str(profile.get("marketplace_code", "US")),
+                file_bytes=file_bytes,
+            )
+        except Exception as exc:
+            self.store.update_import_status(import_id, "error", error_message=str(exc))
+            self._update_import_progress(
+                import_id,
+                stage="error",
+                detail=str(exc),
+                last_error=str(exc),
+            )
+            raise
 
         return self._run_import(
             import_id=import_id,
@@ -252,13 +283,47 @@ class TransactionImportService:
                 self.store.update_import_status(import_id, "running")
 
             month_summaries: list[dict[str, Any]] = []
+            raw_rows_processed = 0
+            ledger_rows_processed = 0
+            total_months = len(prepared.sorted_months)
+
             for entry_month in prepared.sorted_months:
+                month_slice = prepared.month_slices[entry_month]
+                self._update_import_progress(
+                    import_id,
+                    prepared=prepared,
+                    stage="processing_month",
+                    detail=f"Processing {entry_month.isoformat()}",
+                    months_completed=len(month_summaries),
+                    current_month=entry_month.isoformat(),
+                    current_month_raw_rows=len(month_slice.raw_rows),
+                    current_month_ledger_rows=len(month_slice.ledger_entries),
+                    raw_rows_processed=raw_rows_processed,
+                    ledger_rows_processed=ledger_rows_processed,
+                    months_total=total_months,
+                )
                 month_summaries.append(
                     self._process_month_slice(
                         import_id=import_id,
                         profile_id=profile_id,
-                        month_slice=prepared.month_slices[entry_month],
+                        month_slice=month_slice,
                     )
+                )
+                raw_rows_processed += len(month_slice.raw_rows)
+                ledger_rows_processed += len(month_slice.ledger_entries)
+                self._update_import_progress(
+                    import_id,
+                    prepared=prepared,
+                    stage="processing_month",
+                    detail=f"Completed {entry_month.isoformat()}",
+                    months_completed=len(month_summaries),
+                    last_completed_month=entry_month.isoformat(),
+                    current_month=None,
+                    current_month_raw_rows=None,
+                    current_month_ledger_rows=None,
+                    raw_rows_processed=raw_rows_processed,
+                    ledger_rows_processed=ledger_rows_processed,
+                    months_total=total_months,
                 )
 
             if superseded_import_id:
@@ -268,6 +333,23 @@ class TransactionImportService:
                 )
 
             self.store.update_import_status(import_id, "success")
+            self._update_import_progress(
+                import_id,
+                prepared=prepared,
+                stage="success",
+                detail="Import finished successfully",
+                months_completed=total_months,
+                months_total=total_months,
+                raw_rows_processed=len(prepared.raw_rows),
+                ledger_rows_processed=sum(
+                    len(prepared.month_slices[entry_month].ledger_entries)
+                    for entry_month in prepared.sorted_months
+                ),
+                current_month=None,
+                current_month_raw_rows=None,
+                current_month_ledger_rows=None,
+                completed_at=_utc_now_iso(),
+            )
             final_import = self.store.get_import(import_id)
 
             return {
@@ -277,6 +359,15 @@ class TransactionImportService:
             }
         except Exception as exc:
             self.store.update_import_status(import_id, "error", error_message=str(exc))
+            self._update_import_progress(
+                import_id,
+                prepared=prepared,
+                stage="error",
+                detail=str(exc),
+                months_completed=len(month_summaries),
+                months_total=len(prepared.sorted_months),
+                last_error=str(exc),
+            )
             raise
 
     def _build_import_summary(self, prepared: PreparedImport) -> dict[str, Any]:
@@ -506,7 +597,62 @@ class TransactionImportService:
             "Marked as error after a prior import attempt stopped progressing. Safe to retry."
         )
         self.store.update_import_status(import_id, "error", error_message=stale_message)
+        self._update_import_progress(
+            import_id,
+            stage="stale_error",
+            detail=stale_message,
+            last_error=stale_message,
+        )
         self.store.mark_pending_months_error(import_id)
+
+    def _build_progress_payload(
+        self,
+        *,
+        prepared: PreparedImport,
+        stage: str,
+        detail: str,
+        heartbeat_at: str | None = None,
+        **extra: Any,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "stage": stage,
+            "detail": detail,
+            "heartbeat_at": heartbeat_at or _utc_now_iso(),
+            "total_raw_rows": len(prepared.raw_rows),
+            "total_months": len(prepared.sorted_months),
+            "period_start": prepared.period_start.isoformat(),
+            "period_end": prepared.period_end.isoformat(),
+            "import_scope": prepared.import_scope,
+            "months_total": len(prepared.sorted_months),
+        }
+        payload.update(extra)
+        return payload
+
+    def _update_import_progress(
+        self,
+        import_id: str,
+        *,
+        prepared: PreparedImport | None = None,
+        stage: str,
+        detail: str,
+        **extra: Any,
+    ) -> None:
+        progress: dict[str, Any] = {
+            "stage": stage,
+            "detail": detail,
+            "heartbeat_at": _utc_now_iso(),
+        }
+        if prepared is not None:
+            progress = self._build_progress_payload(
+                prepared=prepared,
+                stage=stage,
+                detail=detail,
+                heartbeat_at=progress["heartbeat_at"],
+                **extra,
+            )
+        else:
+            progress.update(extra)
+        self.store.merge_import_raw_meta(import_id, {ASYNC_IMPORT_PROGRESS_KEY: progress})
 
     def _build_storage_path(self, profile_id: str, file_name: str, file_sha256: str) -> str:
         safe_name = re.sub(r"[^A-Za-z0-9._-]+", "-", file_name.strip() or "upload.csv").strip("-")
