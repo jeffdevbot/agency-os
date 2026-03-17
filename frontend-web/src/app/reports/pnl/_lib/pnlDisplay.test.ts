@@ -3,12 +3,12 @@ import { describe, expect, it } from "vitest";
 import { amountClass, formatAmount } from "./pnlDisplay";
 
 describe("formatAmount", () => {
-  it("formats negative currency values with parentheses", () => {
-    expect(formatAmount("-91.13", "currency")).toBe("($91.13)");
+  it("formats negative currency values as whole dollars with parentheses", () => {
+    expect(formatAmount("-91.13", "currency")).toBe("($91)");
   });
 
-  it("formats negative percentages with parentheses", () => {
-    expect(formatAmount("-12.3", "percent")).toBe("(12.3%)");
+  it("formats negative percentages as whole numbers with parentheses", () => {
+    expect(formatAmount("-12.3", "percent")).toBe("(12%)");
   });
 });
 

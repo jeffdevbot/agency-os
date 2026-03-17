@@ -37,15 +37,16 @@ export function formatAmount(value: string, format: PnlValueFormat = "currency")
   const absolute = Math.abs(n);
   if (format === "percent") {
     const formatted = `${absolute.toLocaleString("en-US", {
-      minimumFractionDigits: 1,
-      maximumFractionDigits: 1,
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
     })}%`;
     return n < 0 ? `(${formatted})` : formatted;
   }
   const formatted = absolute.toLocaleString("en-US", {
     style: "currency",
     currency: "USD",
-    minimumFractionDigits: 2,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
   });
   return n < 0 ? `(${formatted})` : formatted;
 }
