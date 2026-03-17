@@ -501,7 +501,6 @@ class TestHardDeleteRow:
                 _chain_table([]),      # delete
             ],
             "wbr_asin_row_map": [_chain_table([])],
-            "wbr_pacvue_campaign_map": [_chain_table([])],
         })
         svc = WBRProfileService(db)
         result = svc.hard_delete_row("r1")
@@ -523,19 +522,20 @@ class TestHardDeleteRow:
         db = _multi_table_db({
             "wbr_rows": [_chain_table([leaf])],
             "wbr_asin_row_map": [_chain_table([{"id": "m1"}])],
-            "wbr_pacvue_campaign_map": [],
         })
         svc = WBRProfileService(db)
         with pytest.raises(WBRValidationError, match="ASIN mappings"):
             svc.hard_delete_row("r1")
 
-    def test_rejects_permanent_delete_when_campaign_mapping_exists(self):
+    def test_allows_permanent_delete_when_campaign_mapping_exists(self):
         leaf = {"id": "r1", "row_kind": "leaf", "active": True}
         db = _multi_table_db({
-            "wbr_rows": [_chain_table([leaf])],
+            "wbr_rows": [
+                _chain_table([leaf]),  # _get_row
+                _chain_table([]),      # delete; campaign mappings cascade in db
+            ],
             "wbr_asin_row_map": [_chain_table([])],
-            "wbr_pacvue_campaign_map": [_chain_table([{"id": "m1"}])],
         })
         svc = WBRProfileService(db)
-        with pytest.raises(WBRValidationError, match="campaign mappings"):
-            svc.hard_delete_row("r1")
+        result = svc.hard_delete_row("r1")
+        assert result == leaf

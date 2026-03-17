@@ -347,17 +347,6 @@ class WBRProfileService:
         if asin_maps.data:
             raise WBRValidationError("Cannot permanently delete a row that still has active ASIN mappings")
 
-        pacvue_maps = (
-            self.db.table("wbr_pacvue_campaign_map")
-            .select("id")
-            .eq("row_id", row_id)
-            .eq("active", True)
-            .limit(1)
-            .execute()
-        )
-        if pacvue_maps.data:
-            raise WBRValidationError("Cannot permanently delete a row that still has active campaign mappings")
-
 
 # ------------------------------------------------------------------
 # Validation helpers
