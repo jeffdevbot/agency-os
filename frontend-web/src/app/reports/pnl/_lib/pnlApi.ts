@@ -67,6 +67,22 @@ export type PnlSkuCogs = {
   missing_cost: boolean;
 };
 
+export type PnlOtherExpenseType = {
+  key: string;
+  label: string;
+  enabled: boolean;
+};
+
+export type PnlOtherExpenseMonth = {
+  entry_month: string;
+  values: Record<string, string | null>;
+};
+
+export type PnlOtherExpenses = {
+  expense_types: PnlOtherExpenseType[];
+  months: PnlOtherExpenseMonth[];
+};
+
 export type PnlLineItem = {
   key: string;
   label: string;
@@ -315,6 +331,61 @@ export async function savePnlSkuCogs(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ entries }),
+    },
+  );
+  if (!response.ok) {
+    const detail = await parseErrorDetail(response);
+    throw new Error(detail);
+  }
+}
+
+export async function listPnlOtherExpenses(
+  token: string,
+  profileId: string,
+  startMonth: string,
+  endMonth: string,
+): Promise<PnlOtherExpenses> {
+  const params = new URLSearchParams({
+    start_month: startMonth,
+    end_month: endMonth,
+  });
+  const response = await fetch(
+    `${getBackendUrl()}/admin/pnl/profiles/${profileId}/other-expenses?${params.toString()}`,
+    {
+      method: "GET",
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  );
+  if (!response.ok) {
+    const detail = await parseErrorDetail(response);
+    throw new Error(detail);
+  }
+  const data = await response.json();
+  return {
+    expense_types: (data?.expense_types ?? []) as PnlOtherExpenseType[],
+    months: (data?.months ?? []) as PnlOtherExpenseMonth[],
+  };
+}
+
+export async function savePnlOtherExpenses(
+  token: string,
+  profileId: string,
+  payload: {
+    start_month: string;
+    end_month: string;
+    expense_types: Array<{ key: string; enabled: boolean }>;
+    months: Array<{ entry_month: string; values: Record<string, string | null> }>;
+  },
+): Promise<void> {
+  const response = await fetch(
+    `${getBackendUrl()}/admin/pnl/profiles/${profileId}/other-expenses`,
+    {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
     },
   );
   if (!response.ok) {

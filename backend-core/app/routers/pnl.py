@@ -54,6 +54,23 @@ class SaveSkuCogsRequest(BaseModel):
     entries: list[SaveSkuCogsEntry] = Field(default_factory=list)
 
 
+class SaveOtherExpenseTypeRequest(BaseModel):
+    key: str = Field(..., min_length=1)
+    enabled: bool = False
+
+
+class SaveOtherExpenseMonthRequest(BaseModel):
+    entry_month: str = Field(..., pattern=r"^\d{4}-\d{2}-01$")
+    values: dict[str, str | float | int | None] = Field(default_factory=dict)
+
+
+class SaveOtherExpensesRequest(BaseModel):
+    start_month: str = Field(..., pattern=r"^\d{4}-\d{2}-01$")
+    end_month: str = Field(..., pattern=r"^\d{4}-\d{2}-01$")
+    expense_types: list[SaveOtherExpenseTypeRequest] = Field(default_factory=list)
+    months: list[SaveOtherExpenseMonthRequest] = Field(default_factory=list)
+
+
 # ── Profile endpoints ────────────────────────────────────────────────
 
 
@@ -191,6 +208,49 @@ def save_cogs_skus(
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception:
         raise HTTPException(status_code=500, detail="Failed to save COGS SKUs")
+
+
+@router.get("/profiles/{profile_id}/other-expenses")
+def list_other_expenses(
+    profile_id: str,
+    start_month: str = Query(..., pattern=r"^\d{4}-\d{2}-01$"),
+    end_month: str = Query(..., pattern=r"^\d{4}-\d{2}-01$"),
+    user=Depends(require_admin_user),
+):
+    svc = _get_profile_service()
+    try:
+        payload = svc.list_other_expenses(profile_id, start_month, end_month)
+        return {"ok": True, **payload}
+    except PNLNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except PNLValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to list other expenses")
+
+
+@router.put("/profiles/{profile_id}/other-expenses")
+def save_other_expenses(
+    profile_id: str,
+    body: SaveOtherExpensesRequest,
+    user=Depends(require_admin_user),
+):
+    svc = _get_profile_service()
+    try:
+        svc.save_other_expenses(
+            profile_id,
+            body.start_month,
+            body.end_month,
+            [entry.model_dump() for entry in body.expense_types],
+            [entry.model_dump() for entry in body.months],
+        )
+        return {"ok": True}
+    except PNLNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except PNLValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to save other expenses")
 
 
 # ── Transaction upload endpoint ──────────────────────────────────────

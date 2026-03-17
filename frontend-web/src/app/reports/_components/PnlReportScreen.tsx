@@ -19,9 +19,11 @@ import {
   type PnlFilterMode,
 } from "../pnl/_lib/pnlApi";
 import { buildPnlImportProgressLines } from "../pnl/_lib/pnlImportProgress";
+import { usePnlOtherExpenses } from "../pnl/_lib/usePnlOtherExpenses";
 import { usePnlSkuCogs } from "../pnl/_lib/usePnlSkuCogs";
 import type { PnlDisplayMode } from "../pnl/_lib/pnlPresentation";
 import PnlCogsCard from "./PnlCogsCard";
+import PnlOtherExpensesCard from "./PnlOtherExpensesCard";
 import PnlProfileSetupCard from "./PnlProfileSetupCard";
 import PnlProvenanceCard from "./PnlProvenanceCard";
 import PnlReportHeader from "./PnlReportHeader";
@@ -78,6 +80,12 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
   const cogsStartMonth = months[0] ?? null;
   const cogsEndMonth = months.length > 0 ? months[months.length - 1] : null;
   const cogsState = usePnlSkuCogs(profileId, cogsStartMonth, cogsEndMonth, showSettings);
+  const otherExpensesState = usePnlOtherExpenses(
+    profileId,
+    cogsStartMonth,
+    cogsEndMonth,
+    showSettings,
+  );
   const processingLines = useMemo(
     () => buildPnlImportProgressLines(processingImport),
     [processingImport],
@@ -141,6 +149,7 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
           await Promise.all([
             provenanceState.loadActiveImports(),
             status === "success" ? cogsState.loadSkus() : Promise.resolve(),
+            status === "success" ? otherExpensesState.loadOtherExpenses() : Promise.resolve(),
           ]);
         }
       } catch (error) {
@@ -170,6 +179,7 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
     processingImportId,
     processingImportLabel,
     cogsState.loadSkus,
+    otherExpensesState.loadOtherExpenses,
     profileId,
     provenanceState.loadActiveImports,
     reportState.loadReport,
@@ -247,6 +257,7 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
           await Promise.all([
             provenanceState.loadActiveImports(),
             cogsState.loadSkus(),
+            otherExpensesState.loadOtherExpenses(),
           ]);
         }
       }
@@ -261,6 +272,14 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
     entries: Array<{ sku: string; unit_cost: string | null }>,
   ) => {
     await cogsState.saveSkus(entries);
+    await reportState.loadReport(true);
+  };
+
+  const handleSaveOtherExpenses = async (payload: {
+    expense_types: Array<{ key: string; enabled: boolean }>;
+    months: Array<{ entry_month: string; values: Record<string, string | null> }>;
+  }) => {
+    await otherExpensesState.saveOtherExpenses(payload);
     await reportState.loadReport(true);
   };
 
@@ -363,6 +382,15 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
               errorMessage={cogsState.errorMessage}
               onRetry={() => void cogsState.loadSkus()}
               onSave={handleSaveCogs}
+            />
+            <PnlOtherExpensesCard
+              expenseTypes={otherExpensesState.otherExpenses.expense_types}
+              months={otherExpensesState.otherExpenses.months}
+              loading={otherExpensesState.loading}
+              saving={otherExpensesState.saving}
+              errorMessage={otherExpensesState.errorMessage}
+              onRetry={() => void otherExpensesState.loadOtherExpenses()}
+              onSave={handleSaveOtherExpenses}
             />
             <PnlProvenanceCard
               monthsInView={months}

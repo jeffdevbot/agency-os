@@ -14,6 +14,7 @@ from typing import Any
 
 from supabase import Client
 
+from .manual_expenses import MANUAL_EXPENSE_TYPES
 from .profiles import PNLNotFoundError, PNLValidationError
 
 # ── Report line-item definitions ─────────────────────────────────────
@@ -152,11 +153,16 @@ class PNLReportService:
         if not month_keys:
             return self._empty_report(profile, month_keys)
 
-        bucket_totals, cogs_summary, unmapped_totals, active_months = await asyncio.gather(
+        bucket_totals, cogs_summary, unmapped_totals, active_months, manual_expense_data = await asyncio.gather(
             asyncio.to_thread(self._load_ledger_totals, profile_id, period_start, period_end),
             asyncio.to_thread(self._load_cogs_summary, profile_id, period_start, period_end),
             asyncio.to_thread(self._load_unmapped_totals, profile_id, period_start, period_end),
             asyncio.to_thread(self._load_active_months, profile_id, period_start, period_end),
+            asyncio.to_thread(self._load_manual_expense_data, profile_id, period_start, period_end),
+        )
+        bucket_totals = self._merge_bucket_totals(
+            bucket_totals,
+            manual_expense_data["month_totals"],
         )
         cogs_totals = cogs_summary["month_totals"]
         missing_cogs = cogs_summary["missing_skus"]
@@ -212,9 +218,42 @@ class PNLReportService:
         # Expenses section
         for key, label, cat in EXPENSE_BUCKETS:
             line_items.append(self._bucket_line(key, label, cat, month_keys, bucket_totals))
+            if key == "fba_fees":
+                for expense_type in self._enabled_manual_expense_types(
+                    manual_expense_data["enabled_by_key"],
+                    placement="after_fba_fees",
+                ):
+                    line_items.append(
+                        self._bucket_line(
+                            expense_type["key"],
+                            expense_type["label"],
+                            expense_type["category"],
+                            month_keys,
+                            bucket_totals,
+                        )
+                    )
+        for expense_type in self._enabled_manual_expense_types(
+            manual_expense_data["enabled_by_key"],
+            placement="end",
+        ):
+            line_items.append(
+                self._bucket_line(
+                    expense_type["key"],
+                    expense_type["label"],
+                    expense_type["category"],
+                    month_keys,
+                    bucket_totals,
+                )
+            )
+        expense_source_keys = [b[0] for b in EXPENSE_BUCKETS] + [
+            expense_type["key"]
+            for expense_type in self._enabled_manual_expense_types(
+                manual_expense_data["enabled_by_key"],
+            )
+        ]
         line_items.append(self._derived_line(
             "total_expenses", "Total Expenses", "summary",
-            month_keys, [b[0] for b in EXPENSE_BUCKETS], bucket_totals,
+            month_keys, expense_source_keys, bucket_totals,
         ))
 
         # Net Earnings = Gross Profit + Total Expenses (expenses are negative)
@@ -491,6 +530,81 @@ class PNLReportService:
         )
         rows = response.data if isinstance(response.data, list) else []
         return {row["entry_month"] for row in rows}
+
+    def _load_manual_expense_data(
+        self, profile_id: str, start: date, end: date
+    ) -> dict[str, Any]:
+        settings_resp = (
+            self.db.table("monthly_pnl_manual_expense_settings")
+            .select("expense_key, is_enabled")
+            .eq("profile_id", profile_id)
+            .execute()
+        )
+        settings_rows = settings_resp.data if isinstance(settings_resp.data, list) else []
+        enabled_by_key = {
+            expense_type["key"]: False for expense_type in MANUAL_EXPENSE_TYPES
+        }
+        for row in settings_rows:
+            key = str(row.get("expense_key") or "").strip()
+            if key in enabled_by_key:
+                enabled_by_key[key] = bool(row.get("is_enabled"))
+
+        if not any(enabled_by_key.values()):
+            return {"enabled_by_key": enabled_by_key, "month_totals": {}}
+
+        active_months = self._load_active_months(profile_id, start, end)
+        if not active_months:
+            return {"enabled_by_key": enabled_by_key, "month_totals": {}}
+
+        entries_resp = (
+            self.db.table("monthly_pnl_manual_expenses")
+            .select("entry_month, expense_key, amount")
+            .eq("profile_id", profile_id)
+            .gte("entry_month", start.isoformat())
+            .lte("entry_month", end.isoformat())
+            .execute()
+        )
+        entry_rows = entries_resp.data if isinstance(entries_resp.data, list) else []
+        month_totals: dict[str, dict[str, Decimal]] = {}
+        for row in entry_rows:
+            key = str(row.get("expense_key") or "").strip()
+            month = str(row.get("entry_month") or "").strip()
+            if key not in enabled_by_key or not enabled_by_key[key] or month not in active_months:
+                continue
+            amount = Decimal(str(row.get("amount") or "0"))
+            month_totals.setdefault(key, {})
+            month_totals[key][month] = month_totals[key].get(month, Decimal("0")) - amount
+
+        return {"enabled_by_key": enabled_by_key, "month_totals": month_totals}
+
+    def _merge_bucket_totals(
+        self,
+        bucket_totals: dict[str, dict[str, Decimal]],
+        extra_totals: dict[str, dict[str, Decimal]],
+    ) -> dict[str, dict[str, Decimal]]:
+        if not extra_totals:
+            return bucket_totals
+        merged = {
+            bucket: month_totals.copy() for bucket, month_totals in bucket_totals.items()
+        }
+        for bucket, month_totals in extra_totals.items():
+            target = merged.setdefault(bucket, {})
+            for month, amount in month_totals.items():
+                target[month] = target.get(month, Decimal("0")) + amount
+        return merged
+
+    def _enabled_manual_expense_types(
+        self,
+        enabled_by_key: dict[str, bool],
+        *,
+        placement: str | None = None,
+    ) -> list[dict[str, str]]:
+        return [
+            expense_type
+            for expense_type in MANUAL_EXPENSE_TYPES
+            if enabled_by_key.get(expense_type["key"], False)
+            and (placement is None or expense_type["placement"] == placement)
+        ]
 
     def _bucket_line(
         self,

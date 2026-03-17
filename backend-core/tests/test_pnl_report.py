@@ -220,9 +220,17 @@ FAKE_SKU_COGS = [
     {"sku": "SKU1", "unit_cost": "30.0000"},
 ]
 
+FAKE_MANUAL_EXPENSE_SETTINGS: list[dict] = []
+FAKE_MANUAL_EXPENSES: list[dict] = []
+
 
 class TestPNLReportService:
-    def _make_service(self):
+    def _make_service(
+        self,
+        *,
+        manual_settings: list[dict] | None = None,
+        manual_expenses: list[dict] | None = None,
+    ):
         profiles_table = _chain_table([FAKE_PROFILE])
         summary_table = _chain_table([
             {
@@ -235,6 +243,12 @@ class TestPNLReportService:
         ])
         sku_units_table = _chain_table(FAKE_SKU_UNITS)
         sku_cogs_table = _chain_table(FAKE_SKU_COGS)
+        manual_settings_table = _chain_table(
+            manual_settings if manual_settings is not None else FAKE_MANUAL_EXPENSE_SETTINGS
+        )
+        manual_expenses_table = _chain_table(
+            manual_expenses if manual_expenses is not None else FAKE_MANUAL_EXPENSES
+        )
 
         class ImportMonthsTable:
             def __init__(self):
@@ -287,6 +301,10 @@ class TestPNLReportService:
                 return sku_units_table
             elif name == "monthly_pnl_sku_cogs":
                 return sku_cogs_table
+            elif name == "monthly_pnl_manual_expense_settings":
+                return manual_settings_table
+            elif name == "monthly_pnl_manual_expenses":
+                return manual_expenses_table
             elif name == "monthly_pnl_import_months":
                 return import_months_table
             return _chain_table()
@@ -599,6 +617,52 @@ class TestPNLReportService:
         assert items["total_expenses"]["months"]["2026-01-01"] == "-52.00"
         # Jan net_earnings: gross_profit=62 + expenses=-52 → 10
         assert items["net_earnings"]["months"]["2026-01-01"] == "10.00"
+
+    def test_enabled_other_expenses_render_and_roll_into_totals(self):
+        svc = self._make_service(
+            manual_settings=[
+                {"expense_key": "fbm_fulfillment_fees", "is_enabled": True},
+                {"expense_key": "agency_fees", "is_enabled": True},
+            ],
+            manual_expenses=[
+                {"entry_month": "2026-01-01", "expense_key": "fbm_fulfillment_fees", "amount": "11.00"},
+                {"entry_month": "2026-02-01", "expense_key": "agency_fees", "amount": "7.50"},
+            ],
+        )
+        report = svc.build_report(
+            "p1", filter_mode="range", start_month="2026-01-01", end_month="2026-02-01"
+        )
+
+        items = {li["key"]: li for li in report["line_items"]}
+        keys = [li["key"] for li in report["line_items"]]
+
+        assert items["fbm_fulfillment_fees"]["months"]["2026-01-01"] == "-11.00"
+        assert items["agency_fees"]["months"]["2026-02-01"] == "-7.50"
+        assert items["total_expenses"]["months"]["2026-01-01"] == "-63.00"
+        assert items["total_expenses"]["months"]["2026-02-01"] == "-37.50"
+        assert items["net_earnings"]["months"]["2026-02-01"] == "162.50"
+        assert keys.index("fba_fees") < keys.index("fbm_fulfillment_fees") < keys.index("other_transaction_fees")
+        assert keys.index("agency_fees") < keys.index("total_expenses")
+
+    def test_disabled_other_expenses_do_not_render(self):
+        svc = self._make_service(
+            manual_settings=[
+                {"expense_key": "fbm_fulfillment_fees", "is_enabled": False},
+                {"expense_key": "agency_fees", "is_enabled": False},
+            ],
+            manual_expenses=[
+                {"entry_month": "2026-01-01", "expense_key": "fbm_fulfillment_fees", "amount": "11.00"},
+                {"entry_month": "2026-02-01", "expense_key": "agency_fees", "amount": "7.50"},
+            ],
+        )
+        report = svc.build_report(
+            "p1", filter_mode="range", start_month="2026-01-01", end_month="2026-02-01"
+        )
+
+        items = {li["key"]: li for li in report["line_items"]}
+        assert "fbm_fulfillment_fees" not in items
+        assert "agency_fees" not in items
+        assert items["total_expenses"]["months"]["2026-01-01"] == "-52.00"
 
     def test_fba_inventory_credit_not_in_expenses(self):
         """fba_inventory_credit moved to refunds section, should not appear as an expense."""

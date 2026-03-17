@@ -175,6 +175,80 @@ class TestProfileEndpoints:
         assert resp.status_code == 400
         assert "invalid cogs" in resp.json()["detail"]
 
+    def test_list_other_expenses(self, monkeypatch):
+        fake_svc = MagicMock()
+        fake_svc.list_other_expenses.return_value = {
+            "expense_types": [
+                {"key": "fbm_fulfillment_fees", "label": "FBM Fulfillment Fees", "enabled": True},
+                {"key": "agency_fees", "label": "Agency Fees", "enabled": False},
+            ],
+            "months": [
+                {
+                    "entry_month": "2026-01-01",
+                    "values": {
+                        "fbm_fulfillment_fees": "12.00",
+                        "agency_fees": None,
+                    },
+                }
+            ],
+        }
+        monkeypatch.setattr(pnl, "_get_profile_service", lambda: fake_svc)
+        app.dependency_overrides[pnl.require_admin_user] = _override_admin
+
+        try:
+            with TestClient(app) as client:
+                resp = client.get(
+                    "/admin/pnl/profiles/p1/other-expenses",
+                    params={"start_month": "2026-01-01", "end_month": "2026-02-01"},
+                )
+        finally:
+            app.dependency_overrides.pop(pnl.require_admin_user, None)
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is True
+        assert data["expense_types"][0]["key"] == "fbm_fulfillment_fees"
+        fake_svc.list_other_expenses.assert_called_once_with("p1", "2026-01-01", "2026-02-01")
+
+    def test_save_other_expenses(self, monkeypatch):
+        fake_svc = MagicMock()
+        monkeypatch.setattr(pnl, "_get_profile_service", lambda: fake_svc)
+        app.dependency_overrides[pnl.require_admin_user] = _override_admin
+
+        payload = {
+            "start_month": "2026-01-01",
+            "end_month": "2026-02-01",
+            "expense_types": [
+                {"key": "fbm_fulfillment_fees", "enabled": True},
+                {"key": "agency_fees", "enabled": False},
+            ],
+            "months": [
+                {
+                    "entry_month": "2026-01-01",
+                    "values": {
+                        "fbm_fulfillment_fees": "12.00",
+                        "agency_fees": None,
+                    },
+                }
+            ],
+        }
+
+        try:
+            with TestClient(app) as client:
+                resp = client.put("/admin/pnl/profiles/p1/other-expenses", json=payload)
+        finally:
+            app.dependency_overrides.pop(pnl.require_admin_user, None)
+
+        assert resp.status_code == 200
+        assert resp.json()["ok"] is True
+        fake_svc.save_other_expenses.assert_called_once_with(
+            "p1",
+            "2026-01-01",
+            "2026-02-01",
+            payload["expense_types"],
+            payload["months"],
+        )
+
 
 class TestTransactionUpload:
     def test_rejects_non_csv_file(self, monkeypatch):

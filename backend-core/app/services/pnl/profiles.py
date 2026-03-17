@@ -9,6 +9,8 @@ from typing import Any
 from postgrest.exceptions import APIError as PostgrestAPIError
 from supabase import Client
 
+from .manual_expenses import MANUAL_EXPENSE_KEYS, MANUAL_EXPENSE_TYPES
+
 
 class PNLNotFoundError(Exception):
     pass
@@ -56,6 +58,20 @@ def _normalize_sku(value: Any) -> str:
     cleaned = str(value or "").strip()
     if not cleaned:
         raise PNLValidationError("sku is required")
+    return cleaned
+
+
+def _normalize_entry_month(value: Any) -> str:
+    cleaned = str(value or "").strip()
+    if not re.fullmatch(r"\d{4}-\d{2}-01", cleaned):
+        raise PNLValidationError("entry_month must be YYYY-MM-01")
+    return cleaned
+
+
+def _normalize_manual_expense_key(value: Any) -> str:
+    cleaned = str(value or "").strip()
+    if cleaned not in MANUAL_EXPENSE_KEYS:
+        raise PNLValidationError(f"Unsupported manual expense key: {cleaned}")
     return cleaned
 
 
@@ -317,3 +333,220 @@ class PNLProfileService:
                 )
             else:
                 self.db.table("monthly_pnl_sku_cogs").insert(payload).execute()
+
+    def list_other_expenses(
+        self,
+        profile_id: str,
+        start_month: str,
+        end_month: str,
+    ) -> dict[str, Any]:
+        self.get_profile(profile_id)
+        if not re.fullmatch(r"\d{4}-\d{2}-01", start_month) or not re.fullmatch(r"\d{4}-\d{2}-01", end_month):
+            raise PNLValidationError("start_month and end_month must be YYYY-MM-01")
+
+        active_months_resp = (
+            self.db.table("monthly_pnl_import_months")
+            .select("entry_month")
+            .eq("profile_id", profile_id)
+            .eq("is_active", True)
+            .gte("entry_month", start_month)
+            .lte("entry_month", end_month)
+            .order("entry_month")
+            .execute()
+        )
+        active_month_rows = active_months_resp.data if isinstance(active_months_resp.data, list) else []
+        active_months = sorted({
+            str(row.get("entry_month") or "").strip()
+            for row in active_month_rows
+            if row.get("entry_month")
+        })
+
+        settings_resp = (
+            self.db.table("monthly_pnl_manual_expense_settings")
+            .select("expense_key, is_enabled")
+            .eq("profile_id", profile_id)
+            .execute()
+        )
+        settings_rows = settings_resp.data if isinstance(settings_resp.data, list) else []
+        enabled_by_key = {
+            str(row.get("expense_key") or "").strip(): bool(row.get("is_enabled"))
+            for row in settings_rows
+            if str(row.get("expense_key") or "").strip() in MANUAL_EXPENSE_KEYS
+        }
+
+        entries_resp = (
+            self.db.table("monthly_pnl_manual_expenses")
+            .select("entry_month, expense_key, amount")
+            .eq("profile_id", profile_id)
+            .gte("entry_month", start_month)
+            .lte("entry_month", end_month)
+            .execute()
+        )
+        entry_rows = entries_resp.data if isinstance(entries_resp.data, list) else []
+        amount_by_month_key: dict[tuple[str, str], str] = {}
+        for row in entry_rows:
+            month = str(row.get("entry_month") or "").strip()
+            key = str(row.get("expense_key") or "").strip()
+            if month not in active_months or key not in MANUAL_EXPENSE_KEYS:
+                continue
+            amount_by_month_key[(month, key)] = format(
+                Decimal(str(row.get("amount") or "0")).quantize(Decimal("0.01")),
+                "f",
+            )
+
+        return {
+            "expense_types": [
+                {
+                    "key": expense_type["key"],
+                    "label": expense_type["label"],
+                    "enabled": enabled_by_key.get(expense_type["key"], False),
+                }
+                for expense_type in MANUAL_EXPENSE_TYPES
+            ],
+            "months": [
+                {
+                    "entry_month": month,
+                    "values": {
+                        expense_type["key"]: amount_by_month_key.get((month, expense_type["key"]))
+                        for expense_type in MANUAL_EXPENSE_TYPES
+                    },
+                }
+                for month in active_months
+            ],
+        }
+
+    def save_other_expenses(
+        self,
+        profile_id: str,
+        start_month: str,
+        end_month: str,
+        expense_types: list[dict[str, Any]],
+        months: list[dict[str, Any]],
+    ) -> None:
+        self.get_profile(profile_id)
+        if not re.fullmatch(r"\d{4}-\d{2}-01", start_month) or not re.fullmatch(r"\d{4}-\d{2}-01", end_month):
+            raise PNLValidationError("start_month and end_month must be YYYY-MM-01")
+
+        active_months_resp = (
+            self.db.table("monthly_pnl_import_months")
+            .select("entry_month")
+            .eq("profile_id", profile_id)
+            .eq("is_active", True)
+            .gte("entry_month", start_month)
+            .lte("entry_month", end_month)
+            .order("entry_month")
+            .execute()
+        )
+        active_month_rows = active_months_resp.data if isinstance(active_months_resp.data, list) else []
+        active_months = {
+            str(row.get("entry_month") or "").strip()
+            for row in active_month_rows
+            if row.get("entry_month")
+        }
+
+        normalized_settings: dict[str, bool] = {}
+        for entry in expense_types:
+            key = _normalize_manual_expense_key(entry.get("key"))
+            normalized_settings[key] = bool(entry.get("enabled"))
+
+        existing_settings_resp = (
+            self.db.table("monthly_pnl_manual_expense_settings")
+            .select("id, expense_key")
+            .eq("profile_id", profile_id)
+            .execute()
+        )
+        existing_settings_rows = (
+            existing_settings_resp.data if isinstance(existing_settings_resp.data, list) else []
+        )
+        existing_settings_by_key = {
+            str(row.get("expense_key") or "").strip(): row
+            for row in existing_settings_rows
+            if str(row.get("expense_key") or "").strip() in MANUAL_EXPENSE_KEYS
+        }
+
+        for key, enabled in normalized_settings.items():
+            existing = existing_settings_by_key.get(key)
+            payload = {
+                "profile_id": profile_id,
+                "expense_key": key,
+                "is_enabled": enabled,
+            }
+            if existing:
+                (
+                    self.db.table("monthly_pnl_manual_expense_settings")
+                    .update({"is_enabled": enabled})
+                    .eq("id", existing["id"])
+                    .execute()
+                )
+            else:
+                self.db.table("monthly_pnl_manual_expense_settings").insert(payload).execute()
+
+        existing_entries_resp = (
+            self.db.table("monthly_pnl_manual_expenses")
+            .select("id, entry_month, expense_key")
+            .eq("profile_id", profile_id)
+            .gte("entry_month", start_month)
+            .lte("entry_month", end_month)
+            .execute()
+        )
+        existing_entry_rows = existing_entries_resp.data if isinstance(existing_entries_resp.data, list) else []
+        existing_entries_by_month_key = {
+            (
+                str(row.get("entry_month") or "").strip(),
+                str(row.get("expense_key") or "").strip(),
+            ): row
+            for row in existing_entry_rows
+            if str(row.get("expense_key") or "").strip() in MANUAL_EXPENSE_KEYS
+        }
+
+        for month_entry in months:
+            entry_month = _normalize_entry_month(month_entry.get("entry_month"))
+            if entry_month not in active_months:
+                raise PNLValidationError(
+                    f"entry_month {entry_month} is not an active imported month in the selected range"
+                )
+
+            values = month_entry.get("values")
+            if not isinstance(values, dict):
+                raise PNLValidationError(f"values are required for {entry_month}")
+
+            for raw_key, raw_amount in values.items():
+                key = _normalize_manual_expense_key(raw_key)
+                existing = existing_entries_by_month_key.get((entry_month, key))
+
+                if raw_amount in (None, ""):
+                    if existing:
+                        (
+                            self.db.table("monthly_pnl_manual_expenses")
+                            .delete()
+                            .eq("id", existing["id"])
+                            .execute()
+                        )
+                    continue
+
+                try:
+                    amount = Decimal(str(raw_amount)).quantize(Decimal("0.01"))
+                except (InvalidOperation, ValueError) as exc:
+                    raise PNLValidationError(
+                        f"Invalid amount for {key} in {entry_month}"
+                    ) from exc
+                if amount < 0:
+                    raise PNLValidationError(
+                        f"amount cannot be negative for {key} in {entry_month}"
+                    )
+
+                payload = {
+                    "profile_id": profile_id,
+                    "entry_month": entry_month,
+                    "expense_key": key,
+                    "amount": format(amount, "f"),
+                }
+                if existing:
+                    (
+                        self.db.table("monthly_pnl_manual_expenses")
+                        .update({"amount": payload["amount"]})
+                        .eq("id", existing["id"])
+                        .execute()
+                    )
+                else:
+                    self.db.table("monthly_pnl_manual_expenses").insert(payload).execute()
