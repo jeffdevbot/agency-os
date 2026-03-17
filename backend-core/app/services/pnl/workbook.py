@@ -69,11 +69,75 @@ def _sanitize_filename_part(value: str) -> str:
     return cleaned or "amazon-pnl"
 
 
+MARKETPLACE_CURRENCY_MAP = {
+    "US": "USD",
+    "CA": "CAD",
+    "MX": "MXN",
+    "BR": "BRL",
+    "UK": "GBP",
+    "GB": "GBP",
+    "DE": "EUR",
+    "FR": "EUR",
+    "IT": "EUR",
+    "ES": "EUR",
+    "NL": "EUR",
+    "BE": "EUR",
+    "IE": "EUR",
+    "SE": "SEK",
+    "PL": "PLN",
+    "TR": "TRY",
+    "AE": "AED",
+    "SA": "SAR",
+    "IN": "INR",
+    "SG": "SGD",
+    "AU": "AUD",
+    "JP": "JPY",
+    "EU": "EUR",
+}
+
+CURRENCY_DISPLAY_PREFIX = {
+    "USD": "$",
+    "CAD": "C$",
+    "AUD": "A$",
+    "SGD": "S$",
+    "MXN": "MX$",
+    "BRL": "R$",
+    "GBP": "£",
+    "EUR": "€",
+    "JPY": "¥",
+    "SEK": "kr",
+    "PLN": "zł",
+    "TRY": "₺",
+    "AED": "AED ",
+    "SAR": "SAR ",
+    "INR": "₹",
+}
+
+
+def _resolve_currency_code(marketplace_code: str, fallback_currency_code: str) -> str:
+    marketplace = marketplace_code.strip().upper()
+    if marketplace in MARKETPLACE_CURRENCY_MAP:
+        return MARKETPLACE_CURRENCY_MAP[marketplace]
+    fallback = fallback_currency_code.strip().upper()
+    return fallback or "USD"
+
+
+def _currency_num_format(currency_code: str) -> str:
+    prefix = CURRENCY_DISPLAY_PREFIX.get(currency_code.upper())
+    if prefix:
+        return f'"{prefix}"#,##0.00;("{prefix}"#,##0.00)'
+    return '#,##0.00;(#,##0.00)'
+
+
 def _month_label(month_iso: str) -> str:
     year = int(month_iso[0:4])
     month = int(month_iso[5:7])
     month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
     return f"{month_names[month - 1]} {year}"
+
+
+def _month_slug(month_iso: str) -> str:
+    return _month_label(month_iso).replace(" ", "").lower()
 
 
 def _to_decimal(value: Any) -> Decimal:
@@ -256,6 +320,14 @@ def _format_range_label(months: list[str]) -> str:
     return f"{_month_label(months[0])} - {_month_label(months[-1])}"
 
 
+def _filename_range_label(months: list[str]) -> str:
+    if not months:
+        return "custom-range"
+    if len(months) == 1:
+        return _month_slug(months[0])
+    return f"{_month_slug(months[0])}-{_month_slug(months[-1])}"
+
+
 def build_pnl_workbook(
     report: dict[str, Any],
     *,
@@ -268,12 +340,17 @@ def build_pnl_workbook(
     line_items = list(report.get("line_items", []))
     dollars_items = _build_presented_line_items(months, line_items, "dollars")
     percent_items = _build_presented_line_items(months, line_items, "percent")
+    resolved_currency_code = _resolve_currency_code(marketplace_code, currency_code)
 
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
     tmp_path = tmp.name
     tmp.close()
 
-    filename = f"{_sanitize_filename_part(profile_display_name)}-{_sanitize_filename_part(marketplace_code)}-pnl.xlsx"
+    filename = (
+        f"{_sanitize_filename_part(profile_display_name)}-"
+        f"{_sanitize_filename_part(marketplace_code)}-"
+        f"pnl-{_filename_range_label(months)}.xlsx"
+    )
 
     try:
         workbook = xlsxwriter.Workbook(tmp_path, {"nan_inf_to_errors": True})
@@ -318,12 +395,7 @@ def build_pnl_workbook(
             {"bold": True, "align": "left", "valign": "vcenter", "border": 1, "bg_color": "#0f172a", "font_color": "white"}
         )
 
-        currency_symbol = "$" if currency_code.upper() in {"USD", "CAD"} else ""
-        currency_num_format = (
-            f'{currency_symbol}#,##0.00;({currency_symbol}#,##0.00)'
-            if currency_symbol
-            else '#,##0.00;(#,##0.00)'
-        )
+        currency_num_format = _currency_num_format(resolved_currency_code)
         summary_currency_num_format = currency_num_format
         currency_fmt = workbook.add_format({"num_format": currency_num_format, "align": "right", "border": 1})
         summary_currency_fmt = workbook.add_format(
@@ -331,11 +403,7 @@ def build_pnl_workbook(
         )
         net_currency_fmt = workbook.add_format(
             {
-                "num_format": (
-                    f'{currency_symbol}#,##0.00;({currency_symbol}#,##0.00)'
-                    if currency_symbol
-                    else '#,##0.00;(#,##0.00)'
-                ),
+                "num_format": currency_num_format,
                 "align": "right",
                 "border": 1,
                 "bold": True,
@@ -356,7 +424,7 @@ def build_pnl_workbook(
             sheet_title="Amazon P&L - Dollars",
             profile_display_name=profile_display_name,
             marketplace_code=marketplace_code,
-            currency_code=currency_code,
+            currency_code=resolved_currency_code,
             range_label=_format_range_label(months),
             months=months,
             line_items=dollars_items,
@@ -380,7 +448,7 @@ def build_pnl_workbook(
             sheet_title="Amazon P&L - % of Revenue",
             profile_display_name=profile_display_name,
             marketplace_code=marketplace_code,
-            currency_code=currency_code,
+            currency_code=resolved_currency_code,
             range_label=_format_range_label(months),
             months=months,
             line_items=percent_items,

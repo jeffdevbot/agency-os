@@ -19,7 +19,7 @@ def test_build_pnl_workbook_generates_dollar_and_percent_tabs(tmp_path: Path):
         "profile": {
             "id": "p1",
             "client_id": "c1",
-            "marketplace_code": "US",
+            "marketplace_code": "CA",
             "currency_code": "USD",
         },
         "months": ["2026-01-01", "2026-02-01"],
@@ -100,14 +100,14 @@ def test_build_pnl_workbook_generates_dollar_and_percent_tabs(tmp_path: Path):
 
     workbook_path, filename = build_pnl_workbook(
         report,
-        profile_display_name="Whoosh",
-        marketplace_code="US",
+        profile_display_name="Distex",
+        marketplace_code="CA",
         currency_code="USD",
         show_totals=True,
     )
 
     try:
-        assert filename == "whoosh-us-pnl.xlsx"
+        assert filename == "distex-ca-pnl-jan2026-feb2026.xlsx"
         workbook = load_workbook(workbook_path, data_only=False)
         assert workbook.sheetnames == ["Dollars", "% of Revenue"]
 
@@ -115,7 +115,7 @@ def test_build_pnl_workbook_generates_dollar_and_percent_tabs(tmp_path: Path):
         percent_sheet = workbook["% of Revenue"]
 
         assert dollars_sheet.cell(row=3, column=3).value == "Currency"
-        assert dollars_sheet.cell(row=3, column=4).value == "USD"
+        assert dollars_sheet.cell(row=3, column=4).value == "CAD"
         assert dollars_sheet.cell(row=5, column=4).value == "Total"
 
         cogs_row = _find_row(dollars_sheet, "Cost of Goods Sold")
@@ -135,9 +135,15 @@ def test_build_pnl_workbook_generates_dollar_and_percent_tabs(tmp_path: Path):
 
         referral_fees_row = _find_row(percent_sheet, "Referral Fees")
         assert round(float(percent_sheet.cell(row=referral_fees_row, column=2).value), 4) == round(-15 / 90, 4)
+        assert "[Red]" not in percent_sheet.cell(row=referral_fees_row, column=2).number_format
+        assert "(" in percent_sheet.cell(row=referral_fees_row, column=2).number_format
 
         total_refunds_row = _find_row(percent_sheet, "Total Refunds & Adjustments")
         assert round(float(percent_sheet.cell(row=total_refunds_row, column=2).value), 4) == round(-10 / 100, 4)
+        total_refunds_dollars_row = _find_row(dollars_sheet, "Total Refunds & Adjustments")
+        assert "C$" in dollars_sheet.cell(row=total_refunds_dollars_row, column=2).number_format
+        assert "[Red]" not in dollars_sheet.cell(row=total_refunds_dollars_row, column=2).number_format
+        assert "(" in dollars_sheet.cell(row=total_refunds_dollars_row, column=2).number_format
 
         product_sales_row = _find_row(percent_sheet, "Product Sales")
         assert percent_sheet.cell(row=product_sales_row, column=2).value == 100
