@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from io import BytesIO
+from pathlib import Path
+import tempfile
 from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
@@ -248,6 +250,45 @@ class TestProfileEndpoints:
             payload["expense_types"],
             payload["months"],
         )
+
+    def test_export_pnl_workbook(self, monkeypatch):
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
+        temp_file.write(b"fake-xlsx")
+        temp_file.flush()
+        temp_file.close()
+
+        fake_svc = MagicMock()
+        fake_svc.build_export_async = MagicMock()
+
+        async def _build_export_async(*args, **kwargs):
+            return temp_file.name, "whoosh-us-pnl.xlsx"
+
+        fake_svc.build_export_async.side_effect = _build_export_async
+        monkeypatch.setattr(pnl, "_get_workbook_export_service", lambda: fake_svc)
+        app.dependency_overrides[pnl.require_admin_user] = _override_admin
+
+        try:
+            with TestClient(app) as client:
+                resp = client.get(
+                    "/admin/pnl/profiles/p1/export.xlsx",
+                    params={
+                        "filter_mode": "range",
+                        "start_month": "2026-01-01",
+                        "end_month": "2026-02-01",
+                        "show_totals": "false",
+                    },
+                )
+        finally:
+            app.dependency_overrides.pop(pnl.require_admin_user, None)
+            Path(temp_file.name).unlink(missing_ok=True)
+
+        assert resp.status_code == 200
+        assert (
+            resp.headers["content-type"]
+            == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        assert "whoosh-us-pnl.xlsx" in resp.headers["content-disposition"]
+        assert fake_svc.build_export_async.call_count == 1
 
 
 class TestTransactionUpload:

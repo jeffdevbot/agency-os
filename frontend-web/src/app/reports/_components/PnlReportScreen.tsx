@@ -21,7 +21,9 @@ import {
 import { buildPnlImportProgressLines } from "../pnl/_lib/pnlImportProgress";
 import { usePnlOtherExpenses } from "../pnl/_lib/usePnlOtherExpenses";
 import { usePnlSkuCogs } from "../pnl/_lib/usePnlSkuCogs";
+import { defaultPnlCurrencyCode } from "../pnl/_lib/pnlProfileDefaults";
 import type { PnlDisplayMode } from "../pnl/_lib/pnlPresentation";
+import { usePnlWorkbookExport } from "../pnl/_lib/usePnlWorkbookExport";
 import PnlCogsCard from "./PnlCogsCard";
 import PnlOtherExpensesCard from "./PnlOtherExpensesCard";
 import PnlProfileSetupCard from "./PnlProfileSetupCard";
@@ -77,6 +79,7 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
     showSettings ? profileId : null,
     showSettings ? months : [],
   );
+  const workbookExport = usePnlWorkbookExport(profileId);
   const cogsStartMonth = months[0] ?? null;
   const cogsEndMonth = months.length > 0 ? months[months.length - 1] : null;
   const cogsState = usePnlSkuCogs(profileId, cogsStartMonth, cogsEndMonth, showSettings);
@@ -210,7 +213,7 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
       await createPnlProfile(session.access_token, {
         clientId: resolvedSummary.client.id,
         marketplaceCode: marketplaceCode.toUpperCase(),
-        currencyCode: "USD",
+        currencyCode: defaultPnlCurrencyCode(marketplaceCode),
       });
 
       await resolved.loadRoute();
@@ -283,6 +286,16 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
     await reportState.loadReport(true);
   };
 
+  const handleExportWorkbook = async () => {
+    if (!profileId) return;
+    await workbookExport.downloadWorkbook({
+      filterMode,
+      startMonth: filterMode === "range" ? rangeStart : undefined,
+      endMonth: filterMode === "range" ? rangeEnd : undefined,
+      showTotals,
+    });
+  };
+
   if (resolved.loading || (profileId !== null && reportState.loading)) {
     return (
       <main className="space-y-3">
@@ -320,12 +333,14 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
         settingsOpen={showSettings}
         displayMode={displayMode}
         showTotals={showTotals}
+        exportPending={workbookExport.exporting}
         onFilterModeChange={setFilterMode}
         onRangeStartChange={setRangeStart}
         onRangeEndChange={setRangeEnd}
         onToggleSettings={() => setShowSettings((value) => !value)}
         onDisplayModeChange={setDisplayMode}
         onToggleTotals={() => setShowTotals((value) => !value)}
+        onExport={() => void handleExportWorkbook()}
       />
 
       {!profile ? (
@@ -349,6 +364,14 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
               {line}
             </p>
           ))}
+        </div>
+      ) : null}
+
+      {workbookExport.errorMessage ? (
+        <div className="rounded-3xl bg-white/95 p-5 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur">
+          <p className="rounded-xl border border-[#f87171]/40 bg-[#fee2e2] px-4 py-3 text-sm text-[#991b1b]">
+            {workbookExport.errorMessage}
+          </p>
         </div>
       ) : null}
 

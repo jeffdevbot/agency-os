@@ -14,12 +14,14 @@ type Props = {
   settingsOpen: boolean;
   displayMode: PnlDisplayMode;
   showTotals: boolean;
+  exportPending: boolean;
   onFilterModeChange: (value: PnlFilterMode) => void;
   onRangeStartChange: (value: string) => void;
   onRangeEndChange: (value: string) => void;
   onToggleSettings: () => void;
   onDisplayModeChange: (value: PnlDisplayMode) => void;
   onToggleTotals: () => void;
+  onExport: () => void;
 };
 
 export default function PnlReportHeader({
@@ -32,12 +34,14 @@ export default function PnlReportHeader({
   settingsOpen,
   displayMode,
   showTotals,
+  exportPending,
   onFilterModeChange,
   onRangeStartChange,
   onRangeEndChange,
   onToggleSettings,
   onDisplayModeChange,
   onToggleTotals,
+  onExport,
 }: Props) {
   return (
     <div className="relative z-20 rounded-3xl bg-white/95 p-5 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur md:p-6">
@@ -105,6 +109,14 @@ export default function PnlReportHeader({
                   % of Revenue
                 </button>
               </div>
+              <button
+                type="button"
+                onClick={onExport}
+                disabled={exportPending}
+                className="rounded-full border border-[#dbe4f0] bg-white px-3 py-1.5 text-sm font-semibold text-[#0a6fd6] transition hover:border-[#94a3b8] hover:text-[#0f172a] disabled:cursor-not-allowed disabled:text-[#94a3b8]"
+              >
+                {exportPending ? "Exporting..." : "Export to Excel"}
+              </button>
               <button
                 type="button"
                 onClick={onToggleTotals}

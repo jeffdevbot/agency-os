@@ -107,6 +107,11 @@ export type PnlReport = {
 
 export type PnlFilterMode = "ytd" | "last_3" | "last_6" | "last_12" | "last_year" | "range";
 
+export type ExportPnlWorkbookResult = {
+  blob: Blob;
+  filename: string;
+};
+
 // ── Helpers ──────────────────────────────────────────────────────────
 
 const getBackendUrl = (): string => {
@@ -124,6 +129,21 @@ const parseErrorDetail = async (response: Response): Promise<string> => {
   } catch {
     return response.statusText || `HTTP ${response.status}`;
   }
+};
+
+const parseAttachmentFilename = (response: Response, fallback: string): string => {
+  const disposition = response.headers.get("content-disposition") || "";
+  const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1]);
+    } catch {
+      return utf8Match[1];
+    }
+  }
+
+  const basicMatch = disposition.match(/filename="?([^"]+)"?/i);
+  return basicMatch?.[1] || fallback;
 };
 
 // ── API calls ────────────────────────────────────────────────────────
@@ -266,6 +286,41 @@ export async function getPnlReport(
     months: (data.months ?? []) as string[],
     line_items: (data.line_items ?? []) as PnlLineItem[],
     warnings: (data.warnings ?? []) as PnlWarning[],
+  };
+}
+
+export async function exportPnlWorkbook(
+  token: string,
+  profileId: string,
+  options?: {
+    filterMode?: PnlFilterMode;
+    startMonth?: string;
+    endMonth?: string;
+    showTotals?: boolean;
+  },
+): Promise<ExportPnlWorkbookResult> {
+  const params = new URLSearchParams({
+    filter_mode: options?.filterMode ?? "ytd",
+    show_totals: String(options?.showTotals ?? true),
+  });
+  if (options?.startMonth) params.set("start_month", options.startMonth);
+  if (options?.endMonth) params.set("end_month", options.endMonth);
+
+  const response = await fetch(
+    `${getBackendUrl()}/admin/pnl/profiles/${profileId}/export.xlsx?${params.toString()}`,
+    {
+      method: "GET",
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  );
+  if (!response.ok) {
+    const detail = await parseErrorDetail(response);
+    throw new Error(detail);
+  }
+
+  return {
+    blob: await response.blob(),
+    filename: parseAttachmentFilename(response, "amazon-pnl.xlsx"),
   };
 }
 

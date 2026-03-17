@@ -6,6 +6,7 @@ import os
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from ..auth import require_admin_user, _get_supabase_admin_client
@@ -17,6 +18,7 @@ from ..services.pnl.profiles import (
 )
 from ..services.pnl.report import PNLReportService
 from ..services.pnl.transaction_import import TransactionImportService
+from ..services.pnl.workbook import PNLWorkbookExportService
 
 router = APIRouter(prefix="/admin/pnl", tags=["pnl-admin"])
 
@@ -33,6 +35,10 @@ def _get_import_service() -> TransactionImportService:
 
 def _get_report_service() -> PNLReportService:
     return PNLReportService(_get_supabase_admin_client())
+
+
+def _get_workbook_export_service() -> PNLWorkbookExportService:
+    return PNLWorkbookExportService(_get_supabase_admin_client())
 
 
 # ── Request / response models ────────────────────────────────────────
@@ -338,3 +344,34 @@ async def get_pnl_report(
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception:
         raise HTTPException(status_code=500, detail="Failed to build P&L report")
+
+
+@router.get("/profiles/{profile_id}/export.xlsx")
+async def export_pnl_workbook(
+    profile_id: str,
+    filter_mode: str = Query("ytd", pattern="^(ytd|last_3|last_6|last_12|last_year|range)$"),
+    start_month: str | None = Query(None),
+    end_month: str | None = Query(None),
+    show_totals: bool = Query(True),
+    user=Depends(require_admin_user),
+):
+    svc = _get_workbook_export_service()
+    try:
+        workbook_path, filename = await svc.build_export_async(
+            profile_id,
+            filter_mode=filter_mode,
+            start_month=start_month,
+            end_month=end_month,
+            show_totals=show_totals,
+        )
+        return FileResponse(
+            workbook_path,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            filename=filename,
+        )
+    except PNLNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except PNLValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to export P&L workbook")
