@@ -2,22 +2,24 @@
 
 ## Snapshot
 
-- Last verified (UTC): `2026-03-16 17:02:54Z`
+- Last verified (UTC): `2026-03-17 15:15:41Z`
 - Source: live Supabase introspection via MCP (`supabase.list_tables` + `supabase.execute_sql`)
 - Schema: `public`
-- Relations: `67` total (`66` tables, `1` view, `0` materialized views)
-- Columns: `784`
-- Primary key entries: `73`
-- Foreign key entries: `116`
-- Indexes: `273`
-- RLS policies: `117`
-- Functions: `134`
+- Relations: `70` total (`69` tables, `1` view, `0` materialized views)
+- Columns: `813`
+- Primary key entries: `76`
+- Foreign key entries: `124`
+- Indexes: `282`
+- RLS policies: `123`
+- Functions: `135`
 
 ## Scope Note
 
 This file is the current live schema inventory for the `public` schema.
 
-The previous generator path currently produces unreliable output in this environment because the local `codex` CLI panics during MCP-backed introspection. This file was refreshed directly from Supabase MCP instead.
+The repo includes `scripts/db/generate-schema-master.sh`, but this workspace is
+not currently linked for `supabase db dump --linked`, so this file was
+refreshed directly from live Supabase MCP instead.
 
 ## Relations Overview
 
@@ -46,12 +48,15 @@ The previous generator path currently produces unreliable output in this environ
 | `public.debrief_extracted_tasks` | `table` | `yes` |
 | `public.debrief_meeting_notes` | `table` | `yes` |
 | `public.monthly_pnl_cogs_monthly` | `table` | `yes` |
+| `public.monthly_pnl_import_month_bucket_totals` | `table` | `yes` |
+| `public.monthly_pnl_import_month_sku_units` | `table` | `yes` |
 | `public.monthly_pnl_import_months` | `table` | `yes` |
 | `public.monthly_pnl_imports` | `table` | `yes` |
 | `public.monthly_pnl_ledger_entries` | `table` | `yes` |
 | `public.monthly_pnl_mapping_rules` | `table` | `yes` |
 | `public.monthly_pnl_profiles` | `table` | `yes` |
 | `public.monthly_pnl_raw_rows` | `table` | `yes` |
+| `public.monthly_pnl_sku_cogs` | `table` | `yes` |
 | `public.ops_chat_sessions` | `table` | `yes` |
 | `public.playbook_slack_sessions` | `table` | `yes` |
 | `public.playbook_sops` | `table` | `yes` |
@@ -175,7 +180,10 @@ The previous generator path currently produces unreliable output in this environ
 - `monthly_pnl_raw_rows`
 - `monthly_pnl_ledger_entries`
 - `monthly_pnl_mapping_rules`
-- `monthly_pnl_cogs_monthly`
+- `monthly_pnl_import_month_bucket_totals`
+- `monthly_pnl_import_month_sku_units`
+- `monthly_pnl_sku_cogs`
+- `monthly_pnl_cogs_monthly` (legacy / empty retained table)
 
 ## Key Reporting Tables
 
@@ -328,10 +336,69 @@ The previous generator path currently produces unreliable output in this environ
   - `created_at timestamptz`
   - `updated_at timestamptz`
 
+### `public.monthly_pnl_import_month_bucket_totals`
+
+- RLS enabled: `yes`
+- Primary key: `id`
+- Key foreign keys:
+  - `profile_id -> monthly_pnl_profiles.id`
+  - `import_id -> monthly_pnl_imports.id`
+  - `import_month_id -> monthly_pnl_import_months.id`
+- Columns:
+  - `id uuid`
+  - `profile_id uuid`
+  - `import_id uuid`
+  - `import_month_id uuid`
+  - `entry_month date`
+  - `ledger_bucket text`
+  - `amount numeric default 0`
+  - `created_at timestamptz`
+  - `updated_at timestamptz`
+
+### `public.monthly_pnl_import_month_sku_units`
+
+- RLS enabled: `yes`
+- Primary key: `id`
+- Key foreign keys:
+  - `import_id -> monthly_pnl_imports.id`
+  - `import_month_id -> monthly_pnl_import_months.id`
+  - `profile_id -> monthly_pnl_profiles.id`
+- Columns:
+  - `id uuid`
+  - `import_id uuid`
+  - `import_month_id uuid`
+  - `profile_id uuid`
+  - `entry_month date`
+  - `sku text`
+  - `net_units int4`
+  - `order_row_count int4 default 0`
+  - `refund_row_count int4 default 0`
+  - `created_at timestamptz`
+  - `updated_at timestamptz`
+
+### `public.monthly_pnl_sku_cogs`
+
+- RLS enabled: `yes`
+- Primary key: `id`
+- Key foreign keys:
+  - `profile_id -> monthly_pnl_profiles.id`
+- Columns:
+  - `id uuid`
+  - `profile_id uuid`
+  - `sku text`
+  - `asin text nullable`
+  - `unit_cost numeric`
+  - `currency_code text default 'USD'`
+  - `notes text nullable`
+  - `created_at timestamptz`
+  - `updated_at timestamptz`
+
 ### `public.monthly_pnl_cogs_monthly`
 
 - RLS enabled: `yes`
 - Primary key: `id`
+- Current status: `legacy / empty retained table` (live SKU-based COGS now uses
+  `monthly_pnl_import_month_sku_units` + `monthly_pnl_sku_cogs`)
 - Key foreign keys:
   - `profile_id -> monthly_pnl_profiles.id`
   - `source_import_id -> monthly_pnl_imports.id`

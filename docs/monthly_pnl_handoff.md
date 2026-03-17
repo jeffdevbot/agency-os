@@ -1,15 +1,15 @@
 # Monthly P&L Handoff
 
-_Last updated: 2026-03-16 (ET)_
+_Last updated: 2026-03-17 (ET)_
 
-This is the current restart point for Monthly P&L after the December/November
-validation work, the `/reports` UX separation cleanup, and the first backfill
-push into earlier 2025 months.
+This is the current restart point for Monthly P&L after the US v1 validation
+push, the Jan-Dec 2025 Whoosh US backfill, the SKU-based COGS rollout, and the
+latest WBR hardening work.
 
 ## Current reality
 
-1. December 2025 validation is complete on the validation profile and should
-   not be casually replaced.
+1. Whoosh US Amazon P&L is now validated across all of `2025-01-01` through
+   `2025-12-01` on the validation/backfill profile.
 2. Validation/backfill profile:
    - `c8e854cf-b989-4e3f-8cf4-58a43507c67a`
 3. Active validated December import:
@@ -26,59 +26,74 @@ push into earlier 2025 months.
 6. When no COGS exists in the visible months, the UI now uses
    `Contribution Profit` and `Contribution Margin (%)` instead of showing the
    old missing-COGS warning.
-7. Supabase has been upgraded from Free to Pro, but Monthly P&L is still slow
-   enough that query-shape and request-lifecycle problems remain more important
-   than pricing-tier assumptions.
-8. On 2026-03-16, the real wide-range report bottleneck was identified live:
+7. On 2026-03-16, the real wide-range report bottleneck was identified live:
    a later migration had overwritten the faster `active_months` RPC with an
    older `EXISTS` version, so the report path still scanned the raw ledger.
-9. On 2026-03-16, live migration
+8. On 2026-03-16, live migration
    `20260316213000_add_monthly_pnl_import_month_bucket_totals.sql` was applied.
    It backfilled `monthly_pnl_import_month_bucket_totals` and rewired
    `pnl_report_bucket_totals(...)` to read those precomputed month totals.
-10. On the validation profile, the exact wide range
+9. On the validation profile, the exact wide range
     `2025-01-01` through `2026-02-01` now executes at about `4.5 ms` at the
     function boundary instead of roughly `7.3 s`.
-11. On 2026-03-16, live migration
+10. On 2026-03-16, live migration
     `20260316224500_claim_monthly_pnl_pending_imports.sql` was applied. It
     adds `pnl_claim_pending_imports(...)`, which atomically claims queued async
     imports with `FOR UPDATE SKIP LOCKED` and flips them from `pending` to
     `running` in one query.
-12. The backend report service now runs its independent totals/warnings reads
+11. The backend report service now runs its independent totals/warnings reads
     concurrently and no longer falls back to paginated raw-ledger aggregation.
     If both the summary table and RPC fail, the report now errors fast instead
     of silently degrading into a long scan.
-13. The frontend upload flow now keeps queued imports in a visible
+12. The frontend upload flow now keeps queued imports in a visible
     "processing in background" state and polls import status every `5` seconds
     until the import leaves `pending` / `running`, then refreshes the report.
-14. On 2026-03-16, live migration
+13. On 2026-03-16, live migration
     `20260316232000_cleanup_validation_profile_stranded_monthly_pnl_state.sql`
     deactivated the orphaned Jan/Apr/May 2025 active slices on the validation
     profile and marked the stranded retry import
     `0fe50885-fce4-48ec-afa6-a9dce5cef716` as `error`.
-15. On 2026-03-16, inspection of the real `nov-2025.csv` export confirmed the
+14. On 2026-03-16, inspection of the real `nov-2025.csv` export confirmed the
     Amazon transaction file includes a native `quantity` column and real
     multi-unit rows. Refund rows also include quantity.
-16. The earlier month-total COGS entry experiment is not the right workflow
+15. The earlier month-total COGS entry experiment is not the right workflow
     for this product and should not be continued. The correct v2 direction is:
     fixed unit cost per SKU, with Monthly P&L COGS calculated from sold units
     in the transaction feed.
-17. Repo migration
-    `20260317001000_add_monthly_pnl_sku_cogs_and_unit_summaries.sql` now exists
-    to create:
-    - `monthly_pnl_import_month_sku_units`
-    - `monthly_pnl_sku_cogs`
-    It also backfills sold-unit summaries from existing raw transaction rows.
-18. Current code now parses `quantity` during transaction import, writes
+16. Current code now parses `quantity` during transaction import, writes
     per-import-month SKU unit summaries, exposes SKU-level COGS settings
     endpoints/UI, and computes report COGS as `net units sold * fixed SKU
     unit cost`.
-19. This SKU-level COGS path is not live until the new migration is applied and
-    the updated backend/frontend are deployed.
+17. On 2026-03-17, migration
+    `20260317001000_add_monthly_pnl_sku_cogs_and_unit_summaries.sql` was
+    applied live, and the SKU-based COGS path is now deployed.
+18. The user manually entered several SKU costs on the validation profile and
+    confirmed that COGS now appears correctly in the Amazon P&L.
+19. The Amazon P&L report now supports `Dollars` vs `% of Revenue`, a totals
+    toggle, import-history pagination, and a header-driven month-range picker.
+20. On 2026-03-17, CA transaction compatibility work landed in code:
+    - parser support for CA `a.m./p.m.` timestamps
+    - case-insensitive exact-field rule matching for CA label drift such as
+      `Cost of advertising` and `Amazon fees`
+    - explicit visibility for CA-only `Regulatory fee` and
+      `Tax on regulatory fee` amount columns via `unmapped`
+21. The focused CA importer coverage is green in the backend suite, and the
+    real `2026Feb1-2026Feb28CustomTransaction.csv` sample now parses locally as
+    a single `2026-02-01` month with `5,441` rows.
+22. On 2026-03-17, live migration
+    `20260317150607_seed_monthly_pnl_ca_mapping_rules.sql` was applied. It
+    seeded global `CA` `amazon_transaction_upload` mapping rules from the
+    shipped `US` rule pack without altering validated US imports.
+23. The next Monthly P&L product goal is no longer CA parser discovery. The
+    immediate next tranche is validating one real CA month end to end on a live
+    CA profile/report path.
 
 ## Validated and active state
 
 ### Validated months that should be preserved
+
+All of Whoosh US `2025-01-01` through `2025-12-01` is now validated, but the
+two months that should be treated as especially sensitive/locked are:
 
 1. `2025-11-01`
    - active import `0626222a-dc9c-4be5-a2ba-9de27b093494`
@@ -107,81 +122,49 @@ That means:
 
 ### Current active month coverage on the validation/backfill profile
 
-As of the latest live check after the cleanup migration, the active month
-slices are:
+The current known active/validated Whoosh US month coverage is:
 
-1. `2025-07-01`
+1. `2025-01-01`, `2025-02-01`, `2025-03-01`
+   - active import `61ddfe20-1fcb-4f0d-82aa-498e0493e352`
+   - source `jan-mar2025-whoosh-us.csv`
+   - import status `success`
+2. `2025-04-01`, `2025-05-01`, `2025-06-01`
+   - active import `43860acf-b705-4fee-85e4-fc8a6e0cab00`
+   - source `apr-june2025-whoosh-us.csv`
+   - import status `success`
+3. `2025-07-01`
    - active import `5aa0f621-e9d7-4129-9f11-5b6597910eaa`
    - import status `success`
-2. `2025-08-01`
+4. `2025-08-01`
    - active import `73eb37c5-6001-4699-82a1-e8de8f8cd861`
    - import status `success`
-3. `2025-09-01`
+5. `2025-09-01`
    - active import `276cde82-45ca-48a4-a8f0-f15e8b54e3e2`
    - import status `success`
-4. `2025-10-01`
+6. `2025-10-01`
    - active import `16468c3d-8a56-4eb2-8124-5e1b53a9168b`
    - import status `success`
-5. `2025-11-01`
+7. `2025-11-01`
    - active import `0626222a-dc9c-4be5-a2ba-9de27b093494`
+   - source `nov-2025.csv`
    - import status `success`
-6. `2025-12-01`
+8. `2025-12-01`
    - active import `c84cade9-6633-427f-b4b0-2371d0aca344`
+   - source `dec2025data-olderfile.csv`
    - import status `success`
 
-### Current inactive / partial months
+### Current missing / not-yet-loaded months
 
-1. `2025-02-01`
-   - import `65d24015-7602-49f2-8c7f-2b9f29bab56a`
-   - import month status `error`
-   - not active
-2. `2025-01-01`
-   - import `65d24015-7602-49f2-8c7f-2b9f29bab56a`
-   - import month status still `success`, but explicitly deactivated on
-     `2026-03-16` because it came from a failed multi-month import
-   - not active
-3. `2025-03-01`
-   - no imported month slice yet
-4. `2025-04-01`
-   - import `0fe50885-fce4-48ec-afa6-a9dce5cef716`
-   - import month status still `success`, but explicitly deactivated on
-     `2026-03-16` because the retry import was stranded
-   - not active
-5. `2025-05-01`
-   - older import `37b0af74-0e7f-411a-b6aa-1c82b5cd827a`
-   - import month status still `success`, but explicitly deactivated on
-     `2026-03-16` because the parent import is `error`
-   - newer retry import `0fe50885-fce4-48ec-afa6-a9dce5cef716`
-   - retry month status changed from `pending` to `error` on `2026-03-16`
-   - not active
-6. `2025-06-01`
-   - import `37b0af74-0e7f-411a-b6aa-1c82b5cd827a`
-   - import month status `error`
-   - not active
-7. `2026-01-01`
-   - older stale carryover slice exists on a historical December import
-   - not active
-8. `2026-02-01`
-   - no imported month slice yet
+1. `2026-01-01`
+   - no current validated Whoosh US month slice intended for the report
+2. `2026-02-01`
+   - no current validated Whoosh US month slice intended for the report
 
-## 2026-03-16 validation-profile cleanup
+## Historical note on the 2026-03-16 cleanup
 
-These live state changes were applied intentionally and should be preserved:
-
-1. Deactivated `2025-01-01` active slice from failed import
-   `65d24015-7602-49f2-8c7f-2b9f29bab56a`
-2. Deactivated `2025-04-01` active slice from stranded retry import
-   `0fe50885-fce4-48ec-afa6-a9dce5cef716`
-3. Deactivated `2025-05-01` active slice from failed import
-   `37b0af74-0e7f-411a-b6aa-1c82b5cd827a`
-4. Changed retry May slice on import `0fe50885-fce4-48ec-afa6-a9dce5cef716`
-   from `pending` to `error`
-5. Changed import `0fe50885-fce4-48ec-afa6-a9dce5cef716` from `running` to
-   `error`
-6. Confirmed validated November import `0626222a-dc9c-4be5-a2ba-9de27b093494`
-   remains active
-7. Confirmed validated December import `c84cade9-6633-427f-b4b0-2371d0aca344`
-   remains active
+Earlier stranded Jan/Apr/May 2025 partial-import state on the validation
+profile was cleaned up on 2026-03-16 and should stay cleaned up. That history
+matters only as provenance; it is no longer the active product problem.
 
 ## What was confirmed
 
@@ -225,32 +208,7 @@ Fixed behavior:
 1. coalesce same-bucket ledger rows per raw source row before insert
 2. preserve the correct summed amount while avoiding duplicate-key failures
 
-### 4. The main remaining import problem is request lifecycle, not CSV parsing
-
-Single-month uploads are working. Multi-month uploads are not reliable yet
-because the current transaction import runs synchronously inside one long HTTP
-request.
-
-Observed live behavior:
-
-1. `jan-mar2025-whoosh-us.csv` created import
-   `65d24015-7602-49f2-8c7f-2b9f29bab56a`, activated January, then stranded
-   February and never reached March before the request died
-2. `apr-june2025-whoosh-us.csv` created import
-   `37b0af74-0e7f-411a-b6aa-1c82b5cd827a`, activated April and May, errored on
-   June, and was later marked `error`
-3. a retry of that same file created import
-   `0fe50885-fce4-48ec-afa6-a9dce5cef716`, activated April again, left a new
-   May slice as `pending`, and is still showing `running`
-4. the frontend surfaced `Failed to fetch` during these longer uploads
-
-Inference:
-
-1. this is a crash-safety / timeout problem in the synchronous import flow
-2. the correct product fix is an async/background import path with status
-   polling, not continued reliance on long blocking requests
-
-### 5. The real report bottleneck was repeated aggregation from raw ledger rows
+### 4. The real report bottleneck was repeated aggregation from raw ledger rows
 
 The wide-range failure was not caused by the mixed early-2025 active/error
 month state alone.
@@ -276,58 +234,29 @@ Live state after the fix:
 3. this preserves the validated November/December active imports because it is
    a derived-summary change only
 
-## Current open blockers
+## Current open blocker
 
-### 1. The original wide-range failure root cause has been fixed at the DB layer
+### Live CA profile validation is the next real tranche
 
-The earlier failure for
-`filter_mode=range&start_month=2025-01-01&end_month=2026-02-01` is now
-understood.
+The parser/rule-compatibility tranche is now done in code and the CA mapping
+seed is live:
 
-1. the bad path was an outdated RPC definition, not just "Supabase tier"
-2. the live DB now uses precomputed import-month bucket totals instead
-3. current deployed backend code should benefit immediately because it already
-   calls `pnl_report_bucket_totals(...)`
-4. one remaining follow-up is to verify the full HTTP route in production after
-   this migration rather than only at the SQL function boundary
+1. wide-range performance is fixed
+2. async imports are live
+3. 2025 Whoosh US coverage is active Jan through Dec
+4. SKU-based COGS is live and has basic real-user validation
+5. CA parser compatibility and CA global rule seeding are now landed
 
-### 2. Monthly P&L page load still needs backend deploy + real UX verification
+The immediate next problem is live CA validation.
 
-The main DB bottleneck is now addressed, but the end-to-end page still needs to
-be rechecked after the backend/frontend deploy that uses the queued import flow
-and summary-table-first report code.
+Likely work required:
 
-Remaining likely contributors:
-
-1. currently deployed backend still contains the old heavy ledger fallback path
-   if the RPC ever errors
-2. the route still resolves client/profile before report fetch on first paint
-3. the live page has not yet been manually timed again after the new DB summary
-   table landed
-
-### 3. Multi-month upload support is not productized yet
-
-The user wants to backfill multiple months at a time. Right now that is not
-trustworthy enough to recommend.
-
-Code now prepared locally:
-
-1. upload endpoint now stages the source file to Supabase Storage and queues the
-   import instead of trying to finish inside one request
-2. new worker code processes queued async imports through `worker-sync`
-3. import processing now writes `monthly_pnl_import_month_bucket_totals` during
-   execution so future reports stay fast
-
-Still required:
-
-1. deploy `backend-core` and `worker-sync`
-2. verify the full authenticated `/admin/pnl/.../report` route in production
-   after deploy rather than only SQL-level timings
-3. manually exercise the queued-upload UI in production and confirm the
-   polling banner transitions cleanly through `pending` / `running` / terminal
-   states
-4. resume backfilling missing early-2025 months with the async worker flow
-   instead of the old synchronous request path
+1. create or confirm the target CA Monthly P&L profile in the app
+2. run a real CA transaction upload through the live import flow
+3. inspect the resulting import month, unmapped totals, and report output
+4. decide whether any remaining CA-specific rows need bucket mapping changes or
+   should remain intentionally `unmapped`
+5. verify that the report math and COGS behavior on the CA profile are sensible
 
 ## December 2025 final numbers
 
@@ -346,29 +275,17 @@ These match the manual workbook target values to rounding/penny level.
 These Monthly P&L migrations are live in Supabase:
 
 1. `20260315200000_monthly_pnl_phase1_foundation.sql`
-2. `20260316173000_allow_monthly_pnl_reimport_same_sha.sql`
-3. `20260316190000_add_monthly_pnl_vine_fee_mapping.sql`
-4. `20260316191000_add_monthly_pnl_report_bucket_totals_rpc.sql`
-5. `20260316194500_optimize_monthly_pnl_report_rpc_active_months.sql`
-6. `20260316195500_fix_monthly_pnl_removal_and_refund_other_mapping.sql`
-7. `20260316203000_add_monthly_pnl_manual_model_rules.sql`
-8. `20260316173000_optimize_monthly_pnl_report_rpc_exists.sql`
-9. `20260316213000_add_monthly_pnl_import_month_bucket_totals.sql`
-10. `20260316224500_claim_monthly_pnl_pending_imports.sql`
-11. `20260316232000_cleanup_validation_profile_stranded_monthly_pnl_state.sql`
-
-## Relevant commits now on `main`
-
-1. `fcd0f9e` - align Monthly P&L with manual workbook mappings
-2. `676851d` - optimize Monthly P&L report RPC for active months
-3. `586c5a9` - map remaining Monthly P&L workbook edge cases
-4. `a4559cc` - clarify report surfaces and split P&L screen
-5. `3fecb54` - refine Monthly P&L report UX
-6. `6e5e55a` - coalesce duplicate P&L ledger buckets
-7. `76499f6` - harden Monthly P&L import retries
-8. `8bf2a7f` - pulse Monthly P&L upload button
-9. `e42f8c1` - speed up Monthly P&L report RPC
-10. `1bb81c5` - harden Monthly P&L page transient errors
+2. `20260316140918_add_monthly_pnl_vine_fee_mapping.sql`
+3. `20260316140932_add_monthly_pnl_report_bucket_totals_rpc.sql`
+4. `20260316150635_add_monthly_pnl_manual_model_rules.sql`
+5. `20260316154023_optimize_monthly_pnl_report_rpc_active_months.sql`
+6. `20260316154945_fix_monthly_pnl_removal_and_refund_other_mapping.sql`
+7. `20260316172805_optimize_monthly_pnl_report_rpc_exists.sql`
+8. `20260316182035_add_monthly_pnl_import_month_bucket_totals.sql`
+9. `20260316184040_cleanup_validation_profile_stranded_monthly_pnl_state.sql`
+10. `20260316184041_claim_monthly_pnl_pending_imports.sql`
+11. `20260317023402_add_monthly_pnl_sku_cogs_and_unit_summaries.sql`
+12. `20260317150607_seed_monthly_pnl_ca_mapping_rules.sql`
 
 ## Important constraints
 
@@ -385,21 +302,63 @@ These Monthly P&L migrations are live in Supabase:
 
 ## Recommended next-session plan
 
-1. Deploy `backend-core` and `worker-sync` so the atomic worker-claim path and
-   fast-fail/concurrent report code are live
-2. Verify the authenticated production report route for
-   `start_month=2025-01-01&end_month=2026-02-01` after deploy
-3. Run a real queued multi-month upload in production and watch the new polling
-   UX through completion
-4. Backfill the missing early-2025 months using the async worker path
-5. Measure first-paint/page-load again after deploy and decide whether any
-   remaining latency is frontend orchestration rather than database time
+1. Confirm the target CA profile and marketplace context in the live app/DB.
+2. Upload one real CA transaction export through the live Monthly P&L flow.
+3. Inspect the created import/import-month rows, active month state, and any
+   unmapped totals on that CA profile.
+4. Compare the rendered CA report output against expectation for that month.
+5. If residual CA-specific rows remain ambiguous, add the narrowest possible
+   mapping changes and rerun validation.
+
+## Next-session prompt
+
+Use this prompt to restart the next Monthly P&L session:
+
+> Continue Monthly P&L work in `/Users/jeff/code/agency-os`.
+>
+> Read first, in this order:
+> 1. `docs/monthly_pnl_handoff.md`
+> 2. `docs/monthly_pnl_implementation_plan.md`
+> 3. `AGENTS.md`
+>
+> Current reality:
+> - US Amazon P&L is live and validated for Whoosh US across Jan-Dec 2025 on
+>   validation profile `c8e854cf-b989-4e3f-8cf4-58a43507c67a`.
+> - Preserve the validated November import
+>   `0626222a-dc9c-4be5-a2ba-9de27b093494` and December import
+>   `c84cade9-6633-427f-b4b0-2371d0aca344`.
+> - SKU-based COGS is live; do not revert to month-lump COGS entry.
+> - WBR is a separate shipped product and not Monthly P&L scope.
+> - CA parser compatibility changes are already in code and pushed on `main`.
+> - CA global mapping rules were seeded live via
+>   `20260317150607_seed_monthly_pnl_ca_mapping_rules.sql`.
+>
+> Primary goal:
+> - Validate one real CA Monthly P&L month end to end on a live CA profile.
+>
+> Focus:
+> 1. Confirm the target CA profile and upload path.
+> 2. Run a real CA transaction export through the live Monthly P&L importer.
+> 3. Inspect import status, active month state, unmapped totals, and report
+>    output.
+> 4. Identify any remaining CA-specific rows that still need mapping changes.
+> 5. Keep any follow-up fixes narrow and low-risk to the validated US path.
+>
+> Constraints:
+> - Do not disturb the validated Whoosh US 2025 state unless explicitly asked.
+> - Leave unrelated dirty files alone.
+> - Prefer focused parser/mapping changes over broad refactors.
 
 ## Where the code lives
 
 1. [transaction_import.py](/Users/jeff/code/agency-os/backend-core/app/services/pnl/transaction_import.py)
-2. [report.py](/Users/jeff/code/agency-os/backend-core/app/services/pnl/report.py)
-3. [profiles.py](/Users/jeff/code/agency-os/backend-core/app/services/pnl/profiles.py)
-4. [pnl.py](/Users/jeff/code/agency-os/backend-core/app/routers/pnl.py)
-5. [test_pnl_transaction_import.py](/Users/jeff/code/agency-os/backend-core/tests/test_pnl_transaction_import.py)
-6. [test_pnl_report.py](/Users/jeff/code/agency-os/backend-core/tests/test_pnl_report.py)
+2. [transaction_import_csv.py](/Users/jeff/code/agency-os/backend-core/app/services/pnl/transaction_import_csv.py)
+3. [transaction_import_ledger.py](/Users/jeff/code/agency-os/backend-core/app/services/pnl/transaction_import_ledger.py)
+4. [transaction_import_store.py](/Users/jeff/code/agency-os/backend-core/app/services/pnl/transaction_import_store.py)
+5. [transaction_import_models.py](/Users/jeff/code/agency-os/backend-core/app/services/pnl/transaction_import_models.py)
+6. [sku_units.py](/Users/jeff/code/agency-os/backend-core/app/services/pnl/sku_units.py)
+7. [report.py](/Users/jeff/code/agency-os/backend-core/app/services/pnl/report.py)
+8. [profiles.py](/Users/jeff/code/agency-os/backend-core/app/services/pnl/profiles.py)
+9. [pnl.py](/Users/jeff/code/agency-os/backend-core/app/routers/pnl.py)
+10. [test_pnl_transaction_import.py](/Users/jeff/code/agency-os/backend-core/tests/test_pnl_transaction_import.py)
+11. [test_pnl_report.py](/Users/jeff/code/agency-os/backend-core/tests/test_pnl_report.py)

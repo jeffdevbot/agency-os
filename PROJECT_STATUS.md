@@ -1,10 +1,19 @@
 # Changelog — Ecomlabs Tools
 
-_Last updated: 2026-03-16 (ET)_
+_Last updated: 2026-03-17 (ET)_
 
 > Development history for the project. For setup instructions and project overview, see [AGENTS.md](AGENTS.md).
 
 ---
+
+## 2026-03-17 (ET)
+- **Amazon P&L SKU-based COGS is now live end to end:** Applied `20260317001000_add_monthly_pnl_sku_cogs_and_unit_summaries.sql`, finished the SKU-unit summary import path, and shipped the settings workflow for one fixed unit cost per sold SKU. User validation confirmed that entered SKU costs now flow through to visible COGS on the report.
+- **Amazon P&L v2 UX/reporting controls shipped:** Added `Dollars` vs `% of Revenue`, a totals toggle, a larger header month-range picker, `Amazon P&L` naming, more prominent account/marketplace context, and import-history cleanup with source-type labels plus `See more`.
+- **Monthly P&L importer was decomposed out of god-file territory:** Split CSV parsing, ledger expansion, model types, SKU-unit aggregation, and persistence into focused modules and reduced `transaction_import.py` from roughly `1430` lines to about `529` while keeping the Monthly P&L backend suite green.
+- **Whoosh US 2025 Monthly P&L coverage is now complete on the validation profile:** Jan-Mar and Apr-Jun multi-month uploads completed successfully, joining the already validated Jul-Dec coverage. The active/validated profile now spans Jan-Dec 2025 for Whoosh US.
+- **WBR hardening continued across sync/admin/report flows:** Added future-date validation for Windsor business and Amazon Ads backfills, improved Pacvue upload messaging, allowed deletion of Pacvue-only mapped leaf rows, batched large ASIN mapping CSV imports, paginated WBR business fact reads in Sections 1 and 3, and added a Section 2-only `Unmapped / Legacy Campaigns` row so advertising totals stay truthful even when legacy campaigns are untagged.
+- **Monthly P&L first-pass CA ingest compatibility landed:** Updated the transaction parser for CA `a.m./p.m.` timestamps and extra amount columns, made exact-field mapping rules case-insensitive for CA label drift like `Cost of advertising` / `Amazon fees`, added focused CA backend coverage, and pushed the code on `main` in commit `d4f4874`.
+- **CA global Monthly P&L mapping rules are now seeded live:** Applied live migration `20260317150607_seed_monthly_pnl_ca_mapping_rules`, which copied the shipped global US transaction-upload mapping rules into `CA` without changing the validated US imports. One real February 2026 CA export now parses cleanly locally as a single month slice (`5,441` rows), and the next step is live CA profile/import validation end to end.
 
 ## 2026-03-16 (ET)
 - **Monthly P&L wide-range report root cause was identified and fixed at the DB layer:** Live investigation showed the validation profile had about `1.5M` ledger rows and the report RPC had been regressed by a later migration back to an `EXISTS` shape that still scanned the raw ledger, taking about `7.3s` for `2025-01-01` through `2026-02-01`. Added and applied `20260316213000_add_monthly_pnl_import_month_bucket_totals.sql`, which backfills per-import-month bucket totals and rewires `pnl_report_bucket_totals(...)` to read those summaries instead. The same wide range now executes at about `4.5ms` at the SQL function boundary.

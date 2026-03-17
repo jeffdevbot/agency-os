@@ -1,20 +1,20 @@
 # Monthly P&L Implementation Plan
 
-_Last updated: 2026-03-16 (ET)_
+_Last updated: 2026-03-17 (ET)_
 
 > Status: Monthly P&L v1 is shipped. The backfill-first import pipeline,
 > standalone `/reports/.../pnl` surface, provenance/settings UI, workbook-aligned
 > transaction mapping, async/background imports with worker-based processing,
 > pre-computed bucket summary table, concurrent report queries, and frontend
-> import polling are all live. Phases 1, 2, and 4 from the original build order
-> below are complete. Phase 3 (COGS) is now defined as fixed unit cost per SKU
-> with sold quantities derived from the transaction import. The SKU-based COGS
-> code path, schema migration, report integration, missing-COGS warnings, and
-> settings UI are now implemented in the repo and pushed to `main`. What remains
-> is product/user verification of the end-to-end UX and the calculated results
-> against real client data before calling the workflow fully validated. Phase 5
-> (Windsor) is next. See "v2 roadmap" at the bottom for the planned feature
-> sequence.
+> import polling are live in production. Whoosh US now has validated Jan-Dec
+> 2025 coverage on the validation profile. Phase 3 (COGS) is also live with the
+> SKU-based model: sold quantities are derived from imported transaction rows,
+> one current fixed unit cost is stored per SKU, and the report computes COGS
+> from those values. Initial real-user verification has been completed on a few
+> live SKUs, but broader validation and bulk-entry ergonomics are still open.
+> The first CA transaction-upload compatibility tranche has now landed in code
+> and CA global mapping rules are seeded live; the next execution focus is live
+> end-to-end validation on a CA profile/report path.
 
 This document defines the recommended implementation plan for a new
 client-facing `Monthly P&L` report in Ecomlabs Tools.
@@ -888,10 +888,10 @@ Minimum requirement:
 
 ## Recommended build order (v1)
 
-> Phases 1, 2, and 4 are complete. Phase 3 is now implemented in the repo as a
-> SKU-based COGS workflow but still needs user verification against real client
-> data. Windsor, CA expansion, and the remaining enhancements are tracked in the
-> **v2 roadmap** section below.
+> Phases 1, 2, and 4 are complete. Phase 3 is live with initial user
+> verification. The CA parser/rule-compatibility tranche is now landed; the
+> next execution focus is live CA validation, followed by Windsor and the
+> remaining enhancements tracked in the **v2 roadmap** section below.
 
 ### Phase 1: Foundation — SHIPPED
 
@@ -907,7 +907,7 @@ Minimum requirement:
 3. Render derived rows
 4. ~~Add Excel export~~ — moved to v2 roadmap item 7
 
-### Phase 3: COGS — IMPLEMENTED IN REPO, USER VERIFICATION PENDING
+### Phase 3: COGS — SHIPPED, BROADER VALIDATION PENDING
 
 Implemented shape:
 
@@ -918,11 +918,11 @@ Implemented shape:
 5. show missing-COGS warnings with SKU detail
 6. expose a settings workflow for entering/editing SKU unit costs
 
-Still pending before calling this validated:
+Still pending before calling this fully productized:
 
-1. user verification of the settings UX on real data
-2. user verification that computed COGS totals reconcile to expectation for live client months
-3. decision on whether any CSV import/export helper is needed later for bulk SKU cost entry
+1. broader user verification across more live SKUs/months
+2. user decision on whether bulk SKU cost entry needs a CSV helper later
+3. any UX polish needed once a profile has a large SKU list
 
 ### Phase 4: Validation — SHIPPED
 
@@ -942,6 +942,9 @@ Still pending before calling this validated:
 1. Add CA marketplace profile support
 2. Introduce marketplace-specific mapping packs
 3. Validate tax and fee-label differences
+4. Current expected next step: run a real CA month through the live importer and
+   validate the resulting import/report output, then add only the minimal
+   follow-up mapping changes required
 
 ## v2 roadmap
 
