@@ -1,15 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { PnlCogsMonth } from "../pnl/_lib/pnlApi";
+import type { PnlSkuCogs } from "../pnl/_lib/pnlApi";
 import { formatMonth } from "../pnl/_lib/pnlDisplay";
 
 type Props = {
-  months: PnlCogsMonth[];
+  skus: PnlSkuCogs[];
   loading: boolean;
   saving: boolean;
   errorMessage: string | null;
-  onSave: (entries: Array<{ entry_month: string; amount: string | null }>) => Promise<void>;
+  onSave: (entries: Array<{ sku: string; unit_cost: string | null }>) => Promise<void>;
 };
 
 function normalizeCurrencyInput(value: string): string {
@@ -17,7 +17,7 @@ function normalizeCurrencyInput(value: string): string {
 }
 
 export default function PnlCogsCard({
-  months,
+  skus,
   loading,
   saving,
   errorMessage,
@@ -30,34 +30,31 @@ export default function PnlCogsCard({
   useEffect(() => {
     setDrafts(
       Object.fromEntries(
-        months.map((month) => [
-          month.entry_month,
-          month.amount === "0.00" ? "" : month.amount,
+        skus.map((row) => [
+          row.sku,
+          row.unit_cost ?? "",
         ]),
       ),
     );
-  }, [months]);
+  }, [skus]);
 
-  const visibleMonths = useMemo(
-    () => months.filter((month) => month.has_data),
-    [months],
-  );
+  const visibleSkus = useMemo(() => skus, [skus]);
 
   const handleSave = async () => {
     setLocalError(null);
     setSaveMessage(null);
 
-    const entries = visibleMonths.map((month) => {
-      const raw = drafts[month.entry_month]?.trim() ?? "";
+    const entries = visibleSkus.map((row) => {
+      const raw = drafts[row.sku]?.trim() ?? "";
       if (!raw) {
-        return { entry_month: month.entry_month, amount: null };
+        return { sku: row.sku, unit_cost: null };
       }
       const normalized = normalizeCurrencyInput(raw);
       if (!normalized || Number.isNaN(Number(normalized))) {
-        setLocalError(`Enter a valid amount for ${formatMonth(month.entry_month)}.`);
+        setLocalError(`Enter a valid unit cost for ${row.sku}.`);
         return null;
       }
-      return { entry_month: month.entry_month, amount: normalized };
+      return { sku: row.sku, unit_cost: normalized };
     });
 
     if (entries.some((entry) => entry === null)) {
@@ -66,13 +63,13 @@ export default function PnlCogsCard({
 
     try {
       await onSave(
-        entries.filter((entry): entry is { entry_month: string; amount: string | null } => entry !== null),
+        entries.filter((entry): entry is { sku: string; unit_cost: string | null } => entry !== null),
       );
-      setSaveMessage("Saved COGS month totals.");
+      setSaveMessage("Saved SKU COGS.");
     } catch (error) {
       setSaveMessage(null);
       setLocalError(
-        error instanceof Error ? error.message : "Unable to save COGS month totals.",
+        error instanceof Error ? error.message : "Unable to save SKU COGS.",
       );
     }
   };
@@ -81,48 +78,72 @@ export default function PnlCogsCard({
     <div className="rounded-3xl bg-white/95 p-5 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur md:p-6">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-[#0f172a]">COGS month totals</h2>
+          <h2 className="text-lg font-semibold text-[#0f172a]">COGS by SKU</h2>
           <p className="mt-1 text-sm text-[#475569]">
-            First usable COGS workflow: enter one total per active month. This feeds the live
-            report immediately and can later expand into SKU-level entry.
+            Enter one current unit cost per sold SKU. Monthly COGS is calculated automatically from
+            the sold quantity in the visible report range.
           </p>
         </div>
         {loading ? <p className="text-sm text-[#64748b]">Loading COGS...</p> : null}
       </div>
 
-      {visibleMonths.length === 0 && !loading ? (
+      {visibleSkus.length === 0 && !loading ? (
         <p className="mt-4 text-sm text-[#64748b]">
-          No active months are available for COGS entry yet.
+          No sold SKUs were found in the visible report range.
         </p>
       ) : null}
 
-      {visibleMonths.length > 0 ? (
+      {visibleSkus.length > 0 ? (
         <div className="mt-4 space-y-3">
-          {visibleMonths.map((month) => (
-            <label
-              key={month.entry_month}
-              className="flex flex-col gap-2 rounded-2xl border border-[#dbe4f0] bg-[#f8fafc] px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+          {visibleSkus.map((row) => (
+            <div
+              key={row.sku}
+              className={`rounded-2xl border px-4 py-3 ${
+                row.missing_cost
+                  ? "border-[#fbbf24]/40 bg-[#fff7d6]"
+                  : "border-[#dbe4f0] bg-[#f8fafc]"
+              }`}
             >
-              <span className="text-sm font-semibold text-[#334155]">{formatMonth(month.entry_month)}</span>
-              <span className="flex items-center gap-2">
-                <span className="text-sm text-[#64748b]">$</span>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={drafts[month.entry_month] ?? ""}
-                  onChange={(event) => {
-                    setDrafts((current) => ({
-                      ...current,
-                      [month.entry_month]: normalizeCurrencyInput(event.target.value),
-                    }));
-                    setLocalError(null);
-                    setSaveMessage(null);
-                  }}
-                  placeholder="0.00"
-                  className="w-full rounded-xl border border-[#dbe4f0] bg-white px-3 py-2 text-right text-sm text-[#0f172a] sm:w-40"
-                />
-              </span>
-            </label>
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-semibold text-[#0f172a]">{row.sku}</span>
+                    {row.missing_cost ? (
+                      <span className="rounded-full bg-[#fbbf24]/20 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#92400e]">
+                        Missing cost
+                      </span>
+                    ) : null}
+                  </div>
+                  <p className="mt-1 text-sm text-[#475569]">
+                    Net units in range: <span className="font-semibold text-[#0f172a]">{row.total_units}</span>
+                  </p>
+                  <p className="mt-1 text-xs text-[#64748b]">
+                    {Object.entries(row.months)
+                      .sort(([left], [right]) => left.localeCompare(right))
+                      .map(([month, units]) => `${formatMonth(month)}: ${units}`)
+                      .join(" • ")}
+                  </p>
+                </div>
+                <label className="flex items-center gap-2 lg:ml-4">
+                  <span className="text-sm text-[#64748b]">$</span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={drafts[row.sku] ?? ""}
+                    onChange={(event) => {
+                      setDrafts((current) => ({
+                        ...current,
+                        [row.sku]: normalizeCurrencyInput(event.target.value),
+                      }));
+                      setLocalError(null);
+                      setSaveMessage(null);
+                    }}
+                    placeholder="0.00"
+                    className="w-full rounded-xl border border-[#dbe4f0] bg-white px-3 py-2 text-right text-sm text-[#0f172a] sm:w-40"
+                  />
+                </label>
+              </div>
+            </div>
           ))}
 
           <div className="flex flex-wrap items-center gap-3">
@@ -132,10 +153,10 @@ export default function PnlCogsCard({
               disabled={saving || loading}
               className="rounded-xl bg-[#0a6fd6] px-4 py-2 text-sm font-semibold text-white shadow-[0_15px_30px_rgba(10,111,214,0.2)] transition hover:bg-[#0959ab] disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {saving ? "Saving..." : "Save COGS"}
+              {saving ? "Saving..." : "Save SKU COGS"}
             </button>
             <p className="text-sm text-[#64748b]">
-              Leave a month blank to remove COGS for that month and return it to contribution framing.
+              Leave a SKU blank to remove its stored unit cost.
             </p>
           </div>
         </div>

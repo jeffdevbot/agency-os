@@ -17,7 +17,7 @@ import {
   uploadPnlTransactionReport,
   type PnlFilterMode,
 } from "../pnl/_lib/pnlApi";
-import { usePnlCogsMonths } from "../pnl/_lib/usePnlCogsMonths";
+import { usePnlSkuCogs } from "../pnl/_lib/usePnlSkuCogs";
 import type { PnlDisplayMode } from "../pnl/_lib/pnlPresentation";
 import PnlCogsCard from "./PnlCogsCard";
 import PnlProfileSetupCard from "./PnlProfileSetupCard";
@@ -72,7 +72,9 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
     showSettings ? profileId : null,
     showSettings ? months : [],
   );
-  const cogsState = usePnlCogsMonths(profileId, showSettings);
+  const cogsStartMonth = months[0] ?? null;
+  const cogsEndMonth = months.length > 0 ? months[months.length - 1] : null;
+  const cogsState = usePnlSkuCogs(profileId, cogsStartMonth, cogsEndMonth, showSettings);
 
   useEffect(() => {
     setUploadError(null);
@@ -129,7 +131,7 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
         if (showSettings) {
           await Promise.all([
             provenanceState.loadActiveImports(),
-            status === "success" ? cogsState.loadMonths() : Promise.resolve(),
+            status === "success" ? cogsState.loadSkus() : Promise.resolve(),
           ]);
         }
       } catch (error) {
@@ -158,7 +160,7 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
   }, [
     processingImportId,
     processingImportLabel,
-    cogsState.loadMonths,
+    cogsState.loadSkus,
     profileId,
     provenanceState.loadActiveImports,
     reportState.loadReport,
@@ -234,7 +236,7 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
         if (showSettings) {
           await Promise.all([
             provenanceState.loadActiveImports(),
-            cogsState.loadMonths(),
+            cogsState.loadSkus(),
           ]);
         }
       }
@@ -246,9 +248,9 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
   };
 
   const handleSaveCogs = async (
-    entries: Array<{ entry_month: string; amount: string | null }>,
+    entries: Array<{ sku: string; unit_cost: string | null }>,
   ) => {
-    await cogsState.saveMonths(entries);
+    await cogsState.saveSkus(entries);
     await reportState.loadReport(true);
   };
 
@@ -337,7 +339,7 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
               onUpload={() => void handleUpload()}
             />
             <PnlCogsCard
-              months={cogsState.months}
+              skus={cogsState.skus}
               loading={cogsState.loading}
               saving={cogsState.saving}
               errorMessage={cogsState.errorMessage}

@@ -152,12 +152,14 @@ class PNLReportService:
         if not month_keys:
             return self._empty_report(profile, month_keys)
 
-        bucket_totals, cogs_totals, unmapped_totals, active_months = await asyncio.gather(
+        bucket_totals, cogs_summary, unmapped_totals, active_months = await asyncio.gather(
             asyncio.to_thread(self._load_ledger_totals, profile_id, period_start, period_end),
-            asyncio.to_thread(self._load_cogs_totals, profile_id, period_start, period_end),
+            asyncio.to_thread(self._load_cogs_summary, profile_id, period_start, period_end),
             asyncio.to_thread(self._load_unmapped_totals, profile_id, period_start, period_end),
             asyncio.to_thread(self._load_active_months, profile_id, period_start, period_end),
         )
+        cogs_totals = cogs_summary["month_totals"]
+        missing_cogs = cogs_summary["missing_skus"]
 
         # Build line items
         line_items: list[dict[str, Any]] = []
@@ -232,7 +234,7 @@ class PNLReportService:
 
         # Warnings
         warnings = self._build_warnings(
-            month_keys, cogs_totals, unmapped_totals, active_months,
+            month_keys, cogs_totals, missing_cogs, unmapped_totals, active_months,
         )
 
         return {
@@ -381,25 +383,77 @@ class PNLReportService:
         rows = response.data if isinstance(response.data, list) else []
         return {str(r["id"]) for r in rows}
 
-    def _load_cogs_totals(
+    def _load_cogs_summary(
         self, profile_id: str, start: date, end: date
-    ) -> dict[str, Decimal]:
-        """Return {month_iso: total_cogs}."""
-        response = (
-            self.db.table("monthly_pnl_cogs_monthly")
-            .select("entry_month, amount")
+    ) -> dict[str, Any]:
+        """Return month totals and missing-cost SKU coverage for active months."""
+        active_months_resp = (
+            self.db.table("monthly_pnl_import_months")
+            .select("id, entry_month")
+            .eq("profile_id", profile_id)
+            .gte("entry_month", start.isoformat())
+            .lte("entry_month", end.isoformat())
+            .eq("is_active", True)
+            .execute()
+        )
+        active_month_rows = active_months_resp.data if isinstance(active_months_resp.data, list) else []
+        active_month_ids = {
+            str(row.get("id") or "").strip()
+            for row in active_month_rows
+            if row.get("id")
+        }
+        if not active_month_ids:
+            return {"month_totals": {}, "missing_skus": {}}
+
+        sku_units_resp = (
+            self.db.table("monthly_pnl_import_month_sku_units")
+            .select("import_month_id, entry_month, sku, net_units")
             .eq("profile_id", profile_id)
             .gte("entry_month", start.isoformat())
             .lte("entry_month", end.isoformat())
             .execute()
         )
-        rows = response.data if isinstance(response.data, list) else []
-        totals: dict[str, Decimal] = {}
-        for row in rows:
-            month = row["entry_month"]
-            amount = Decimal(str(row["amount"]))
-            totals[month] = totals.get(month, Decimal("0")) + amount
-        return totals
+        sku_unit_rows = sku_units_resp.data if isinstance(sku_units_resp.data, list) else []
+
+        sku_cogs_resp = (
+            self.db.table("monthly_pnl_sku_cogs")
+            .select("sku, unit_cost")
+            .eq("profile_id", profile_id)
+            .execute()
+        )
+        sku_cogs_rows = sku_cogs_resp.data if isinstance(sku_cogs_resp.data, list) else []
+        unit_cost_by_sku = {
+            str(row.get("sku") or "").strip(): Decimal(str(row.get("unit_cost") or "0"))
+            for row in sku_cogs_rows
+            if str(row.get("sku") or "").strip()
+        }
+
+        month_totals: dict[str, Decimal] = {}
+        missing_skus: dict[str, set[str]] = {}
+        for row in sku_unit_rows:
+            import_month_id = str(row.get("import_month_id") or "").strip()
+            if import_month_id not in active_month_ids:
+                continue
+
+            sku = str(row.get("sku") or "").strip()
+            month = str(row.get("entry_month") or "").strip()
+            if not sku or not month:
+                continue
+
+            net_units = int(row.get("net_units") or 0)
+            if net_units == 0:
+                continue
+
+            unit_cost = unit_cost_by_sku.get(sku)
+            if unit_cost is None:
+                missing_skus.setdefault(month, set()).add(sku)
+                continue
+
+            month_totals[month] = month_totals.get(month, Decimal("0")) + (
+                Decimal(net_units) * unit_cost
+            )
+
+        return {"month_totals": month_totals, "missing_skus": missing_skus}
 
     def _load_unmapped_totals(
         self, profile_id: str, start: date, end: date
@@ -497,18 +551,21 @@ class PNLReportService:
         self,
         month_keys: list[str],
         cogs_totals: dict[str, Decimal],
+        missing_cogs: dict[str, set[str]],
         unmapped_totals: dict[str, Decimal],
         active_months: set[str],
     ) -> list[dict[str, Any]]:
         warnings: list[dict[str, Any]] = []
 
         # Missing COGS
-        missing_cogs = [mk for mk in month_keys if mk not in cogs_totals]
-        if missing_cogs:
+        missing_cogs_months = [mk for mk in month_keys if mk in missing_cogs]
+        if missing_cogs_months:
+            sku_list = sorted({sku for month in missing_cogs_months for sku in missing_cogs[month]})
             warnings.append({
                 "type": "missing_cogs",
-                "message": "COGS data not uploaded for these months — gross profit will be overstated",
-                "months": missing_cogs,
+                "message": "COGS missing for sold SKUs — gross profit is overstated for these months",
+                "months": missing_cogs_months,
+                "skus": sku_list,
             })
 
         # Unmapped rows

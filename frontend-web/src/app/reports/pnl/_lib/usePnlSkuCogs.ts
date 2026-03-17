@@ -3,14 +3,19 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getBrowserSupabaseClient } from "@/lib/supabaseClient";
 import {
-  listPnlCogsMonths,
-  savePnlCogsMonths,
-  type PnlCogsMonth,
+  listPnlSkuCogs,
+  savePnlSkuCogs,
+  type PnlSkuCogs,
 } from "./pnlApi";
 
-export function usePnlCogsMonths(profileId: string | null, enabled: boolean) {
+export function usePnlSkuCogs(
+  profileId: string | null,
+  startMonth: string | null,
+  endMonth: string | null,
+  enabled: boolean,
+) {
   const supabase = useMemo(() => getBrowserSupabaseClient(), []);
-  const [months, setMonths] = useState<PnlCogsMonth[]>([]);
+  const [skus, setSkus] = useState<PnlSkuCogs[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -23,9 +28,9 @@ export function usePnlCogsMonths(profileId: string | null, enabled: boolean) {
     return session.access_token;
   }, [supabase]);
 
-  const loadMonths = useCallback(async () => {
-    if (!profileId || !enabled) {
-      setMonths([]);
+  const loadSkus = useCallback(async () => {
+    if (!profileId || !startMonth || !endMonth || !enabled) {
+      setSkus([]);
       setLoading(false);
       setErrorMessage(null);
       return;
@@ -35,17 +40,17 @@ export function usePnlCogsMonths(profileId: string | null, enabled: boolean) {
     setErrorMessage(null);
     try {
       const token = await getAccessToken();
-      setMonths(await listPnlCogsMonths(token, profileId));
+      setSkus(await listPnlSkuCogs(token, profileId, startMonth, endMonth));
     } catch (error) {
-      setMonths([]);
-      setErrorMessage(error instanceof Error ? error.message : "Unable to load COGS months");
+      setSkus([]);
+      setErrorMessage(error instanceof Error ? error.message : "Unable to load SKU COGS");
     } finally {
       setLoading(false);
     }
-  }, [enabled, getAccessToken, profileId]);
+  }, [enabled, endMonth, getAccessToken, profileId, startMonth]);
 
-  const saveMonths = useCallback(
-    async (entries: Array<{ entry_month: string; amount: string | null }>) => {
+  const saveSkus = useCallback(
+    async (entries: Array<{ sku: string; unit_cost: string | null }>) => {
       if (!profileId) {
         return;
       }
@@ -53,29 +58,28 @@ export function usePnlCogsMonths(profileId: string | null, enabled: boolean) {
       setErrorMessage(null);
       try {
         const token = await getAccessToken();
-        const result = await savePnlCogsMonths(token, profileId, entries);
-        setMonths(result);
-        return result;
+        await savePnlSkuCogs(token, profileId, entries);
+        await loadSkus();
       } catch (error) {
-        setErrorMessage(error instanceof Error ? error.message : "Unable to save COGS months");
+        setErrorMessage(error instanceof Error ? error.message : "Unable to save SKU COGS");
         throw error;
       } finally {
         setSaving(false);
       }
     },
-    [getAccessToken, profileId],
+    [getAccessToken, loadSkus, profileId],
   );
 
   useEffect(() => {
-    void loadMonths();
-  }, [loadMonths]);
+    void loadSkus();
+  }, [loadSkus]);
 
   return {
-    months,
+    skus,
     loading,
     saving,
     errorMessage,
-    loadMonths,
-    saveMonths,
+    loadSkus,
+    saveSkus,
   };
 }

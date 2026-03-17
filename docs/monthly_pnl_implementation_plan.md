@@ -7,7 +7,9 @@ _Last updated: 2026-03-16 (ET)_
 > transaction mapping, async/background imports with worker-based processing,
 > pre-computed bucket summary table, concurrent report queries, and frontend
 > import polling are all live. Phases 1, 2, and 4 from the original build order
-> below are complete. Phase 3 (COGS) has the table but not the entry workflow.
+> below are complete. Phase 3 (COGS) is now defined as fixed unit cost per SKU
+> with sold quantities derived from the transaction import. The repo code path
+> and migration are in progress; live deployment still needs to happen.
 > Phase 5 (Windsor) is next. See "v2 roadmap" at the bottom for the planned
 > feature sequence.
 
@@ -898,20 +900,34 @@ No backend changes, no new tables, no new queries.
 
 ### v2-2: COGS entry workflow — MEDIUM difficulty
 
-The `monthly_pnl_cogs_monthly` table already exists (Phase 1 migration). It
-supports per-profile, per-month, optional per-SKU amounts. The work is the
-entry UI and report integration.
+The right v2 COGS model is not month-lump entry. It is:
 
-1. Settings toggle: "Enable COGS" on/off per profile. When off, report shows
-   "Contribution Profit" framing (already implemented). When on and data
-   exists, report shows "Gross Profit" / "Net Margin (%)" framing.
-2. COGS entry screen: list SKUs observed in `monthly_pnl_ledger_entries` for
-   active months, with an amount input per SKU per month. Empty values are
-   allowed — partial entry is the default state, not an error.
-3. Partial COGS is fine. If a client has provided COGS for 10 of 15 SKUs, the
-   report should still show Gross Profit using the available data and flag
+1. one current fixed `unit_cost` per SKU
+2. sold quantity derived from Monthly P&L transaction imports
+3. monthly COGS computed as `net units sold * unit_cost`
+
+Recommended data model:
+
+1. `monthly_pnl_import_month_sku_units`
+   - derived at import time from raw transaction rows
+   - versioned by `import_month_id`
+   - stores net sold/refunded units per month + SKU
+2. `monthly_pnl_sku_cogs`
+   - one current unit cost per profile + SKU
+   - no effective-date accounting in v2
+
+Implementation shape:
+
+1. Settings screen: list sold SKUs for the visible report range, with one unit
+   cost input per SKU.
+2. The SKU list is derived from active imported transaction data, not manually
+   maintained.
+3. Partial COGS is fine. If a client has provided COGS for 10 of 15 sold SKUs,
+   the report should still show Gross Profit using the available data and flag
    which SKUs are missing.
-4. The SKU list is derived from ledger data, not manually maintained.
+4. No effective-month pricing, FIFO, or LIFO in v2. Cost changes simply update
+   the current SKU unit cost going forward until the product needs deeper
+   accounting behavior.
 
 ### v2-3: Windsor settlement backfill — MEDIUM difficulty
 

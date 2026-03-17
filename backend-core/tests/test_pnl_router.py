@@ -97,64 +97,77 @@ class TestProfileEndpoints:
         assert resp.status_code == 400
         assert "already exists" in resp.json()["detail"].lower()
 
-    def test_list_cogs_months(self, monkeypatch):
+    def test_list_cogs_skus(self, monkeypatch):
         fake_svc = MagicMock()
-        fake_svc.list_cogs_month_totals.return_value = [
-            {"entry_month": "2026-01-01", "amount": "1200.00", "has_data": True}
+        fake_svc.list_sku_cogs.return_value = [
+            {
+                "sku": "SKU1",
+                "unit_cost": "1.8600",
+                "months": {"2026-01-01": 4},
+                "total_units": 4,
+                "missing_cost": False,
+            }
         ]
         monkeypatch.setattr(pnl, "_get_profile_service", lambda: fake_svc)
         app.dependency_overrides[pnl.require_admin_user] = _override_admin
 
         try:
             with TestClient(app) as client:
-                resp = client.get("/admin/pnl/profiles/p1/cogs-monthly")
+                resp = client.get(
+                    "/admin/pnl/profiles/p1/cogs-skus",
+                    params={"start_month": "2026-01-01", "end_month": "2026-02-01"},
+                )
         finally:
             app.dependency_overrides.pop(pnl.require_admin_user, None)
 
         assert resp.status_code == 200
         data = resp.json()
         assert data["ok"] is True
-        assert data["months"] == [
-            {"entry_month": "2026-01-01", "amount": "1200.00", "has_data": True}
+        assert data["skus"] == [
+            {
+                "sku": "SKU1",
+                "unit_cost": "1.8600",
+                "months": {"2026-01-01": 4},
+                "total_units": 4,
+                "missing_cost": False,
+            }
         ]
+        fake_svc.list_sku_cogs.assert_called_once_with("p1", "2026-01-01", "2026-02-01")
 
-    def test_save_cogs_months(self, monkeypatch):
+    def test_save_cogs_skus(self, monkeypatch):
         fake_svc = MagicMock()
-        fake_svc.save_cogs_month_totals.return_value = [
-            {"entry_month": "2026-01-01", "amount": "1200.00", "has_data": True}
-        ]
         monkeypatch.setattr(pnl, "_get_profile_service", lambda: fake_svc)
         app.dependency_overrides[pnl.require_admin_user] = _override_admin
 
         try:
             with TestClient(app) as client:
                 resp = client.put(
-                    "/admin/pnl/profiles/p1/cogs-monthly",
-                    json={"entries": [{"entry_month": "2026-01-01", "amount": "1200.00"}]},
+                    "/admin/pnl/profiles/p1/cogs-skus",
+                    json={"entries": [{"sku": "SKU1", "unit_cost": "1.8600"}]},
                 )
         finally:
             app.dependency_overrides.pop(pnl.require_admin_user, None)
 
         assert resp.status_code == 200
         assert resp.json()["ok"] is True
-        fake_svc.save_cogs_month_totals.assert_called_once_with(
+        fake_svc.save_sku_cogs.assert_called_once_with(
             "p1",
-            [{"entry_month": "2026-01-01", "amount": "1200.00"}],
+            [{"sku": "SKU1", "unit_cost": "1.8600"}],
         )
 
-    def test_save_cogs_months_validation_error_returns_400(self, monkeypatch):
+    def test_save_cogs_skus_validation_error_returns_400(self, monkeypatch):
         from app.services.pnl.profiles import PNLValidationError
 
         fake_svc = MagicMock()
-        fake_svc.save_cogs_month_totals.side_effect = PNLValidationError("invalid cogs")
+        fake_svc.save_sku_cogs.side_effect = PNLValidationError("invalid cogs")
         monkeypatch.setattr(pnl, "_get_profile_service", lambda: fake_svc)
         app.dependency_overrides[pnl.require_admin_user] = _override_admin
 
         try:
             with TestClient(app) as client:
                 resp = client.put(
-                    "/admin/pnl/profiles/p1/cogs-monthly",
-                    json={"entries": [{"entry_month": "2026-01-01", "amount": "oops"}]},
+                    "/admin/pnl/profiles/p1/cogs-skus",
+                    json={"entries": [{"sku": "SKU1", "unit_cost": "oops"}]},
                 )
         finally:
             app.dependency_overrides.pop(pnl.require_admin_user, None)

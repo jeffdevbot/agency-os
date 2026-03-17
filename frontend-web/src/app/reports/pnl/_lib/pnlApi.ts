@@ -58,10 +58,12 @@ export type PnlImportSummary = {
   months: PnlImportMonth[];
 };
 
-export type PnlCogsMonth = {
-  entry_month: string;
-  amount: string;
-  has_data: boolean;
+export type PnlSkuCogs = {
+  sku: string;
+  unit_cost: string | null;
+  months: Record<string, number>;
+  total_units: number;
+  missing_cost: boolean;
 };
 
 export type PnlLineItem = {
@@ -76,6 +78,7 @@ export type PnlWarning = {
   type: string;
   message: string;
   months: string[];
+  skus?: string[];
 };
 
 export type PnlReport = {
@@ -272,12 +275,18 @@ export async function getPnlImportSummary(
   };
 }
 
-export async function listPnlCogsMonths(
+export async function listPnlSkuCogs(
   token: string,
   profileId: string,
-): Promise<PnlCogsMonth[]> {
+  startMonth: string,
+  endMonth: string,
+): Promise<PnlSkuCogs[]> {
+  const params = new URLSearchParams({
+    start_month: startMonth,
+    end_month: endMonth,
+  });
   const response = await fetch(
-    `${getBackendUrl()}/admin/pnl/profiles/${profileId}/cogs-monthly`,
+    `${getBackendUrl()}/admin/pnl/profiles/${profileId}/cogs-skus?${params.toString()}`,
     {
       method: "GET",
       headers: { Authorization: `Bearer ${token}` },
@@ -288,16 +297,16 @@ export async function listPnlCogsMonths(
     throw new Error(detail);
   }
   const data = await response.json();
-  return (data?.months ?? []) as PnlCogsMonth[];
+  return (data?.skus ?? []) as PnlSkuCogs[];
 }
 
-export async function savePnlCogsMonths(
+export async function savePnlSkuCogs(
   token: string,
   profileId: string,
-  entries: Array<{ entry_month: string; amount: string | null }>,
-): Promise<PnlCogsMonth[]> {
+  entries: Array<{ sku: string; unit_cost: string | null }>,
+): Promise<void> {
   const response = await fetch(
-    `${getBackendUrl()}/admin/pnl/profiles/${profileId}/cogs-monthly`,
+    `${getBackendUrl()}/admin/pnl/profiles/${profileId}/cogs-skus`,
     {
       method: "PUT",
       headers: {
@@ -311,6 +320,4 @@ export async function savePnlCogsMonths(
     const detail = await parseErrorDetail(response);
     throw new Error(detail);
   }
-  const data = await response.json();
-  return (data?.months ?? []) as PnlCogsMonth[];
 }

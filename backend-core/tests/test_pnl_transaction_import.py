@@ -14,6 +14,7 @@ from postgrest.exceptions import APIError as PostgrestAPIError
 import pytest
 
 from app.services.pnl.profiles import PNLDuplicateFileError, PNLNotFoundError, PNLValidationError
+from app.services.pnl.sku_units import SkuUnitSourceRow, summarize_sku_units
 from app.services.pnl.transaction_import import (
     LedgerEntry,
     MappingRule,
@@ -172,6 +173,18 @@ class TestParseRawRows:
         assert order_row.amounts["promotional_rebates"] == Decimal("-1.00")
         assert order_row.amounts["selling_fees"] == Decimal("-1.50")
         assert order_row.amounts["fba_fees"] == Decimal("-3.00")
+
+    def test_parses_quantity_column(self):
+        csv_with_quantity = (
+            '"date/time","type","order id","sku","quantity","description","product sales","total"\n'
+            '"Nov 1, 2025 2:24:35 AM PDT","Order","111","SKU1","2","Widget","25.98","14.72"\n'
+            '"Nov 2, 2025 9:28:44 AM PST","Refund","222","SKU2","3","Widget","-86.37","-73.48"\n'
+        )
+        header_values, header_map, data_rows = parse_transaction_csv(csv_with_quantity.encode("utf-8"))
+        raw_rows = parse_raw_rows(header_values, header_map, data_rows)
+
+        assert raw_rows[0].quantity == 2
+        assert raw_rows[1].quantity == 3
 
     def test_canonical_month_uses_posted_date(self):
         """date/time is canonical month; release date is only a fallback."""
@@ -374,6 +387,110 @@ class TestLedgerExpansion:
         assert buckets["promotional_rebate_refunds"] == Decimal("0.50")
         assert buckets["referral_fees"] == Decimal("0.75")
         assert buckets["fba_fees"] == Decimal("1.50")
+
+
+class TestSkuUnitAggregation:
+    def test_summarize_sku_units_aggregates_orders_and_refunds(self):
+        summary = summarize_sku_units(
+            [
+                SkuUnitSourceRow(
+                    sku="SKU1",
+                    quantity=2,
+                    raw_type="Order",
+                    product_sales=Decimal("25.98"),
+                ),
+                SkuUnitSourceRow(
+                    sku="SKU1",
+                    quantity=1,
+                    raw_type="Refund",
+                    product_sales=Decimal("-12.99"),
+                ),
+                SkuUnitSourceRow(
+                    sku="SKU2",
+                    quantity=1,
+                    raw_type="Refund",
+                    product_sales=Decimal("0"),
+                ),
+            ]
+        )
+
+        assert summary == {
+            "SKU1": {
+                "net_units": 1,
+                "order_row_count": 1,
+                "refund_row_count": 1,
+            }
+        }
+
+    def test_insert_sku_unit_totals_aggregates_orders_and_refunds(self):
+        db = MagicMock()
+        sku_units_table = MagicMock()
+        sku_units_table.insert.return_value = sku_units_table
+        sku_units_table.execute.return_value = MagicMock(data=[{}])
+        db.table.return_value = sku_units_table
+
+        svc = TransactionImportService(db)
+        svc._insert_sku_unit_totals(
+            import_id="imp-1",
+            import_month_id="im-1",
+            profile_id="p1",
+            entry_month=date(2025, 11, 1),
+            raw_rows=[
+                ParsedRawRow(
+                    row_index=0,
+                    posted_at=datetime(2025, 11, 1, tzinfo=UTC),
+                    release_at=None,
+                    order_id="111",
+                    sku="SKU1",
+                    raw_type="Order",
+                    raw_description="Widget",
+                    entry_month=date(2025, 11, 1),
+                    amounts={"product_sales": Decimal("25.98")},
+                    raw_payload={},
+                    quantity=2,
+                ),
+                ParsedRawRow(
+                    row_index=1,
+                    posted_at=datetime(2025, 11, 2, tzinfo=UTC),
+                    release_at=None,
+                    order_id="222",
+                    sku="SKU1",
+                    raw_type="Refund",
+                    raw_description="Widget",
+                    entry_month=date(2025, 11, 1),
+                    amounts={"product_sales": Decimal("-12.99")},
+                    raw_payload={},
+                    quantity=1,
+                ),
+                ParsedRawRow(
+                    row_index=2,
+                    posted_at=datetime(2025, 11, 2, tzinfo=UTC),
+                    release_at=None,
+                    order_id="333",
+                    sku="SKU2",
+                    raw_type="Refund",
+                    raw_description="Shipping only refund",
+                    entry_month=date(2025, 11, 1),
+                    amounts={"shipping_credits": Decimal("-2.99")},
+                    raw_payload={},
+                    quantity=1,
+                ),
+            ],
+        )
+
+        payloads = sku_units_table.insert.call_args.args[0]
+        assert payloads == [
+            {
+                "import_id": "imp-1",
+                "import_month_id": "im-1",
+                "profile_id": "p1",
+                "entry_month": "2025-11-01",
+                "sku": "SKU1",
+                "net_units": 1,
+                "order_row_count": 1,
+                "refund_row_count": 1,
+            }
+        ]
 
     def test_service_fee_advertising_uses_rule(self):
         raw_row = ParsedRawRow(

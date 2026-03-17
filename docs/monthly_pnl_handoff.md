@@ -56,6 +56,25 @@ push into earlier 2025 months.
     deactivated the orphaned Jan/Apr/May 2025 active slices on the validation
     profile and marked the stranded retry import
     `0fe50885-fce4-48ec-afa6-a9dce5cef716` as `error`.
+15. On 2026-03-16, inspection of the real `nov-2025.csv` export confirmed the
+    Amazon transaction file includes a native `quantity` column and real
+    multi-unit rows. Refund rows also include quantity.
+16. The earlier month-total COGS entry experiment is not the right workflow
+    for this product and should not be continued. The correct v2 direction is:
+    fixed unit cost per SKU, with Monthly P&L COGS calculated from sold units
+    in the transaction feed.
+17. Repo migration
+    `20260317001000_add_monthly_pnl_sku_cogs_and_unit_summaries.sql` now exists
+    to create:
+    - `monthly_pnl_import_month_sku_units`
+    - `monthly_pnl_sku_cogs`
+    It also backfills sold-unit summaries from existing raw transaction rows.
+18. Current code now parses `quantity` during transaction import, writes
+    per-import-month SKU unit summaries, exposes SKU-level COGS settings
+    endpoints/UI, and computes report COGS as `net units sold * fixed SKU
+    unit cost`.
+19. This SKU-level COGS path is not live until the new migration is applied and
+    the updated backend/frontend are deployed.
 
 ## Validated and active state
 

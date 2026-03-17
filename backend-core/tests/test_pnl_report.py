@@ -50,6 +50,43 @@ def _override_admin():
     return {"sub": "user-123"}
 
 
+class _ImportMonthsTable:
+    def __init__(self, rows: list[dict]):
+        self._rows = rows
+        self._selection = ""
+
+    def select(self, fields):
+        self._selection = fields
+        return self
+
+    def eq(self, *_args, **_kwargs):
+        return self
+
+    def gte(self, *_args, **_kwargs):
+        return self
+
+    def lte(self, *_args, **_kwargs):
+        return self
+
+    def order(self, *_args, **_kwargs):
+        return self
+
+    def execute(self):
+        response = MagicMock()
+        if self._selection == "id":
+            response.data = [{"id": row["id"]} for row in self._rows]
+        elif "id, entry_month" in self._selection:
+            response.data = [
+                {"id": row["id"], "entry_month": row["entry_month"]}
+                for row in self._rows
+            ]
+        elif "unmapped_amount" in self._selection:
+            response.data = self._rows
+        else:
+            response.data = [{"entry_month": row["entry_month"]} for row in self._rows]
+        return response
+
+
 # ── Pure function tests ──────────────────────────────────────────────
 
 
@@ -174,6 +211,15 @@ FAKE_ACTIVE_MONTHS = [
     {"id": "im2", "entry_month": "2026-02-01", "unmapped_amount": "0"},
 ]
 
+FAKE_SKU_UNITS = [
+    {"import_month_id": "im1", "entry_month": "2026-01-01", "sku": "SKU1", "net_units": 1},
+    {"import_month_id": "im2", "entry_month": "2026-02-01", "sku": "SKU2", "net_units": 2},
+]
+
+FAKE_SKU_COGS = [
+    {"sku": "SKU1", "unit_cost": "30.0000"},
+]
+
 
 class TestPNLReportService:
     def _make_service(self):
@@ -187,10 +233,8 @@ class TestPNLReportService:
             }
             for row in FAKE_LEDGER_ENTRIES
         ])
-        # COGS column is "amount" (matches schema), not "cogs_amount"
-        cogs_table = _chain_table([
-            {"entry_month": "2026-01-01", "amount": "30.00"},
-        ])
+        sku_units_table = _chain_table(FAKE_SKU_UNITS)
+        sku_cogs_table = _chain_table(FAKE_SKU_COGS)
 
         class ImportMonthsTable:
             def __init__(self):
@@ -216,6 +260,11 @@ class TestPNLReportService:
                 response = MagicMock()
                 if self._selection == "id":
                     response.data = [{"id": "im1"}, {"id": "im2"}]
+                elif "id, entry_month" in self._selection:
+                    response.data = [
+                        {"id": "im1", "entry_month": "2026-01-01"},
+                        {"id": "im2", "entry_month": "2026-02-01"},
+                    ]
                 elif "unmapped_amount" in self._selection:
                     response.data = FAKE_ACTIVE_MONTHS
                 else:
@@ -234,8 +283,10 @@ class TestPNLReportService:
                 return profiles_table
             elif name == "monthly_pnl_import_month_bucket_totals":
                 return summary_table
-            elif name == "monthly_pnl_cogs_monthly":
-                return cogs_table
+            elif name == "monthly_pnl_import_month_sku_units":
+                return sku_units_table
+            elif name == "monthly_pnl_sku_cogs":
+                return sku_cogs_table
             elif name == "monthly_pnl_import_months":
                 return import_months_table
             return _chain_table()
@@ -258,17 +309,12 @@ class TestPNLReportService:
         ledger_table = MagicMock()
         ledger_table.select.side_effect = AssertionError("raw-ledger fallback should never run")
 
-        cogs_table = _chain_table([])
+        sku_units_table = _chain_table([])
+        sku_cogs_table = _chain_table([])
 
-        call_count = {"import_months": 0}
-
-        def import_months_factory():
-            call_count["import_months"] += 1
-            if call_count["import_months"] == 1:
-                return _chain_table([{"id": "im1"}])
-            if call_count["import_months"] == 2:
-                return _chain_table([{"entry_month": "2026-01-01", "unmapped_amount": "0"}])
-            return _chain_table([{"entry_month": "2026-01-01"}])
+        import_months_table = _ImportMonthsTable(
+            [{"id": "im1", "entry_month": "2026-01-01", "unmapped_amount": "0"}]
+        )
 
         db = MagicMock()
 
@@ -279,10 +325,12 @@ class TestPNLReportService:
                 return _chain_table([])
             if name == "monthly_pnl_ledger_entries":
                 return ledger_table
-            if name == "monthly_pnl_cogs_monthly":
-                return cogs_table
+            if name == "monthly_pnl_import_month_sku_units":
+                return sku_units_table
+            if name == "monthly_pnl_sku_cogs":
+                return sku_cogs_table
             if name == "monthly_pnl_import_months":
-                return import_months_factory()
+                return import_months_table
             return _chain_table()
 
         db.table.side_effect = table_router
@@ -296,17 +344,12 @@ class TestPNLReportService:
 
     def test_report_uses_bucket_totals_rpc_when_available(self):
         profiles_table = _chain_table([FAKE_PROFILE])
-        cogs_table = _chain_table([])
+        sku_units_table = _chain_table([])
+        sku_cogs_table = _chain_table([])
 
-        call_count = {"import_months": 0}
-
-        def import_months_factory():
-            call_count["import_months"] += 1
-            if call_count["import_months"] == 1:
-                return _chain_table([{"id": "im1"}])
-            if call_count["import_months"] == 2:
-                return _chain_table([{"entry_month": "2026-01-01", "unmapped_amount": "0"}])
-            return _chain_table([{"entry_month": "2026-01-01"}])
+        import_months_table = _ImportMonthsTable(
+            [{"id": "im1", "entry_month": "2026-01-01", "unmapped_amount": "0"}]
+        )
 
         ledger_table = MagicMock()
         ledger_table.select.side_effect = AssertionError("ledger fallback should not run")
@@ -324,10 +367,12 @@ class TestPNLReportService:
                 return profiles_table
             if name == "monthly_pnl_ledger_entries":
                 return ledger_table
-            if name == "monthly_pnl_cogs_monthly":
-                return cogs_table
+            if name == "monthly_pnl_import_month_sku_units":
+                return sku_units_table
+            if name == "monthly_pnl_sku_cogs":
+                return sku_cogs_table
             if name == "monthly_pnl_import_months":
-                return import_months_factory()
+                return import_months_table
             return _chain_table()
 
         db.table.side_effect = table_router
@@ -345,7 +390,8 @@ class TestPNLReportService:
 
     def test_report_uses_summary_table_before_rpc(self):
         profiles_table = _chain_table([FAKE_PROFILE])
-        cogs_table = _chain_table([])
+        sku_units_table = _chain_table([])
+        sku_cogs_table = _chain_table([])
         summary_table = _chain_table([
             {
                 "import_month_id": "im1",
@@ -361,15 +407,9 @@ class TestPNLReportService:
             },
         ])
 
-        call_count = {"import_months": 0}
-
-        def import_months_factory():
-            call_count["import_months"] += 1
-            if call_count["import_months"] == 1:
-                return _chain_table([{"id": "im1"}])
-            if call_count["import_months"] == 2:
-                return _chain_table([{"entry_month": "2026-01-01", "unmapped_amount": "0"}])
-            return _chain_table([{"entry_month": "2026-01-01"}])
+        import_months_table = _ImportMonthsTable(
+            [{"id": "im1", "entry_month": "2026-01-01", "unmapped_amount": "0"}]
+        )
 
         ledger_table = MagicMock()
         ledger_table.select.side_effect = AssertionError("ledger fallback should not run")
@@ -383,10 +423,12 @@ class TestPNLReportService:
                 return summary_table
             if name == "monthly_pnl_ledger_entries":
                 return ledger_table
-            if name == "monthly_pnl_cogs_monthly":
-                return cogs_table
+            if name == "monthly_pnl_import_month_sku_units":
+                return sku_units_table
+            if name == "monthly_pnl_sku_cogs":
+                return sku_cogs_table
             if name == "monthly_pnl_import_months":
-                return import_months_factory()
+                return import_months_table
             return _chain_table()
 
         db.table.side_effect = table_router
@@ -428,17 +470,12 @@ class TestPNLReportService:
 
     def test_manual_model_buckets_roll_into_correct_sections(self):
         profiles_table = _chain_table([FAKE_PROFILE])
-        cogs_table = _chain_table([])
+        sku_units_table = _chain_table([])
+        sku_cogs_table = _chain_table([])
 
-        call_count = {"import_months": 0}
-
-        def import_months_factory():
-            call_count["import_months"] += 1
-            if call_count["import_months"] == 1:
-                return _chain_table([{"id": "im1"}])
-            if call_count["import_months"] == 2:
-                return _chain_table([{"entry_month": "2026-01-01", "unmapped_amount": "0"}])
-            return _chain_table([{"entry_month": "2026-01-01"}])
+        import_months_table = _ImportMonthsTable(
+            [{"id": "im1", "entry_month": "2026-01-01", "unmapped_amount": "0"}]
+        )
 
         rpc_chain = MagicMock()
         rpc_chain.execute.return_value = MagicMock(data=[
@@ -457,10 +494,12 @@ class TestPNLReportService:
         def table_router(name):
             if name == "monthly_pnl_profiles":
                 return profiles_table
-            if name == "monthly_pnl_cogs_monthly":
-                return cogs_table
+            if name == "monthly_pnl_import_month_sku_units":
+                return sku_units_table
+            if name == "monthly_pnl_sku_cogs":
+                return sku_cogs_table
             if name == "monthly_pnl_import_months":
-                return import_months_factory()
+                return import_months_table
             return _chain_table()
 
         db.table.side_effect = table_router
@@ -537,7 +576,7 @@ class TestPNLReportService:
         assert items["total_net_revenue"]["months"]["2026-01-01"] == "92.00"
 
     def test_gross_profit_with_cogs(self):
-        """Gross Profit = Net Revenue - COGS.  COGS uses schema column 'amount'."""
+        """Gross Profit = Net Revenue - (net sold units × fixed SKU cost)."""
         svc = self._make_service()
         report = svc.build_report(
             "p1", filter_mode="range", start_month="2026-01-01", end_month="2026-02-01"
@@ -604,6 +643,7 @@ class TestPNLReportService:
         # Feb has no COGS
         assert "2026-02-01" in cogs_warning["months"]
         assert "2026-01-01" not in cogs_warning["months"]
+        assert "SKU2" in cogs_warning["skus"]
 
     def test_warnings_unmapped(self):
         svc = self._make_service()
