@@ -8,10 +8,13 @@ _Last updated: 2026-03-16 (ET)_
 > pre-computed bucket summary table, concurrent report queries, and frontend
 > import polling are all live. Phases 1, 2, and 4 from the original build order
 > below are complete. Phase 3 (COGS) is now defined as fixed unit cost per SKU
-> with sold quantities derived from the transaction import. The repo code path
-> and migration are in progress; live deployment still needs to happen.
-> Phase 5 (Windsor) is next. See "v2 roadmap" at the bottom for the planned
-> feature sequence.
+> with sold quantities derived from the transaction import. The SKU-based COGS
+> code path, schema migration, report integration, missing-COGS warnings, and
+> settings UI are now implemented in the repo and pushed to `main`. What remains
+> is product/user verification of the end-to-end UX and the calculated results
+> against real client data before calling the workflow fully validated. Phase 5
+> (Windsor) is next. See "v2 roadmap" at the bottom for the planned feature
+> sequence.
 
 This document defines the recommended implementation plan for a new
 client-facing `Monthly P&L` report in Ecomlabs Tools.
@@ -36,7 +39,7 @@ The plan below assumes a deliberate rollout order:
 1. `US` marketplace only
 2. One client-facing Monthly P&L report page under Reporting
 3. Historical backfill via uploaded `Monthly Unified Transaction Report` CSVs
-4. Optional COGS upload flow
+4. Optional SKU-based COGS management flow
 5. Month-based filtering:
    - `YTD`
    - `Last X months`
@@ -59,7 +62,9 @@ The plan below assumes a deliberate rollout order:
 2. The first version should be built from uploaded files, not from Windsor.
 3. The report engine should operate on a normalized internal ledger, not directly on raw CSV columns.
 4. Windsor settlement ingestion should be added later as another source into the same normalized ledger.
-5. `COGS` is external to Amazon and should be handled in a separate upload/import flow.
+5. `COGS` is external to Amazon and should be managed separately from Amazon
+   transaction imports. In v2 that means one fixed unit cost per SKU, with sold
+   quantity derived from imported transaction rows.
 6. The system must preserve raw-source provenance and expose unmapped rows rather than silently dropping money.
 7. Large uploaded transaction files should be accepted once, stored once, and processed asynchronously.
 8. Imports should normalize and version data at the month level even when the uploaded file spans many months.
@@ -144,11 +149,13 @@ Notes:
 3. Windsor settlement is slower/heavier than the current WBR feeds.
 4. Windsor should not become the first implementation path.
 
-### Source C: COGS upload
+### Source C: COGS management
 
 Separate source managed by the agency.
 
 Expected to be optional because not every client has COGS ready at all times.
+Current implementation direction is fixed unit cost per SKU, not a month-lump
+COGS upload.
 
 ## Report model
 
@@ -421,8 +428,9 @@ Notes:
 
 ### 7. `monthly_pnl_cogs_monthly`
 
-Optional COGS source. Table exists but entry workflow is not yet built (see
-v2-4 in the roadmap).
+Historical/month-lump COGS table from the earlier design. It is no longer the
+active recommended path for v2 and is effectively superseded by the SKU-based
+tables below.
 
 Columns:
 
@@ -471,6 +479,63 @@ Notes:
    the `pnl_report_bucket_totals()` RPC if the table query fails.
 2. Rows are inserted during `_insert_bucket_totals()` in `transaction_import.py`
    when each month slice is activated.
+
+### 9. `monthly_pnl_import_month_sku_units`
+
+Derived per-import-month sold unit summaries by SKU. Added in
+`20260317001000_add_monthly_pnl_sku_cogs_and_unit_summaries.sql`.
+
+Columns:
+
+1. `id uuid primary key default gen_random_uuid()`
+2. `import_id uuid not null references monthly_pnl_imports(id) on delete cascade`
+3. `import_month_id uuid not null references monthly_pnl_import_months(id) on delete cascade`
+4. `profile_id uuid not null references monthly_pnl_profiles(id) on delete cascade`
+5. `entry_month date not null`
+6. `sku text not null`
+7. `net_units integer not null`
+8. `order_row_count integer not null default 0`
+9. `refund_row_count integer not null default 0`
+10. `created_at timestamptz not null default now()`
+11. `updated_at timestamptz not null default now()`
+
+Constraints/indexes:
+
+1. unique index on `(import_month_id, sku)`
+2. index on `(profile_id, entry_month, import_month_id)`
+
+Notes:
+
+1. Populated at import time from Amazon transaction rows.
+2. Backfilled for historical imported CSV data.
+3. This is the basis for computed monthly COGS in the report.
+
+### 10. `monthly_pnl_sku_cogs`
+
+Current fixed unit cost per SKU for each profile. Added in
+`20260317001000_add_monthly_pnl_sku_cogs_and_unit_summaries.sql`.
+
+Columns:
+
+1. `id uuid primary key default gen_random_uuid()`
+2. `profile_id uuid not null references monthly_pnl_profiles(id) on delete cascade`
+3. `sku text not null`
+4. `asin text`
+5. `unit_cost numeric(18,4) not null`
+6. `currency_code text not null default 'USD'`
+7. `notes text`
+8. `created_at timestamptz not null default now()`
+9. `updated_at timestamptz not null default now()`
+
+Constraints/indexes:
+
+1. unique index on `(profile_id, sku)`
+2. index on `(profile_id)`
+
+Notes:
+
+1. One current cost per SKU in v2.
+2. No effective-date accounting, FIFO, or LIFO in the current design.
 
 ## Raw-source normalization rules
 
@@ -757,12 +822,13 @@ For the uploaded Monthly Unified Transaction Report:
 3. persist both values on raw rows so future reprocessing remains possible
 4. document this clearly in the UI and validation notes because it affects reconciliation against manual spreadsheets
 
-### COGS upload pipeline
+### COGS workflow
 
-1. Upload month-based COGS file
-2. Validate month/client/marketplace
-3. Store by month and optional SKU/ASIN
-4. Recompute gross profit / net earnings
+1. Derive sold quantity by month + SKU from imported Amazon transaction rows.
+2. Let admins enter one current `unit_cost` per sold SKU in settings.
+3. Compute monthly COGS as `net units sold * unit_cost`.
+4. Show Gross Profit from the available SKU coverage and warn when sold SKUs
+   are missing a configured cost.
 
 ### Windsor pipeline (future)
 
@@ -822,10 +888,10 @@ Minimum requirement:
 
 ## Recommended build order (v1)
 
-> Phases 1, 2, and 4 are complete. Remaining v1 items (COGS workflow, Windsor,
-> CA expansion) plus new features (% view, agency fees, disbursements, Excel
-> export, totals toggle, annual comparison) are tracked in the **v2 roadmap**
-> section below.
+> Phases 1, 2, and 4 are complete. Phase 3 is now implemented in the repo as a
+> SKU-based COGS workflow but still needs user verification against real client
+> data. Windsor, CA expansion, and the remaining enhancements are tracked in the
+> **v2 roadmap** section below.
 
 ### Phase 1: Foundation — SHIPPED
 
@@ -839,13 +905,24 @@ Minimum requirement:
 1. Add Monthly P&L route
 2. Add month filters
 3. Render derived rows
-4. ~~Add Excel export~~ — moved to v2 roadmap item 5
+4. ~~Add Excel export~~ — moved to v2 roadmap item 7
 
-### Phase 3: COGS — TABLE EXISTS, WORKFLOW NOT BUILT
+### Phase 3: COGS — IMPLEMENTED IN REPO, USER VERIFICATION PENDING
 
-1. Add COGS import
-2. Fold COGS into gross profit / net earnings
-3. Add missing-COGS warnings
+Implemented shape:
+
+1. parse and persist sold quantity by import month + SKU from Amazon transaction uploads
+2. store one current fixed `unit_cost` per SKU per profile
+3. compute monthly COGS from `net units sold * unit_cost`
+4. fold COGS into Gross Profit / Net Earnings
+5. show missing-COGS warnings with SKU detail
+6. expose a settings workflow for entering/editing SKU unit costs
+
+Still pending before calling this validated:
+
+1. user verification of the settings UX on real data
+2. user verification that computed COGS totals reconcile to expectation for live client months
+3. decision on whether any CSV import/export helper is needed later for bulk SKU cost entry
 
 ### Phase 4: Validation — SHIPPED
 
@@ -900,7 +977,10 @@ No backend changes, no new tables, no new queries.
 
 ### v2-2: COGS entry workflow — MEDIUM difficulty
 
-The right v2 COGS model is not month-lump entry. It is:
+Current status: implemented in the repo and pushed to `main`, but still pending
+manual product/user verification before it should be called fully validated.
+
+The implemented v2 COGS model is:
 
 1. one current fixed `unit_cost` per SKU
 2. sold quantity derived from Monthly P&L transaction imports
@@ -928,6 +1008,19 @@ Implementation shape:
 4. No effective-month pricing, FIFO, or LIFO in v2. Cost changes simply update
    the current SKU unit cost going forward until the product needs deeper
    accounting behavior.
+
+What is done:
+
+1. importer parses `quantity` and stores derived month+SKU unit summaries
+2. report computes monthly COGS from those summaries plus `monthly_pnl_sku_cogs`
+3. settings UI loads sold SKUs for the visible range and saves unit costs
+4. warning banner calls out sold SKUs missing configured COGS
+
+What still needs verification:
+
+1. confirm the settings UX feels workable with a real client SKU list
+2. confirm reported COGS/Gross Profit values against live expected numbers
+3. decide whether bulk SKU cost entry needs a CSV helper in a later pass
 
 ### v2-3: Windsor settlement backfill — MEDIUM difficulty
 

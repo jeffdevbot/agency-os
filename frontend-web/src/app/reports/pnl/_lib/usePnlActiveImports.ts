@@ -63,8 +63,6 @@ export function usePnlActiveImports(profileId: string | null, monthsInView: stri
         setErrorMessage(null);
       }
     } catch (error) {
-      setAllImports([]);
-      setAllImportMonths([]);
       setErrorMessage(
         error instanceof Error ? error.message : "Unable to load Amazon P&L import history",
       );

@@ -214,6 +214,10 @@ class AmazonAdsSyncService:
         chunk_days: int = DEFAULT_CHUNK_DAYS,
         user_id: str | None = None,
     ) -> dict[str, Any]:
+        today = datetime.now(UTC).date()
+        if date_to > today:
+            raise WBRValidationError("date_to must be less than or equal to today")
+
         profile = self._get_profile(profile_id)
         ads_profile_id = self._require_amazon_ads_profile_id(profile)
         refresh_token = self._require_refresh_token(profile_id)

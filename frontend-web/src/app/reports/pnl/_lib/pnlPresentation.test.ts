@@ -91,6 +91,12 @@ describe("buildPresentedPnlReport", () => {
     expect(result.lineItems.find((item) => item.key === "net_earnings")?.label).toBe(
       "Net Earnings",
     );
+    expect(result.lineItems.find((item) => item.key === "cogs")).toEqual(
+      expect.objectContaining({
+        months: { "2026-01-01": "-40.00" },
+        total_value: "-40.00",
+      }),
+    );
     expect(result.lineItems.find((item) => item.key === "net_margin")).toEqual(
       expect.objectContaining({
         label: "Net Margin (%)",
@@ -199,8 +205,8 @@ describe("buildPresentedPnlReport", () => {
     expect(result.lineItems.find((item) => item.key === "cogs")).toEqual(
       expect.objectContaining({
         display_format: "percent",
-        months: { "2026-01-01": "40.0", "2026-02-01": "40.0" },
-        total_value: "40.0",
+        months: { "2026-01-01": "-40.0", "2026-02-01": "-40.0" },
+        total_value: "-40.0",
       }),
     );
     expect(result.lineItems.find((item) => item.key === "net_margin")).toEqual(

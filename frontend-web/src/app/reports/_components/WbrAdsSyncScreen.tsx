@@ -469,6 +469,7 @@ export default function WbrAdsSyncScreen({ clientSlug, marketplaceCode }: Props)
                   <input
                     type="date"
                     value={sync.backfillStartDate}
+                    max={sync.todayIso}
                     onChange={(event) => sync.setBackfillStartDate(event.target.value)}
                     className="w-full rounded-xl border border-[#c7d8f5] bg-[#f7faff] px-3 py-2 text-sm text-[#0f172a] outline-none ring-[#0a6fd6] focus:ring-2"
                   />
@@ -478,6 +479,7 @@ export default function WbrAdsSyncScreen({ clientSlug, marketplaceCode }: Props)
                   <input
                     type="date"
                     value={sync.backfillEndDate}
+                    max={sync.todayIso}
                     onChange={(event) => sync.setBackfillEndDate(event.target.value)}
                     className="w-full rounded-xl border border-[#c7d8f5] bg-[#f7faff] px-3 py-2 text-sm text-[#0f172a] outline-none ring-[#0a6fd6] focus:ring-2"
                   />

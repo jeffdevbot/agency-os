@@ -14,6 +14,7 @@ type Props = {
   activeImports: PnlActiveImportSummary[];
   loading: boolean;
   errorMessage: string | null;
+  onRetry: () => void;
 };
 
 export default function PnlProvenanceCard({
@@ -21,6 +22,7 @@ export default function PnlProvenanceCard({
   activeImports,
   loading,
   errorMessage,
+  onRetry,
 }: Props) {
   const [visibleCount, setVisibleCount] = useState(6);
 
@@ -45,16 +47,23 @@ export default function PnlProvenanceCard({
       </div>
 
       {errorMessage ? (
-        <p className="mt-4 rounded-xl border border-[#f87171]/40 bg-[#fee2e2] px-4 py-3 text-sm text-[#991b1b]">
-          {errorMessage}
-        </p>
+        <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-[#f87171]/40 bg-[#fee2e2] px-4 py-3 text-sm text-[#991b1b]">
+          <p>{errorMessage}</p>
+          <button
+            type="button"
+            onClick={onRetry}
+            className="rounded-full border border-[#fca5a5] bg-white px-3 py-1 text-xs font-semibold text-[#991b1b] transition hover:border-[#ef4444]"
+          >
+            Retry
+          </button>
+        </div>
       ) : null}
 
-      {monthsInView.length === 0 ? (
+      {!errorMessage && monthsInView.length === 0 ? (
         <p className="mt-4 text-sm text-[#64748b]">
           Import history will appear once the selected date range includes active Amazon P&amp;L data.
         </p>
-      ) : activeImports.length === 0 && !loading ? (
+      ) : !errorMessage && activeImports.length === 0 && !loading ? (
         <p className="mt-4 text-sm text-[#64748b]">
           No active import metadata was found for the months currently in view.
         </p>

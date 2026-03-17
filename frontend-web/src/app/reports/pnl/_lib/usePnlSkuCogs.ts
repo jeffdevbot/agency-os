@@ -42,7 +42,6 @@ export function usePnlSkuCogs(
       const token = await getAccessToken();
       setSkus(await listPnlSkuCogs(token, profileId, startMonth, endMonth));
     } catch (error) {
-      setSkus([]);
       setErrorMessage(error instanceof Error ? error.message : "Unable to load SKU COGS");
     } finally {
       setLoading(false);

@@ -34,6 +34,18 @@ function sumMonths(item: PnlLineItem | PnlPresentedLineItem, months: string[]): 
   return months.reduce((total, month) => total + parseAmount(item.months[month]), 0);
 }
 
+function negateLineItem(item: PnlPresentedLineItem): PnlPresentedLineItem {
+  return {
+    ...item,
+    months: Object.fromEntries(
+      Object.entries(item.months).map(([month, value]) => [
+        month,
+        formatValue(-parseAmount(value), 2),
+      ]),
+    ),
+  };
+}
+
 function buildMarginRow(
   key: "contribution_margin" | "net_margin",
   label: string,
@@ -140,9 +152,11 @@ export function buildPresentedPnlReport(
       : warnings.filter((warning) => warning.type !== "missing_cogs");
 
   const renamedItems = lineItems.map<PnlPresentedLineItem>((item) =>
-    !hasAnyCogs && item.key === "net_earnings"
-      ? { ...item, label: "Contribution Profit" }
-      : item,
+    item.key === "cogs"
+      ? negateLineItem(item)
+      : !hasAnyCogs && item.key === "net_earnings"
+        ? { ...item, label: "Contribution Profit" }
+        : item,
   );
 
   if (!revenueLine || !profitLine) {

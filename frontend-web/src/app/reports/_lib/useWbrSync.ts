@@ -30,6 +30,7 @@ const formatDateInput = (value: Date): string => {
 
 export function useWbrSync(profile: WbrProfile | null) {
   const supabase = useMemo(() => getBrowserSupabaseClient(), []);
+  const todayIso = useMemo(() => formatDateInput(new Date()), []);
   const [runs, setRuns] = useState<WbrSyncRun[]>([]);
   const [section3Runs, setSection3Runs] = useState<WbrSyncRun[]>([]);
   const [loadingRuns, setLoadingRuns] = useState(true);
@@ -128,6 +129,14 @@ export function useWbrSync(profile: WbrProfile | null) {
       setErrorMessage("Choose both a backfill start date and end date.");
       return;
     }
+    if (backfillStartDate > backfillEndDate) {
+      setErrorMessage("Backfill start date must be on or before the end date.");
+      return;
+    }
+    if (backfillEndDate > todayIso) {
+      setErrorMessage("Backfill end date must be today or earlier.");
+      return;
+    }
 
     setRunningBackfill(true);
     setErrorMessage(null);
@@ -150,7 +159,7 @@ export function useWbrSync(profile: WbrProfile | null) {
     } finally {
       setRunningBackfill(false);
     }
-  }, [backfillEndDate, backfillStartDate, chunkDays, getAccessToken, loadRuns, profile]);
+  }, [backfillEndDate, backfillStartDate, chunkDays, getAccessToken, loadRuns, profile, todayIso]);
 
   const handleRunDailyRefresh = useCallback(async () => {
     if (!profile?.id) {
@@ -206,6 +215,7 @@ export function useWbrSync(profile: WbrProfile | null) {
     successMessage,
     backfillStartDate,
     backfillEndDate,
+    todayIso,
     chunkDays,
     setBackfillStartDate,
     setBackfillEndDate,

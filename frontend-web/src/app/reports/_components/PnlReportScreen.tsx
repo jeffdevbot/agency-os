@@ -343,6 +343,7 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
               loading={cogsState.loading}
               saving={cogsState.saving}
               errorMessage={cogsState.errorMessage}
+              onRetry={() => void cogsState.loadSkus()}
               onSave={handleSaveCogs}
             />
             <PnlProvenanceCard
@@ -350,6 +351,7 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
               activeImports={provenanceState.activeImports}
               loading={provenanceState.loading}
               errorMessage={provenanceState.errorMessage}
+              onRetry={() => void provenanceState.loadActiveImports()}
             />
           </div>
         </div>

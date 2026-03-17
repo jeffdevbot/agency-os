@@ -9,6 +9,7 @@ type Props = {
   loading: boolean;
   saving: boolean;
   errorMessage: string | null;
+  onRetry: () => void;
   onSave: (entries: Array<{ sku: string; unit_cost: string | null }>) => Promise<void>;
 };
 
@@ -21,6 +22,7 @@ export default function PnlCogsCard({
   loading,
   saving,
   errorMessage,
+  onRetry,
   onSave,
 }: Props) {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -87,7 +89,7 @@ export default function PnlCogsCard({
         {loading ? <p className="text-sm text-[#64748b]">Loading COGS...</p> : null}
       </div>
 
-      {visibleSkus.length === 0 && !loading ? (
+      {visibleSkus.length === 0 && !loading && !errorMessage ? (
         <p className="mt-4 text-sm text-[#64748b]">
           No sold SKUs were found in the visible report range.
         </p>
@@ -168,9 +170,18 @@ export default function PnlCogsCard({
         </p>
       ) : null}
       {localError || errorMessage ? (
-        <p className="mt-4 rounded-xl border border-[#f87171]/40 bg-[#fee2e2] px-4 py-3 text-sm text-[#991b1b]">
-          {localError ?? errorMessage}
-        </p>
+        <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-[#f87171]/40 bg-[#fee2e2] px-4 py-3 text-sm text-[#991b1b]">
+          <p>{localError ?? errorMessage}</p>
+          {errorMessage && !localError ? (
+            <button
+              type="button"
+              onClick={onRetry}
+              className="rounded-full border border-[#fca5a5] bg-white px-3 py-1 text-xs font-semibold text-[#991b1b] transition hover:border-[#ef4444]"
+            >
+              Retry
+            </button>
+          ) : null}
+        </div>
       ) : null}
     </div>
   );

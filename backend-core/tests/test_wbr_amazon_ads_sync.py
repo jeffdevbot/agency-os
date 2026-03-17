@@ -5,6 +5,7 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import MagicMock
 
+import pytest
 from fastapi.testclient import TestClient
 
 import app.services.wbr.amazon_ads_sync as sync_module
@@ -192,6 +193,28 @@ def test_run_backfill_chunks_requested_range(monkeypatch):
         (date(2026, 3, 8), date(2026, 3, 14), "backfill"),
         (date(2026, 3, 15), date(2026, 3, 15), "backfill"),
     ]
+
+
+def test_run_backfill_rejects_future_end_date(monkeypatch):
+    svc = AmazonAdsSyncService(MagicMock())
+
+    class _FakeDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 3, 13, 12, 0, 0, tzinfo=tz or UTC)
+
+    monkeypatch.setattr(sync_module, "datetime", _FakeDateTime)
+
+    with pytest.raises(WBRValidationError, match="less than or equal to today"):
+        asyncio.run(
+            svc.run_backfill(
+                profile_id="profile-1",
+                date_from=date(2026, 3, 1),
+                date_to=date(2026, 3, 15),
+                chunk_days=7,
+                user_id="user-1",
+            )
+        )
 
 
 def test_run_daily_refresh_uses_profile_rewrite_window(monkeypatch):
