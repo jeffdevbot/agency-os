@@ -31,6 +31,8 @@ CSV_IMPORT_COLUMN_ALIASES = {
     },
 }
 
+_BATCH_SIZE = 500
+
 
 def _decode_csv_text(file_bytes: bytes) -> str:
     for encoding in ("utf-8-sig", "cp1252", "latin-1"):
@@ -188,9 +190,7 @@ class AsinMappingService:
                 "ASIN mapping CSV must include mapped_row_id or mapped_row_label"
             )
 
-        active_child_asins = {
-            item["child_asin"]: item for item in self.list_child_asins(profile_id)
-        }
+        active_child_asins = self._list_active_child_asins(profile_id)
         leaf_rows = self._list_leaf_rows(profile_id)
         active_rows_by_id = {
             str(row["id"]): row
@@ -245,23 +245,36 @@ class AsinMappingService:
         rows_updated = 0
         rows_cleared = 0
         rows_unchanged = 0
+        active_mapping_by_asin = self._list_active_mapping_by_asin(profile_id)
+        mapping_ids_to_deactivate: list[str] = []
+        mapping_payloads_to_insert: list[dict[str, Any]] = []
 
         for child_asin, target_row_id in operations:
-            current = self._get_active_mapping(profile_id, child_asin)
+            current = active_mapping_by_asin.get(child_asin)
             current_row_id = str(current.get("row_id")) if current and current.get("row_id") else None
             if current_row_id == target_row_id:
                 rows_unchanged += 1
                 continue
-            self.set_child_asin_mapping(
-                profile_id=profile_id,
-                child_asin=child_asin,
-                row_id=target_row_id,
-                user_id=user_id,
-            )
+            if current and current.get("id"):
+                mapping_ids_to_deactivate.append(str(current["id"]))
             if target_row_id is None:
                 rows_cleared += 1
             else:
                 rows_updated += 1
+                payload: dict[str, Any] = {
+                    "profile_id": profile_id,
+                    "child_asin": child_asin,
+                    "row_id": target_row_id,
+                    "mapping_source": "manual",
+                    "active": True,
+                }
+                if user_id:
+                    payload["created_by"] = user_id
+                    payload["updated_by"] = user_id
+                mapping_payloads_to_insert.append(payload)
+
+        self._deactivate_mapping_ids(mapping_ids_to_deactivate, user_id=user_id)
+        self._insert_mapping_payloads(mapping_payloads_to_insert)
 
         return {
             "rows_read": len(operations),
@@ -372,6 +385,36 @@ class AsinMappingService:
         )
         return response.data if isinstance(response.data, list) else []
 
+    def _list_active_child_asins(self, profile_id: str) -> set[str]:
+        response = (
+            self.db.table("wbr_profile_child_asins")
+            .select("child_asin")
+            .eq("profile_id", profile_id)
+            .eq("active", True)
+            .execute()
+        )
+        rows = response.data if isinstance(response.data, list) else []
+        return {
+            str(row["child_asin"]).strip().upper()
+            for row in rows
+            if isinstance(row, dict) and row.get("child_asin")
+        }
+
+    def _list_active_mapping_by_asin(self, profile_id: str) -> dict[str, dict[str, Any]]:
+        response = (
+            self.db.table("wbr_asin_row_map")
+            .select("id,child_asin,row_id")
+            .eq("profile_id", profile_id)
+            .eq("active", True)
+            .execute()
+        )
+        rows = response.data if isinstance(response.data, list) else []
+        return {
+            str(row["child_asin"]).strip().upper(): row
+            for row in rows
+            if isinstance(row, dict) and row.get("child_asin")
+        }
+
     def _get_child_asin(self, profile_id: str, child_asin: str) -> dict[str, Any]:
         response = (
             self.db.table("wbr_profile_child_asins")
@@ -416,3 +459,31 @@ class AsinMappingService:
         )
         rows = response.data if isinstance(response.data, list) else []
         return rows[0] if rows else None
+
+    def _deactivate_mapping_ids(self, mapping_ids: list[str], *, user_id: str | None = None) -> None:
+        if not mapping_ids:
+            return
+
+        updates: dict[str, Any] = {"active": False}
+        if user_id:
+            updates["updated_by"] = user_id
+
+        for start in range(0, len(mapping_ids), _BATCH_SIZE):
+            chunk = mapping_ids[start:start + _BATCH_SIZE]
+            (
+                self.db.table("wbr_asin_row_map")
+                .update(updates)
+                .in_("id", chunk)
+                .execute()
+            )
+
+    def _insert_mapping_payloads(self, payloads: list[dict[str, Any]]) -> None:
+        if not payloads:
+            return
+
+        for start in range(0, len(payloads), _BATCH_SIZE):
+            chunk = payloads[start:start + _BATCH_SIZE]
+            response = self.db.table("wbr_asin_row_map").insert(chunk).execute()
+            rows = response.data if isinstance(response.data, list) else []
+            if len(rows) != len(chunk):
+                raise WBRValidationError("Failed to save ASIN mapping")

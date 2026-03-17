@@ -32,6 +32,8 @@ export type ImportWbrChildAsinMappingSummary = {
   rows_unchanged: number;
 };
 
+const ASIN_MAPPING_IMPORT_TIMEOUT_MS = 60_000;
+
 const getBackendUrl = (): string => {
   const url = process.env.NEXT_PUBLIC_BACKEND_URL;
   if (!url) {
@@ -177,34 +179,46 @@ export const importWbrChildAsinMappingCsv = async (
 ): Promise<ImportWbrChildAsinMappingSummary> => {
   const formData = new FormData();
   formData.append("file", file);
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), ASIN_MAPPING_IMPORT_TIMEOUT_MS);
 
-  const response = await fetch(
-    `${getBackendUrl()}/admin/wbr/profiles/${profileId}/child-asins/mapping-import`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-      body: formData,
+  try {
+    const response = await fetch(
+      `${getBackendUrl()}/admin/wbr/profiles/${profileId}/child-asins/mapping-import`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        body: formData,
+        signal: controller.signal,
+      }
+    );
+
+    if (!response.ok) {
+      const detail = await parseErrorDetail(response);
+      throw new Error(detail);
     }
-  );
 
-  if (!response.ok) {
-    const detail = await parseErrorDetail(response);
-    throw new Error(detail);
+    const payload = (await response.json()) as unknown;
+    const summary = isRecord(payload) && isRecord(payload.summary) ? payload.summary : payload;
+    if (!isRecord(summary)) {
+      throw new Error("Invalid ASIN mapping import response");
+    }
+    return {
+      rows_read: typeof summary.rows_read === "number" ? summary.rows_read : 0,
+      rows_updated: typeof summary.rows_updated === "number" ? summary.rows_updated : 0,
+      rows_cleared: typeof summary.rows_cleared === "number" ? summary.rows_cleared : 0,
+      rows_unchanged: typeof summary.rows_unchanged === "number" ? summary.rows_unchanged : 0,
+    };
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error("ASIN mapping import timed out. Please try again.");
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeoutId);
   }
-
-  const payload = (await response.json()) as unknown;
-  const summary = isRecord(payload) && isRecord(payload.summary) ? payload.summary : payload;
-  if (!isRecord(summary)) {
-    throw new Error("Invalid ASIN mapping import response");
-  }
-  return {
-    rows_read: typeof summary.rows_read === "number" ? summary.rows_read : 0,
-    rows_updated: typeof summary.rows_updated === "number" ? summary.rows_updated : 0,
-    rows_cleared: typeof summary.rows_cleared === "number" ? summary.rows_cleared : 0,
-    rows_unchanged: typeof summary.rows_unchanged === "number" ? summary.rows_unchanged : 0,
-  };
 };
 
 export const buildActiveLeafRowOptions = (leafRows: WbrRow[]) => {

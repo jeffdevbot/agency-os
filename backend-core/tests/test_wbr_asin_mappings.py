@@ -15,6 +15,7 @@ def _chain_table(response_data: list[dict] | None = None) -> MagicMock:
     table.select.return_value = table
     table.insert.return_value = table
     table.update.return_value = table
+    table.in_.return_value = table
     table.eq.return_value = table
     table.limit.return_value = table
     table.execute.return_value = MagicMock(data=response_data if response_data is not None else [])
@@ -156,31 +157,23 @@ class TestAsinMappingService:
             {
                 "wbr_profiles": [
                     _chain_table([{"id": "p1"}]),
-                    _chain_table([{"id": "p1"}]),
-                    _chain_table([{"id": "p1"}]),
-                    _chain_table([{"id": "p1"}]),
-                    _chain_table([{"id": "p1"}]),
                 ],
                 "wbr_profile_child_asins": [
                     _chain_table(
                         [
-                            {"id": "a1", "profile_id": "p1", "child_asin": "B012345678", "active": True},
-                            {"id": "a2", "profile_id": "p1", "child_asin": "B012345679", "active": True},
+                            {"child_asin": "B012345678", "active": True},
+                            {"child_asin": "B012345679", "active": True},
                         ]
                     ),
-                    _chain_table([{"child_asin": "B012345678"}]),
-                    _chain_table([{"child_asin": "B012345679"}]),
                 ],
                 "wbr_rows": [
                     _chain_table([{"id": "r1", "row_label": "Row 1", "active": True}]),
-                    _chain_table([{"id": "r1", "profile_id": "p1", "row_kind": "leaf", "row_label": "Row 1", "active": True}]),
-                    _chain_table([{"id": "r1", "profile_id": "p1", "row_kind": "leaf", "row_label": "Row 1", "active": True}]),
                 ],
                 "wbr_asin_row_map": [
-                    _chain_table([]),
-                    _chain_table([{"id": "m1", "child_asin": "B012345678", "row_id": "r1"}]),
-                    _chain_table([{"id": "m2", "child_asin": "B012345679", "row_id": "r2"}]),
-                    _chain_table([{"id": "m2", "active": False}]),
+                    _chain_table([
+                        {"id": "m1", "child_asin": "B012345678", "row_id": "r1"},
+                        {"id": "m2", "child_asin": "B012345679", "row_id": "r2"},
+                    ]),
                     _chain_table([{"id": "m2", "active": False}]),
                 ],
             }
@@ -212,15 +205,12 @@ class TestAsinMappingService:
             {
                 "wbr_profiles": [
                     _chain_table([{"id": "p1"}]),
-                    _chain_table([{"id": "p1"}]),
                 ],
                 "wbr_profile_child_asins": [
-                    _chain_table([{"id": "a1", "profile_id": "p1", "child_asin": "B012345678", "active": True}]),
+                    _chain_table([{"child_asin": "B012345678", "active": True}]),
                 ],
-                "wbr_asin_row_map": [_chain_table([])],
                 "wbr_rows": [
                     _chain_table([{"id": "r1", "row_label": "Row 1", "active": True}]),
-                    _chain_table([{"id": "r1", "profile_id": "p1", "row_kind": "leaf", "row_label": "Row 1", "active": True}]),
                 ],
             }
         )
@@ -245,19 +235,15 @@ class TestAsinMappingService:
             {
                 "wbr_profiles": [
                     _chain_table([{"id": "p1"}]),
-                    _chain_table([{"id": "p1"}]),
                 ],
                 "wbr_profile_child_asins": [
-                    _chain_table([{"id": "a1", "profile_id": "p1", "child_asin": "B012345678", "active": True}]),
-                    _chain_table([{"child_asin": "B012345678"}]),
+                    _chain_table([{"child_asin": "B012345678", "active": True}]),
                 ],
                 "wbr_asin_row_map": [
-                    _chain_table([]),
                     _chain_table([{"id": "m1", "child_asin": "B012345678", "row_id": "r1"}]),
                 ],
                 "wbr_rows": [
                     _chain_table([{"id": "r1", "row_label": "Row 1", "active": True}]),
-                    _chain_table([{"id": "r1", "profile_id": "p1", "row_kind": "leaf", "row_label": "Row 1", "active": True}]),
                 ],
             }
         )
@@ -276,3 +262,48 @@ class TestAsinMappingService:
             "rows_cleared": 0,
             "rows_unchanged": 1,
         }
+
+    def test_import_child_asin_mapping_csv_batches_many_updates(self):
+        rows = "\n".join(
+            f"B{i:09d},Row 1" for i in range(1, 504)
+        )
+        csv_text = f"child_asin,mapped_row_label\n{rows}\n".encode("utf-8")
+
+        child_asins = [{"child_asin": f"B{i:09d}", "active": True} for i in range(1, 504)]
+        mappings = [{"id": f"m{i}", "child_asin": f"B{i:09d}", "row_id": "r2"} for i in range(1, 504)]
+        deactivate_first = _chain_table([{"id": "m1", "active": False}])
+        deactivate_second = _chain_table([{"id": "m501", "active": False}])
+        insert_first = _chain_table([{"id": f"n{i}"} for i in range(1, 501)])
+        insert_second = _chain_table([{"id": "n501"}, {"id": "n502"}, {"id": "n503"}])
+
+        db = _multi_table_db(
+            {
+                "wbr_profiles": [_chain_table([{"id": "p1"}])],
+                "wbr_profile_child_asins": [_chain_table(child_asins)],
+                "wbr_rows": [_chain_table([{"id": "r1", "row_label": "Row 1", "active": True}])],
+                "wbr_asin_row_map": [
+                    _chain_table(mappings),
+                    deactivate_first,
+                    deactivate_second,
+                    insert_first,
+                    insert_second,
+                ],
+            }
+        )
+
+        svc = AsinMappingService(db)
+        summary = svc.import_child_asin_mapping_csv(
+            profile_id="p1",
+            file_name="asin-mapping.csv",
+            file_bytes=csv_text,
+            user_id="u1",
+        )
+
+        assert summary == {
+            "rows_read": 503,
+            "rows_updated": 503,
+            "rows_cleared": 0,
+            "rows_unchanged": 0,
+        }
+        deactivate_first.in_.assert_called_once()
+        deactivate_second.in_.assert_called_once()
