@@ -48,6 +48,12 @@ export default function PnlReportTable({ months, lineItems, showTotals }: Props)
                   : SUMMARY_KEYS.has(item.key)
                     ? "bg-[#f1f5f9]"
                     : "bg-white";
+              const totalCellClass =
+                item.key === "net_earnings"
+                  ? "bg-[#0f172a]"
+                  : SUMMARY_KEYS.has(item.key)
+                    ? "bg-[#f1f5f9]"
+                    : "bg-[#f8fafc]";
 
               return (
                 <tr
@@ -82,7 +88,7 @@ export default function PnlReportTable({ months, lineItems, showTotals }: Props)
                   })}
                   {showTotals ? (
                     <td
-                      className={`whitespace-nowrap border-b border-[#f1f5f9] bg-[#f8fafc] px-3 py-2.5 text-right font-semibold tabular-nums ${amountClass(item.total_value ?? "0.00", item)}`}
+                      className={`whitespace-nowrap border-b border-[#f1f5f9] px-3 py-2.5 text-right font-semibold tabular-nums ${totalCellClass} ${amountClass(item.total_value ?? "0.00", item)}`}
                     >
                       {formatAmount(item.total_value ?? "0.00", item.display_format)}
                     </td>

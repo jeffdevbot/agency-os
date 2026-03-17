@@ -2,6 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { PnlSkuCogs } from "../pnl/_lib/pnlApi";
+import {
+  downloadPnlCogsCsv,
+  parsePnlCogsCsv,
+} from "../pnl/_lib/pnlCogsCsv";
 import { formatMonth } from "../pnl/_lib/pnlDisplay";
 
 type Props = {
@@ -17,6 +21,8 @@ function normalizeCurrencyInput(value: string): string {
   return value.replace(/[^0-9.-]/g, "");
 }
 
+const COLLAPSED_ROW_COUNT = 8;
+
 export default function PnlCogsCard({
   skus,
   loading,
@@ -28,6 +34,10 @@ export default function PnlCogsCard({
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [showAllRows, setShowAllRows] = useState(false);
+  const [selectedCsvFile, setSelectedCsvFile] = useState<File | null>(null);
+  const [importingCsv, setImportingCsv] = useState(false);
+  const [exportingCsv, setExportingCsv] = useState(false);
 
   useEffect(() => {
     setDrafts(
@@ -40,13 +50,23 @@ export default function PnlCogsCard({
     );
   }, [skus]);
 
-  const visibleSkus = useMemo(() => skus, [skus]);
+  useEffect(() => {
+    if (skus.length <= COLLAPSED_ROW_COUNT) {
+      setShowAllRows(false);
+    }
+  }, [skus.length]);
+
+  const allSkus = useMemo(() => skus, [skus]);
+  const visibleSkus = useMemo(
+    () => (showAllRows ? allSkus : allSkus.slice(0, COLLAPSED_ROW_COUNT)),
+    [allSkus, showAllRows],
+  );
 
   const handleSave = async () => {
     setLocalError(null);
     setSaveMessage(null);
 
-    const entries = visibleSkus.map((row) => {
+    const entries = allSkus.map((row) => {
       const raw = drafts[row.sku]?.trim() ?? "";
       if (!raw) {
         return { sku: row.sku, unit_cost: null };
@@ -76,6 +96,80 @@ export default function PnlCogsCard({
     }
   };
 
+  const handleExportCsv = () => {
+    setLocalError(null);
+    setSaveMessage(null);
+
+    if (allSkus.length === 0) {
+      setLocalError("No sold SKUs are available to export in the visible report range.");
+      return;
+    }
+
+    try {
+      setExportingCsv(true);
+      downloadPnlCogsCsv("amazon-pnl-sku-cogs.csv", allSkus);
+      setSaveMessage("Downloaded SKU COGS CSV.");
+    } catch (error) {
+      setLocalError(
+        error instanceof Error ? error.message : "Unable to export SKU COGS CSV.",
+      );
+    } finally {
+      setExportingCsv(false);
+    }
+  };
+
+  const handleImportCsv = async () => {
+    if (!selectedCsvFile) {
+      setLocalError("Choose a CSV file to import.");
+      return;
+    }
+
+    setImportingCsv(true);
+    setLocalError(null);
+    setSaveMessage(null);
+
+    try {
+      const importedEntries = await parsePnlCogsCsv(selectedCsvFile);
+      const allowedSkus = new Set(allSkus.map((row) => row.sku));
+      const unknownSku = importedEntries.find((entry) => !allowedSkus.has(entry.sku));
+      if (unknownSku) {
+        throw new Error(
+          `COGS CSV references ${unknownSku.sku}, which is not in the current visible SKU list.`,
+        );
+      }
+      const importedSkuSet = new Set(importedEntries.map((entry) => entry.sku));
+      const missingSku = allSkus.find((row) => !importedSkuSet.has(row.sku));
+      if (missingSku) {
+        throw new Error(
+          `COGS CSV is missing ${missingSku.sku}. Re-upload the full exported SKU list to rewrite COGS safely.`,
+        );
+      }
+
+      const importedBySku = new Map(importedEntries.map((entry) => [entry.sku, entry]));
+      const rewriteEntries = allSkus.map((row) => {
+        const imported = importedBySku.get(row.sku);
+        if (!imported) {
+          throw new Error(
+            `COGS CSV is missing ${row.sku}. Re-upload the full exported SKU list to rewrite COGS safely.`,
+          );
+        }
+        return imported;
+      });
+
+      await onSave(rewriteEntries);
+      setSelectedCsvFile(null);
+      setSaveMessage(
+        `Imported SKU COGS CSV and rewrote ${rewriteEntries.length} SKU${rewriteEntries.length === 1 ? "" : "s"}.`,
+      );
+    } catch (error) {
+      setLocalError(
+        error instanceof Error ? error.message : "Unable to import SKU COGS CSV.",
+      );
+    } finally {
+      setImportingCsv(false);
+    }
+  };
+
   return (
     <div className="rounded-3xl bg-white/95 p-5 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur md:p-6">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -86,17 +180,53 @@ export default function PnlCogsCard({
             the sold quantity in the visible report range.
           </p>
         </div>
-        {loading ? <p className="text-sm text-[#64748b]">Loading COGS...</p> : null}
+        <div className="flex flex-wrap items-center gap-2">
+          {loading ? <p className="text-sm text-[#64748b]">Loading COGS...</p> : null}
+          <button
+            type="button"
+            onClick={handleExportCsv}
+            disabled={loading || saving || importingCsv || exportingCsv || allSkus.length === 0}
+            className="rounded-xl border border-[#dbe4f0] bg-white px-3 py-2 text-sm font-semibold text-[#0a6fd6] transition hover:border-[#94a3b8] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {exportingCsv ? "Exporting..." : "Export CSV"}
+          </button>
+        </div>
       </div>
 
-      {visibleSkus.length === 0 && !loading && !errorMessage ? (
+      {allSkus.length === 0 && !loading && !errorMessage ? (
         <p className="mt-4 text-sm text-[#64748b]">
           No sold SKUs were found in the visible report range.
         </p>
       ) : null}
 
-      {visibleSkus.length > 0 ? (
+      {allSkus.length > 0 ? (
         <div className="mt-4 space-y-3">
+          <div className="rounded-2xl border border-[#dbe4f0] bg-[#f8fafc] p-4">
+            <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px_auto] md:items-end">
+              <label className="text-sm">
+                <span className="mb-1 block font-semibold text-[#0f172a]">Import CSV</span>
+                <input
+                  type="file"
+                  accept=".csv"
+                  onChange={(event) => setSelectedCsvFile(event.target.files?.[0] ?? null)}
+                  className="block w-full rounded-xl border border-[#dbe4f0] bg-white px-3 py-2 text-sm text-[#0f172a] file:mr-4 file:rounded-lg file:border-0 file:bg-[#0a6fd6] file:px-3 file:py-2 file:text-sm file:font-semibold file:text-white"
+                />
+              </label>
+              <div className="text-xs text-[#64748b] md:pb-2">
+                Re-upload the full exported SKU list to rewrite COGS. Leave `unit_cost` blank to clear it.
+                {selectedCsvFile ? <p className="mt-1">Selected: {selectedCsvFile.name}</p> : null}
+              </div>
+              <button
+                type="button"
+                onClick={() => void handleImportCsv()}
+                disabled={!selectedCsvFile || loading || saving || importingCsv || exportingCsv}
+                className="rounded-xl bg-[#0a6fd6] px-4 py-2 text-sm font-semibold text-white shadow-[0_15px_30px_rgba(10,111,214,0.2)] transition hover:bg-[#0959ab] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {importingCsv ? "Importing..." : "Import CSV"}
+              </button>
+            </div>
+          </div>
+
           {visibleSkus.map((row) => (
             <div
               key={row.sku}
@@ -147,6 +277,18 @@ export default function PnlCogsCard({
               </div>
             </div>
           ))}
+
+          {allSkus.length > COLLAPSED_ROW_COUNT ? (
+            <button
+              type="button"
+              onClick={() => setShowAllRows((current) => !current)}
+              className="rounded-xl border border-[#dbe4f0] bg-white px-4 py-2 text-sm font-semibold text-[#475569] transition hover:border-[#94a3b8] hover:text-[#0f172a]"
+            >
+              {showAllRows
+                ? `Show fewer SKUs`
+                : `See more (${allSkus.length - COLLAPSED_ROW_COUNT} more)`}
+            </button>
+          ) : null}
 
           <div className="flex flex-wrap items-center gap-3">
             <button
