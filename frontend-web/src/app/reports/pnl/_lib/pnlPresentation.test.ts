@@ -217,4 +217,64 @@ describe("buildPresentedPnlReport", () => {
       }),
     );
   });
+
+  it("uses total gross revenue as the denominator for refund rows in percent view", () => {
+    const result = buildPresentedPnlReport(
+      ["2026-01-01", "2026-02-01"],
+      [
+        {
+          key: "total_gross_revenue",
+          label: "Total Gross Revenue",
+          category: "summary",
+          is_derived: true,
+          months: { "2026-01-01": "100.00", "2026-02-01": "200.00" },
+        },
+        {
+          key: "total_refunds",
+          label: "Total Refunds & Adjustments",
+          category: "summary",
+          is_derived: true,
+          months: { "2026-01-01": "-10.00", "2026-02-01": "-20.00" },
+        },
+        {
+          key: "total_net_revenue",
+          label: "Total Net Revenue",
+          category: "summary",
+          is_derived: true,
+          months: { "2026-01-01": "90.00", "2026-02-01": "180.00" },
+        },
+        {
+          key: "referral_fees",
+          label: "Referral Fees",
+          category: "expenses",
+          is_derived: false,
+          months: { "2026-01-01": "-15.00", "2026-02-01": "-30.00" },
+        },
+        {
+          key: "net_earnings",
+          label: "Net Earnings",
+          category: "summary",
+          is_derived: true,
+          months: { "2026-01-01": "15.00", "2026-02-01": "30.00" },
+        },
+      ],
+      [],
+      "percent",
+    );
+
+    expect(result.lineItems.find((item) => item.key === "total_refunds")).toEqual(
+      expect.objectContaining({
+        display_format: "percent",
+        months: { "2026-01-01": "-10.0", "2026-02-01": "-10.0" },
+        total_value: "-10.0",
+      }),
+    );
+    expect(result.lineItems.find((item) => item.key === "referral_fees")).toEqual(
+      expect.objectContaining({
+        display_format: "percent",
+        months: { "2026-01-01": "-16.7", "2026-02-01": "-16.7" },
+        total_value: "-16.7",
+      }),
+    );
+  });
 });

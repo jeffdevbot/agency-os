@@ -36,6 +36,16 @@ CURRENCY_KEYS_IN_PERCENT_VIEW = {
     "total_gross_revenue",
     "total_net_revenue",
 }
+GROSS_REVENUE_PERCENT_KEYS = {
+    "refunds",
+    "fba_inventory_credit",
+    "shipping_credit_refunds",
+    "gift_wrap_credit_refunds",
+    "promotional_rebates",
+    "a_to_z_guarantee_claims",
+    "chargebacks",
+    "total_refunds",
+}
 
 ZERO_TOLERANCE = Decimal("0.000001")
 
@@ -112,6 +122,7 @@ def _build_presented_line_items(
 ) -> list[PresentedLineItem]:
     cogs_line = next((item for item in line_items if item.get("key") == "cogs"), None)
     revenue_line = next((item for item in line_items if item.get("key") == "total_net_revenue"), None)
+    gross_revenue_line = next((item for item in line_items if item.get("key") == "total_gross_revenue"), None)
     profit_line = next((item for item in line_items if item.get("key") == "net_earnings"), None)
     has_any_cogs = _has_any_cogs(months, cogs_line)
 
@@ -153,11 +164,6 @@ def _build_presented_line_items(
     if mode == "dollars" or not revenue_line:
         return renamed_items
 
-    revenue_months = {
-        month: _to_decimal(revenue_line.get("months", {}).get(month))
-        for month in months
-    }
-    total_revenue = _line_total(revenue_months, months)
     percent_items: list[PresentedLineItem] = []
     for item in renamed_items:
         if item.display_format == "percent":
@@ -167,13 +173,28 @@ def _build_presented_line_items(
             percent_items.append(item)
             continue
 
+        denominator_line = (
+            gross_revenue_line
+            if item.key in GROSS_REVENUE_PERCENT_KEYS and gross_revenue_line is not None
+            else revenue_line
+        )
+        denominator_months = {
+            month: _to_decimal(denominator_line.get("months", {}).get(month))
+            for month in months
+        }
+        denominator_total = _line_total(denominator_months, months)
+
         percent_months: dict[str, Decimal] = {}
         for month in months:
-            revenue = revenue_months.get(month, Decimal("0"))
+            revenue = denominator_months.get(month, Decimal("0"))
             amount = item.months.get(month, Decimal("0"))
             percent_months[month] = Decimal("0") if revenue == 0 else ((amount / revenue) * Decimal("100"))
 
-        total_percent = Decimal("0") if total_revenue == 0 else ((_line_total(item.months, months) / total_revenue) * Decimal("100"))
+        total_percent = (
+            Decimal("0")
+            if denominator_total == 0
+            else ((_line_total(item.months, months) / denominator_total) * Decimal("100"))
+        )
         percent_items.append(
             PresentedLineItem(
                 key=item.key,
@@ -259,21 +280,36 @@ def build_pnl_workbook(
         )
 
         currency_symbol = "$" if currency_code.upper() in {"USD", "CAD"} else ""
-        currency_num_format = f'{currency_symbol}#,##0.00;[Red]-{currency_symbol}#,##0.00' if currency_symbol else '#,##0.00;[Red]-#,##0.00'
-        summary_currency_num_format = f'{currency_symbol}#,##0.00;[Red]-{currency_symbol}#,##0.00' if currency_symbol else '#,##0.00;[Red]-#,##0.00'
+        currency_num_format = (
+            f'{currency_symbol}#,##0.00;({currency_symbol}#,##0.00)'
+            if currency_symbol
+            else '#,##0.00;(#,##0.00)'
+        )
+        summary_currency_num_format = currency_num_format
         currency_fmt = workbook.add_format({"num_format": currency_num_format, "align": "right", "border": 1})
         summary_currency_fmt = workbook.add_format(
             {"num_format": summary_currency_num_format, "align": "right", "border": 1, "bold": True, "bg_color": "#f1f5f9"}
         )
         net_currency_fmt = workbook.add_format(
-            {"num_format": f'{currency_symbol}#,##0.00;-{currency_symbol}#,##0.00' if currency_symbol else '#,##0.00;-#,##0.00', "align": "right", "border": 1, "bold": True, "bg_color": "#0f172a", "font_color": "white"}
+            {
+                "num_format": (
+                    f'{currency_symbol}#,##0.00;({currency_symbol}#,##0.00)'
+                    if currency_symbol
+                    else '#,##0.00;(#,##0.00)'
+                ),
+                "align": "right",
+                "border": 1,
+                "bold": True,
+                "bg_color": "#0f172a",
+                "font_color": "white",
+            }
         )
-        percent_fmt = workbook.add_format({"num_format": "0.0%;[Red]-0.0%", "align": "right", "border": 1})
+        percent_fmt = workbook.add_format({"num_format": "0.0%;(0.0%)", "align": "right", "border": 1})
         summary_percent_fmt = workbook.add_format(
-            {"num_format": "0.0%;[Red]-0.0%", "align": "right", "border": 1, "bold": True, "bg_color": "#f1f5f9"}
+            {"num_format": "0.0%;(0.0%)", "align": "right", "border": 1, "bold": True, "bg_color": "#f1f5f9"}
         )
         net_percent_fmt = workbook.add_format(
-            {"num_format": "0.0%;-0.0%", "align": "right", "border": 1, "bold": True, "bg_color": "#0f172a", "font_color": "white"}
+            {"num_format": "0.0%;(0.0%)", "align": "right", "border": 1, "bold": True, "bg_color": "#0f172a", "font_color": "white"}
         )
 
         _write_pnl_sheet(

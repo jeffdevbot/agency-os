@@ -34,17 +34,20 @@ export function formatMonth(iso: string): string {
 export function formatAmount(value: string, format: PnlValueFormat = "currency"): string {
   const n = parseFloat(value);
   if (Number.isNaN(n)) return value;
+  const absolute = Math.abs(n);
   if (format === "percent") {
-    return `${n.toLocaleString("en-US", {
+    const formatted = `${absolute.toLocaleString("en-US", {
       minimumFractionDigits: 1,
       maximumFractionDigits: 1,
     })}%`;
+    return n < 0 ? `(${formatted})` : formatted;
   }
-  return n.toLocaleString("en-US", {
+  const formatted = absolute.toLocaleString("en-US", {
     style: "currency",
     currency: "USD",
     minimumFractionDigits: 2,
   });
+  return n < 0 ? `(${formatted})` : formatted;
 }
 
 export function formatMonthList(months: PnlImportMonth[]): string {
@@ -70,8 +73,8 @@ export function lineItemRowClass(item: PnlPresentedLineItem): string {
 export function amountClass(value: string, item: PnlPresentedLineItem): string {
   const n = parseFloat(value);
   if (Number.isNaN(n) || n === 0) return "text-[#94a3b8]";
-  if (item.key === "net_earnings") return n < 0 ? "text-[#fca5a5]" : "text-white";
-  return n < 0 ? "text-[#ef4444]" : "text-[#0f172a]";
+  if (item.key === "net_earnings") return "text-white";
+  return "text-[#0f172a]";
 }
 
 export function currentMonthISO(): string {

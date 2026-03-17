@@ -17,24 +17,24 @@ type Props = {
 
 export default function PnlReportTable({ months, lineItems, showTotals }: Props) {
   return (
-    <div className="rounded-3xl bg-white/95 p-4 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur md:p-5">
+    <div className="rounded-3xl bg-white/95 p-3 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur md:p-3.5">
       <div className="overflow-x-auto">
-        <table className="min-w-max border-separate border-spacing-0 text-[13px] leading-tight md:text-sm">
+        <table className="min-w-max border-separate border-spacing-0 text-[12px] leading-tight md:text-[13px]">
           <thead>
             <tr className="border-b border-[#e2e8f0]">
-              <th className="sticky left-0 z-20 min-w-[220px] border-b border-[#e2e8f0] bg-[#f7faff] px-3 py-2.5 text-left font-semibold text-[#334155] md:min-w-[240px]">
+              <th className="sticky left-0 z-20 min-w-[196px] border-b border-[#e2e8f0] bg-[#f7faff] px-2.5 py-2 text-left font-semibold text-[#334155] md:min-w-[208px]">
                 Line Item
               </th>
               {months.map((month) => (
                 <th
                   key={month}
-                  className="whitespace-nowrap border-b border-[#e2e8f0] bg-white px-2 py-2.5 text-right font-semibold text-[#334155] md:px-2.5"
+                  className="whitespace-nowrap border-b border-[#e2e8f0] bg-white px-1.5 py-2 text-right font-semibold text-[#334155] md:px-2"
                 >
                   {formatMonth(month)}
                 </th>
               ))}
               {showTotals ? (
-                <th className="whitespace-nowrap border-b border-[#e2e8f0] bg-[#f7faff] px-2 py-2.5 text-right font-semibold text-[#334155] md:px-2.5">
+                <th className="whitespace-nowrap border-b border-[#e2e8f0] bg-[#f7faff] px-1.5 py-2 text-right font-semibold text-[#334155] md:px-2">
                   Total
                 </th>
               ) : null}
@@ -61,7 +61,7 @@ export default function PnlReportTable({ months, lineItems, showTotals }: Props)
                   className={`border-b border-[#f1f5f9] ${lineItemRowClass(item)}`}
                 >
                   <td
-                    className={`sticky left-0 z-10 min-w-[220px] border-b border-[#f1f5f9] px-3 py-2 text-left shadow-[8px_0_14px_-10px_rgba(15,23,42,0.24)] md:min-w-[240px] ${stickyCellClass}`}
+                    className={`sticky left-0 z-10 min-w-[196px] border-b border-[#f1f5f9] px-2.5 py-1.5 text-left shadow-[8px_0_14px_-10px_rgba(15,23,42,0.24)] md:min-w-[208px] ${stickyCellClass}`}
                   >
                   <span
                     className={
@@ -80,7 +80,7 @@ export default function PnlReportTable({ months, lineItems, showTotals }: Props)
                     return (
                       <td
                         key={month}
-                        className={`whitespace-nowrap border-b border-[#f1f5f9] px-2 py-2 text-right tabular-nums md:px-2.5 ${amountClass(value, item)}`}
+                        className={`whitespace-nowrap border-b border-[#f1f5f9] px-1.5 py-1.5 text-right tabular-nums md:px-2 ${amountClass(value, item)}`}
                       >
                         {formatAmount(value, item.display_format)}
                       </td>
@@ -88,7 +88,7 @@ export default function PnlReportTable({ months, lineItems, showTotals }: Props)
                   })}
                   {showTotals ? (
                     <td
-                      className={`whitespace-nowrap border-b border-[#f1f5f9] px-2 py-2 text-right font-semibold tabular-nums md:px-2.5 ${totalCellClass} ${amountClass(item.total_value ?? "0.00", item)}`}
+                      className={`whitespace-nowrap border-b border-[#f1f5f9] px-1.5 py-1.5 text-right font-semibold tabular-nums md:px-2 ${totalCellClass} ${amountClass(item.total_value ?? "0.00", item)}`}
                     >
                       {formatAmount(item.total_value ?? "0.00", item.display_format)}
                     </td>

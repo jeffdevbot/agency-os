@@ -20,6 +20,16 @@ const CURRENCY_KEYS_IN_PERCENT_VIEW = new Set([
   "total_gross_revenue",
   "total_net_revenue",
 ]);
+const GROSS_REVENUE_PERCENT_KEYS = new Set([
+  "refunds",
+  "fba_inventory_credit",
+  "shipping_credit_refunds",
+  "gift_wrap_credit_refunds",
+  "promotional_rebates",
+  "a_to_z_guarantee_claims",
+  "chargebacks",
+  "total_refunds",
+]);
 
 function parseAmount(value: string | undefined): number {
   const parsed = Number.parseFloat(value ?? "0");
@@ -113,6 +123,7 @@ function buildViewItems(
   months: string[],
   lineItems: PnlPresentedLineItem[],
   revenueLine: PnlLineItem | undefined,
+  grossRevenueLine: PnlLineItem | undefined,
 ): PnlPresentedLineItem[] {
   if (mode === "dollars" || !revenueLine) {
     return lineItems.map((item) =>
@@ -129,7 +140,11 @@ function buildViewItems(
     if (CURRENCY_KEYS_IN_PERCENT_VIEW.has(item.key)) {
       return withCurrencyTotal(item, months);
     }
-    return toPercentOfRevenue(item, months, revenueLine);
+    const denominatorLine =
+      GROSS_REVENUE_PERCENT_KEYS.has(item.key) && grossRevenueLine
+        ? grossRevenueLine
+        : revenueLine;
+    return toPercentOfRevenue(item, months, denominatorLine);
   });
 }
 
@@ -141,6 +156,7 @@ export function buildPresentedPnlReport(
 ): PresentedReport {
   const cogsLine = lineItems.find((item) => item.key === "cogs");
   const revenueLine = lineItems.find((item) => item.key === "total_net_revenue");
+  const grossRevenueLine = lineItems.find((item) => item.key === "total_gross_revenue");
   const profitLine = lineItems.find((item) => item.key === "net_earnings");
   const hasAnyCogs = months.some(
     (month) => Math.abs(parseAmount(cogsLine?.months[month])) > ZERO_TOLERANCE,
@@ -161,7 +177,7 @@ export function buildPresentedPnlReport(
 
   if (!revenueLine || !profitLine) {
     return {
-      lineItems: buildViewItems(mode, months, renamedItems, revenueLine),
+      lineItems: buildViewItems(mode, months, renamedItems, revenueLine, grossRevenueLine),
       warnings: visibleWarnings,
       profitMode: hasAnyCogs ? "net" : "contribution",
     };
@@ -181,7 +197,7 @@ export function buildPresentedPnlReport(
   );
 
   return {
-    lineItems: buildViewItems(mode, months, itemsWithMargin, revenueLine),
+    lineItems: buildViewItems(mode, months, itemsWithMargin, revenueLine, grossRevenueLine),
     warnings: visibleWarnings,
     profitMode: hasAnyCogs ? "net" : "contribution",
   };

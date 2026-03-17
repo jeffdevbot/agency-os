@@ -376,7 +376,7 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
       ) : null}
 
       {profile && showSettings ? (
-        <div className="rounded-3xl bg-white/95 p-4 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur md:p-5">
+        <div className="rounded-3xl bg-white/95 p-3.5 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur md:p-4">
           <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
             <div>
               <h2 className="text-lg font-semibold text-[#0f172a]">Amazon P&amp;L settings</h2>

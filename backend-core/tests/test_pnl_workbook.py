@@ -121,6 +121,9 @@ def test_build_pnl_workbook_generates_dollar_and_percent_tabs(tmp_path: Path):
         referral_fees_row = _find_row(percent_sheet, "Referral Fees")
         assert round(float(percent_sheet.cell(row=referral_fees_row, column=2).value), 4) == round(-15 / 90, 4)
 
+        total_refunds_row = _find_row(percent_sheet, "Total Refunds & Adjustments")
+        assert round(float(percent_sheet.cell(row=total_refunds_row, column=2).value), 4) == round(-10 / 100, 4)
+
         product_sales_row = _find_row(percent_sheet, "Product Sales")
         assert percent_sheet.cell(row=product_sales_row, column=2).value == 100
     finally:
