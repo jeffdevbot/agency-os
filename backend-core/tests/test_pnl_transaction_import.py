@@ -50,6 +50,24 @@ SAMPLE_CSV = (
     '"Released","Feb 12, 2026"\n'
 )
 
+CA_SAMPLE_CSV = (
+    '"Includes Amazon Marketplace, Fulfillment by Amazon (FBA), and Amazon Webstore transactions"\n'
+    '"All amounts in CAD, unless specified"\n'
+    '"date/time","settlement id","type","order id","sku","description","quantity","marketplace",'
+    '"fulfillment","order city","order state","order postal","tax collection model","product sales",'
+    '"product sales tax","shipping credits","shipping credits tax","gift wrap credits",'
+    '"gift wrap credits tax","Regulatory fee","Tax on regulatory fee","promotional rebates",'
+    '"promotional rebates tax","marketplace withheld tax","selling fees","fba fees",'
+    '"other transaction fees","other","total","Transaction status","Transaction Release Date"\n'
+    '"Feb 1, 2026 12:02:19 a.m. PST","25462286111","Order","701-9330206-0021017","1FGAMZDUO",'
+    '"WHOOSH","1","amazon.ca","Amazon","Brantford","Ontario","N3T 0H","","19.99","2.60","0","0",'
+    '"0","0","0","0","0","0","0","-3.39","-7.19","-0.09","0","11.92","Released",'
+    '"Feb 1, 2026 12:02:19 a.m. PST"\n'
+    '"Feb 1, 2026 4:55:06 p.m. PST","25462286111","Service Fee","","","Cost of advertising","","amazon.ca",'
+    '"Amazon","","","","","0","0","0","0","0","0","0","0","0","0","0","0","0","-501.16",'
+    '"-65.15","-566.31","Released","Feb 1, 2026 4:55:06 p.m. PST"\n'
+)
+
 
 def _make_rules() -> list[MappingRule]:
     return [
@@ -146,6 +164,18 @@ class TestParseTransactionCSV:
 
 
 class TestParseRawRows:
+    def test_parses_ca_style_timestamps_and_extra_columns(self):
+        header_values, header_map, data_rows = parse_transaction_csv(CA_SAMPLE_CSV.encode("utf-8"))
+        raw_rows = parse_raw_rows(header_values, header_map, data_rows)
+
+        assert len(raw_rows) == 2
+        assert raw_rows[0].posted_at == datetime(2026, 2, 1, 0, 2, 19, tzinfo=UTC)
+        assert raw_rows[0].release_at == datetime(2026, 2, 1, 0, 2, 19, tzinfo=UTC)
+        assert raw_rows[0].entry_month == date(2026, 2, 1)
+        assert raw_rows[0].quantity == 1
+        assert raw_rows[1].posted_at == datetime(2026, 2, 1, 16, 55, 6, tzinfo=UTC)
+        assert raw_rows[1].entry_month == date(2026, 2, 1)
+
     def test_parses_amazon_release_datetime_with_timezone_abbreviation(self):
         csv_with_release_ts = (
             '"date/time","type","order id","sku","description","product sales","total","Transaction Status","Transaction Release Date"\n'
@@ -272,7 +302,26 @@ class TestMappingRules:
         match = find_matching_rule(rules, "Service Fee", "Cost of Advertising", profile_id="profile-abc")
         assert match is not None
         assert match.id == "profile-1"
-        assert match.target_bucket == "other_transaction_fees"
+
+    def test_exact_fields_match_is_case_insensitive(self):
+        rules = _make_rules()
+
+        advertising = find_matching_rule(rules, "Service Fee", "Cost of advertising")
+        assert advertising is not None
+        assert advertising.target_bucket == "advertising"
+
+        amazon_fees_rule = MappingRule(
+            id="rule-amazon-fees",
+            profile_id=None,
+            source_type="amazon_transaction_upload",
+            match_spec={"type": "Amazon Fees"},
+            match_operator="exact_fields",
+            target_bucket="promotions_fees",
+            priority=30,
+        )
+        coupon_fee = find_matching_rule([amazon_fees_rule], "Amazon fees", "Coupon participation fee")
+        assert coupon_fee is not None
+        assert coupon_fee.target_bucket == "promotions_fees"
 
     def test_contains_operator(self):
         rule = MappingRule(
@@ -696,6 +745,30 @@ class TestSkuUnitAggregation:
         assert len(other_fees) == 1
         assert other_fees[0].amount == Decimal("-2.00")
         assert other_fees[0].is_mapped is True
+
+    def test_ca_regulatory_fee_columns_surface_as_unmapped(self):
+        raw_row = ParsedRawRow(
+            row_index=10,
+            posted_at=datetime(2026, 2, 1, tzinfo=UTC),
+            release_at=datetime(2026, 2, 1, tzinfo=UTC),
+            order_id="701-CA-FEE",
+            sku="SKU-CA",
+            raw_type="Order",
+            raw_description="CA regulatory fee sample",
+            entry_month=date(2026, 2, 1),
+            amounts={
+                "product_sales": Decimal("19.99"),
+                "regulatory_fee": Decimal("-0.45"),
+                "tax_on_regulatory_fee": Decimal("-0.05"),
+            },
+            raw_payload={},
+        )
+
+        entries = expand_raw_row_to_ledger(raw_row, _make_rules(), None)
+        buckets = {e.ledger_bucket: e.amount for e in entries}
+
+        assert buckets["product_sales"] == Decimal("19.99")
+        assert buckets["unmapped"] == Decimal("-0.50")
 
 
 # ── Service integration tests (mocked DB) ────────────────────────────

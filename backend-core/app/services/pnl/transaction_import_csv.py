@@ -26,6 +26,8 @@ HEADER_ALIASES: dict[str, set[str]] = {
     "shipping_credits_tax": {"shippingcreditstax", "shipping credits tax"},
     "gift_wrap_credits": {"giftwrapcredits", "gift wrap credits"},
     "giftwrap_credits_tax": {"giftwrapcreditstax", "giftwrap credits tax"},
+    "regulatory_fee": {"regulatoryfee", "regulatory fee"},
+    "tax_on_regulatory_fee": {"taxonregulatoryfee", "tax on regulatory fee"},
     "promotional_rebates": {"promotionalrebates", "promotional rebates"},
     "promotional_rebates_tax": {"promotionalrebatestax", "promotional rebates tax"},
     "marketplace_withheld_tax": {"marketplacewithheldtax", "marketplace withheld tax"},
@@ -48,6 +50,11 @@ COLUMN_BUCKET_MAP: dict[str, str] = {
     "fba_fees": "fba_fees",
     "other_transaction_fees": "other_transaction_fees",
 }
+
+UNMAPPED_AMOUNT_COLUMNS: tuple[str, ...] = (
+    "regulatory_fee",
+    "tax_on_regulatory_fee",
+)
 
 UTF16_BOMS = (b"\xff\xfe", b"\xfe\xff")
 
@@ -100,9 +107,15 @@ def _parse_datetime(value: str) -> datetime | None:
     if not raw:
         return None
 
-    candidates = [raw]
-    tz_stripped = re.sub(r"\s+[A-Z]{2,5}$", "", raw)
-    if tz_stripped != raw:
+    normalized = re.sub(
+        r"(?i)\b(a|p)\.?\s*m\.?(?=\s|$)",
+        lambda match: f"{match.group(1).upper()}M",
+        raw,
+    )
+
+    candidates = [normalized]
+    tz_stripped = re.sub(r"\s+[A-Z]{2,5}$", "", normalized)
+    if tz_stripped != normalized:
         candidates.append(tz_stripped)
 
     for candidate in candidates:
@@ -194,7 +207,7 @@ def parse_raw_rows(
         entry_month = _entry_month_from_dt(canonical_dt) if canonical_dt else None
 
         amounts: dict[str, Decimal] = {}
-        for col_name in COLUMN_BUCKET_MAP:
+        for col_name in tuple(COLUMN_BUCKET_MAP) + UNMAPPED_AMOUNT_COLUMNS:
             val = _parse_decimal(_pick(row, header_map, col_name))
             if val != 0:
                 amounts[col_name] = val

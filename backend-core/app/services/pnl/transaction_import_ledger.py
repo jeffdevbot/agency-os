@@ -4,39 +4,46 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from .transaction_import_csv import COLUMN_BUCKET_MAP
+from .transaction_import_csv import COLUMN_BUCKET_MAP, UNMAPPED_AMOUNT_COLUMNS
 from .transaction_import_models import LedgerEntry, MappingRule, ParsedRawRow
+
+
+def _normalized_match_value(value: str | None) -> str:
+    return (value or "").strip().casefold()
 
 
 def _match_rule(rule: MappingRule, raw_type: str | None, raw_description: str | None) -> bool:
     spec = rule.match_spec
     if rule.match_operator == "exact_fields":
         for key, expected_val in spec.items():
+            expected = _normalized_match_value(str(expected_val))
             if key == "type":
-                if (raw_type or "").strip() != expected_val:
+                if _normalized_match_value(raw_type) != expected:
                     return False
             elif key == "description":
-                if (raw_description or "").strip() != expected_val:
+                if _normalized_match_value(raw_description) != expected:
                     return False
             else:
                 return False
         return True
     if rule.match_operator == "contains":
         for key, expected_val in spec.items():
+            expected = _normalized_match_value(str(expected_val))
             if key == "type":
-                if expected_val.lower() not in (raw_type or "").lower():
+                if expected not in _normalized_match_value(raw_type):
                     return False
             elif key == "description":
-                if expected_val.lower() not in (raw_description or "").lower():
+                if expected not in _normalized_match_value(raw_description):
                     return False
         return True
     if rule.match_operator == "starts_with":
         for key, expected_val in spec.items():
+            expected = _normalized_match_value(str(expected_val))
             if key == "type":
-                if not (raw_type or "").lower().startswith(expected_val.lower()):
+                if not _normalized_match_value(raw_type).startswith(expected):
                     return False
             elif key == "description":
-                if not (raw_description or "").lower().startswith(expected_val.lower()):
+                if not _normalized_match_value(raw_description).startswith(expected):
                     return False
         return True
     return False
@@ -157,6 +164,24 @@ def expand_raw_row_to_ledger(
     else:
         is_refund = normalized_type == "Refund"
         for col_name, amount in raw_row.amounts.items():
+            if col_name in UNMAPPED_AMOUNT_COLUMNS:
+                entries.append(
+                    LedgerEntry(
+                        entry_month=raw_row.entry_month,
+                        posted_at=raw_row.posted_at,
+                        order_id=raw_row.order_id,
+                        sku=raw_row.sku,
+                        raw_type=raw_type,
+                        raw_description=raw_description,
+                        ledger_bucket="unmapped",
+                        amount=amount,
+                        is_mapped=False,
+                        mapping_rule_id=None,
+                        source_row_index=raw_row.row_index,
+                    )
+                )
+                continue
+
             if col_name == "other":
                 if normalized_type == "Order":
                     bucket = "other_transaction_fees"
