@@ -277,4 +277,51 @@ describe("buildPresentedPnlReport", () => {
       }),
     );
   });
+
+  it("appends payout rows after the profit rows and keeps payout dollars visible in percent view", () => {
+    const result = buildPresentedPnlReport(
+      ["2026-01-01", "2026-02-01"],
+      [
+        {
+          key: "total_net_revenue",
+          label: "Total Net Revenue",
+          category: "summary",
+          is_derived: true,
+          months: { "2026-01-01": "100.00", "2026-02-01": "200.00" },
+        },
+        {
+          key: "net_earnings",
+          label: "Net Earnings",
+          category: "summary",
+          is_derived: true,
+          months: { "2026-01-01": "25.00", "2026-02-01": "50.00" },
+        },
+        {
+          key: "payout_amount",
+          label: "Payout ($)",
+          category: "summary",
+          is_derived: true,
+          months: { "2026-01-01": "40.00", "2026-02-01": "100.00" },
+        },
+      ],
+      [],
+      "percent",
+    );
+
+    const keys = result.lineItems.map((item) => item.key);
+    expect(keys.slice(-3)).toEqual(["contribution_margin", "payout_amount", "payout_percent"]);
+    expect(result.lineItems.find((item) => item.key === "payout_amount")).toEqual(
+      expect.objectContaining({
+        months: { "2026-01-01": "40.00", "2026-02-01": "100.00" },
+        total_value: "140.00",
+      }),
+    );
+    expect(result.lineItems.find((item) => item.key === "payout_percent")).toEqual(
+      expect.objectContaining({
+        display_format: "percent",
+        months: { "2026-01-01": "40.0", "2026-02-01": "50.0" },
+        total_value: "46.7",
+      }),
+    );
+  });
 });

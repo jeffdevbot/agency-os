@@ -25,6 +25,8 @@ SUMMARY_KEYS = {
     "cogs",
     "contribution_margin",
     "net_margin",
+    "payout_amount",
+    "payout_percent",
 }
 
 CURRENCY_KEYS_IN_PERCENT_VIEW = {
@@ -35,6 +37,7 @@ CURRENCY_KEYS_IN_PERCENT_VIEW = {
     "fba_liquidation_proceeds",
     "total_gross_revenue",
     "total_net_revenue",
+    "payout_amount",
 }
 GROSS_REVENUE_PERCENT_KEYS = {
     "refunds",
@@ -115,6 +118,35 @@ def _build_margin_row(
     )
 
 
+def _build_payout_percent_row(
+    months: list[str],
+    payout_line: PresentedLineItem,
+    revenue_line: dict[str, Any],
+) -> PresentedLineItem:
+    month_values: dict[str, Decimal] = {}
+    for month in months:
+        revenue = _to_decimal(revenue_line["months"].get(month))
+        payout = payout_line.months.get(month, Decimal("0"))
+        month_values[month] = Decimal("0") if revenue == 0 else ((payout / revenue) * Decimal("100"))
+
+    total_revenue = _line_total(
+        {month: _to_decimal(revenue_line["months"].get(month)) for month in months},
+        months,
+    )
+    total_payout = _line_total(payout_line.months, months)
+    total_percent = Decimal("0") if total_revenue == 0 else ((total_payout / total_revenue) * Decimal("100"))
+
+    return PresentedLineItem(
+        key="payout_percent",
+        label="Payout (%)",
+        category="summary",
+        is_derived=True,
+        months=month_values,
+        display_format="percent",
+        total_value=total_percent,
+    )
+
+
 def _build_presented_line_items(
     months: list[str],
     line_items: list[dict[str, Any]],
@@ -150,8 +182,11 @@ def _build_presented_line_items(
             )
         )
 
+    payout_presented_line = next((item for item in renamed_items if item.key == "payout_amount"), None)
+    presented_items = [item for item in renamed_items if item.key != "payout_amount"]
+
     if revenue_line and profit_line:
-        renamed_items.append(
+        presented_items.append(
             _build_margin_row(
                 "net_margin" if has_any_cogs else "contribution_margin",
                 "Net Margin (%)" if has_any_cogs else "Contribution Margin (%)",
@@ -160,12 +195,16 @@ def _build_presented_line_items(
                 revenue_line,
             )
         )
+    if payout_presented_line is not None:
+        presented_items.append(payout_presented_line)
+        if revenue_line is not None:
+            presented_items.append(_build_payout_percent_row(months, payout_presented_line, revenue_line))
 
     if mode == "dollars" or not revenue_line:
-        return renamed_items
+        return presented_items
 
     percent_items: list[PresentedLineItem] = []
-    for item in renamed_items:
+    for item in presented_items:
         if item.display_format == "percent":
             percent_items.append(item)
             continue
@@ -426,6 +465,9 @@ def _write_pnl_sheet(
         return
 
     for item in line_items:
+        if item.key == "payout_amount":
+            row_index += 1
+
         is_net_row = item.key == "net_earnings"
         is_summary_row = item.key in SUMMARY_KEYS
 

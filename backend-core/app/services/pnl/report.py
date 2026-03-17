@@ -270,6 +270,7 @@ class PNLReportService:
             "is_derived": True,
             "months": net_earnings_months,
         })
+        line_items.append(self._payout_line(month_keys, bucket_totals))
 
         # Warnings
         warnings = self._build_warnings(
@@ -621,6 +622,21 @@ class PNLReportService:
             "label": label,
             "category": category,
             "is_derived": False,
+            "months": months,
+        }
+
+    def _payout_line(
+        self,
+        month_keys: list[str],
+        bucket_totals: dict[str, dict[str, Decimal]],
+    ) -> dict[str, Any]:
+        transfer_data = bucket_totals.get("non_pnl_transfer", {})
+        months = {mk: _q(-transfer_data.get(mk, Decimal("0"))) for mk in month_keys}
+        return {
+            "key": "payout_amount",
+            "label": "Payout ($)",
+            "category": "summary",
+            "is_derived": True,
             "months": months,
         }
 

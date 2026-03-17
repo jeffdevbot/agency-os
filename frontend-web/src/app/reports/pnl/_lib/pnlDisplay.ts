@@ -24,6 +24,8 @@ export const SUMMARY_KEYS = new Set([
   "cogs",
   "contribution_margin",
   "net_margin",
+  "payout_amount",
+  "payout_percent",
 ]);
 
 export function formatMonth(iso: string): string {

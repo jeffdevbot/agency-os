@@ -19,6 +19,7 @@ const CURRENCY_KEYS_IN_PERCENT_VIEW = new Set([
   "fba_liquidation_proceeds",
   "total_gross_revenue",
   "total_net_revenue",
+  "payout_amount",
 ]);
 const GROSS_REVENUE_PERCENT_KEYS = new Set([
   "refunds",
@@ -83,6 +84,34 @@ function buildMarginRow(
     months: monthValues,
     display_format: "percent",
     total_value: formatValue(totalMargin, 1),
+  };
+}
+
+function buildPayoutPercentRow(
+  months: string[],
+  payoutLine: PnlPresentedLineItem,
+  revenueLine: PnlLineItem,
+): PnlPresentedLineItem {
+  const monthValues = Object.fromEntries(
+    months.map((month) => {
+      const revenue = parseAmount(revenueLine.months[month]);
+      const payout = parseAmount(payoutLine.months[month]);
+      const percent = revenue === 0 ? 0 : (payout / revenue) * 100;
+      return [month, formatValue(percent, 1)];
+    }),
+  );
+  const totalRevenue = sumMonths(revenueLine, months);
+  const totalPayout = sumMonths(payoutLine, months);
+  const totalPercent = totalRevenue === 0 ? 0 : (totalPayout / totalRevenue) * 100;
+
+  return {
+    key: "payout_percent",
+    label: "Payout (%)",
+    category: "summary",
+    is_derived: true,
+    months: monthValues,
+    display_format: "percent",
+    total_value: formatValue(totalPercent, 1),
   };
 }
 
@@ -174,16 +203,21 @@ export function buildPresentedPnlReport(
         ? { ...item, label: "Contribution Profit" }
         : item,
   );
+  const baseItems = renamedItems.filter((item) => item.key !== "payout_amount");
+  const presentedPayoutLine = renamedItems.find((item) => item.key === "payout_amount");
 
   if (!revenueLine || !profitLine) {
+    const itemsWithPayout = presentedPayoutLine
+      ? [...baseItems, presentedPayoutLine]
+      : baseItems;
     return {
-      lineItems: buildViewItems(mode, months, renamedItems, revenueLine, grossRevenueLine),
+      lineItems: buildViewItems(mode, months, itemsWithPayout, revenueLine, grossRevenueLine),
       warnings: visibleWarnings,
       profitMode: hasAnyCogs ? "net" : "contribution",
     };
   }
 
-  const itemsWithMargin = renamedItems.slice();
+  const itemsWithMargin = baseItems.slice();
   itemsWithMargin.push(
     hasAnyCogs
       ? buildMarginRow("net_margin", "Net Margin (%)", months, profitLine, revenueLine)
@@ -195,6 +229,10 @@ export function buildPresentedPnlReport(
           revenueLine,
         ),
   );
+  if (presentedPayoutLine) {
+    itemsWithMargin.push(presentedPayoutLine);
+    itemsWithMargin.push(buildPayoutPercentRow(months, presentedPayoutLine, revenueLine));
+  }
 
   return {
     lineItems: buildViewItems(mode, months, itemsWithMargin, revenueLine, grossRevenueLine),

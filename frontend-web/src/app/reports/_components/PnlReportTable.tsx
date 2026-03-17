@@ -1,5 +1,7 @@
 "use client";
 
+import { Fragment } from "react";
+
 import {
   amountClass,
   formatAmount,
@@ -56,44 +58,51 @@ export default function PnlReportTable({ months, lineItems, showTotals }: Props)
                     : "bg-[#f8fafc]";
 
               return (
-                <tr
-                  key={item.key}
-                  className={`border-b border-[#f1f5f9] ${lineItemRowClass(item)}`}
-                >
-                  <td
-                    className={`sticky left-0 z-10 min-w-[196px] border-b border-[#f1f5f9] px-2.5 py-1.5 text-left shadow-[8px_0_14px_-10px_rgba(15,23,42,0.24)] md:min-w-[208px] ${stickyCellClass}`}
-                  >
-                  <span
-                    className={
-                      item.key === "net_earnings"
-                        ? ""
-                        : SUMMARY_KEYS.has(item.key)
-                          ? "text-[#0f172a]"
-                          : "text-[#475569]"
-                    }
-                  >
-                    {item.label}
-                  </span>
-                  </td>
-                  {months.map((month) => {
-                    const value = item.months[month] ?? "0.00";
-                    return (
+                <Fragment key={item.key}>
+                  {item.key === "payout_amount" ? (
+                    <tr aria-hidden="true">
                       <td
-                        key={month}
-                        className={`whitespace-nowrap border-b border-[#f1f5f9] px-1.5 py-1.5 text-right tabular-nums md:px-2 ${amountClass(value, item)}`}
-                      >
-                        {formatAmount(value, item.display_format)}
-                      </td>
-                    );
-                  })}
-                  {showTotals ? (
-                    <td
-                      className={`whitespace-nowrap border-b border-[#f1f5f9] px-1.5 py-1.5 text-right font-semibold tabular-nums md:px-2 ${totalCellClass} ${amountClass(item.total_value ?? "0.00", item)}`}
-                    >
-                      {formatAmount(item.total_value ?? "0.00", item.display_format)}
-                    </td>
+                        colSpan={1 + months.length + (showTotals ? 1 : 0)}
+                        className="h-3 border-0 bg-transparent p-0"
+                      />
+                    </tr>
                   ) : null}
-                </tr>
+                  <tr className={`border-b border-[#f1f5f9] ${lineItemRowClass(item)}`}>
+                    <td
+                      className={`sticky left-0 z-10 min-w-[196px] border-b border-[#f1f5f9] px-2.5 py-1.5 text-left shadow-[8px_0_14px_-10px_rgba(15,23,42,0.24)] md:min-w-[208px] ${stickyCellClass}`}
+                    >
+                      <span
+                        className={
+                          item.key === "net_earnings"
+                            ? ""
+                            : SUMMARY_KEYS.has(item.key)
+                              ? "text-[#0f172a]"
+                              : "text-[#475569]"
+                        }
+                      >
+                        {item.label}
+                      </span>
+                    </td>
+                    {months.map((month) => {
+                      const value = item.months[month] ?? "0.00";
+                      return (
+                        <td
+                          key={month}
+                          className={`whitespace-nowrap border-b border-[#f1f5f9] px-1.5 py-1.5 text-right tabular-nums md:px-2 ${amountClass(value, item)}`}
+                        >
+                          {formatAmount(value, item.display_format)}
+                        </td>
+                      );
+                    })}
+                    {showTotals ? (
+                      <td
+                        className={`whitespace-nowrap border-b border-[#f1f5f9] px-1.5 py-1.5 text-right font-semibold tabular-nums md:px-2 ${totalCellClass} ${amountClass(item.total_value ?? "0.00", item)}`}
+                      >
+                        {formatAmount(item.total_value ?? "0.00", item.display_format)}
+                      </td>
+                    ) : null}
+                  </tr>
+                </Fragment>
               );
             })}
           </tbody>

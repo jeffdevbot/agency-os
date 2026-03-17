@@ -681,9 +681,13 @@ class TestPNLReportService:
             "p1", filter_mode="range", start_month="2026-01-01", end_month="2026-02-01"
         )
         keys = [li["key"] for li in report["line_items"]]
+        items = {li["key"]: li for li in report["line_items"]}
         assert "non_pnl_transfer" not in keys
         assert "unmapped" not in keys
         assert "marketplace_withheld_tax" not in keys
+        assert "payout_amount" in keys
+        assert items["payout_amount"]["months"]["2026-01-01"] == "500.00"
+        assert items["payout_amount"]["months"]["2026-02-01"] == "0.00"
 
     def test_derived_lines_flagged(self):
         svc = self._make_service()

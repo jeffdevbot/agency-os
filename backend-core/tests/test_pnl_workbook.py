@@ -87,6 +87,13 @@ def test_build_pnl_workbook_generates_dollar_and_percent_tabs(tmp_path: Path):
                 "is_derived": True,
                 "months": {"2026-01-01": "45.00", "2026-02-01": "95.00"},
             },
+            {
+                "key": "payout_amount",
+                "label": "Payout ($)",
+                "category": "summary",
+                "is_derived": True,
+                "months": {"2026-01-01": "50.00", "2026-02-01": "90.00"},
+            },
         ],
         "warnings": [],
     }
@@ -117,6 +124,14 @@ def test_build_pnl_workbook_generates_dollar_and_percent_tabs(tmp_path: Path):
 
         net_margin_row = _find_row(percent_sheet, "Net Margin (%)")
         assert round(float(percent_sheet.cell(row=net_margin_row, column=2).value), 4) == 0.5
+
+        payout_row = _find_row(dollars_sheet, "Payout ($)")
+        assert dollars_sheet.cell(row=payout_row - 1, column=1).value is None
+        assert dollars_sheet.cell(row=payout_row, column=2).value == 50
+        assert dollars_sheet.cell(row=payout_row, column=4).value == 140
+
+        payout_percent_row = _find_row(percent_sheet, "Payout (%)")
+        assert round(float(percent_sheet.cell(row=payout_percent_row, column=2).value), 4) == round(50 / 90, 4)
 
         referral_fees_row = _find_row(percent_sheet, "Referral Fees")
         assert round(float(percent_sheet.cell(row=referral_fees_row, column=2).value), 4) == round(-15 / 90, 4)
