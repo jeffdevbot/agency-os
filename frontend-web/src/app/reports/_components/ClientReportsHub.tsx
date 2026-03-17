@@ -215,7 +215,7 @@ export default function ClientReportsHub({ clientSlug }: Props) {
 
                       {pnlProfile ? (
                         <p className="mt-4 text-sm text-[#4c576f]">
-                          Currency: {pnlProfile.currency_code} • Status: {pnlProfile.status}
+                          Status: {pnlProfile.status}
                         </p>
                       ) : (
                         <p className="mt-4 text-sm text-[#4c576f]">
