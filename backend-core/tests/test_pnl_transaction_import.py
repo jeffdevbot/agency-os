@@ -351,6 +351,27 @@ class TestMappingRules:
         match = find_matching_rule([rule], "FBA Inventory Fee", "FBA Removal Order: Disposal")
         assert match is not None
 
+    def test_starts_with_operator_matches_fulfilment_removal_variant(self):
+        rule = MappingRule(
+            id="r1",
+            profile_id=None,
+            source_type="amazon_transaction_upload",
+            match_spec={
+                "type": "FBA Inventory Fee",
+                "description": "Fulfilment by Amazon removal order",
+            },
+            match_operator="starts_with",
+            target_bucket="fba_removal_order_fees",
+            priority=10,
+        )
+        match = find_matching_rule(
+            [rule],
+            "FBA Inventory Fee",
+            "Fulfilment by Amazon removal order: disposal fee",
+        )
+        assert match is not None
+        assert match.target_bucket == "fba_removal_order_fees"
+
 
 # ── Ledger expansion tests ───────────────────────────────────────────
 
