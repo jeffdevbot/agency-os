@@ -18,6 +18,12 @@ MANUAL_EXPENSE_TYPES: Final = [
         "category": "expenses",
         "placement": "end",
     },
+    {
+        "key": "freight",
+        "label": "Freight",
+        "category": "expenses",
+        "placement": "end",
+    },
 ]
 
 MANUAL_EXPENSE_TYPE_BY_KEY: Final = {

@@ -121,6 +121,10 @@ export async function parsePnlOtherExpensesCsv(
 
   for (let i = 1; i < lines.length; i += 1) {
     const values = parseCsvLine(lines[i], delimiter);
+    const isEmptyRow = values.every((value) => value.trim().length === 0);
+    if (isEmptyRow) {
+      continue;
+    }
     const entryMonth = (values[entryMonthIndex] || "").trim();
     if (!/^\d{4}-\d{2}-01$/.test(entryMonth)) {
       throw new Error(`Other expenses CSV row ${i + 1} has an invalid entry_month.`);

@@ -180,6 +180,7 @@ class TestProfileEndpoints:
             "expense_types": [
                 {"key": "fbm_fulfillment_fees", "label": "FBM Fulfillment Fees", "enabled": True},
                 {"key": "agency_fees", "label": "Agency Fees", "enabled": False},
+                {"key": "freight", "label": "Freight", "enabled": False},
             ],
             "months": [
                 {
@@ -187,6 +188,7 @@ class TestProfileEndpoints:
                     "values": {
                         "fbm_fulfillment_fees": "12.00",
                         "agency_fees": None,
+                        "freight": None,
                     },
                 }
             ],
@@ -220,6 +222,7 @@ class TestProfileEndpoints:
             "expense_types": [
                 {"key": "fbm_fulfillment_fees", "enabled": True},
                 {"key": "agency_fees", "enabled": False},
+                {"key": "freight", "enabled": True},
             ],
             "months": [
                 {
@@ -227,6 +230,7 @@ class TestProfileEndpoints:
                     "values": {
                         "fbm_fulfillment_fees": "12.00",
                         "agency_fees": None,
+                        "freight": "88.00",
                     },
                 }
             ],

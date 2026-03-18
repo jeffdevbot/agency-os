@@ -623,10 +623,12 @@ class TestPNLReportService:
             manual_settings=[
                 {"expense_key": "fbm_fulfillment_fees", "is_enabled": True},
                 {"expense_key": "agency_fees", "is_enabled": True},
+                {"expense_key": "freight", "is_enabled": True},
             ],
             manual_expenses=[
                 {"entry_month": "2026-01-01", "expense_key": "fbm_fulfillment_fees", "amount": "11.00"},
                 {"entry_month": "2026-02-01", "expense_key": "agency_fees", "amount": "7.50"},
+                {"entry_month": "2026-01-01", "expense_key": "freight", "amount": "5.25"},
             ],
         )
         report = svc.build_report(
@@ -638,21 +640,24 @@ class TestPNLReportService:
 
         assert items["fbm_fulfillment_fees"]["months"]["2026-01-01"] == "-11.00"
         assert items["agency_fees"]["months"]["2026-02-01"] == "-7.50"
-        assert items["total_expenses"]["months"]["2026-01-01"] == "-63.00"
+        assert items["freight"]["months"]["2026-01-01"] == "-5.25"
+        assert items["total_expenses"]["months"]["2026-01-01"] == "-68.25"
         assert items["total_expenses"]["months"]["2026-02-01"] == "-37.50"
         assert items["net_earnings"]["months"]["2026-02-01"] == "162.50"
         assert keys.index("fba_fees") < keys.index("fbm_fulfillment_fees") < keys.index("other_transaction_fees")
-        assert keys.index("agency_fees") < keys.index("total_expenses")
+        assert keys.index("agency_fees") < keys.index("freight") < keys.index("total_expenses")
 
     def test_disabled_other_expenses_do_not_render(self):
         svc = self._make_service(
             manual_settings=[
                 {"expense_key": "fbm_fulfillment_fees", "is_enabled": False},
                 {"expense_key": "agency_fees", "is_enabled": False},
+                {"expense_key": "freight", "is_enabled": False},
             ],
             manual_expenses=[
                 {"entry_month": "2026-01-01", "expense_key": "fbm_fulfillment_fees", "amount": "11.00"},
                 {"entry_month": "2026-02-01", "expense_key": "agency_fees", "amount": "7.50"},
+                {"entry_month": "2026-01-01", "expense_key": "freight", "amount": "5.25"},
             ],
         )
         report = svc.build_report(
@@ -662,6 +667,7 @@ class TestPNLReportService:
         items = {li["key"]: li for li in report["line_items"]}
         assert "fbm_fulfillment_fees" not in items
         assert "agency_fees" not in items
+        assert "freight" not in items
         assert items["total_expenses"]["months"]["2026-01-01"] == "-52.00"
 
     def test_fba_inventory_credit_not_in_expenses(self):
