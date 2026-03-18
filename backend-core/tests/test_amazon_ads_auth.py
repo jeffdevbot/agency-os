@@ -140,15 +140,26 @@ class _FakeProfileService:
 
 
 class _FakeSupabase:
-    """Minimal stub for Supabase client used in connection endpoints."""
+    """Minimal stub for Supabase client used in connection endpoints.
 
-    def __init__(self, connection_rows: list | None = None):
+    Accepts either ``connection_rows`` (legacy: same rows for all tables) or
+    ``tables`` (dict mapping table_name -> row_list) for table-specific stubs.
+    """
+
+    def __init__(
+        self,
+        connection_rows: list | None = None,
+        *,
+        tables: dict[str, list] | None = None,
+    ):
         self._connection_rows = connection_rows or []
+        self._tables = tables
         self.inserts: list[dict] = []
         self.updates: list[dict] = []
 
     def table(self, name: str):
-        return _FakeTable(name, self._connection_rows, self)
+        rows = self._tables[name] if self._tables and name in self._tables else self._connection_rows
+        return _FakeTable(name, list(rows), self)
 
 
 class _FakeTable:
@@ -156,7 +167,7 @@ class _FakeTable:
         self._name = name
         self._rows = rows
         self._parent = parent
-        self._filters: dict = {}
+        self._filters_eq: dict = {}
         self._pending_op: str | None = None
         self._pending_data: dict | None = None
 
@@ -165,7 +176,7 @@ class _FakeTable:
         return self
 
     def eq(self, col, val):
-        self._filters[col] = val
+        self._filters_eq[col] = val
         return self
 
     def limit(self, n):
@@ -191,8 +202,15 @@ class _FakeTable:
             self._parent.inserts.append(self._pending_data)
         elif self._pending_op == "update":
             self._parent.updates.append(self._pending_data)
+        # Apply eq filters for select operations
+        filtered = self._rows
+        if self._pending_op == "select" and self._filters_eq:
+            filtered = [
+                row for row in filtered
+                if all(row.get(col) == val for col, val in self._filters_eq.items())
+            ]
         resp = MagicMock()
-        resp.data = self._rows
+        resp.data = filtered
         return resp
 
 
@@ -248,7 +266,16 @@ class TestConnectionStatusEndpoint:
     def test_not_connected(self, monkeypatch):
         fake_svc = _FakeProfileService()
         monkeypatch.setattr(wbr, "_get_service", lambda: fake_svc)
-        monkeypatch.setattr(wbr, "_get_supabase", lambda: _FakeSupabase([]))
+        monkeypatch.setattr(
+            wbr,
+            "_get_supabase",
+            lambda: _FakeSupabase(
+                tables={
+                    "report_api_connections": [],
+                    "wbr_amazon_ads_connections": [],
+                }
+            ),
+        )
         app.dependency_overrides[wbr.require_admin_user] = _override_admin
 
         try:
@@ -261,7 +288,44 @@ class TestConnectionStatusEndpoint:
         finally:
             app.dependency_overrides.pop(wbr.require_admin_user, None)
 
-    def test_connected(self, monkeypatch):
+    def test_connected_via_shared(self, monkeypatch):
+        shared_conn = {
+            "client_id": "client-1",
+            "provider": "amazon_ads",
+            "connection_status": "connected",
+            "connected_at": "2026-03-18T12:00:00Z",
+            "last_validated_at": None,
+            "last_error": None,
+            "updated_at": "2026-03-18T12:00:00Z",
+            "access_meta": {"lwa_account_hint": "test@example.com"},
+        }
+        fake_svc = _FakeProfileService()
+        monkeypatch.setattr(wbr, "_get_service", lambda: fake_svc)
+        monkeypatch.setattr(
+            wbr,
+            "_get_supabase",
+            lambda: _FakeSupabase(
+                tables={
+                    "report_api_connections": [shared_conn],
+                    "wbr_amazon_ads_connections": [],
+                }
+            ),
+        )
+        app.dependency_overrides[wbr.require_admin_user] = _override_admin
+
+        try:
+            with TestClient(app) as client:
+                resp = client.get("/admin/wbr/profiles/prof-1/amazon-ads/connection")
+            assert resp.status_code == 200
+            body = resp.json()
+            assert body["connected"] is True
+            assert body["source"] == "shared"
+            assert body["connection"]["profile_id"] == "prof-1"
+            assert body["connection"]["lwa_account_hint"] == "test@example.com"
+        finally:
+            app.dependency_overrides.pop(wbr.require_admin_user, None)
+
+    def test_connected_falls_back_to_legacy(self, monkeypatch):
         conn = {
             "profile_id": "prof-1",
             "connected_at": "2026-03-13T12:00:00Z",
@@ -271,7 +335,16 @@ class TestConnectionStatusEndpoint:
         }
         fake_svc = _FakeProfileService()
         monkeypatch.setattr(wbr, "_get_service", lambda: fake_svc)
-        monkeypatch.setattr(wbr, "_get_supabase", lambda: _FakeSupabase([conn]))
+        monkeypatch.setattr(
+            wbr,
+            "_get_supabase",
+            lambda: _FakeSupabase(
+                tables={
+                    "report_api_connections": [],
+                    "wbr_amazon_ads_connections": [conn],
+                }
+            ),
+        )
         app.dependency_overrides[wbr.require_admin_user] = _override_admin
 
         try:
@@ -280,6 +353,7 @@ class TestConnectionStatusEndpoint:
             assert resp.status_code == 200
             body = resp.json()
             assert body["connected"] is True
+            assert body["source"] == "legacy"
             assert body["connection"]["profile_id"] == "prof-1"
         finally:
             app.dependency_overrides.pop(wbr.require_admin_user, None)
@@ -524,7 +598,16 @@ class TestDiscoverProfilesEndpoint:
     def test_no_connection_returns_400(self, monkeypatch):
         fake_svc = _FakeProfileService()
         monkeypatch.setattr(wbr, "_get_service", lambda: fake_svc)
-        monkeypatch.setattr(wbr, "_get_supabase", lambda: _FakeSupabase([]))
+        monkeypatch.setattr(
+            wbr,
+            "_get_supabase",
+            lambda: _FakeSupabase(
+                tables={
+                    "report_api_connections": [],
+                    "wbr_amazon_ads_connections": [],
+                }
+            ),
+        )
         app.dependency_overrides[wbr.require_admin_user] = _override_admin
 
         try:

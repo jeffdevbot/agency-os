@@ -7,7 +7,7 @@ from fastapi.exception_handlers import http_exception_handler
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .config import settings
-from .routers import ngram, npat, root, adscope, clickup, admin, wbr, amazon_ads_oauth, pnl
+from .routers import ngram, npat, root, adscope, clickup, admin, wbr, amazon_ads_oauth, amazon_spapi_oauth, pnl, report_api_access
 from .api.routes import slack
 from .auth import verify_supabase_jwt
 from .error_logging import error_logger
@@ -33,7 +33,9 @@ app.include_router(clickup.router)
 app.include_router(slack.router, prefix="/api")
 app.include_router(admin.router)
 app.include_router(wbr.router)
+app.include_router(report_api_access.router)
 app.include_router(amazon_ads_oauth.router)
+app.include_router(amazon_spapi_oauth.router)
 app.include_router(pnl.router)
 
 
@@ -50,8 +52,12 @@ def _infer_tool_from_path(path: str) -> Optional[str]:
         return "clickup"
     if path.startswith("/api/slack"):
         return "slack"
+    if path.startswith("/admin/reports/api-access"):
+        return "report-api-access"
     if path.startswith("/admin"):
         return "admin"
+    if path.startswith("/amazon-spapi") or path.startswith("/api/amazon-spapi"):
+        return "amazon-spapi-oauth"
     if path.startswith("/amazon-ads") or path.startswith("/api/amazon-ads"):
         return "amazon-ads-oauth"
     return None

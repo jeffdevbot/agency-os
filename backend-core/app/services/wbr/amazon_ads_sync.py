@@ -220,7 +220,7 @@ class AmazonAdsSyncService:
 
         profile = self._get_profile(profile_id)
         ads_profile_id = self._require_amazon_ads_profile_id(profile)
-        refresh_token = self._require_refresh_token(profile_id)
+        refresh_token = self._require_refresh_token(profile_id, client_id=str(profile.get("client_id") or ""))
 
         chunks = _chunk_date_range(date_from, date_to, chunk_days)
         results = []
@@ -255,7 +255,7 @@ class AmazonAdsSyncService:
     ) -> dict[str, Any]:
         profile = self._get_profile(profile_id)
         ads_profile_id = self._require_amazon_ads_profile_id(profile)
-        refresh_token = self._require_refresh_token(profile_id)
+        refresh_token = self._require_refresh_token(profile_id, client_id=str(profile.get("client_id") or ""))
         lookback_days = int(profile.get("daily_rewrite_days") or DEFAULT_DAILY_LOOKBACK_DAYS)
         date_to = datetime.now(UTC).date()
         date_from = date_to - timedelta(days=max(lookback_days - 1, 0))
@@ -901,7 +901,26 @@ class AmazonAdsSyncService:
             raise WBRValidationError("WBR profile is missing amazon_ads_profile_id")
         return value
 
-    def _require_refresh_token(self, profile_id: str) -> str:
+    def _require_refresh_token(self, profile_id: str, *, client_id: str | None = None) -> str:
+        # Prefer shared report_api_connections (keyed by client_id)
+        if not client_id:
+            profile = self._get_profile(profile_id)
+            client_id = str(profile.get("client_id") or "").strip()
+        if client_id:
+            shared_response = (
+                self.db.table("report_api_connections")
+                .select("refresh_token")
+                .eq("client_id", client_id)
+                .eq("provider", "amazon_ads")
+                .limit(1)
+                .execute()
+            )
+            shared_rows = shared_response.data if isinstance(shared_response.data, list) else []
+            shared_token = str(shared_rows[0].get("refresh_token") or "").strip() if shared_rows else ""
+            if shared_token:
+                return shared_token
+
+        # Fallback to legacy wbr_amazon_ads_connections (keyed by profile_id)
         response = (
             self.db.table("wbr_amazon_ads_connections")
             .select("amazon_ads_refresh_token")

@@ -71,6 +71,12 @@ export default function ClientReportsHub({ clientSlug }: Props) {
             Back to Reports
           </Link>
           <Link
+            href="/reports/api-access"
+            className="rounded-2xl bg-[#0f172a] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#1e293b]"
+          >
+            API Access
+          </Link>
+          <Link
             href="/reports/wbr/setup"
             className="rounded-2xl bg-[#0a6fd6] px-4 py-3 text-sm font-semibold text-white shadow-[0_15px_30px_rgba(10,111,214,0.25)] transition hover:bg-[#0959ab]"
           >

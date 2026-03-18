@@ -52,6 +52,7 @@ FIELD_AMOUNT_TYPE = "v2_settlement_report_data_flat_file_v2__amount_type"
 FIELD_MARKETPLACE_NAME = "v2_settlement_report_data_flat_file_v2__marketplace_name"
 FIELD_ORDER_ID = "v2_settlement_report_data_flat_file_v2__order_id"
 FIELD_POSTED_DATE = "v2_settlement_report_data_flat_file_v2__posted_date"
+FIELD_SETTLEMENT_ID = "v2_settlement_report_data_flat_file_v2__settlement_id"
 FIELD_SKU = "v2_settlement_report_data_flat_file_v2__sku"
 FIELD_TRANSACTION_TYPE = "v2_settlement_report_data_flat_file_v2__transaction_type"
 
@@ -93,18 +94,38 @@ def _bucket_sort_key(bucket: str) -> tuple[int, str]:
     return (0 if bucket != "unmapped" else 1, bucket)
 
 
-def _row_matches_marketplace_scope(row: dict[str, Any], marketplace_scope: str) -> bool:
+def _marketplace_region(value: Any) -> str | None:
+    marketplace_key = _normalize_key(value)
+    if marketplace_key in {"amazon.com", "non-amazon us"}:
+        return "us"
+    if marketplace_key in {"amazon.ca", "non-amazon ca"}:
+        return "ca"
+    return None
+
+
+def _row_matches_marketplace_scope(
+    row: dict[str, Any],
+    marketplace_scope: str,
+    settlement_region_hint: str | None = None,
+) -> bool:
     if marketplace_scope == "all":
         return True
 
-    if not _normalize(row.get(FIELD_MARKETPLACE_NAME)):
+    allowed_regions = {"us"}
+    if marketplace_scope == "amazon_com_and_ca":
+        allowed_regions.add("ca")
+
+    marketplace_name = _normalize(row.get(FIELD_MARKETPLACE_NAME))
+    if not marketplace_name:
+        if settlement_region_hint:
+            return settlement_region_hint in allowed_regions
         return True
 
     allowed_marketplaces = {"amazon.com"}
     if marketplace_scope == "amazon_com_and_ca":
         allowed_marketplaces.add("amazon.ca")
 
-    return _normalize_key(row.get(FIELD_MARKETPLACE_NAME)) in allowed_marketplaces
+    return _normalize_key(marketplace_name) in allowed_marketplaces
 
 
 def _classify_windsor_row(row: dict[str, Any], amount: Decimal) -> WindsorMappingResult:
@@ -294,14 +315,37 @@ class WindsorSettlementCompareService:
         if marketplace_scope == "all":
             return rows, []
 
+        settlement_region_hints = self._build_settlement_region_hints(rows)
         included_rows: list[dict[str, Any]] = []
         excluded_rows: list[dict[str, Any]] = []
         for row in rows:
-            if _row_matches_marketplace_scope(row, marketplace_scope):
+            settlement_id = _normalize(row.get(FIELD_SETTLEMENT_ID))
+            if _row_matches_marketplace_scope(
+                row,
+                marketplace_scope,
+                settlement_region_hints.get(settlement_id),
+            ):
                 included_rows.append(row)
             else:
                 excluded_rows.append(row)
         return included_rows, excluded_rows
+
+    def _build_settlement_region_hints(self, rows: list[dict[str, Any]]) -> dict[str, str]:
+        settlement_region_counts: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+        for row in rows:
+            settlement_id = _normalize(row.get(FIELD_SETTLEMENT_ID))
+            if not settlement_id:
+                continue
+            region = _marketplace_region(row.get(FIELD_MARKETPLACE_NAME))
+            if not region:
+                continue
+            settlement_region_counts[settlement_id][region] += 1
+
+        hints: dict[str, str] = {}
+        for settlement_id, region_counts in settlement_region_counts.items():
+            if len(region_counts) == 1:
+                hints[settlement_id] = next(iter(region_counts))
+        return hints
 
     def _resolve_windsor_account_id(self, profile: dict[str, Any]) -> str:
         client_id = str(profile.get("client_id") or "").strip()

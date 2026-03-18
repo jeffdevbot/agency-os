@@ -6,7 +6,9 @@ Read first, in this order:
 
 1. `docs/monthly_pnl_handoff.md`
 2. `docs/monthly_pnl_implementation_plan.md`
-3. `AGENTS.md`
+3. `docs/reports_api_access_and_spapi_plan.md`
+4. `docs/monthly_pnl_windsor_reconciliation.md`
+5. `AGENTS.md`
 
 Current reality:
 
@@ -41,11 +43,17 @@ Current reality:
     `non_pnl_transfer`.
 13. Current P&L UI/workbook formatting uses accounting-style negatives with
     brackets, and the UI now shows whole-number display values.
+14. The current strategic direction is no longer “keep all auth/report-source
+    work inside WBR or Windsor.” The reviewed plan is:
+    - shared `Reports / API Access`
+    - Amazon Ads connection management moved there
+    - Amazon Seller API auth added there
+    - P&L-first direct-SP-API follow-up after auth exists
 
 Primary goal:
 
-1. Work on Monthly P&L and explore the remaining implementation-plan items with
-   the user to decide what should come next.
+1. Start from the reviewed `Reports / API Access` and direct-SP-API plan unless
+   the user explicitly redirects.
 
 Focus:
 
@@ -55,11 +63,35 @@ Focus:
 3. Preserve validated Whoosh US and the currently active CA imports unless the
    user explicitly wants to replace them.
 4. Prefer focused, low-risk follow-up work over broad refactors.
-5. Keep Windsor settlement work out of scope unless it becomes the explicit
-   next product goal.
+5. Treat Windsor compare as a reconciliation/debug aid, not the long-term
+   financial-source direction.
+6. If the user pivots to direct Amazon SP-API financial integration, treat
+   that as a P&L-first follow-up path rather than a full immediate Windsor/WBR
+   replacement.
 
 Constraints:
 
 1. Do not disturb the validated Whoosh US 2025 state unless explicitly asked.
 2. Leave unrelated dirty files alone.
 3. Prefer focused parser/mapping changes over broad refactors.
+
+Current direct-Amazon notes:
+
+1. Render env var naming chosen for SP-API work:
+   - `AMAZON_SPAPI_LWA_CLIENT_ID`
+   - `AMAZON_SPAPI_LWA_CLIENT_SECRET`
+   - `AMAZON_SPAPI_APP_ID`
+2. A seller-authorized refresh token is still required for Finances API calls.
+3. Long-term, refresh tokens should be stored per seller/profile in the
+   database rather than as one global env var.
+4. For a new build session, the reviewed source-of-truth design doc is:
+   - `docs/reports_api_access_and_spapi_plan.md`
+
+Docs currently known to be partially outdated for this new direction:
+
+1. `docs/wbr_v2_handoff.md`
+2. `docs/wbr_v2_schema_plan.md`
+3. `docs/db/schema_master.md`
+
+Those docs still describe Amazon Ads auth/storage as WBR-owned and do not yet
+reflect the shared `Reports / API Access` plan.

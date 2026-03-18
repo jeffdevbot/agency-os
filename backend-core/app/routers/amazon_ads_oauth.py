@@ -10,6 +10,7 @@ behind require_admin_user.
 
 from __future__ import annotations
 
+import logging
 import os
 from datetime import UTC, datetime
 
@@ -18,11 +19,14 @@ from fastapi.responses import RedirectResponse
 from supabase import Client, create_client
 
 from ..config import settings
+from ..services.reports.api_access import get_wbr_profile, upsert_amazon_ads_connection
 from ..services.wbr.amazon_ads_auth import (
     exchange_authorization_code,
     verify_signed_state,
 )
-from ..services.wbr.profiles import WBRValidationError
+from ..services.wbr.profiles import WBRNotFoundError, WBRValidationError
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["amazon-ads-oauth"])
 
@@ -66,9 +70,14 @@ async def amazon_ads_callback(
 
     refresh_token = token_data["refresh_token"]
 
-    # 3. Store the refresh token in wbr_amazon_ads_connections
+    # 3. Store the refresh token in legacy WBR storage and best-effort shared storage
     db = _get_supabase()
     now = datetime.now(UTC).isoformat()
+    profile = None
+    try:
+        profile = get_wbr_profile(db, profile_id)
+    except WBRNotFoundError:
+        profile = None
 
     try:
         existing = (
@@ -95,6 +104,24 @@ async def amazon_ads_callback(
                     "updated_at": now,
                 }
             ).execute()
+
+        client_id = str(profile.get("client_id") or "").strip() if isinstance(profile, dict) else ""
+        if client_id:
+            shared_meta = {"legacy_source_profile_id": profile_id}
+            try:
+                upsert_amazon_ads_connection(
+                    db,
+                    client_id=client_id,
+                    refresh_token=refresh_token,
+                    connected_at=now,
+                    access_meta=shared_meta,
+                )
+            except Exception:
+                logger.warning(
+                    "Failed to upsert shared report_api_connections for client_id=%s",
+                    client_id,
+                    exc_info=True,
+                )
     except Exception as exc:
         raise HTTPException(
             status_code=500, detail="Failed to store Amazon Ads connection"

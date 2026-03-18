@@ -1,6 +1,40 @@
 # Monthly P&L Handoff
 
-_Last updated: 2026-03-17 (ET)_
+_Last updated: 2026-03-18 (ET)_
+
+## New session note
+
+This handoff still contains accurate shipped-state history for Monthly P&L, but
+the current strategic direction has changed since the original 2026-03-17
+write-up.
+
+For a fresh session, read this document for shipped-state context, then also
+read:
+
+1. [reports_api_access_and_spapi_plan.md](/Users/jeff/code/agency-os/docs/reports_api_access_and_spapi_plan.md)
+2. [monthly_pnl_windsor_reconciliation.md](/Users/jeff/code/agency-os/docs/monthly_pnl_windsor_reconciliation.md)
+
+Current strategic direction:
+
+1. Monthly P&L remains live and validated from CSV uploads.
+2. Windsor compare work is now best understood as a reconciliation/debug path,
+   not the long-term source-of-truth path for Amazon financial data.
+3. The next serious architecture direction is:
+   - shared `Reports / API Access`
+   - move Amazon Ads connection management there
+   - add Amazon Seller API auth there
+   - use that shared Seller API connection for a P&L-first direct-SP-API path
+4. `non_pnl_transfer` remains the clearest reason to validate direct Amazon
+   payment/disbursement access.
+
+Docs currently known to be partially outdated for the new direction:
+
+1. `docs/wbr_v2_handoff.md`
+2. `docs/wbr_v2_schema_plan.md`
+3. `docs/db/schema_master.md`
+
+Those docs still describe Amazon Ads connection storage as WBR-owned and do not
+yet reflect the shared `Reports / API Access` plan.
 
 This is the current restart point for Monthly P&L after the US v1 validation
 push, the Jan-Dec 2025 Whoosh US backfill, the SKU-based COGS rollout, the CA

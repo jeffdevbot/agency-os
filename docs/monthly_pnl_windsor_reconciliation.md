@@ -423,6 +423,113 @@ These are candidates, not approved fixes yet:
    transaction-detail rows, not payout/disbursement/transfer summary rows.
 6. Treat `non_pnl_transfer` as unsupported by the current Windsor settlement
    preset unless Windsor provides a separate payout/disbursement source.
+7. Changed scoped compare behavior so blank `marketplace_name` rows are
+   included in marketplace-scoped compares instead of being dropped.
+8. Confirmed the correct US reconciliation scope is:
+   - `Amazon.com + account-level rows`
+   and not:
+   - `Amazon.com + Amazon.ca + account-level rows`
+9. Evidence for that scope choice:
+   - `Amazon.com + Amazon.ca + account-level rows` adds large real Canada
+     activity into core buckets such as `product_sales`, `fba_fees`,
+     `referral_fees`, `marketplace_withheld_tax`, `promotional_rebates`, and
+     `refunds`.
+   - Therefore Canada-inclusive scope is useful diagnostically, but not as the
+     target parity view for the US monthly P&L.
+10. Ran a row-level advertising comparison using
+    `/Users/jeff/Desktop/ad-cost-feb-2026.xlsx`, which contains both:
+    - `transaction_report_csv`
+    - `windsorai_sp-api`
+11. Advertising comparison result:
+    - transaction report: `66` rows, `-33,349.49`
+    - Windsor extract: `79` rows, `-40,714.18`
+12. The Windsor overage is not explained by a simple timezone shift.
+13. The strongest signal is settlement coverage:
+    - transaction report advertising settlement IDs:
+      - `25462286141`
+      - `25585088631`
+      - `25696532011`
+    - Windsor advertising settlement IDs:
+      - `25462286111`
+      - `25462286141`
+      - `25585088631`
+      - `25586271901`
+      - `25696532011`
+      - `25696548261`
+14. Three Windsor advertising settlement IDs do not exist anywhere in the
+    transaction-report sheet:
+    - `25462286111`
+    - `25586271901`
+    - `25696548261`
+15. Those Windsor-only settlement IDs account for almost the entire
+    advertising delta:
+    - `13` rows
+    - `-7,364.55`
+16. If Windsor advertising rows are filtered down to only settlement IDs that
+    exist in the transaction-report sheet, the sources nearly match:
+    - Windsor filtered subset: `66` rows, `-33,349.63`
+    - transaction report: `66` rows, `-33,349.49`
+17. That leaves only a tiny residual difference inside the shared settlement
+    IDs:
+    - `0.14`
+18. Within the shared settlement IDs, Windsor has two extra rows under
+    `25696532011`:
+    - `-505.40`
+    - `-504.11`
+19. And the transaction report has two rows under `25462286141` that Windsor
+    does not:
+    - `-501.44`
+    - `-507.93`
+20. Conclusion from the advertising row match:
+    - the current Windsor advertising overage is primarily a settlement-set
+      mismatch, not just a timestamp normalization problem.
+21. The broadened Jan through March workbook showed a second strong pattern:
+    the two `posted_date_time` formats line up with different settlement
+    families.
+22. In February:
+    - ISO-formatted timestamps (`YYYY-MM-DD ... UTC`) appear on the `66`
+      Windsor ad rows whose settlement IDs match the transaction report.
+    - dot-formatted timestamps (`DD.MM.YYYY ... UTC`) appear on the `13`
+      Windsor-only ad rows that caused the overage.
+23. Raw Windsor full-February settlement data confirms those `13` Windsor-only
+    advertising rows are tied to settlement IDs that are overwhelmingly
+    Canada-labelled on their nonblank rows:
+    - `25462286111`
+      - `1120` rows `Amazon.ca`
+      - `2` rows `Non-Amazon CA`
+      - `4` rows blank
+    - `25586271901`
+      - `4755` rows `Amazon.ca`
+      - `20` rows `Non-Amazon CA`
+      - `15` rows blank
+    - `25696548261`
+      - `11946` rows `Amazon.ca`
+      - `80` rows `Non-Amazon CA`
+      - `54` rows blank
+24. Raw Windsor full-February settlement data also confirms that the
+    ISO-formatted advertising settlement IDs are overwhelmingly US-labelled on
+    their nonblank rows:
+    - `25462286141`
+      - `5571` rows `Amazon.com`
+      - `54` rows `Non-Amazon US`
+      - `15` rows blank
+    - `25585088631`
+      - `42402` rows `Amazon.com`
+      - `266` rows `Non-Amazon US`
+      - `117` rows blank
+    - `25696532011`
+      - `37159` rows `Amazon.com`
+      - `276` rows `Non-Amazon US`
+      - `130` rows blank
+25. Conclusion from the formatting pattern:
+    - the `posted_date_time` format difference is a useful signal, but the more
+      defensible scope rule is settlement-based inference.
+26. Updated compare logic should therefore:
+    - keep blank rows in scoped compare when their settlement family infers to
+      the selected country
+    - exclude blank rows when their settlement family clearly infers to another
+      country
+    - still include truly un-attributable blank rows as account-level rows
 
 ## Known source limitation
 

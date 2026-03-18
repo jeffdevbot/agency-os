@@ -63,6 +63,83 @@ Historical note: this section reflects the original v1 rollout plan. Live
 shipped state has since expanded to uploaded CA transaction-report support
 without introducing cross-marketplace currency normalization.
 
+## Direct SP-API notes
+
+Current direction after Windsor reconciliation work:
+
+1. Direct Amazon SP-API financial access is now a serious follow-up path for
+   Monthly P&L.
+2. The strongest driver is not just Windsor row-mapping drift; it is source
+   coverage and source-boundary mismatch:
+   - payout/disbursement visibility for `non_pnl_transfer`
+   - settlement-vs-calendar-report mismatches on advertising and related
+     financial rows
+3. The most useful direct-Amazon target is a narrow P&L-first integration, not
+   a full immediate WBR platform rewrite.
+
+### SP-API env var naming
+
+Record these names so the team uses consistent Render secrets:
+
+1. `AMAZON_SPAPI_LWA_CLIENT_ID`
+2. `AMAZON_SPAPI_LWA_CLIENT_SECRET`
+3. `AMAZON_SPAPI_APP_ID`
+
+Notes:
+
+1. `AMAZON_SPAPI_APP_ID` is the SP-API application ID used in seller
+   authorization URLs. It is different from the LWA client ID.
+2. These are backend-only secrets/config. Do not use `NEXT_PUBLIC_*`.
+3. Keep them in the shared Render secret group used by the backend.
+
+### Seller authorization model
+
+Client ID and client secret are not enough to call seller-authorized SP-API
+operations such as the Finances API.
+
+The missing credential is a seller-specific refresh token obtained after a
+seller authorizes the app.
+
+Recommended long-term model:
+
+1. Store one refresh token per authorized seller/account in the database, not
+   as a single global Render env var.
+2. Link each authorization to the relevant internal profile/client/marketplace
+   record.
+3. Persist enough metadata to make troubleshooting possible:
+   - seller account identifier
+   - marketplace/region
+   - auth obtained timestamp
+   - auth expiry/renewal tracking fields if needed
+
+Temporary testing option:
+
+1. For a one-account smoke test, it is acceptable to store a temporary testing
+   refresh token in Render as:
+   - `AMAZON_SPAPI_TEST_REFRESH_TOKEN`
+2. Do not treat that as the production multi-client design.
+
+### Direct SP-API prerequisite checklist
+
+Before the backend can make a real Finances API call, we need:
+
+1. `AMAZON_SPAPI_LWA_CLIENT_ID`
+2. `AMAZON_SPAPI_LWA_CLIENT_SECRET`
+3. `AMAZON_SPAPI_APP_ID`
+4. one seller-authorized refresh token
+
+### Recommended first direct-Amazon target
+
+Do not replace all Windsor usage at once.
+
+Recommended rollout:
+
+1. Build a P&L-only direct-Amazon prototype first.
+2. Start with seller-authorized financial calls and compare them against the
+   active CSV-backed P&L months.
+3. Keep CSV import as source of truth during validation.
+4. Defer broader WBR migration decisions until direct-P&L parity is proven.
+
 ## Key decisions
 
 1. The report is accounting-style and should use `posted/released financial dates`, not order dates.

@@ -58,6 +58,19 @@ export function buildReportsHeaderState(pathname: string): ReportsHeaderState {
     };
   }
 
+  if (segments[0] === "reports" && segments[1] === "api-access") {
+    return {
+      title: "Reports",
+      subtitle: "API Access",
+      surfaceLinks: [],
+      actionLinks: [
+        { href: "/reports", label: "Clients" },
+        { href: "/reports/api-access", label: "API Access", active: true },
+        { href: "/", label: "Back to Tools" },
+      ],
+    };
+  }
+
   if (segments[0] === "reports" && segments[1]) {
     return {
       title: "Reports",
@@ -65,6 +78,7 @@ export function buildReportsHeaderState(pathname: string): ReportsHeaderState {
       surfaceLinks: [],
       actionLinks: [
         { href: "/reports", label: "Clients" },
+        { href: "/reports/api-access", label: "API Access" },
         { href: "/", label: "Back to Tools" },
       ],
     };
@@ -76,6 +90,7 @@ export function buildReportsHeaderState(pathname: string): ReportsHeaderState {
     surfaceLinks: [],
     actionLinks: [
       { href: "/reports", label: "Clients", active: segments[0] === "reports" },
+      { href: "/reports/api-access", label: "API Access", active: segments[1] === "api-access" },
       { href: "/", label: "Back to Tools" },
     ],
   };

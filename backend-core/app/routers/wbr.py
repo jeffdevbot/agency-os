@@ -804,11 +804,41 @@ async def get_amazon_ads_connection(
     """Check whether this profile has a stored Amazon Ads connection."""
     svc = _get_service()
     try:
-        svc.get_profile(profile_id)
+        profile = svc.get_profile(profile_id)
     except WBRNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
     db = _get_supabase()
+
+    # Prefer shared report_api_connections (keyed by client_id)
+    client_id = str(profile.get("client_id") or "").strip()
+    if client_id:
+        shared_response = (
+            db.table("report_api_connections")
+            .select("client_id, connection_status, connected_at, last_validated_at, last_error, updated_at, access_meta")
+            .eq("client_id", client_id)
+            .eq("provider", "amazon_ads")
+            .limit(1)
+            .execute()
+        )
+        shared_rows = shared_response.data if isinstance(shared_response.data, list) else []
+        if shared_rows:
+            row = shared_rows[0]
+            meta = row.get("access_meta") if isinstance(row.get("access_meta"), dict) else {}
+            return {
+                "ok": True,
+                "connected": True,
+                "source": "shared",
+                "connection": {
+                    "profile_id": profile_id,
+                    "connected_at": row.get("connected_at"),
+                    "lwa_account_hint": meta.get("lwa_account_hint"),
+                    "created_at": row.get("connected_at"),
+                    "updated_at": row.get("updated_at"),
+                },
+            }
+
+    # Fallback to legacy wbr_amazon_ads_connections
     response = (
         db.table("wbr_amazon_ads_connections")
         .select("profile_id, connected_at, lwa_account_hint, created_at, updated_at")
@@ -820,7 +850,7 @@ async def get_amazon_ads_connection(
     if not rows:
         return {"ok": True, "connected": False, "connection": None}
 
-    return {"ok": True, "connected": True, "connection": rows[0]}
+    return {"ok": True, "connected": True, "source": "legacy", "connection": rows[0]}
 
 
 @router.get("/profiles/{profile_id}/amazon-ads/profiles")
@@ -831,25 +861,41 @@ async def list_amazon_ads_profiles(
     """Discover available Amazon Ads advertiser profiles for this connection."""
     svc = _get_service()
     try:
-        svc.get_profile(profile_id)
+        profile = svc.get_profile(profile_id)
     except WBRNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
     db = _get_supabase()
-    conn_response = (
-        db.table("wbr_amazon_ads_connections")
-        .select("amazon_ads_refresh_token")
-        .eq("profile_id", profile_id)
-        .limit(1)
-        .execute()
-    )
-    conn_rows = conn_response.data if isinstance(conn_response.data, list) else []
-    if not conn_rows:
-        raise HTTPException(status_code=400, detail="No Amazon Ads connection found. Connect first.")
+    refresh_token = ""
 
-    refresh_token = conn_rows[0].get("amazon_ads_refresh_token", "")
+    # Prefer shared report_api_connections (keyed by client_id)
+    client_id = str(profile.get("client_id") or "").strip()
+    if client_id:
+        shared_response = (
+            db.table("report_api_connections")
+            .select("refresh_token")
+            .eq("client_id", client_id)
+            .eq("provider", "amazon_ads")
+            .limit(1)
+            .execute()
+        )
+        shared_rows = shared_response.data if isinstance(shared_response.data, list) else []
+        refresh_token = str(shared_rows[0].get("refresh_token") or "").strip() if shared_rows else ""
+
+    # Fallback to legacy wbr_amazon_ads_connections
     if not refresh_token:
-        raise HTTPException(status_code=400, detail="Amazon Ads refresh token is missing")
+        conn_response = (
+            db.table("wbr_amazon_ads_connections")
+            .select("amazon_ads_refresh_token")
+            .eq("profile_id", profile_id)
+            .limit(1)
+            .execute()
+        )
+        conn_rows = conn_response.data if isinstance(conn_response.data, list) else []
+        refresh_token = str(conn_rows[0].get("amazon_ads_refresh_token") or "").strip() if conn_rows else ""
+
+    if not refresh_token:
+        raise HTTPException(status_code=400, detail="No Amazon Ads connection found. Connect first.")
 
     try:
         access_token = await refresh_access_token(refresh_token)

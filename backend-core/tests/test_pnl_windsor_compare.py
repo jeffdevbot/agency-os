@@ -13,6 +13,7 @@ from app.services.pnl.windsor_compare import (
     FIELD_AMOUNT_DESCRIPTION,
     FIELD_AMOUNT_TYPE,
     FIELD_MARKETPLACE_NAME,
+    FIELD_SETTLEMENT_ID,
     FIELD_TRANSACTION_TYPE,
     WindsorSettlementCompareService,
     _classify_windsor_row,
@@ -385,6 +386,74 @@ class TestWindsorSettlementCompareService:
                 "windsor_amount": "-7.00",
                 "delta_amount": "0.00",
             },
+        ]
+
+    @pytest.mark.asyncio
+    async def test_compare_month_uses_settlement_marketplace_hint_for_blank_rows(self):
+        db = _db_with_tables(
+            monthly_pnl_profiles=_chain_table(
+                [{"id": "p1", "client_id": "c1", "marketplace_code": "US", "currency_code": "USD"}]
+            ),
+            wbr_profiles=_chain_table([{"id": "w1", "windsor_account_id": "acct-us"}]),
+            monthly_pnl_import_months=_chain_table(
+                [{"id": "im1", "import_id": "imp1", "entry_month": "2026-02-01"}]
+            ),
+            monthly_pnl_imports=_chain_table([{"id": "imp1"}]),
+            monthly_pnl_import_month_bucket_totals=_chain_table(
+                [{"import_month_id": "im1", "ledger_bucket": "advertising", "amount": "-10.00"}]
+            ),
+        )
+        svc = WindsorSettlementCompareService(db)
+        svc._fetch_rows = AsyncMock(
+            return_value=[
+                {
+                    FIELD_SETTLEMENT_ID: "settle-us",
+                    FIELD_TRANSACTION_TYPE: "Order",
+                    FIELD_AMOUNT_TYPE: "ItemPrice",
+                    FIELD_AMOUNT_DESCRIPTION: "Principal",
+                    FIELD_AMOUNT: "100.00",
+                    FIELD_MARKETPLACE_NAME: "Amazon.com",
+                },
+                {
+                    FIELD_SETTLEMENT_ID: "settle-us",
+                    FIELD_TRANSACTION_TYPE: "ServiceFee",
+                    FIELD_AMOUNT_TYPE: "Cost of Advertising",
+                    FIELD_AMOUNT_DESCRIPTION: "TransactionTotalAmount",
+                    FIELD_AMOUNT: "-10.00",
+                    FIELD_MARKETPLACE_NAME: "",
+                },
+                {
+                    FIELD_SETTLEMENT_ID: "settle-ca",
+                    FIELD_TRANSACTION_TYPE: "Order",
+                    FIELD_AMOUNT_TYPE: "ItemPrice",
+                    FIELD_AMOUNT_DESCRIPTION: "Principal",
+                    FIELD_AMOUNT: "50.00",
+                    FIELD_MARKETPLACE_NAME: "Amazon.ca",
+                },
+                {
+                    FIELD_SETTLEMENT_ID: "settle-ca",
+                    FIELD_TRANSACTION_TYPE: "ServiceFee",
+                    FIELD_AMOUNT_TYPE: "Cost of Advertising",
+                    FIELD_AMOUNT_DESCRIPTION: "TransactionTotalAmount",
+                    FIELD_AMOUNT: "-7.00",
+                    FIELD_MARKETPLACE_NAME: "",
+                },
+            ]
+        )
+
+        result = await svc.compare_month("p1", "2026-02-01", "amazon_com_only")
+
+        assert result["windsor"]["bucket_totals"] == {
+            "advertising": "-10.00",
+            "product_sales": "100.00",
+        }
+        assert result["scope_diagnostics"]["excluded_row_count"] == 2
+        assert result["scope_diagnostics"]["excluded_amount"] == "43.00"
+        assert result["scope_diagnostics"]["blank_marketplace_row_count"] == 1
+        assert result["scope_diagnostics"]["blank_marketplace_amount"] == "-7.00"
+        assert result["scope_diagnostics"]["excluded_bucket_totals"] == [
+            {"bucket": "product_sales", "amount": "50.00"},
+            {"bucket": "advertising", "amount": "-7.00"},
         ]
 
     def test_compare_month_requires_active_csv_month(self):

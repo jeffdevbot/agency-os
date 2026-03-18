@@ -162,7 +162,7 @@ def test_run_backfill_chunks_requested_range(monkeypatch):
         },
     )
     monkeypatch.setattr(svc, "_require_amazon_ads_profile_id", lambda profile: "ads-prof-1")
-    monkeypatch.setattr(svc, "_require_refresh_token", lambda profile_id: "refresh-token")
+    monkeypatch.setattr(svc, "_require_refresh_token", lambda profile_id, **kwargs: "refresh-token")
 
     calls: list[tuple[date, date, str]] = []
 
@@ -237,7 +237,7 @@ def test_run_daily_refresh_uses_profile_rewrite_window(monkeypatch):
         },
     )
     monkeypatch.setattr(svc, "_require_amazon_ads_profile_id", lambda profile: "ads-prof-1")
-    monkeypatch.setattr(svc, "_require_refresh_token", lambda profile_id: "refresh-token")
+    monkeypatch.setattr(svc, "_require_refresh_token", lambda profile_id, **kwargs: "refresh-token")
 
     observed: dict[str, date] = {}
 
@@ -299,7 +299,7 @@ def test_process_pending_runs_polls_due_jobs_and_updates_request_meta(monkeypatc
 
     monkeypatch.setattr(svc, "_list_running_sync_runs", lambda limit=20: [run])
     monkeypatch.setattr(sync_module, "datetime", type("_FakeDateTime", (datetime,), {"now": classmethod(lambda cls, tz=None: now)}))
-    monkeypatch.setattr(svc, "_require_refresh_token", lambda profile_id: "refresh-token")
+    monkeypatch.setattr(svc, "_require_refresh_token", lambda profile_id, **kwargs: "refresh-token")
 
     async def fake_refresh_access_token(refresh_token):
         return "access-token"
@@ -491,3 +491,117 @@ def test_amazon_ads_daily_refresh_endpoint_calls_service(monkeypatch):
         assert fake_svc.last_daily_refresh["user_id"] == "user-123"
     finally:
         app.dependency_overrides.pop(wbr.require_admin_user, None)
+
+
+# ---------------------------------------------------------------------------
+# Tests: _require_refresh_token shared-first lookup
+# ---------------------------------------------------------------------------
+
+
+class _MultiTableFakeSupabase:
+    """Stub supporting table-specific rows for _require_refresh_token tests."""
+
+    def __init__(self, tables: dict[str, list[dict]] | None = None):
+        self._tables = {name: list(rows) for name, rows in (tables or {}).items()}
+
+    def table(self, name: str):
+        return _MultiTableFakeTable(self._tables.get(name, []))
+
+
+class _MultiTableFakeTable:
+    def __init__(self, rows: list[dict]):
+        self._rows = rows
+        self._filters: dict[str, object] = {}
+
+    def select(self, *args, **kwargs):
+        return self
+
+    def eq(self, col, val):
+        self._filters[col] = val
+        return self
+
+    def limit(self, n):
+        return self
+
+    def execute(self):
+        filtered = self._rows
+        for col, val in self._filters.items():
+            filtered = [row for row in filtered if row.get(col) == val]
+        return type("Resp", (), {"data": filtered})()
+
+
+class TestRequireRefreshTokenSharedFirst:
+    def test_prefers_shared_token_when_present(self):
+        db = _MultiTableFakeSupabase(
+            {
+                "wbr_profiles": [
+                    {"id": "prof-1", "client_id": "client-1", "amazon_ads_profile_id": "ads-1"},
+                ],
+                "report_api_connections": [
+                    {
+                        "client_id": "client-1",
+                        "provider": "amazon_ads",
+                        "refresh_token": "shared-refresh-token",
+                    },
+                ],
+                "wbr_amazon_ads_connections": [
+                    {"profile_id": "prof-1", "amazon_ads_refresh_token": "legacy-refresh-token"},
+                ],
+            }
+        )
+        svc = AmazonAdsSyncService(db)
+        token = svc._require_refresh_token("prof-1")
+        assert token == "shared-refresh-token"
+
+    def test_falls_back_to_legacy_when_shared_missing(self):
+        db = _MultiTableFakeSupabase(
+            {
+                "wbr_profiles": [
+                    {"id": "prof-1", "client_id": "client-1", "amazon_ads_profile_id": "ads-1"},
+                ],
+                "report_api_connections": [],
+                "wbr_amazon_ads_connections": [
+                    {"profile_id": "prof-1", "amazon_ads_refresh_token": "legacy-refresh-token"},
+                ],
+            }
+        )
+        svc = AmazonAdsSyncService(db)
+        token = svc._require_refresh_token("prof-1")
+        assert token == "legacy-refresh-token"
+
+    def test_falls_back_to_legacy_when_shared_token_empty(self):
+        db = _MultiTableFakeSupabase(
+            {
+                "wbr_profiles": [
+                    {"id": "prof-1", "client_id": "client-1", "amazon_ads_profile_id": "ads-1"},
+                ],
+                "report_api_connections": [
+                    {
+                        "client_id": "client-1",
+                        "provider": "amazon_ads",
+                        "refresh_token": "",
+                    },
+                ],
+                "wbr_amazon_ads_connections": [
+                    {"profile_id": "prof-1", "amazon_ads_refresh_token": "legacy-refresh-token"},
+                ],
+            }
+        )
+        svc = AmazonAdsSyncService(db)
+        token = svc._require_refresh_token("prof-1")
+        assert token == "legacy-refresh-token"
+
+    def test_raises_when_neither_has_token(self):
+        db = _MultiTableFakeSupabase(
+            {
+                "wbr_profiles": [
+                    {"id": "prof-1", "client_id": "client-1", "amazon_ads_profile_id": "ads-1"},
+                ],
+                "report_api_connections": [],
+                "wbr_amazon_ads_connections": [],
+            }
+        )
+        svc = AmazonAdsSyncService(db)
+        with pytest.raises(WBRValidationError, match="Connect first"):
+            svc._require_refresh_token("prof-1")
+
