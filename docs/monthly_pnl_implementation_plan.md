@@ -11,12 +11,13 @@ _Last updated: 2026-03-17 (ET)_
 > SKU-based model: sold quantities are derived from imported transaction rows,
 > one current fixed unit cost is stored per SKU, and the report computes COGS
 > from those values. The settings card now also supports collapsed SKU display
-> plus CSV export/import round-trips for bulk editing. CA transaction-upload
-> support is now live and validated on real profiles: Whoosh CA is active for
-> Jan-Feb 2026 and Distex CA is active from Jan 2024 through Feb 2026, with
-> current active CA month slices at `unmapped_amount = 0`. The next execution
-> focus is no longer CA validation; it is whatever the next requested rollout,
-> mapping, or operator-UX improvement turns out to be.
+> plus CSV export/import round-trips for bulk editing. `Other expenses`,
+> workbook export, and payout visibility from `non_pnl_transfer` are also live.
+> CA transaction-upload support is now live and validated on real profiles:
+> Whoosh CA is active for Jan-Feb 2026 and Distex CA is active from Jan 2024
+> through Feb 2026, with current active CA month slices at `unmapped_amount =
+> 0`. The next execution focus is no longer CA validation; it is the remaining
+> implementation-plan items that the user chooses to prioritize.
 
 This document defines the recommended implementation plan for a new
 client-facing `Monthly P&L` report in Ecomlabs Tools.
@@ -908,12 +909,12 @@ Minimum requirement:
 3. Add normalized ledger expansion
 4. Add unmapped QA output
 
-### Phase 2: First usable report — SHIPPED (except Excel export)
+### Phase 2: First usable report — SHIPPED
 
 1. Add Monthly P&L route
 2. Add month filters
 3. Render derived rows
-4. ~~Add Excel export~~ — moved to v2 roadmap item 7
+4. Add workbook export
 
 ### Phase 3: COGS — SHIPPED
 
@@ -962,9 +963,10 @@ Remaining feature sequence after the currently shipped state.
 
 Recommended ordering principle:
 
-1. ship low-risk report improvements first
-2. complete the core finance model before internal add-ons
-3. validate Windsor as the second ingestion path before polishing exports
+1. preserve the validated upload-based reporting path first
+2. keep prioritizing low-risk operator/report improvements over broad refactors
+3. validate Windsor as the second ingestion path before Windsor-dependent
+   automation or comparison layers
 4. defer comparison/reporting layers until the underlying data model is richer
    and stable
 
@@ -978,10 +980,11 @@ the last month column, toggled from the report header.
 Shipped on 2026-03-17. The report now supports `Dollars` and `% of Revenue`
 views in the main table UI.
 
-### v2-2: COGS entry workflow — MEDIUM difficulty
+### v2-2: COGS entry workflow — SHIPPED
 
-Current status: implemented in the repo and pushed to `main`, but still pending
-manual product/user verification before it should be called fully validated.
+Current status: live in production, validated on the Whoosh US profile, and in
+active use on real CA profiles. Ongoing usage validation is still useful, but
+this is no longer a future roadmap item.
 
 The implemented v2 COGS model is:
 
@@ -1070,36 +1073,32 @@ Current shipped shape:
 5. This is intentionally additive to the report path and does not change
    Amazon transaction ingest or mapping behavior.
 
-### v2-6: Disbursements tab — LOW-MEDIUM difficulty
+### v2-6: Payout visibility / disbursements follow-up — SHIPPED
 
-The importer already maps Transfer / payout rows to the `non_pnl_transfer`
-ledger bucket. This data is saved but excluded from the P&L totals (correctly).
+Current shipped state:
 
-1. Add a third report tab (after `$` and `%`): `Disbursements`.
-2. Query `monthly_pnl_ledger_entries` where
-   `ledger_bucket = 'non_pnl_transfer'`, grouped by month.
-3. Show monthly disbursement totals, optionally broken out by settlement ID if
-   captured in raw data.
-4. No new tables needed. Lightweight backend endpoint or filter on existing
-   report query.
+1. Transfer / payout rows already map to the `non_pnl_transfer` ledger bucket.
+2. The main P&L now appends `Payout ($)` and `Payout (%)` rows at the bottom of
+   the report using that bucket.
+3. Payout percent is calculated against `Total Net Revenue`.
 
-Important gate:
 
-1. verify that `non_pnl_transfer` rows capture what the manual process shows
-   for disbursements before shipping
-2. do not treat this as a pure UI task until that reconciliation is proven
+### v2-7: Export to XLSX — SHIPPED
 
-### v2-7: Export to XLSX — LOW-MEDIUM difficulty
+Current shipped shape:
 
-Follow the WBR Excel export pattern. By this point the report includes all
-core views and major optional rows, so the export captures the complete
-picture without forcing early churn in workbook structure.
+1. Workbook export lives in the report header.
+2. The workbook mirrors the current report range and totals visibility.
+3. It currently exports `Dollars` and `% of Revenue` sheets.
+4. It includes COGS, enabled `Other expenses`, and payout rows when present.
+5. It uses marketplace-derived currency labels, WBR-style workbook formatting,
+   and accounting-style negative formats.
 
-1. Multi-sheet workbook: one sheet per report tab (Dollars, % of Revenue,
-   Disbursements).
-2. Include COGS and enabled `Other expenses` rows when present.
-3. Match the on-screen formatting (bold totals, section grouping, month
-   columns).
+Future follow-up only if the product surface expands:
+
+1. add more sheets only if new report tabs/views are introduced later
+2. keep workbook structure aligned to the on-screen P&L rather than inventing a
+   second reporting model
 
 ### v2-8: Annual / year-over-year comparison — MEDIUM-HIGH difficulty
 
@@ -1119,20 +1118,21 @@ Initial suggestion: start with a YoY comparison table, not charts.
 
 Recommended execution order from here:
 
-1. `v2-2` COGS entry workflow
-2. `v2-3` Windsor settlement backfill
-3. `v2-4` Windsor weekly auto-refresh
-4. `v2-6` Disbursements tab
-5. `v2-7` Export to XLSX
-6. `v2-8` Annual / year-over-year comparison
+1. `v2-3` Windsor settlement backfill
+2. `v2-4` Windsor weekly auto-refresh
+3. `v2-6` dedicated disbursements view, only if payout rows prove insufficient
+4. `v2-8` Annual / year-over-year comparison
 
 Why this order:
 
-1. continue validating the already-shipped COGS and other-expense workflows as
-   more live profiles use them
-2. validate Windsor as the second ingestion path before spending time on export
-   polish
-3. defer disbursements until the `non_pnl_transfer` mapping is reconciled
+1. COGS, export, other expenses, and payout visibility are already shipped, so
+   they should be treated as ongoing polish/validation work, not blocked
+   roadmap items
+2. validate Windsor as the second ingestion path before building Windsor-driven
+   automation
+3. only promote a dedicated disbursements surface if payout rows prove
+   insufficient and the transfer bucket is reconciled against the manual
+   process
 4. leave YoY analysis last because it depends on a richer, stable dataset and a
    settled report surface
 
