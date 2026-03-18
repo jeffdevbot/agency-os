@@ -15,12 +15,23 @@ import {
 
 type Props = {
   entryMonth: string;
+  marketplaceScope: "all" | "amazon_com_only" | "amazon_com_and_ca";
   comparison: PnlWindsorCompare | null;
   loading: boolean;
   errorMessage: string | null;
   onEntryMonthChange: (entryMonth: string) => void;
+  onMarketplaceScopeChange: (scope: "all" | "amazon_com_only" | "amazon_com_and_ca") => void;
   onRunCompare: () => void;
 };
+
+const MARKETPLACE_SCOPE_OPTIONS: Array<{
+  value: "all" | "amazon_com_only" | "amazon_com_and_ca";
+  label: string;
+}> = [
+  { value: "all", label: "All Windsor marketplaces" },
+  { value: "amazon_com_only", label: "Amazon.com only" },
+  { value: "amazon_com_and_ca", label: "Amazon.com + Amazon.ca" },
+];
 
 function toMonthInputValue(entryMonth: string): string {
   return /^\d{4}-\d{2}-01$/.test(entryMonth) ? entryMonth.slice(0, 7) : "";
@@ -80,10 +91,12 @@ function renderBucketRows(bucketDeltas: PnlWindsorBucketDelta[]) {
 
 export default function PnlWindsorCompareCard({
   entryMonth,
+  marketplaceScope,
   comparison,
   loading,
   errorMessage,
   onEntryMonthChange,
+  onMarketplaceScopeChange,
   onRunCompare,
 }: Props) {
   const [selectedBucket, setSelectedBucket] = useState<string>("");
@@ -99,6 +112,10 @@ export default function PnlWindsorCompareCard({
     () => comparison?.windsor.mapped_bucket_drilldowns ?? [],
     [comparison],
   );
+  const drilldownBuckets = useMemo(
+    () => Array.from(new Set(bucketDeltas.map((row) => row.bucket))),
+    [bucketDeltas],
+  );
   const selectedBucketDrilldown = useMemo(
     () => mappedBucketDrilldowns.find((row) => row.bucket === selectedBucket) ?? null,
     [mappedBucketDrilldowns, selectedBucket],
@@ -106,9 +123,9 @@ export default function PnlWindsorCompareCard({
   const monthInputValue = toMonthInputValue(entryMonth);
 
   useEffect(() => {
-    const preferredBucket = topDeltas[0]?.bucket ?? mappedBucketDrilldowns[0]?.bucket ?? "";
-    setSelectedBucket(preferredBucket);
-  }, [comparison, mappedBucketDrilldowns, topDeltas]);
+    const preferredBucket = topDeltas[0]?.bucket ?? drilldownBuckets[0] ?? "";
+    setSelectedBucket((current) => (current && drilldownBuckets.includes(current) ? current : preferredBucket));
+  }, [comparison, drilldownBuckets, topDeltas]);
 
   return (
     <div className="rounded-3xl bg-white/95 p-5 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur md:p-6">
@@ -121,6 +138,20 @@ export default function PnlWindsorCompareCard({
           </p>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+          <label className="text-sm text-[#334155]">
+            <span className="mb-1 block font-medium">Scope</span>
+            <select
+              value={marketplaceScope}
+              onChange={(event) => onMarketplaceScopeChange(event.target.value as "all" | "amazon_com_only" | "amazon_com_and_ca")}
+              className="w-full rounded-xl border border-[#cbd5e1] bg-white px-3 py-2 text-sm text-[#0f172a] outline-none transition focus:border-[#0a6fd6] focus:ring-2 focus:ring-[#0a6fd6]/20"
+            >
+              {MARKETPLACE_SCOPE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
           <label className="text-sm text-[#334155]">
             <span className="mb-1 block font-medium">Month</span>
             <input
@@ -165,6 +196,9 @@ export default function PnlWindsorCompareCard({
             </span>
             <span className="rounded-full border border-[#cbd5e1] bg-[#f8fafc] px-3 py-1">
               {comparison.profile.marketplace_code} profile
+            </span>
+            <span className="rounded-full border border-[#cbd5e1] bg-[#f8fafc] px-3 py-1">
+              {MARKETPLACE_SCOPE_OPTIONS.find((option) => option.value === comparison.marketplace_scope)?.label ?? "All Windsor marketplaces"}
             </span>
           </div>
 
@@ -334,9 +368,9 @@ export default function PnlWindsorCompareCard({
                       onChange={(event) => setSelectedBucket(event.target.value)}
                       className="rounded-xl border border-[#cbd5e1] bg-white px-3 py-2 text-sm text-[#0f172a] outline-none transition focus:border-[#0a6fd6] focus:ring-2 focus:ring-[#0a6fd6]/20"
                     >
-                      {mappedBucketDrilldowns.map((row) => (
-                        <option key={row.bucket} value={row.bucket}>
-                          {formatBucketLabel(row.bucket)}
+                      {drilldownBuckets.map((bucket) => (
+                        <option key={bucket} value={bucket}>
+                          {formatBucketLabel(bucket)}
                         </option>
                       ))}
                     </select>
@@ -370,7 +404,11 @@ export default function PnlWindsorCompareCard({
                       </tbody>
                     </table>
                   </div>
-                ) : null}
+                ) : (
+                  <div className="mt-3 rounded-2xl border border-[#dbe4f0] bg-[#f8fafc] px-4 py-4 text-sm text-[#64748b]">
+                    No Windsor rows mapped into this bucket for the selected marketplace scope.
+                  </div>
+                )}
               </div>
 
               <div>

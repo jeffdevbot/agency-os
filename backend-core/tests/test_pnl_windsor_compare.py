@@ -86,6 +86,24 @@ class TestClassifyWindsorRow:
         )
         assert unmapped.classification == "unmapped"
 
+    def test_maps_refund_itemprice_adjustments_into_refunds(self):
+        assert _classify_windsor_row(
+            {
+                FIELD_TRANSACTION_TYPE: "Refund",
+                FIELD_AMOUNT_TYPE: "ItemPrice",
+                FIELD_AMOUNT_DESCRIPTION: "RestockingFee",
+            },
+            Decimal("8.00"),
+        ).bucket == "refunds"
+        assert _classify_windsor_row(
+            {
+                FIELD_TRANSACTION_TYPE: "Refund",
+                FIELD_AMOUNT_TYPE: "ItemPrice",
+                FIELD_AMOUNT_DESCRIPTION: "Goodwill",
+            },
+            Decimal("-3.00"),
+        ).bucket == "refunds"
+
 
 class TestWindsorSettlementCompareService:
     @pytest.mark.asyncio
@@ -233,6 +251,57 @@ class TestWindsorSettlementCompareService:
         assert result["windsor"]["top_unmapped_combos"][0]["transaction_type"] == "Mystery"
         svc._fetch_rows.assert_awaited_once()
 
+    @pytest.mark.asyncio
+    async def test_compare_month_filters_to_amazon_com_scope(self):
+        db = _db_with_tables(
+            monthly_pnl_profiles=_chain_table(
+                [{"id": "p1", "client_id": "c1", "marketplace_code": "US", "currency_code": "USD"}]
+            ),
+            wbr_profiles=_chain_table([{"id": "w1", "windsor_account_id": "acct-us"}]),
+            monthly_pnl_import_months=_chain_table(
+                [{"id": "im1", "import_id": "imp1", "entry_month": "2026-02-01"}]
+            ),
+            monthly_pnl_imports=_chain_table([{"id": "imp1"}]),
+            monthly_pnl_import_month_bucket_totals=_chain_table(
+                [{"import_month_id": "im1", "ledger_bucket": "product_sales", "amount": "100.00"}]
+            ),
+        )
+        svc = WindsorSettlementCompareService(db)
+        svc._fetch_rows = AsyncMock(
+            return_value=[
+                {
+                    FIELD_TRANSACTION_TYPE: "Order",
+                    FIELD_AMOUNT_TYPE: "ItemPrice",
+                    FIELD_AMOUNT_DESCRIPTION: "Principal",
+                    FIELD_AMOUNT: "100.00",
+                    FIELD_MARKETPLACE_NAME: "Amazon.com",
+                },
+                {
+                    FIELD_TRANSACTION_TYPE: "Order",
+                    FIELD_AMOUNT_TYPE: "ItemPrice",
+                    FIELD_AMOUNT_DESCRIPTION: "Principal",
+                    FIELD_AMOUNT: "50.00",
+                    FIELD_MARKETPLACE_NAME: "Amazon.ca",
+                },
+                {
+                    FIELD_TRANSACTION_TYPE: "Order",
+                    FIELD_AMOUNT_TYPE: "ItemPrice",
+                    FIELD_AMOUNT_DESCRIPTION: "Principal",
+                    FIELD_AMOUNT: "25.00",
+                    FIELD_MARKETPLACE_NAME: "Non-Amazon US",
+                },
+            ]
+        )
+
+        result = await svc.compare_month("p1", "2026-02-01", "amazon_com_only")
+
+        assert result["marketplace_scope"] == "amazon_com_only"
+        assert result["windsor"]["row_count"] == 1
+        assert result["windsor"]["bucket_totals"]["product_sales"] == "100.00"
+        assert result["windsor"]["marketplace_totals"] == [
+            {"marketplace_name": "Amazon.com", "row_count": 1, "amount": "100.00"}
+        ]
+
     def test_compare_month_requires_active_csv_month(self):
         db = _db_with_tables(
             monthly_pnl_profiles=_chain_table(
@@ -245,3 +314,14 @@ class TestWindsorSettlementCompareService:
 
         with pytest.raises(PNLValidationError, match="No active Monthly P&L import month exists"):
             svc._load_csv_baseline("p1", "2026-02-01")
+
+    def test_compare_month_rejects_invalid_marketplace_scope(self):
+        db = _db_with_tables(
+            monthly_pnl_profiles=_chain_table(
+                [{"id": "p1", "client_id": "c1", "marketplace_code": "US", "currency_code": "USD"}]
+            ),
+        )
+        svc = WindsorSettlementCompareService(db)
+
+        with pytest.raises(PNLValidationError, match="marketplace_scope must be one of"):
+            svc._parse_marketplace_scope("bad-scope")

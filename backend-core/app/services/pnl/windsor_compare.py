@@ -57,6 +57,7 @@ FIELD_TRANSACTION_TYPE = "v2_settlement_report_data_flat_file_v2__transaction_ty
 
 DEFAULT_TIMEOUT_SECONDS = 360
 MIN_TIMEOUT_SECONDS = 60
+VALID_MARKETPLACE_SCOPES = {"all", "amazon_com_only", "amazon_com_and_ca"}
 
 
 @dataclass(frozen=True)
@@ -119,6 +120,8 @@ def _classify_windsor_row(row: dict[str, Any], amount: Decimal) -> WindsorMappin
                 "mapped",
                 "shipping_credit_refunds" if is_refund_like else "shipping_credits",
             )
+        if description in {"restockingfee", "goodwill"}:
+            return WindsorMappingResult("mapped", "refunds")
         if description.startswith("gift"):
             return WindsorMappingResult(
                 "mapped",
@@ -188,18 +191,21 @@ class WindsorSettlementCompareService:
         self,
         profile_id: str,
         entry_month: str,
+        marketplace_scope: str = "all",
     ) -> dict[str, Any]:
         profile = self._get_profile(profile_id)
         month_date = self._parse_entry_month(entry_month)
         date_from = month_date
         date_to = _last_day_of_month(month_date)
+        resolved_marketplace_scope = self._parse_marketplace_scope(marketplace_scope)
         windsor_account_id = self._resolve_windsor_account_id(profile)
         csv_baseline = self._load_csv_baseline(profile_id, entry_month)
-        windsor_rows = await self._fetch_rows(
+        all_windsor_rows = await self._fetch_rows(
             account_id=windsor_account_id,
             date_from=date_from,
             date_to=date_to,
         )
+        windsor_rows = self._filter_rows_by_marketplace_scope(all_windsor_rows, resolved_marketplace_scope)
         windsor_analysis = self._analyze_rows(windsor_rows)
 
         return {
@@ -212,6 +218,7 @@ class WindsorSettlementCompareService:
             "entry_month": entry_month,
             "date_from": date_from.isoformat(),
             "date_to": date_to.isoformat(),
+            "marketplace_scope": resolved_marketplace_scope,
             "windsor_account_id": windsor_account_id,
             "csv_baseline": csv_baseline,
             "windsor": windsor_analysis,
@@ -246,6 +253,32 @@ class WindsorSettlementCompareService:
         if parsed.day != 1:
             raise PNLValidationError("entry_month must be YYYY-MM-01")
         return parsed
+
+    def _parse_marketplace_scope(self, value: str | None) -> str:
+        scope = _normalize(value) or "all"
+        if scope not in VALID_MARKETPLACE_SCOPES:
+            raise PNLValidationError(
+                "marketplace_scope must be one of: all, amazon_com_only, amazon_com_and_ca"
+            )
+        return scope
+
+    def _filter_rows_by_marketplace_scope(
+        self,
+        rows: list[dict[str, Any]],
+        marketplace_scope: str,
+    ) -> list[dict[str, Any]]:
+        if marketplace_scope == "all":
+            return rows
+
+        allowed_marketplaces = {"amazon.com"}
+        if marketplace_scope == "amazon_com_and_ca":
+            allowed_marketplaces.add("amazon.ca")
+
+        return [
+            row
+            for row in rows
+            if _normalize_key(row.get(FIELD_MARKETPLACE_NAME)) in allowed_marketplaces
+        ]
 
     def _resolve_windsor_account_id(self, profile: dict[str, Any]) -> str:
         client_id = str(profile.get("client_id") or "").strip()

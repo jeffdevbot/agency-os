@@ -353,11 +353,12 @@ async def get_pnl_report(
 async def get_windsor_month_compare(
     profile_id: str,
     entry_month: str = Query(..., pattern=r"^\d{4}-\d{2}-01$"),
+    marketplace_scope: str = Query("all"),
     user=Depends(require_admin_user),
 ):
     svc = _get_windsor_compare_service()
     try:
-        comparison = await svc.compare_month(profile_id, entry_month)
+        comparison = await svc.compare_month(profile_id, entry_month, marketplace_scope)
         return {"ok": True, **comparison}
     except PNLNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))

@@ -62,6 +62,9 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
   const [processingImportStatus, setProcessingImportStatus] = useState<string | null>(null);
   const [processingImportLabel, setProcessingImportLabel] = useState<string | null>(null);
   const [windsorCompareMonth, setWindsorCompareMonth] = useState<string>(defaultRangeEnd);
+  const [windsorMarketplaceScope, setWindsorMarketplaceScope] = useState<
+    "all" | "amazon_com_only" | "amazon_com_and_ca"
+  >("all");
 
   const profileId = resolved.resolved?.profile?.id ?? null;
   const reportState = usePnlReport(
@@ -315,7 +318,7 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
   const handleRunWindsorCompare = async () => {
     if (!profileId || !windsorCompareMonth) return;
     try {
-      await windsorCompareState.loadComparison(windsorCompareMonth);
+      await windsorCompareState.loadComparison(windsorCompareMonth, windsorMarketplaceScope);
     } catch {
       // Error state is already surfaced by the Windsor compare hook.
     }
@@ -415,10 +418,12 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
           <div className="mt-5 space-y-3">
             <PnlWindsorCompareCard
               entryMonth={windsorCompareMonth}
+              marketplaceScope={windsorMarketplaceScope}
               comparison={windsorCompareState.comparison}
               loading={windsorCompareState.loading}
               errorMessage={windsorCompareState.errorMessage}
               onEntryMonthChange={setWindsorCompareMonth}
+              onMarketplaceScopeChange={setWindsorMarketplaceScope}
               onRunCompare={() => void handleRunWindsorCompare()}
             />
             <PnlUploadCard

@@ -442,7 +442,7 @@ class TestWindsorCompare:
         assert data["ok"] is True
         assert data["windsor_account_id"] == "acct-us"
         assert data["comparison"]["bucket_deltas"][0]["bucket"] == "product_sales"
-        fake_svc.compare_month.assert_awaited_once_with("p1", "2026-02-01")
+        fake_svc.compare_month.assert_awaited_once_with("p1", "2026-02-01", "all")
 
     def test_get_windsor_compare_validation_error_returns_400(self, monkeypatch):
         from app.services.pnl.profiles import PNLValidationError

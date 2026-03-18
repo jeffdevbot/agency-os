@@ -151,6 +151,7 @@ export type PnlWindsorCompare = {
   entry_month: string;
   date_from: string;
   date_to: string;
+  marketplace_scope: "all" | "amazon_com_only" | "amazon_com_and_ca";
   windsor_account_id: string;
   csv_baseline: {
     active_imports: PnlWindsorActiveImport[];
@@ -394,8 +395,12 @@ export async function getPnlWindsorCompare(
   token: string,
   profileId: string,
   entryMonth: string,
+  marketplaceScope: "all" | "amazon_com_only" | "amazon_com_and_ca" = "all",
 ): Promise<PnlWindsorCompare> {
-  const params = new URLSearchParams({ entry_month: entryMonth });
+  const params = new URLSearchParams({
+    entry_month: entryMonth,
+    marketplace_scope: marketplaceScope,
+  });
   const response = await fetch(
     `${getBackendUrl()}/admin/pnl/profiles/${profileId}/windsor-compare?${params.toString()}`,
     {
@@ -414,6 +419,7 @@ export async function getPnlWindsorCompare(
     entry_month: String(data.entry_month ?? ""),
     date_from: String(data.date_from ?? ""),
     date_to: String(data.date_to ?? ""),
+    marketplace_scope: (data.marketplace_scope ?? "all") as PnlWindsorCompare["marketplace_scope"],
     windsor_account_id: String(data.windsor_account_id ?? ""),
     csv_baseline: {
       active_imports: (data?.csv_baseline?.active_imports ?? []) as PnlWindsorActiveImport[],
