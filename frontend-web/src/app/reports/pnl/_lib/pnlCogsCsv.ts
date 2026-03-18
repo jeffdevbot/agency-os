@@ -128,6 +128,10 @@ export async function parsePnlCogsCsv(file: File): Promise<PnlCogsCsvEntry[]> {
 
   for (let i = 1; i < lines.length; i += 1) {
     const values = parseCsvLine(lines[i], delimiter);
+    const isEmptyRow = values.every((value) => value.trim().length === 0);
+    if (isEmptyRow) {
+      continue;
+    }
     const sku = (values[skuIndex] || "").trim();
     const unitCostRaw = values[unitCostIndex] || "";
 

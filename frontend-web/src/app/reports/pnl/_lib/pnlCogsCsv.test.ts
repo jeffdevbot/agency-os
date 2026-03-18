@@ -40,6 +40,21 @@ describe("pnlCogsCsv", () => {
     ]);
   });
 
+  it("ignores fully empty rows emitted by spreadsheet csv exports", async () => {
+    const file = new File(
+      [
+        "sku,unit_cost,total_units,months_in_range,missing_cost\nSKU-1,12.3400,4,\"Jan 2026: 4\",no\nSKU-2,,2,\"Jan 2026: 2\",yes\n,,,,\n",
+      ],
+      "pnl-cogs.csv",
+      { type: "text/csv" },
+    );
+
+    await expect(parsePnlCogsCsv(file)).resolves.toEqual([
+      { sku: "SKU-1", unit_cost: "12.3400" },
+      { sku: "SKU-2", unit_cost: null },
+    ]);
+  });
+
   it("accepts common unit cost header variants", async () => {
     const file = new File(
       [
