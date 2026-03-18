@@ -186,20 +186,14 @@ class PNLProfileService:
     def list_sku_cogs(
         self,
         profile_id: str,
-        start_month: str,
-        end_month: str,
     ) -> list[dict[str, Any]]:
         self.get_profile(profile_id)
-        if not re.fullmatch(r"\d{4}-\d{2}-01", start_month) or not re.fullmatch(r"\d{4}-\d{2}-01", end_month):
-            raise PNLValidationError("start_month and end_month must be YYYY-MM-01")
 
         active_months_resp = (
             self.db.table("monthly_pnl_import_months")
             .select("id, entry_month")
             .eq("profile_id", profile_id)
             .eq("is_active", True)
-            .gte("entry_month", start_month)
-            .lte("entry_month", end_month)
             .order("entry_month")
             .execute()
         )
@@ -218,8 +212,6 @@ class PNLProfileService:
             self.db.table("monthly_pnl_import_month_sku_units")
             .select("import_month_id, entry_month, sku, net_units")
             .eq("profile_id", profile_id)
-            .gte("entry_month", start_month)
-            .lte("entry_month", end_month)
             .order("entry_month")
             .execute()
         )

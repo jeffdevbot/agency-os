@@ -101,7 +101,7 @@ export default function PnlCogsCard({
     setSaveMessage(null);
 
     if (allSkus.length === 0) {
-      setLocalError("No sold SKUs are available to export in the visible report range.");
+      setLocalError("No sold SKUs are available to export for this profile yet.");
       return;
     }
 
@@ -134,7 +134,7 @@ export default function PnlCogsCard({
       const unknownSku = importedEntries.find((entry) => !allowedSkus.has(entry.sku));
       if (unknownSku) {
         throw new Error(
-          `COGS CSV references ${unknownSku.sku}, which is not in the current visible SKU list.`,
+          `COGS CSV references ${unknownSku.sku}, which is not in the current profile SKU list.`,
         );
       }
       const importedSkuSet = new Set(importedEntries.map((entry) => entry.sku));
@@ -176,8 +176,9 @@ export default function PnlCogsCard({
         <div>
           <h2 className="text-lg font-semibold text-[#0f172a]">COGS by SKU</h2>
           <p className="mt-1 text-sm text-[#475569]">
-            Enter one current unit cost per sold SKU. Monthly COGS is calculated automatically from
-            the sold quantity in the visible report range.
+            Enter one current unit cost per sold SKU across all active imported months for this
+            profile. Monthly COGS is calculated automatically from sold quantities in each report
+            window.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -195,7 +196,7 @@ export default function PnlCogsCard({
 
       {allSkus.length === 0 && !loading && !errorMessage ? (
         <p className="mt-4 text-sm text-[#64748b]">
-          No sold SKUs were found in the visible report range.
+          No sold SKUs were found across the active imported months for this profile.
         </p>
       ) : null}
 

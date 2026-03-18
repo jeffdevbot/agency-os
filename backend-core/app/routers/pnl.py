@@ -182,13 +182,11 @@ def list_import_months(
 @router.get("/profiles/{profile_id}/cogs-skus")
 def list_cogs_skus(
     profile_id: str,
-    start_month: str = Query(..., pattern=r"^\d{4}-\d{2}-01$"),
-    end_month: str = Query(..., pattern=r"^\d{4}-\d{2}-01$"),
     user=Depends(require_admin_user),
 ):
     svc = _get_profile_service()
     try:
-        skus = svc.list_sku_cogs(profile_id, start_month, end_month)
+        skus = svc.list_sku_cogs(profile_id)
         return {"ok": True, "skus": skus}
     except PNLNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))

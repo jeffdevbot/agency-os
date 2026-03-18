@@ -350,15 +350,9 @@ export async function getPnlImportSummary(
 export async function listPnlSkuCogs(
   token: string,
   profileId: string,
-  startMonth: string,
-  endMonth: string,
 ): Promise<PnlSkuCogs[]> {
-  const params = new URLSearchParams({
-    start_month: startMonth,
-    end_month: endMonth,
-  });
   const response = await fetch(
-    `${getBackendUrl()}/admin/pnl/profiles/${profileId}/cogs-skus?${params.toString()}`,
+    `${getBackendUrl()}/admin/pnl/profiles/${profileId}/cogs-skus`,
     {
       method: "GET",
       headers: { Authorization: `Bearer ${token}` },

@@ -82,7 +82,7 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
   const workbookExport = usePnlWorkbookExport(profileId);
   const cogsStartMonth = months[0] ?? null;
   const cogsEndMonth = months.length > 0 ? months[months.length - 1] : null;
-  const cogsState = usePnlSkuCogs(profileId, cogsStartMonth, cogsEndMonth, showSettings);
+  const cogsState = usePnlSkuCogs(profileId, showSettings);
   const otherExpensesState = usePnlOtherExpenses(
     profileId,
     cogsStartMonth,

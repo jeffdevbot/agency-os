@@ -10,8 +10,6 @@ import {
 
 export function usePnlSkuCogs(
   profileId: string | null,
-  startMonth: string | null,
-  endMonth: string | null,
   enabled: boolean,
 ) {
   const supabase = useMemo(() => getBrowserSupabaseClient(), []);
@@ -29,7 +27,7 @@ export function usePnlSkuCogs(
   }, [supabase]);
 
   const loadSkus = useCallback(async () => {
-    if (!profileId || !startMonth || !endMonth || !enabled) {
+    if (!profileId || !enabled) {
       setSkus([]);
       setLoading(false);
       setErrorMessage(null);
@@ -40,13 +38,13 @@ export function usePnlSkuCogs(
     setErrorMessage(null);
     try {
       const token = await getAccessToken();
-      setSkus(await listPnlSkuCogs(token, profileId, startMonth, endMonth));
+      setSkus(await listPnlSkuCogs(token, profileId));
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Unable to load SKU COGS");
     } finally {
       setLoading(false);
     }
-  }, [enabled, endMonth, getAccessToken, profileId, startMonth]);
+  }, [enabled, getAccessToken, profileId]);
 
   const saveSkus = useCallback(
     async (entries: Array<{ sku: string; unit_cost: string | null }>) => {

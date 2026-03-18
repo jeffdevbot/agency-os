@@ -115,10 +115,7 @@ class TestProfileEndpoints:
 
         try:
             with TestClient(app) as client:
-                resp = client.get(
-                    "/admin/pnl/profiles/p1/cogs-skus",
-                    params={"start_month": "2026-01-01", "end_month": "2026-02-01"},
-                )
+                resp = client.get("/admin/pnl/profiles/p1/cogs-skus")
         finally:
             app.dependency_overrides.pop(pnl.require_admin_user, None)
 
@@ -134,7 +131,7 @@ class TestProfileEndpoints:
                 "missing_cost": False,
             }
         ]
-        fake_svc.list_sku_cogs.assert_called_once_with("p1", "2026-01-01", "2026-02-01")
+        fake_svc.list_sku_cogs.assert_called_once_with("p1")
 
     def test_save_cogs_skus(self, monkeypatch):
         fake_svc = MagicMock()
