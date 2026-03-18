@@ -116,11 +116,13 @@ class TestSpApiSignedState:
     def test_create_and_verify_roundtrip(self):
         state = create_spapi_signed_state(
             client_id="client-1",
+            region_code="EU",
             initiated_by="user-1",
             return_path="/reports/api-access",
         )
         payload = verify_spapi_signed_state(state)
         assert payload["cid"] == "client-1"
+        assert payload["rg"] == "EU"
         assert payload["uid"] == "user-1"
         assert payload["ret"] == "/reports/api-access"
         assert payload["prv"] == "amazon_spapi"
@@ -130,6 +132,7 @@ class TestSpApiSignedState:
     def test_tampered_signature_rejected(self):
         state = create_spapi_signed_state(
             client_id="client-1",
+            region_code="NA",
             initiated_by=None,
             return_path="/",
         )
@@ -141,6 +144,7 @@ class TestSpApiSignedState:
     def test_expired_state_rejected(self):
         state = create_spapi_signed_state(
             client_id="client-1",
+            region_code="NA",
             initiated_by=None,
             return_path="/",
         )
@@ -163,8 +167,8 @@ class TestBuildSellerAuthUrl:
     def test_url_contains_app_id_and_state(self):
         from app.services.reports.amazon_spapi_auth import build_seller_auth_url
 
-        url = build_seller_auth_url(state="test-state-value")
-        assert "sellercentral.amazon.com/apps/authorize/consent" in url
+        url = build_seller_auth_url(state="test-state-value", region_code="EU")
+        assert "sellercentral-europe.amazon.com/apps/authorize/consent" in url
         assert "amzn1.sp.solution.test-app-id" in url
         assert "test-state-value" in url
         assert "version=beta" not in url
@@ -173,7 +177,7 @@ class TestBuildSellerAuthUrl:
         from app.services.reports.amazon_spapi_auth import build_seller_auth_url
 
         monkeypatch.setenv("AMAZON_SPAPI_DRAFT_APP", "true")
-        url = build_seller_auth_url(state="test-state")
+        url = build_seller_auth_url(state="test-state", region_code="NA")
         assert "version=beta" in url
 
 
@@ -186,6 +190,7 @@ class TestSpApiCallback:
     def test_successful_callback_stores_and_redirects(self, monkeypatch):
         state = create_spapi_signed_state(
             client_id="client-1",
+            region_code="EU",
             initiated_by="user-1",
             return_path="/reports/api-access",
         )
@@ -224,11 +229,12 @@ class TestSpApiCallback:
         assert inserted["provider"] == "amazon_spapi"
         assert inserted["refresh_token"] == "sp-refresh-token-123"
         assert inserted["external_account_id"] == "SELLER123"
-        assert inserted["region_code"] == "NA"
+        assert inserted["region_code"] == "EU"
 
     def test_error_from_amazon_redirects_with_error(self, monkeypatch):
         state = create_spapi_signed_state(
             client_id="client-1",
+            region_code="FE",
             initiated_by=None,
             return_path="/reports/api-access",
         )
@@ -244,6 +250,7 @@ class TestSpApiCallback:
             )
         assert resp.status_code == 302
         assert "spapi_error=access_denied" in resp.headers["location"]
+        assert "spapi_error_description=User+denied" in resp.headers["location"]
 
     def test_invalid_state_returns_400(self):
         with TestClient(app) as client:
@@ -260,6 +267,7 @@ class TestSpApiCallback:
     def test_missing_selling_partner_id_returns_400(self, monkeypatch):
         state = create_spapi_signed_state(
             client_id="client-1",
+            region_code="NA",
             initiated_by=None,
             return_path="/",
         )
@@ -277,6 +285,7 @@ class TestSpApiCallback:
     def test_missing_oauth_code_returns_400(self, monkeypatch):
         state = create_spapi_signed_state(
             client_id="client-1",
+            region_code="NA",
             initiated_by=None,
             return_path="/",
         )
@@ -304,12 +313,12 @@ class TestSpApiConnectEndpoint:
             with TestClient(app) as client:
                 resp = client.post(
                     "/admin/reports/api-access/amazon-spapi/connect",
-                    json={"client_id": "client-1"},
+                    json={"client_id": "client-1", "region_code": "FE"},
                 )
             assert resp.status_code == 200
             body = resp.json()
             assert body["ok"] is True
-            assert "sellercentral.amazon.com" in body["authorization_url"]
+            assert "sellercentral.amazon.co.jp" in body["authorization_url"]
             assert "amzn1.sp.solution.test-app-id" in body["authorization_url"]
         finally:
             app.dependency_overrides.pop(report_api_access.require_admin_user, None)
@@ -326,6 +335,7 @@ class TestSpApiConnectionsListEndpoint:
             tables={
                 "agency_clients": [
                     {"id": "client-1", "name": "Test Client", "status": "active"},
+                    {"id": "client-2", "name": "Needs Attention", "status": "active"},
                 ],
                 "report_api_connections": [
                     {
@@ -339,6 +349,19 @@ class TestSpApiConnectionsListEndpoint:
                         "connected_at": "2026-03-18T12:00:00Z",
                         "last_validated_at": None,
                         "last_error": None,
+                        "updated_at": "2026-03-18T12:00:00Z",
+                    },
+                    {
+                        "id": "conn-2",
+                        "client_id": "client-2",
+                        "provider": "amazon_spapi",
+                        "connection_status": "error",
+                        "external_account_id": "SELLER999",
+                        "region_code": "EU",
+                        "access_meta": {},
+                        "connected_at": "2026-03-18T12:00:00Z",
+                        "last_validated_at": None,
+                        "last_error": "bad token",
                         "updated_at": "2026-03-18T12:00:00Z",
                     },
                 ],
@@ -355,10 +378,13 @@ class TestSpApiConnectionsListEndpoint:
             body = resp.json()
             assert body["ok"] is True
             connections = body["connections"]
-            assert len(connections) == 1
+            assert len(connections) == 2
             assert connections[0]["client_id"] == "client-1"
             assert connections[0]["connected"] is True
             assert connections[0]["connection"]["external_account_id"] == "SELLER123"
+            assert connections[1]["client_id"] == "client-2"
+            assert connections[1]["connected"] is False
+            assert connections[1]["connection"]["connection_status"] == "error"
         finally:
             app.dependency_overrides.pop(report_api_access.require_admin_user, None)
 
@@ -427,7 +453,10 @@ class TestSpApiValidateEndpoint:
             assert "ATVPDKIKX0DER" in body["marketplace_ids"]
             assert "A2EUQ1WTGCTBG2" in body["marketplace_ids"]
             mock_refresh.assert_awaited_once_with("stored-refresh-token")
-            mock_participations.assert_awaited_once_with("fresh-access-token")
+            mock_participations.assert_awaited_once_with(
+                "fresh-access-token",
+                region_code="NA",
+            )
             # Should have called update on the connection
             assert len(fake_db.updates) == 1
         finally:
@@ -591,8 +620,17 @@ class TestSpApiFinanceSmokeTest:
             assert body["groups"][0]["FinancialEventGroupId"] == "FEG-123"
             assert body["transactions"][0]["transactionId"] == "TXN-1"
             mock_refresh.assert_awaited_once_with("stored-refresh-token")
-            mock_groups.assert_awaited_once()
-            mock_txns.assert_awaited_once()
+            mock_groups.assert_awaited_once_with(
+                "fresh-access-token",
+                region_code="NA",
+                max_results=5,
+            )
+            mock_txns.assert_awaited_once_with(
+                "fresh-access-token",
+                region_code="NA",
+                financial_event_group_id="FEG-123",
+                max_results=20,
+            )
             # Verify the listTransactions call used the right group ID
             call_kwargs = mock_txns.await_args
             assert call_kwargs[1]["financial_event_group_id"] == "FEG-123"

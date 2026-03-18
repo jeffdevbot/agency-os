@@ -15,6 +15,7 @@ from ..services.reports.amazon_spapi_auth import (
     get_marketplace_participations,
     list_financial_event_groups,
     list_transactions,
+    normalize_spapi_region_code,
     refresh_spapi_access_token,
 )
 from ..services.reports.api_access import (
@@ -98,6 +99,7 @@ async def connect_report_api_access_amazon_ads(
 
 class SpApiConnectRequest(BaseModel):
     client_id: str = Field(..., min_length=1)
+    region_code: str = Field(..., min_length=2, max_length=3)
     return_path: str = Field("/reports/api-access")
 
 
@@ -123,14 +125,19 @@ async def connect_report_api_access_spapi(
     user=Depends(require_admin_user),
 ):
     try:
+        region_code = normalize_spapi_region_code(request.region_code)
         state = create_spapi_signed_state(
             client_id=request.client_id,
+            region_code=region_code,
             initiated_by=_user_id(user),
             return_path=request.return_path,
         )
         return {
             "ok": True,
-            "authorization_url": build_seller_auth_url(state=state),
+            "authorization_url": build_seller_auth_url(
+                state=state,
+                region_code=region_code,
+            ),
         }
     except WBRValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -159,10 +166,17 @@ async def validate_report_api_access_spapi(
 
     connection_id = str(connection.get("id") or "")
     refresh_token = str(connection.get("refresh_token") or "").strip()
+    region_code = str(connection.get("region_code") or "").strip()
+    existing_meta = connection.get("access_meta") if isinstance(connection.get("access_meta"), dict) else {}
     if not refresh_token:
         raise HTTPException(
             status_code=400,
             detail="Stored SP-API connection has no refresh token",
+        )
+    if not region_code:
+        raise HTTPException(
+            status_code=400,
+            detail="Stored SP-API connection has no region_code",
         )
 
     now = datetime.now(UTC).isoformat()
@@ -179,11 +193,15 @@ async def validate_report_api_access_spapi(
         return {
             "ok": False,
             "step": "token_refresh",
+            "region_code": region_code,
             "error": str(exc),
         }
 
     try:
-        participations = await get_marketplace_participations(access_token)
+        participations = await get_marketplace_participations(
+            access_token,
+            region_code=region_code,
+        )
     except WBRValidationError as exc:
         update_connection_validation(
             db,
@@ -195,6 +213,7 @@ async def validate_report_api_access_spapi(
         return {
             "ok": False,
             "step": "marketplace_participations",
+            "region_code": region_code,
             "error": str(exc),
         }
 
@@ -210,11 +229,12 @@ async def validate_report_api_access_spapi(
         last_validated_at=now,
         last_error=None,
         connection_status="connected",
-        access_meta={"marketplace_ids": marketplace_ids},
+        access_meta={**existing_meta, "marketplace_ids": marketplace_ids},
     )
 
     return {
         "ok": True,
+        "region_code": region_code,
         "marketplace_count": len(participations),
         "marketplace_ids": marketplace_ids,
     }
@@ -255,10 +275,16 @@ async def spapi_finance_smoke_test(
         )
 
     refresh_token = str(connection.get("refresh_token") or "").strip()
+    region_code = str(connection.get("region_code") or "").strip()
     if not refresh_token:
         raise HTTPException(
             status_code=400,
             detail="Stored SP-API connection has no refresh token",
+        )
+    if not region_code:
+        raise HTTPException(
+            status_code=400,
+            detail="Stored SP-API connection has no region_code",
         )
 
     # Step 1: refresh access token
@@ -268,18 +294,22 @@ async def spapi_finance_smoke_test(
         return {
             "ok": False,
             "step": "token_refresh",
+            "region_code": region_code,
             "error": str(exc),
         }
 
     # Step 2: listFinancialEventGroups
     try:
         groups = await list_financial_event_groups(
-            access_token, max_results=request.max_groups
+            access_token,
+            region_code=region_code,
+            max_results=request.max_groups,
         )
     except WBRValidationError as exc:
         return {
             "ok": False,
             "step": "list_financial_event_groups",
+            "region_code": region_code,
             "error": str(exc),
         }
 
@@ -287,6 +317,7 @@ async def spapi_finance_smoke_test(
         return {
             "ok": True,
             "step": "list_financial_event_groups",
+            "region_code": region_code,
             "note": "No financial event groups returned",
             "groups": [],
             "transactions": [],
@@ -323,6 +354,7 @@ async def spapi_finance_smoke_test(
         return {
             "ok": True,
             "step": "list_financial_event_groups",
+            "region_code": region_code,
             "note": "Groups returned but none have a FinancialEventGroupId",
             "groups": group_summaries,
             "transactions": [],
@@ -332,6 +364,7 @@ async def spapi_finance_smoke_test(
     try:
         transactions = await list_transactions(
             access_token,
+            region_code=region_code,
             financial_event_group_id=target_group_id,
             max_results=request.max_transactions,
         )
@@ -339,6 +372,7 @@ async def spapi_finance_smoke_test(
         return {
             "ok": False,
             "step": "list_transactions",
+            "region_code": region_code,
             "target_group_id": target_group_id,
             "error": str(exc),
             "groups": group_summaries,
@@ -362,6 +396,7 @@ async def spapi_finance_smoke_test(
 
     return {
         "ok": True,
+        "region_code": region_code,
         "target_group_id": target_group_id,
         "group_count": len(groups),
         "groups": group_summaries,

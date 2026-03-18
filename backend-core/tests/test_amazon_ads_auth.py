@@ -358,6 +358,42 @@ class TestConnectionStatusEndpoint:
         finally:
             app.dependency_overrides.pop(wbr.require_admin_user, None)
 
+    def test_shared_error_is_not_reported_as_connected(self, monkeypatch):
+        shared_conn = {
+            "client_id": "client-1",
+            "provider": "amazon_ads",
+            "connection_status": "error",
+            "connected_at": "2026-03-18T12:00:00Z",
+            "last_validated_at": None,
+            "last_error": "token refresh failed",
+            "updated_at": "2026-03-18T12:00:00Z",
+            "access_meta": {"lwa_account_hint": "test@example.com"},
+        }
+        fake_svc = _FakeProfileService()
+        monkeypatch.setattr(wbr, "_get_service", lambda: fake_svc)
+        monkeypatch.setattr(
+            wbr,
+            "_get_supabase",
+            lambda: _FakeSupabase(
+                tables={
+                    "report_api_connections": [shared_conn],
+                    "wbr_amazon_ads_connections": [],
+                }
+            ),
+        )
+        app.dependency_overrides[wbr.require_admin_user] = _override_admin
+
+        try:
+            with TestClient(app) as client:
+                resp = client.get("/admin/wbr/profiles/prof-1/amazon-ads/connection")
+            assert resp.status_code == 200
+            body = resp.json()
+            assert body["source"] == "shared"
+            assert body["connected"] is False
+            assert body["connection"]["connection_status"] == "error"
+        finally:
+            app.dependency_overrides.pop(wbr.require_admin_user, None)
+
 
 # ---------------------------------------------------------------------------
 # Router tests: select-profile

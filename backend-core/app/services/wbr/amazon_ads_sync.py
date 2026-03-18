@@ -909,14 +909,19 @@ class AmazonAdsSyncService:
         if client_id:
             shared_response = (
                 self.db.table("report_api_connections")
-                .select("refresh_token")
+                .select("refresh_token, connection_status")
                 .eq("client_id", client_id)
                 .eq("provider", "amazon_ads")
                 .limit(1)
                 .execute()
             )
             shared_rows = shared_response.data if isinstance(shared_response.data, list) else []
-            shared_token = str(shared_rows[0].get("refresh_token") or "").strip() if shared_rows else ""
+            shared_status = str(shared_rows[0].get("connection_status") or "").strip().lower() if shared_rows else ""
+            shared_token = (
+                str(shared_rows[0].get("refresh_token") or "").strip()
+                if shared_rows and shared_status == "connected"
+                else ""
+            )
             if shared_token:
                 return shared_token
 

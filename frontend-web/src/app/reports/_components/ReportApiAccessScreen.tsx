@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getBrowserSupabaseClient } from "@/lib/supabaseClient";
 import {
@@ -11,6 +12,8 @@ import {
   runSpApiFinanceSmokeTest,
   validateSpApiConnection,
   type AmazonAdsApiAccessSummary,
+  type ReportConnectionStatus,
+  type SpApiRegionCode,
   type SpApiConnectionSummary,
   type SpApiFinanceSmokeResult,
   type SpApiValidateResult,
@@ -26,22 +29,60 @@ const formatTimestamp = (value: string | null): string => {
   }).format(new Date(parsed));
 };
 
+const SPAPI_REGION_OPTIONS: Array<{
+  value: SpApiRegionCode;
+  label: string;
+}> = [
+  { value: "NA", label: "North America" },
+  { value: "EU", label: "Europe" },
+  { value: "FE", label: "Far East" },
+];
+
+const formatRegionLabel = (value: SpApiRegionCode | null | ""): string => {
+  if (!value) return "Not selected";
+  return SPAPI_REGION_OPTIONS.find((option) => option.value === value)?.label ?? value;
+};
+
+const getConnectionBadge = (
+  connectionStatus: ReportConnectionStatus | "not_connected",
+): { label: string; className: string } => {
+  switch (connectionStatus) {
+    case "connected":
+      return { label: "Connected", className: "bg-[#e8f7ee] text-[#166534]" };
+    case "revoked":
+      return { label: "Revoked", className: "bg-[#fff7ed] text-[#9a3412]" };
+    case "error":
+      return { label: "Needs Attention", className: "bg-[#fff1f2] text-[#be123c]" };
+    default:
+      return { label: "Not connected", className: "bg-[#f8fafc] text-[#475569]" };
+  }
+};
+
+const formatSpApiAuthError = (error: string, description: string | null): string => {
+  const normalizedError = error.replace(/_/g, " ").trim();
+  const title = normalizedError ? normalizedError.charAt(0).toUpperCase() + normalizedError.slice(1) : "Authorization failed";
+  return description ? `${title}: ${description}` : title;
+};
+
 export default function ReportApiAccessScreen() {
   const supabase = useMemo(() => getBrowserSupabaseClient(), []);
+  const searchParams = useSearchParams();
   const [loading, setLoading] = useState(true);
   const [launchingProfileId, setLaunchingProfileId] = useState<string | null>(null);
   const [launchingSpApiClientId, setLaunchingSpApiClientId] = useState<string | null>(null);
   const [validatingClientId, setValidatingClientId] = useState<string | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [actionErrorMessage, setActionErrorMessage] = useState<string | null>(null);
+  const [redirectErrorMessage, setRedirectErrorMessage] = useState<string | null>(null);
   const [summaries, setSummaries] = useState<AmazonAdsApiAccessSummary[]>([]);
   const [spApiSummaries, setSpApiSummaries] = useState<SpApiConnectionSummary[]>([]);
+  const [spApiConnectRegions, setSpApiConnectRegions] = useState<Record<string, SpApiRegionCode | "">>({});
   const [lastValidation, setLastValidation] = useState<SpApiValidateResult | null>(null);
   const [smokeTesting, setSmokeTesting] = useState<string | null>(null);
   const [smokeResult, setSmokeResult] = useState<SpApiFinanceSmokeResult | null>(null);
 
   const loadSummaries = useCallback(async () => {
     setLoading(true);
-    setErrorMessage(null);
+    setActionErrorMessage(null);
 
     try {
       const {
@@ -58,10 +99,22 @@ export default function ReportApiAccessScreen() {
       ]);
       setSummaries(adsData);
       setSpApiSummaries(spApiData);
+      setSpApiConnectRegions((current) => {
+        const next: Record<string, SpApiRegionCode | ""> = { ...current };
+        spApiData.forEach((summary) => {
+          if (!next[summary.client_id] && summary.connection?.region_code) {
+            next[summary.client_id] = summary.connection.region_code;
+          }
+          if (!next[summary.client_id]) {
+            next[summary.client_id] = "";
+          }
+        });
+        return next;
+      });
     } catch (error) {
       setSummaries([]);
       setSpApiSummaries([]);
-      setErrorMessage(error instanceof Error ? error.message : "Unable to load API access");
+      setActionErrorMessage(error instanceof Error ? error.message : "Unable to load API access");
     } finally {
       setLoading(false);
     }
@@ -71,10 +124,20 @@ export default function ReportApiAccessScreen() {
     void loadSummaries();
   }, [loadSummaries]);
 
+  useEffect(() => {
+    const spApiError = searchParams.get("spapi_error");
+    const spApiErrorDescription = searchParams.get("spapi_error_description");
+    if (!spApiError) {
+      setRedirectErrorMessage(null);
+      return;
+    }
+    setRedirectErrorMessage(formatSpApiAuthError(spApiError, spApiErrorDescription));
+  }, [searchParams]);
+
   const handleConnect = useCallback(
     async (profileId: string) => {
       setLaunchingProfileId(profileId);
-      setErrorMessage(null);
+      setActionErrorMessage(null);
       try {
         const {
           data: { session },
@@ -88,16 +151,16 @@ export default function ReportApiAccessScreen() {
         window.location.assign(url);
       } catch (error) {
         setLaunchingProfileId(null);
-        setErrorMessage(error instanceof Error ? error.message : "Unable to start Amazon Ads connection");
+        setActionErrorMessage(error instanceof Error ? error.message : "Unable to start Amazon Ads connection");
       }
     },
     [supabase],
   );
 
   const handleSpApiConnect = useCallback(
-    async (clientId: string) => {
+    async (clientId: string, regionCode: SpApiRegionCode | "") => {
       setLaunchingSpApiClientId(clientId);
-      setErrorMessage(null);
+      setActionErrorMessage(null);
       try {
         const {
           data: { session },
@@ -106,12 +169,19 @@ export default function ReportApiAccessScreen() {
         if (!session?.access_token) {
           throw new Error("Please sign in again.");
         }
+        if (!regionCode) {
+          throw new Error("Select the seller region before connecting Seller API.");
+        }
 
-        const url = await createSpApiAuthorizationUrl(session.access_token, clientId);
+        const url = await createSpApiAuthorizationUrl(
+          session.access_token,
+          clientId,
+          regionCode,
+        );
         window.location.assign(url);
       } catch (error) {
         setLaunchingSpApiClientId(null);
-        setErrorMessage(
+        setActionErrorMessage(
           error instanceof Error ? error.message : "Unable to start Seller API connection",
         );
       }
@@ -123,7 +193,7 @@ export default function ReportApiAccessScreen() {
     async (clientId: string) => {
       setSmokeTesting(clientId);
       setSmokeResult(null);
-      setErrorMessage(null);
+      setActionErrorMessage(null);
       try {
         const {
           data: { session },
@@ -136,7 +206,7 @@ export default function ReportApiAccessScreen() {
         const result = await runSpApiFinanceSmokeTest(session.access_token, clientId);
         setSmokeResult(result);
       } catch (error) {
-        setErrorMessage(
+        setActionErrorMessage(
           error instanceof Error ? error.message : "Finance smoke test failed",
         );
       } finally {
@@ -150,7 +220,7 @@ export default function ReportApiAccessScreen() {
     async (clientId: string) => {
       setValidatingClientId(clientId);
       setLastValidation(null);
-      setErrorMessage(null);
+      setActionErrorMessage(null);
       try {
         const {
           data: { session },
@@ -164,7 +234,7 @@ export default function ReportApiAccessScreen() {
         setLastValidation(result);
         void loadSummaries();
       } catch (error) {
-        setErrorMessage(
+        setActionErrorMessage(
           error instanceof Error ? error.message : "Validation request failed",
         );
       } finally {
@@ -179,8 +249,9 @@ export default function ReportApiAccessScreen() {
       <div className="rounded-3xl bg-white/95 p-8 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur">
         <h1 className="text-2xl font-semibold text-[#0f172a]">Reports / API Access</h1>
         <p className="mt-2 max-w-4xl text-sm text-[#4c576f]">
-          Shared connection management for reporting surfaces. This first pass adds a shared Amazon
-          Ads view while WBR profile selection and sync execution remain inside WBR.
+          Shared connection management for reporting surfaces. Amazon Ads remains tied to WBR
+          profile selection for sync behavior, while Amazon Seller API connections are managed here
+          with explicit regional routing.
         </p>
 
         <div className="mt-6 flex flex-wrap gap-3">
@@ -199,9 +270,15 @@ export default function ReportApiAccessScreen() {
           </Link>
         </div>
 
-        {errorMessage ? (
+        {redirectErrorMessage ? (
+          <p className="mt-4 rounded-xl border border-[#fecaca] bg-[#fff1f2] px-4 py-3 text-sm text-[#991b1b]">
+            Seller API authorization returned an error: {redirectErrorMessage}
+          </p>
+        ) : null}
+
+        {actionErrorMessage ? (
           <p className="mt-4 rounded-xl border border-[#f87171]/40 bg-[#fee2e2] px-4 py-3 text-sm text-[#991b1b]">
-            {errorMessage}
+            {actionErrorMessage}
           </p>
         ) : null}
 
@@ -228,10 +305,6 @@ export default function ReportApiAccessScreen() {
             </div>
           ) : (
             summaries.map((summary) => {
-              const statusLabel = summary.connected ? "Connected" : "Not connected";
-              const statusClasses = summary.connected
-                ? "bg-[#e8f7ee] text-[#166534]"
-                : "bg-[#f8fafc] text-[#475569]";
               const sourceLabel =
                 summary.source === "shared"
                   ? "Shared table"
@@ -239,6 +312,13 @@ export default function ReportApiAccessScreen() {
                     ? "Legacy WBR row"
                     : "No stored connection";
               const connection = summary.shared_connection ?? summary.legacy_connection;
+              const badge = getConnectionBadge(connection?.connection_status ?? "not_connected");
+              const adsActionLabel =
+                connection?.connection_status && connection.connection_status !== "connected"
+                  ? "Reconnect"
+                  : summary.connected
+                    ? "Reauthorize"
+                    : "Connect";
 
               return (
                 <div
@@ -252,8 +332,8 @@ export default function ReportApiAccessScreen() {
                         Client status: {summary.client_status} • Source: {sourceLabel}
                       </p>
                     </div>
-                    <span className={`rounded-full px-3 py-1 text-xs font-semibold ${statusClasses}`}>
-                      {statusLabel}
+                    <span className={`rounded-full px-3 py-1 text-xs font-semibold ${badge.className}`}>
+                      {badge.label}
                     </span>
                   </div>
 
@@ -322,11 +402,7 @@ export default function ReportApiAccessScreen() {
                                   disabled={Boolean(launchingProfileId)}
                                   className="rounded-xl bg-[#0a6fd6] px-4 py-2 text-sm font-semibold text-white shadow-[0_15px_30px_rgba(10,111,214,0.2)] transition hover:bg-[#0959ab] disabled:cursor-not-allowed disabled:bg-slate-300"
                                 >
-                                  {isLaunching
-                                    ? "Opening..."
-                                    : summary.connected
-                                      ? "Reauthorize"
-                                      : "Connect"}
+                                  {isLaunching ? "Opening..." : adsActionLabel}
                                 </button>
                               </div>
                             );
@@ -412,14 +488,20 @@ export default function ReportApiAccessScreen() {
             </div>
           ) : (
             spApiSummaries.map((summary) => {
-              const statusLabel = summary.connected ? "Connected" : "Not connected";
-              const statusClasses = summary.connected
-                ? "bg-[#e8f7ee] text-[#166534]"
-                : "bg-[#f8fafc] text-[#475569]";
               const conn = summary.connection;
+              const badge = getConnectionBadge(conn?.connection_status ?? "not_connected");
               const isLaunching = launchingSpApiClientId === summary.client_id;
               const isValidating = validatingClientId === summary.client_id;
               const isSmoking = smokeTesting === summary.client_id;
+              const selectedRegion = spApiConnectRegions[summary.client_id] ?? conn?.region_code ?? "";
+              const canRunExistingConnectionActions =
+                Boolean(conn) && conn?.connection_status !== "revoked";
+              const spApiActionLabel =
+                conn?.connection_status && conn.connection_status !== "connected"
+                  ? "Reconnect"
+                  : summary.connected
+                    ? "Reauthorize"
+                    : "Connect";
 
               return (
                 <div
@@ -432,13 +514,13 @@ export default function ReportApiAccessScreen() {
                         {summary.client_name}
                       </p>
                       <p className="mt-1 text-sm text-[#4c576f]">
-                        Client status: {summary.client_status}
+                        Client status: {summary.client_status} • Region: {formatRegionLabel(conn?.region_code ?? null)}
                       </p>
                     </div>
                     <span
-                      className={`rounded-full px-3 py-1 text-xs font-semibold ${statusClasses}`}
+                      className={`rounded-full px-3 py-1 text-xs font-semibold ${badge.className}`}
                     >
-                      {statusLabel}
+                      {badge.label}
                     </span>
                   </div>
 
@@ -457,6 +539,10 @@ export default function ReportApiAccessScreen() {
                         <div>
                           <dt className="font-medium text-[#0f172a]">Selling Partner ID</dt>
                           <dd>{conn?.external_account_id ?? "Not recorded"}</dd>
+                        </div>
+                        <div>
+                          <dt className="font-medium text-[#0f172a]">Region</dt>
+                          <dd>{formatRegionLabel(conn?.region_code ?? null)}</dd>
                         </div>
                         <div>
                           <dt className="font-medium text-[#0f172a]">Last validation</dt>
@@ -479,19 +565,36 @@ export default function ReportApiAccessScreen() {
                         an existing connection.
                       </p>
 
+                      <label className="mt-4 block text-sm font-medium text-[#0f172a]">
+                        Seller Region
+                      </label>
+                      <select
+                        value={selectedRegion}
+                        onChange={(event) =>
+                          setSpApiConnectRegions((current) => ({
+                            ...current,
+                            [summary.client_id]: event.target.value as SpApiRegionCode | "",
+                          }))
+                        }
+                        className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-[#0f172a] shadow-sm outline-none focus:border-[#0a6fd6]"
+                      >
+                        <option value="">Select region</option>
+                        {SPAPI_REGION_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+
                       <div className="mt-4 flex flex-wrap gap-3">
                         <button
-                          onClick={() => void handleSpApiConnect(summary.client_id)}
-                          disabled={Boolean(launchingSpApiClientId)}
+                          onClick={() => void handleSpApiConnect(summary.client_id, selectedRegion)}
+                          disabled={Boolean(launchingSpApiClientId) || !selectedRegion}
                           className="rounded-xl bg-[#0a6fd6] px-4 py-2 text-sm font-semibold text-white shadow-[0_15px_30px_rgba(10,111,214,0.2)] transition hover:bg-[#0959ab] disabled:cursor-not-allowed disabled:bg-slate-300"
                         >
-                          {isLaunching
-                            ? "Opening..."
-                            : summary.connected
-                              ? "Reauthorize"
-                              : "Connect"}
+                          {isLaunching ? "Opening..." : spApiActionLabel}
                         </button>
-                        {summary.connected ? (
+                        {canRunExistingConnectionActions ? (
                           <>
                             <button
                               onClick={() => void handleSpApiValidate(summary.client_id)}

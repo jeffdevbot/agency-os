@@ -7,12 +7,15 @@ export type ReportApiAccessConnectProfile = {
   amazon_ads_account_id: string | null;
 };
 
+export type SpApiRegionCode = "NA" | "EU" | "FE";
+export type ReportConnectionStatus = "connected" | "error" | "revoked";
+
 export type ReportApiAccessSharedConnection = {
   id: string;
   provider: string;
-  connection_status: string;
+  connection_status: ReportConnectionStatus;
   external_account_id: string | null;
-  region_code: string | null;
+  region_code: SpApiRegionCode | null;
   connected_at: string | null;
   last_validated_at: string | null;
   last_error: string | null;
@@ -23,6 +26,7 @@ export type ReportApiAccessSharedConnection = {
 
 export type ReportApiAccessLegacyConnection = {
   profile_id: string;
+  connection_status: "connected";
   connected_at: string | null;
   updated_at: string | null;
   lwa_account_hint: string | null;
@@ -88,13 +92,21 @@ const parseSharedConnection = (value: unknown): ReportApiAccessSharedConnection 
   if (!isRecord(value)) {
     return null;
   }
+  const connectionStatus = asString(value.connection_status);
+  const regionCode = asString(value.region_code).toUpperCase();
 
   return {
     id: asString(value.id),
     provider: asString(value.provider),
-    connection_status: asString(value.connection_status),
+    connection_status:
+      connectionStatus === "connected" || connectionStatus === "revoked"
+        ? connectionStatus
+        : "error",
     external_account_id: asNullableString(value.external_account_id),
-    region_code: asNullableString(value.region_code),
+    region_code:
+      regionCode === "NA" || regionCode === "EU" || regionCode === "FE"
+        ? regionCode
+        : null,
     connected_at: asNullableString(value.connected_at),
     last_validated_at: asNullableString(value.last_validated_at),
     last_error: asNullableString(value.last_error),
@@ -111,6 +123,7 @@ const parseLegacyConnection = (value: unknown): ReportApiAccessLegacyConnection 
 
   return {
     profile_id: asString(value.profile_id),
+    connection_status: "connected",
     connected_at: asNullableString(value.connected_at),
     updated_at: asNullableString(value.updated_at),
     lwa_account_hint: asNullableString(value.lwa_account_hint),
@@ -199,6 +212,7 @@ export const listSpApiConnections = async (
 export const createSpApiAuthorizationUrl = async (
   token: string,
   clientId: string,
+  regionCode: SpApiRegionCode,
   returnPath = "/reports/api-access",
 ): Promise<string> => {
   const response = await fetch(
@@ -207,7 +221,11 @@ export const createSpApiAuthorizationUrl = async (
       method: "POST",
       cache: "no-store",
       headers: authJsonHeaders(token),
-      body: JSON.stringify({ client_id: clientId, return_path: returnPath }),
+      body: JSON.stringify({
+        client_id: clientId,
+        region_code: regionCode,
+        return_path: returnPath,
+      }),
     },
   );
   if (!response.ok) {
@@ -226,6 +244,7 @@ export type SpApiValidateResult = {
   ok: boolean;
   step?: string;
   error?: string;
+  region_code?: SpApiRegionCode;
   marketplace_count?: number;
   marketplace_ids?: string[];
 };
@@ -255,6 +274,7 @@ export type SpApiFinanceSmokeResult = {
   step?: string;
   error?: string;
   note?: string;
+  region_code?: SpApiRegionCode;
   target_group_id?: string;
   group_count?: number;
   groups?: Record<string, unknown>[];

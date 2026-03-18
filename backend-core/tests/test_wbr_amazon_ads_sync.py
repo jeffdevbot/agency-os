@@ -541,6 +541,7 @@ class TestRequireRefreshTokenSharedFirst:
                     {
                         "client_id": "client-1",
                         "provider": "amazon_ads",
+                        "connection_status": "connected",
                         "refresh_token": "shared-refresh-token",
                     },
                 ],
@@ -579,7 +580,31 @@ class TestRequireRefreshTokenSharedFirst:
                     {
                         "client_id": "client-1",
                         "provider": "amazon_ads",
+                        "connection_status": "connected",
                         "refresh_token": "",
+                    },
+                ],
+                "wbr_amazon_ads_connections": [
+                    {"profile_id": "prof-1", "amazon_ads_refresh_token": "legacy-refresh-token"},
+                ],
+            }
+        )
+        svc = AmazonAdsSyncService(db)
+        token = svc._require_refresh_token("prof-1")
+        assert token == "legacy-refresh-token"
+
+    def test_falls_back_to_legacy_when_shared_connection_not_healthy(self):
+        db = _MultiTableFakeSupabase(
+            {
+                "wbr_profiles": [
+                    {"id": "prof-1", "client_id": "client-1", "amazon_ads_profile_id": "ads-1"},
+                ],
+                "report_api_connections": [
+                    {
+                        "client_id": "client-1",
+                        "provider": "amazon_ads",
+                        "connection_status": "error",
+                        "refresh_token": "shared-refresh-token",
                     },
                 ],
                 "wbr_amazon_ads_connections": [
@@ -604,4 +629,3 @@ class TestRequireRefreshTokenSharedFirst:
         svc = AmazonAdsSyncService(db)
         with pytest.raises(WBRValidationError, match="Connect first"):
             svc._require_refresh_token("prof-1")
-

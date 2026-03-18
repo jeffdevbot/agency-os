@@ -6,10 +6,12 @@ from typing import Any
 
 from supabase import Client
 
+from .amazon_spapi_auth import normalize_spapi_region_code
 from ..wbr.profiles import WBRNotFoundError, WBRValidationError
 
 AMAZON_ADS_PROVIDER = "amazon_ads"
 AMAZON_SPAPI_PROVIDER = "amazon_spapi"
+VALID_CONNECTION_STATUSES = {"connected", "error", "revoked"}
 
 
 def _as_rows(response: Any) -> list[dict[str, Any]]:
@@ -70,10 +72,20 @@ def _serialize_shared_connection(row: dict[str, Any]) -> dict[str, Any]:
 def _serialize_legacy_connection(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "profile_id": row.get("profile_id"),
+        "connection_status": "connected",
         "connected_at": row.get("connected_at"),
         "updated_at": row.get("updated_at"),
         "lwa_account_hint": row.get("lwa_account_hint"),
     }
+
+
+def _normalized_connection_status(value: Any) -> str:
+    status = str(value or "").strip().lower()
+    return status if status in VALID_CONNECTION_STATUSES else "error"
+
+
+def _is_shared_connection_healthy(row: dict[str, Any] | None) -> bool:
+    return isinstance(row, dict) and _normalized_connection_status(row.get("connection_status")) == "connected"
 
 
 def get_wbr_profile(db: Client, profile_id: str) -> dict[str, Any]:
@@ -159,7 +171,7 @@ def list_amazon_ads_connections(db: Client) -> list[dict[str, Any]]:
                 "client_id": client_id,
                 "client_name": client.get("name"),
                 "client_status": client.get("status"),
-                "connected": bool(shared_connection or latest_legacy),
+                "connected": _is_shared_connection_healthy(shared_connection) if shared_connection else bool(latest_legacy),
                 "source": source,
                 "shared_connection": _serialize_shared_connection(shared_connection) if shared_connection else None,
                 "legacy_connection": _serialize_legacy_connection(latest_legacy) if latest_legacy else None,
@@ -227,12 +239,14 @@ def upsert_spapi_connection(
     client_id: str,
     refresh_token: str,
     selling_partner_id: str,
+    region_code: str,
     connected_at: str | None = None,
     updated_by: str | None = None,
 ) -> None:
     client_id = str(client_id or "").strip()
     refresh_token = str(refresh_token or "").strip()
     selling_partner_id = str(selling_partner_id or "").strip()
+    normalized_region = normalize_spapi_region_code(region_code)
     if not client_id:
         raise WBRValidationError("client_id is required")
     if not refresh_token:
@@ -245,7 +259,7 @@ def upsert_spapi_connection(
         "connection_status": "connected",
         "refresh_token": refresh_token,
         "external_account_id": selling_partner_id or None,
-        "region_code": "NA",
+        "region_code": normalized_region,
         "connected_at": now,
         "last_error": None,
         "access_meta": {},
@@ -306,7 +320,7 @@ def list_spapi_connections(db: Client) -> list[dict[str, Any]]:
                 "client_id": client_id,
                 "client_name": client.get("name"),
                 "client_status": client.get("status"),
-                "connected": bool(connection),
+                "connected": _is_shared_connection_healthy(connection),
                 "connection": _serialize_shared_connection(connection)
                 if connection
                 else None,

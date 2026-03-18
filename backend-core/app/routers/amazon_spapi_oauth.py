@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import os
 from datetime import UTC, datetime
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import RedirectResponse
@@ -47,6 +48,24 @@ def _get_supabase() -> Client:
         )
 
 
+def _error_redirect_url(*, state: str | None, error: str, error_description: str) -> str:
+    frontend = _frontend_url()
+    return_path = "/reports/api-access"
+    if state:
+        try:
+            payload = verify_spapi_signed_state(state)
+            candidate = str(payload.get("ret") or "").strip()
+            if candidate.startswith("/"):
+                return_path = candidate
+        except WBRValidationError:
+            pass
+    params = {"spapi_error": error}
+    if error_description:
+        params["spapi_error_description"] = error_description
+    separator = "&" if "?" in return_path else "?"
+    return f"{frontend}{return_path}{separator}{urlencode(params)}"
+
+
 @router.get("/amazon-spapi/callback")
 @router.get("/api/amazon-spapi/callback")
 async def amazon_spapi_callback(
@@ -64,9 +83,12 @@ async def amazon_spapi_callback(
             error,
             error_description,
         )
-        frontend = _frontend_url()
         return RedirectResponse(
-            url=f"{frontend}/reports/api-access?spapi_error={error}",
+            url=_error_redirect_url(
+                state=state,
+                error=error,
+                error_description=error_description,
+            ),
             status_code=302,
         )
 
@@ -77,10 +99,13 @@ async def amazon_spapi_callback(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     client_id = state_payload.get("cid", "")
+    region_code = state_payload.get("rg", "")
     return_path = state_payload.get("ret", "")
 
     if not client_id:
         raise HTTPException(status_code=400, detail="OAuth state missing client_id")
+    if not region_code:
+        raise HTTPException(status_code=400, detail="OAuth state missing region_code")
 
     if not spapi_oauth_code:
         raise HTTPException(status_code=400, detail="Missing spapi_oauth_code")
@@ -106,6 +131,7 @@ async def amazon_spapi_callback(
             client_id=client_id,
             refresh_token=refresh_token,
             selling_partner_id=selling_partner_id,
+            region_code=region_code,
             connected_at=now,
         )
     except Exception as exc:

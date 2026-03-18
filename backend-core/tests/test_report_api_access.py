@@ -184,6 +184,67 @@ class TestReportApiAccessRouter:
         finally:
             app.dependency_overrides.pop(report_api_access.require_admin_user, None)
 
+    def test_list_amazon_ads_connections_marks_shared_error_as_not_connected(self, monkeypatch):
+        fake_db = _FakeSupabase(
+            {
+                "agency_clients": [
+                    {"id": "client-1", "name": "Alpha", "status": "active"},
+                ],
+                "wbr_profiles": [
+                    {
+                        "id": "prof-1",
+                        "client_id": "client-1",
+                        "marketplace_code": "US",
+                        "display_name": "Alpha US",
+                        "status": "active",
+                        "amazon_ads_profile_id": "ads-1",
+                        "amazon_ads_account_id": "acct-1",
+                        "created_at": "2026-03-18T10:00:00+00:00",
+                    }
+                ],
+                "report_api_connections": [
+                    {
+                        "id": "shared-1",
+                        "client_id": "client-1",
+                        "provider": "amazon_ads",
+                        "connection_status": "error",
+                        "external_account_id": None,
+                        "region_code": None,
+                        "access_meta": {"lwa_account_hint": "alpha@example.com"},
+                        "connected_at": "2026-03-18T12:00:00+00:00",
+                        "last_validated_at": None,
+                        "last_error": "token refresh failed",
+                        "updated_at": "2026-03-18T12:00:00+00:00",
+                        "created_at": "2026-03-18T12:00:00+00:00",
+                    }
+                ],
+                "wbr_amazon_ads_connections": [
+                    {
+                        "profile_id": "prof-1",
+                        "connected_at": "2026-03-18T09:00:00+00:00",
+                        "updated_at": "2026-03-18T09:00:00+00:00",
+                        "lwa_account_hint": "legacy@example.com",
+                        "created_at": "2026-03-18T09:00:00+00:00",
+                    }
+                ],
+            }
+        )
+        monkeypatch.setattr(report_api_access, "_get_supabase", lambda: fake_db)
+        app.dependency_overrides[report_api_access.require_admin_user] = _override_admin
+
+        try:
+            with TestClient(app) as client:
+                response = client.get("/admin/reports/api-access/amazon-ads/connections")
+            assert response.status_code == 200
+            body = response.json()
+            row = body["connections"][0]
+            assert row["source"] == "shared"
+            assert row["connected"] is False
+            assert row["shared_connection"]["connection_status"] == "error"
+            assert row["legacy_connection"]["connection_status"] == "connected"
+        finally:
+            app.dependency_overrides.pop(report_api_access.require_admin_user, None)
+
     def test_connect_endpoint_returns_authorization_url(self, monkeypatch):
         fake_db = _FakeSupabase(
             {

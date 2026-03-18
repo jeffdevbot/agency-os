@@ -825,12 +825,14 @@ async def get_amazon_ads_connection(
         if shared_rows:
             row = shared_rows[0]
             meta = row.get("access_meta") if isinstance(row.get("access_meta"), dict) else {}
+            status = str(row.get("connection_status") or "").strip().lower()
             return {
                 "ok": True,
-                "connected": True,
+                "connected": status == "connected",
                 "source": "shared",
                 "connection": {
                     "profile_id": profile_id,
+                    "connection_status": status or "error",
                     "connected_at": row.get("connected_at"),
                     "lwa_account_hint": meta.get("lwa_account_hint"),
                     "created_at": row.get("connected_at"),
@@ -850,7 +852,15 @@ async def get_amazon_ads_connection(
     if not rows:
         return {"ok": True, "connected": False, "connection": None}
 
-    return {"ok": True, "connected": True, "source": "legacy", "connection": rows[0]}
+    return {
+        "ok": True,
+        "connected": True,
+        "source": "legacy",
+        "connection": {
+            **rows[0],
+            "connection_status": "connected",
+        },
+    }
 
 
 @router.get("/profiles/{profile_id}/amazon-ads/profiles")
@@ -873,14 +883,17 @@ async def list_amazon_ads_profiles(
     if client_id:
         shared_response = (
             db.table("report_api_connections")
-            .select("refresh_token")
+            .select("refresh_token, connection_status")
             .eq("client_id", client_id)
             .eq("provider", "amazon_ads")
             .limit(1)
             .execute()
         )
         shared_rows = shared_response.data if isinstance(shared_response.data, list) else []
-        refresh_token = str(shared_rows[0].get("refresh_token") or "").strip() if shared_rows else ""
+        if shared_rows:
+            shared_status = str(shared_rows[0].get("connection_status") or "").strip().lower()
+            if shared_status == "connected":
+                refresh_token = str(shared_rows[0].get("refresh_token") or "").strip()
 
     # Fallback to legacy wbr_amazon_ads_connections
     if not refresh_token:

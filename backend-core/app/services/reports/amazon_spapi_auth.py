@@ -26,9 +26,23 @@ from ..wbr.profiles import WBRValidationError
 # ---------------------------------------------------------------------------
 
 LWA_TOKEN_URL = "https://api.amazon.com/auth/o2/token"
-SELLER_CENTRAL_AUTH_URL = "https://sellercentral.amazon.com/apps/authorize/consent"
-SPAPI_NA_ENDPOINT = "https://sellingpartnerapi-na.amazon.com"
 STATE_MAX_AGE_SECONDS = 600  # 10 minutes
+VALID_SPAPI_REGION_CODES = {"NA", "EU", "FE"}
+SPAPI_REGION_CONFIG: dict[str, dict[str, str]] = {
+    "NA": {
+        "seller_central_base_url": "https://sellercentral.amazon.com",
+        "api_base_url": "https://sellingpartnerapi-na.amazon.com",
+    },
+    "EU": {
+        "seller_central_base_url": "https://sellercentral-europe.amazon.com",
+        "api_base_url": "https://sellingpartnerapi-eu.amazon.com",
+    },
+    "FE": {
+        # Representative Seller Central entrypoint for the FE region.
+        "seller_central_base_url": "https://sellercentral.amazon.co.jp",
+        "api_base_url": "https://sellingpartnerapi-fe.amazon.com",
+    },
+}
 
 
 def _spapi_client_id() -> str:
@@ -69,6 +83,17 @@ def _is_draft_app() -> bool:
     )
 
 
+def normalize_spapi_region_code(region_code: str) -> str:
+    value = str(region_code or "").strip().upper()
+    if value not in VALID_SPAPI_REGION_CODES:
+        raise WBRValidationError("region_code must be one of: NA, EU, FE")
+    return value
+
+
+def get_spapi_region_config(region_code: str) -> dict[str, str]:
+    return SPAPI_REGION_CONFIG[normalize_spapi_region_code(region_code)]
+
+
 # ---------------------------------------------------------------------------
 # Signed OAuth state
 # ---------------------------------------------------------------------------
@@ -77,6 +102,7 @@ def _is_draft_app() -> bool:
 def create_spapi_signed_state(
     *,
     client_id: str,
+    region_code: str,
     initiated_by: str | None,
     return_path: str,
 ) -> str:
@@ -85,8 +111,10 @@ def create_spapi_signed_state(
     Uses ``cid`` (client_id) instead of ``pid`` (profile_id) because SP-API
     connections are keyed at the client level.
     """
+    normalized_region = normalize_spapi_region_code(region_code)
     payload = {
         "cid": client_id,
+        "rg": normalized_region,
         "uid": initiated_by or "",
         "ret": return_path,
         "prv": "amazon_spapi",
@@ -128,6 +156,8 @@ def verify_spapi_signed_state(state: str) -> dict[str, Any]:
     if time.time() - issued_at > STATE_MAX_AGE_SECONDS:
         raise WBRValidationError("OAuth state has expired")
 
+    normalize_spapi_region_code(str(payload.get("rg") or ""))
+
     return payload
 
 
@@ -136,15 +166,17 @@ def verify_spapi_signed_state(state: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def build_seller_auth_url(*, state: str) -> str:
+def build_seller_auth_url(*, state: str, region_code: str) -> str:
     """Build the Seller Central authorization consent URL."""
+    config = get_spapi_region_config(region_code)
     params: dict[str, str] = {
         "application_id": _spapi_app_id(),
         "state": state,
     }
     if _is_draft_app():
         params["version"] = "beta"
-    return f"{SELLER_CENTRAL_AUTH_URL}?{urlencode(params)}"
+    seller_central_base_url = config["seller_central_base_url"].rstrip("/")
+    return f"{seller_central_base_url}/apps/authorize/consent?{urlencode(params)}"
 
 
 # ---------------------------------------------------------------------------
@@ -216,15 +248,18 @@ async def refresh_spapi_access_token(refresh_token: str) -> str:
 
 async def get_marketplace_participations(
     access_token: str,
+    *,
+    region_code: str,
 ) -> list[dict[str, Any]]:
     """Call Sellers API getMarketplaceParticipations to validate the connection.
 
-    Uses the NA endpoint.  For apps registered after 2023-09-01 AWS Sig V4 is
-    not required; the LWA access token alone is sufficient.
+    For apps registered after 2023-09-01 AWS Sig V4 is not required; the LWA
+    access token alone is sufficient.
     """
+    api_base_url = get_spapi_region_config(region_code)["api_base_url"].rstrip("/")
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.get(
-            f"{SPAPI_NA_ENDPOINT}/sellers/v1/marketplaceParticipations",
+            f"{api_base_url}/sellers/v1/marketplaceParticipations",
             headers={
                 "x-amz-access-token": access_token,
             },
@@ -250,13 +285,11 @@ async def get_marketplace_participations(
 # Finances API – smoke-test helpers
 # ---------------------------------------------------------------------------
 
-FINANCES_V0_BASE = f"{SPAPI_NA_ENDPOINT}/finances/v0"
-FINANCES_V2024_BASE = f"{SPAPI_NA_ENDPOINT}/finances/2024-06-19"
-
 
 async def list_financial_event_groups(
     access_token: str,
     *,
+    region_code: str,
     max_results: int = 10,
 ) -> list[dict[str, Any]]:
     """Call Finances API v0 listFinancialEventGroups.
@@ -264,10 +297,11 @@ async def list_financial_event_groups(
     Returns the most recent financial event groups (payment/disbursement
     batches).  Kept deliberately low-volume per the rate-limit guidance.
     """
+    api_base_url = get_spapi_region_config(region_code)["api_base_url"].rstrip("/")
     params: dict[str, str] = {"MaxResultsPerPage": str(max_results)}
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.get(
-            f"{FINANCES_V0_BASE}/financialEventGroups",
+            f"{api_base_url}/finances/v0/financialEventGroups",
             params=params,
             headers={"x-amz-access-token": access_token},
         )
@@ -290,6 +324,7 @@ async def list_financial_event_groups(
 async def list_transactions(
     access_token: str,
     *,
+    region_code: str,
     financial_event_group_id: str,
     transaction_status: str = "RELEASED",
     max_results: int = 20,
@@ -300,6 +335,7 @@ async def list_transactions(
     which is the Amazon-documented path for determining which transactions
     make up a payment/disbursement.
     """
+    api_base_url = get_spapi_region_config(region_code)["api_base_url"].rstrip("/")
     params: dict[str, str] = {
         "relatedIdentifierName": "FINANCIAL_EVENT_GROUP_ID",
         "relatedIdentifierValue": financial_event_group_id,
@@ -308,7 +344,7 @@ async def list_transactions(
     }
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.get(
-            f"{FINANCES_V2024_BASE}/transactions",
+            f"{api_base_url}/finances/2024-06-19/transactions",
             params=params,
             headers={"x-amz-access-token": access_token},
         )
