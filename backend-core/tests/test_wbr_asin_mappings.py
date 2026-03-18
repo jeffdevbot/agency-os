@@ -391,6 +391,40 @@ class TestAsinMappingService:
             "rows_unchanged": 0,
         }
 
+    def test_import_child_asin_mapping_csv_allows_unknown_asin_when_excluded(self):
+        csv_text = (
+            "child_asin,scope_status,exclusion_reason\n"
+            "B099999999,excluded,Out of scope\n"
+        ).encode("utf-8")
+
+        db = _multi_table_db(
+            {
+                "wbr_profiles": [_chain_table([{"id": "p1"}])],
+                "wbr_profile_child_asins": [_chain_table([])],
+                "wbr_rows": [_chain_table([])],
+                "wbr_asin_row_map": [_chain_table([])],
+                "wbr_asin_exclusions": [
+                    _chain_table([]),
+                    _chain_table([{"id": "e1"}]),
+                ],
+            }
+        )
+
+        summary = AsinMappingService(db).import_child_asin_mapping_csv(
+            profile_id="p1",
+            file_name="asin-mapping.csv",
+            file_bytes=csv_text,
+            user_id="u1",
+        )
+
+        assert summary == {
+            "rows_read": 1,
+            "rows_updated": 0,
+            "rows_cleared": 0,
+            "rows_excluded": 1,
+            "rows_unchanged": 0,
+        }
+
     def test_import_child_asin_mapping_csv_clears_existing_exclusion_when_mapping_restored(self):
         csv_text = (
             "child_asin,mapped_row_label\n"

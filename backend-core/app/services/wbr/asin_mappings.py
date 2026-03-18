@@ -250,11 +250,6 @@ class AsinMappingService:
                 raise WBRValidationError(f"ASIN mapping CSV contains duplicate child_asin {child_asin}")
             seen_child_asins.add(child_asin)
 
-            if child_asin not in active_child_asins:
-                raise WBRValidationError(
-                    f"ASIN mapping CSV row {index} references unknown active child_asin {child_asin}"
-                )
-
             mapped_row_id = str(row.get(row_id_column) or "").strip() if row_id_column else ""
             mapped_row_label = str(row.get(row_label_column) or "").strip() if row_label_column else ""
             scope_status = str(row.get(scope_status_column) or "").strip().lower() if scope_status_column else ""
@@ -265,6 +260,11 @@ class AsinMappingService:
             if is_excluded:
                 operations.append((child_asin, None, True, exclusion_reason or None))
                 continue
+
+            if child_asin not in active_child_asins:
+                raise WBRValidationError(
+                    f"ASIN mapping CSV row {index} references unknown active child_asin {child_asin}"
+                )
 
             if not row_id_column and not row_label_column:
                 raise WBRValidationError(
