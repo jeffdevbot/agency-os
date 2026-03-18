@@ -308,7 +308,7 @@ class TestWindsorSettlementCompareService:
         ]
 
     @pytest.mark.asyncio
-    async def test_compare_month_reports_blank_marketplace_rows_excluded_by_scope(self):
+    async def test_compare_month_includes_blank_marketplace_rows_in_scoped_compare(self):
         db = _db_with_tables(
             monthly_pnl_profiles=_chain_table(
                 [{"id": "p1", "client_id": "c1", "marketplace_code": "US", "currency_code": "USD"}]
@@ -354,35 +354,36 @@ class TestWindsorSettlementCompareService:
 
         result = await svc.compare_month("p1", "2026-02-01", "amazon_com_only")
 
-        assert result["windsor"]["row_count"] == 1
-        assert result["scope_diagnostics"]["excluded_row_count"] == 2
-        assert result["scope_diagnostics"]["excluded_amount"] == "-32.00"
-        assert result["scope_diagnostics"]["blank_marketplace_row_count"] == 2
-        assert result["scope_diagnostics"]["blank_marketplace_amount"] == "-32.00"
-        assert result["scope_diagnostics"]["excluded_bucket_totals"] == [
-            {"bucket": "advertising", "amount": "-25.00"},
-            {"bucket": "fba_monthly_storage_fees", "amount": "-7.00"},
-        ]
-        assert result["scope_diagnostics"]["top_blank_marketplace_combos"] == [
+        assert result["windsor"]["row_count"] == 3
+        assert result["windsor"]["bucket_totals"] == {
+            "advertising": "-25.00",
+            "fba_monthly_storage_fees": "-7.00",
+            "product_sales": "100.00",
+        }
+        assert result["scope_diagnostics"]["excluded_row_count"] == 0
+        assert result["scope_diagnostics"]["excluded_amount"] == "0.00"
+        assert result["scope_diagnostics"]["blank_marketplace_row_count"] == 0
+        assert result["scope_diagnostics"]["blank_marketplace_amount"] == "0.00"
+        assert result["scope_diagnostics"]["excluded_bucket_totals"] == []
+        assert result["scope_diagnostics"]["top_blank_marketplace_combos"] == []
+        assert result["comparison"]["bucket_deltas"] == [
             {
-                "transaction_type": "ServiceFee",
-                "amount_type": "Cost of Advertising",
-                "amount_description": "TransactionTotalAmount",
-                "classification": "mapped",
-                "bucket": "advertising",
-                "reason": None,
-                "row_count": 1,
-                "amount": "-25.00",
+                "bucket": "product_sales",
+                "csv_amount": "0.00",
+                "windsor_amount": "100.00",
+                "delta_amount": "100.00",
             },
             {
-                "transaction_type": "other-transaction",
-                "amount_type": "other-transaction",
-                "amount_description": "Storage Fee",
-                "classification": "mapped",
+                "bucket": "advertising",
+                "csv_amount": "-25.00",
+                "windsor_amount": "-25.00",
+                "delta_amount": "0.00",
+            },
+            {
                 "bucket": "fba_monthly_storage_fees",
-                "reason": None,
-                "row_count": 1,
-                "amount": "-7.00",
+                "csv_amount": "-7.00",
+                "windsor_amount": "-7.00",
+                "delta_amount": "0.00",
             },
         ]
 

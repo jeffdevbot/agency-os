@@ -97,6 +97,9 @@ def _row_matches_marketplace_scope(row: dict[str, Any], marketplace_scope: str) 
     if marketplace_scope == "all":
         return True
 
+    if not _normalize(row.get(FIELD_MARKETPLACE_NAME)):
+        return True
+
     allowed_marketplaces = {"amazon.com"}
     if marketplace_scope == "amazon_com_and_ca":
         allowed_marketplaces.add("amazon.ca")
@@ -221,6 +224,12 @@ class WindsorSettlementCompareService:
             resolved_marketplace_scope,
         )
         windsor_analysis = self._analyze_rows(windsor_rows)
+        scope_diagnostics = self._build_scope_diagnostics(
+            all_rows=all_windsor_rows,
+            included_rows=windsor_rows,
+            excluded_rows=excluded_rows,
+            marketplace_scope=resolved_marketplace_scope,
+        )
 
         return {
             "profile": {
@@ -236,17 +245,12 @@ class WindsorSettlementCompareService:
             "windsor_account_id": windsor_account_id,
             "csv_baseline": csv_baseline,
             "windsor": windsor_analysis,
-            "scope_diagnostics": self._build_scope_diagnostics(
-                all_rows=all_windsor_rows,
-                included_rows=windsor_rows,
-                excluded_rows=excluded_rows,
-                marketplace_scope=resolved_marketplace_scope,
-            ),
+            "scope_diagnostics": scope_diagnostics,
             "comparison": {
                 "bucket_deltas": self._build_bucket_deltas(
                     csv_baseline["bucket_totals"],
                     windsor_analysis["bucket_totals"],
-                )
+                ),
             },
         }
 

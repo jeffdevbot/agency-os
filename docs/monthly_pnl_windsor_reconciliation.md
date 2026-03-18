@@ -418,3 +418,26 @@ These are candidates, not approved fixes yet:
    - blank-marketplace excluded row count and amount
    - excluded mapped buckets
    - top blank-marketplace combos
+5. Windsor support confirmed that
+   `get_v2_settlement_report_data_flat_file_v2` returns only settlement
+   transaction-detail rows, not payout/disbursement/transfer summary rows.
+6. Treat `non_pnl_transfer` as unsupported by the current Windsor settlement
+   preset unless Windsor provides a separate payout/disbursement source.
+
+## Known source limitation
+
+### `non_pnl_transfer`
+
+Current status:
+
+1. The CSV/manual-upload path contains payout/disbursement-style rows that map
+   into `non_pnl_transfer`.
+2. The current Windsor settlement preset does not appear to expose those rows.
+3. Therefore `non_pnl_transfer` should not currently be used as a parity check
+   against `GET_V2_SETTLEMENT_REPORT_DATA_FLAT_FILE_V2`.
+
+Implication:
+
+For this Windsor preset, near-parity is still possible for the core revenue,
+refund, and expense sections, but not for payout/disbursement rows unless a
+separate Windsor source is identified.
