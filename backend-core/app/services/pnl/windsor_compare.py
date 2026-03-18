@@ -397,6 +397,8 @@ class WindsorSettlementCompareService:
         bucket_totals: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
         marketplace_totals: dict[str, dict[str, Any]] = {}
         combo_totals: dict[tuple[str, str, str], dict[str, Any]] = {}
+        mapped_combo_totals_by_bucket: dict[str, dict[tuple[str, str, str], dict[str, Any]]] = defaultdict(dict)
+        mapped_marketplace_totals_by_bucket: dict[str, dict[str, dict[str, Any]]] = defaultdict(dict)
         mapped_rows = 0
         ignored_rows = 0
         unmapped_rows = 0
@@ -438,6 +440,30 @@ class WindsorSettlementCompareService:
             if mapping.classification == "mapped" and mapping.bucket:
                 bucket_totals[mapping.bucket] += amount
                 mapped_rows += 1
+                bucket_combo_totals = mapped_combo_totals_by_bucket[mapping.bucket]
+                mapped_combo_summary = bucket_combo_totals.setdefault(
+                    combo_key,
+                    {
+                        "transaction_type": combo_key[0],
+                        "amount_type": combo_key[1],
+                        "amount_description": combo_key[2],
+                        "classification": mapping.classification,
+                        "bucket": mapping.bucket,
+                        "reason": mapping.reason,
+                        "row_count": 0,
+                        "amount": Decimal("0"),
+                    },
+                )
+                mapped_combo_summary["row_count"] += 1
+                mapped_combo_summary["amount"] += amount
+
+                bucket_marketplace_totals = mapped_marketplace_totals_by_bucket[mapping.bucket]
+                mapped_marketplace_summary = bucket_marketplace_totals.setdefault(
+                    marketplace_name,
+                    {"marketplace_name": marketplace_name, "row_count": 0, "amount": Decimal("0")},
+                )
+                mapped_marketplace_summary["row_count"] += 1
+                mapped_marketplace_summary["amount"] += amount
             elif mapping.classification == "ignored":
                 ignored_rows += 1
                 ignored_amount += amount
@@ -481,6 +507,32 @@ class WindsorSettlementCompareService:
                     key=lambda summary: (abs(summary["amount"]), summary["row_count"]),
                     reverse=True,
                 )
+            ],
+            "mapped_bucket_drilldowns": [
+                {
+                    "bucket": bucket,
+                    "combo_totals": [
+                        self._serialize_combo(summary)
+                        for summary in sorted(
+                            mapped_combo_totals_by_bucket[bucket].values(),
+                            key=lambda summary: (abs(summary["amount"]), summary["row_count"]),
+                            reverse=True,
+                        )
+                    ],
+                    "marketplace_totals": [
+                        {
+                            "marketplace_name": summary["marketplace_name"],
+                            "row_count": summary["row_count"],
+                            "amount": self._format_amount(summary["amount"]),
+                        }
+                        for summary in sorted(
+                            mapped_marketplace_totals_by_bucket[bucket].values(),
+                            key=lambda summary: (abs(summary["amount"]), summary["row_count"]),
+                            reverse=True,
+                        )
+                    ],
+                }
+                for bucket in sorted(mapped_combo_totals_by_bucket, key=_bucket_sort_key)
             ],
             "top_unmapped_combos": top_unmapped,
             "top_ignored_combos": top_ignored,

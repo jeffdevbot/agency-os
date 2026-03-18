@@ -205,6 +205,24 @@ class TestWindsorSettlementCompareService:
         assert result["windsor"]["ignored_amount"] == "8.00"
         assert result["windsor"]["unmapped_amount"] == "2.00"
         assert result["windsor"]["bucket_totals"]["fba_removal_order_fees"] == "-3.00"
+        product_sales_drilldown = next(
+            row for row in result["windsor"]["mapped_bucket_drilldowns"] if row["bucket"] == "product_sales"
+        )
+        assert product_sales_drilldown["combo_totals"] == [
+            {
+                "transaction_type": "Order",
+                "amount_type": "ItemPrice",
+                "amount_description": "Principal",
+                "classification": "mapped",
+                "bucket": "product_sales",
+                "reason": None,
+                "row_count": 1,
+                "amount": "100.00",
+            }
+        ]
+        assert product_sales_drilldown["marketplace_totals"] == [
+            {"marketplace_name": "Amazon.com", "row_count": 1, "amount": "100.00"}
+        ]
         assert result["comparison"]["bucket_deltas"][0] == {
             "bucket": "fba_removal_order_fees",
             "csv_amount": "-1.00",

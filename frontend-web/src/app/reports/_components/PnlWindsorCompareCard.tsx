@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type {
   PnlWindsorBucketDelta,
   PnlWindsorComboSummary,
@@ -42,6 +42,13 @@ function renderComboLabel(combo: PnlWindsorComboSummary): string {
     .join(" / ");
 }
 
+function formatBucketLabel(bucket: string): string {
+  return bucket
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 function renderBucketRows(bucketDeltas: PnlWindsorBucketDelta[]) {
   return (
     <div className="overflow-x-auto rounded-2xl border border-[#dbe4f0]">
@@ -79,6 +86,7 @@ export default function PnlWindsorCompareCard({
   onEntryMonthChange,
   onRunCompare,
 }: Props) {
+  const [selectedBucket, setSelectedBucket] = useState<string>("");
   const bucketDeltas = useMemo(
     () => comparison?.comparison.bucket_deltas ?? [],
     [comparison],
@@ -87,7 +95,20 @@ export default function PnlWindsorCompareCard({
     () => bucketDeltas.filter((row) => Number.parseFloat(row.delta_amount) !== 0).slice(0, 12),
     [bucketDeltas],
   );
+  const mappedBucketDrilldowns = useMemo(
+    () => comparison?.windsor.mapped_bucket_drilldowns ?? [],
+    [comparison],
+  );
+  const selectedBucketDrilldown = useMemo(
+    () => mappedBucketDrilldowns.find((row) => row.bucket === selectedBucket) ?? null,
+    [mappedBucketDrilldowns, selectedBucket],
+  );
   const monthInputValue = toMonthInputValue(entryMonth);
+
+  useEffect(() => {
+    const preferredBucket = topDeltas[0]?.bucket ?? mappedBucketDrilldowns[0]?.bucket ?? "";
+    setSelectedBucket(preferredBucket);
+  }, [comparison, mappedBucketDrilldowns, topDeltas]);
 
   return (
     <div className="rounded-3xl bg-white/95 p-5 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur md:p-6">
@@ -295,6 +316,88 @@ export default function PnlWindsorCompareCard({
               </div>
             </div>
           </div>
+
+          {mappedBucketDrilldowns.length > 0 ? (
+            <div className="grid gap-5 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,0.9fr)]">
+              <div>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                  <div>
+                    <h3 className="text-base font-semibold text-[#0f172a]">Bucket drilldown</h3>
+                    <p className="mt-1 text-sm text-[#64748b]">
+                      Inspect the Windsor combo mix behind one mapped bucket.
+                    </p>
+                  </div>
+                  <label className="text-sm text-[#334155]">
+                    <span className="mb-1 block font-medium">Bucket</span>
+                    <select
+                      value={selectedBucket}
+                      onChange={(event) => setSelectedBucket(event.target.value)}
+                      className="rounded-xl border border-[#cbd5e1] bg-white px-3 py-2 text-sm text-[#0f172a] outline-none transition focus:border-[#0a6fd6] focus:ring-2 focus:ring-[#0a6fd6]/20"
+                    >
+                      {mappedBucketDrilldowns.map((row) => (
+                        <option key={row.bucket} value={row.bucket}>
+                          {formatBucketLabel(row.bucket)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+
+                {selectedBucketDrilldown ? (
+                  <div className="mt-3 overflow-x-auto rounded-2xl border border-[#dbe4f0]">
+                    <table className="min-w-full divide-y divide-[#dbe4f0] text-sm">
+                      <thead className="bg-[#f8fafc] text-left text-xs uppercase tracking-[0.14em] text-[#64748b]">
+                        <tr>
+                          <th className="px-4 py-3 font-semibold">Combo</th>
+                          <th className="px-4 py-3 font-semibold">Rows</th>
+                          <th className="px-4 py-3 font-semibold">Amount</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#e2e8f0] bg-white text-[#0f172a]">
+                        {selectedBucketDrilldown.combo_totals.slice(0, 20).map((combo) => (
+                          <tr
+                            key={`${selectedBucketDrilldown.bucket}-${combo.transaction_type}-${combo.amount_type}-${combo.amount_description}`}
+                          >
+                            <td className="px-4 py-3 font-medium">{renderComboLabel(combo)}</td>
+                            <td className="px-4 py-3">
+                              {combo.row_count.toLocaleString("en-US")}
+                            </td>
+                            <td className="px-4 py-3 font-semibold">
+                              {formatAmount(combo.amount)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : null}
+              </div>
+
+              <div>
+                <h3 className="text-base font-semibold text-[#0f172a]">Bucket marketplaces</h3>
+                {selectedBucketDrilldown?.marketplace_totals.length ? (
+                  <div className="mt-3 space-y-2">
+                    {selectedBucketDrilldown.marketplace_totals.map((row) => (
+                      <div
+                        key={`${selectedBucketDrilldown.bucket}-${row.marketplace_name}`}
+                        className="flex items-center justify-between gap-3 rounded-2xl border border-[#dbe4f0] bg-[#f8fafc] px-4 py-3 text-sm"
+                      >
+                        <div>
+                          <p className="font-medium text-[#0f172a]">{row.marketplace_name}</p>
+                          <p className="text-[#64748b]">{row.row_count.toLocaleString("en-US")} rows</p>
+                        </div>
+                        <p className="font-semibold text-[#0f172a]">{formatAmount(row.amount)}</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-3 text-sm text-[#64748b]">
+                    No marketplace totals are available for the selected bucket.
+                  </p>
+                )}
+              </div>
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>

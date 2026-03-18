@@ -165,6 +165,11 @@ export type PnlWindsorCompare = {
     unmapped_amount: string;
     bucket_totals: Record<string, string>;
     marketplace_totals: PnlWindsorMarketplaceTotal[];
+    mapped_bucket_drilldowns: Array<{
+      bucket: string;
+      combo_totals: PnlWindsorComboSummary[];
+      marketplace_totals: PnlWindsorMarketplaceTotal[];
+    }>;
     top_unmapped_combos: PnlWindsorComboSummary[];
     top_ignored_combos: PnlWindsorComboSummary[];
   };
@@ -423,6 +428,7 @@ export async function getPnlWindsorCompare(
       unmapped_amount: String(data?.windsor?.unmapped_amount ?? "0.00"),
       bucket_totals: (data?.windsor?.bucket_totals ?? {}) as Record<string, string>,
       marketplace_totals: (data?.windsor?.marketplace_totals ?? []) as PnlWindsorMarketplaceTotal[],
+      mapped_bucket_drilldowns: (data?.windsor?.mapped_bucket_drilldowns ?? []) as PnlWindsorCompare["windsor"]["mapped_bucket_drilldowns"],
       top_unmapped_combos: (data?.windsor?.top_unmapped_combos ?? []) as PnlWindsorComboSummary[],
       top_ignored_combos: (data?.windsor?.top_ignored_combos ?? []) as PnlWindsorComboSummary[],
     },
