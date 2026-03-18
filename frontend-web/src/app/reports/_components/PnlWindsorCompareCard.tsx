@@ -30,8 +30,8 @@ const MARKETPLACE_SCOPE_OPTIONS: Array<{
   label: string;
 }> = [
   { value: "all", label: "All Windsor marketplaces" },
-  { value: "amazon_com_only", label: "Amazon.com only" },
-  { value: "amazon_com_and_ca", label: "Amazon.com + Amazon.ca" },
+  { value: "amazon_com_only", label: "Amazon.com + account-level rows" },
+  { value: "amazon_com_and_ca", label: "Amazon.com + Amazon.ca + account-level rows" },
 ];
 
 function toMonthInputValue(entryMonth: string): string {
