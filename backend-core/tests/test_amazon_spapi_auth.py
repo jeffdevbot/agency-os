@@ -494,3 +494,243 @@ class TestSpApiValidateEndpoint:
             assert len(fake_db.updates) == 1
         finally:
             app.dependency_overrides.pop(report_api_access.require_admin_user, None)
+
+
+# ---------------------------------------------------------------------------
+# Router tests: SP-API finance smoke test endpoint
+# ---------------------------------------------------------------------------
+
+_SPAPI_CONNECTION_ROW = {
+    "id": "conn-1",
+    "client_id": "client-1",
+    "provider": "amazon_spapi",
+    "connection_status": "connected",
+    "refresh_token": "stored-refresh-token",
+    "external_account_id": "SELLER123",
+    "region_code": "NA",
+    "access_meta": {},
+    "connected_at": "2026-03-18T12:00:00Z",
+    "last_validated_at": None,
+    "last_error": None,
+    "updated_at": "2026-03-18T12:00:00Z",
+}
+
+
+class TestSpApiFinanceSmokeTest:
+    def test_successful_full_flow(self, monkeypatch):
+        fake_db = _FakeSupabase(
+            tables={"report_api_connections": [_SPAPI_CONNECTION_ROW]}
+        )
+        monkeypatch.setattr(report_api_access, "_get_supabase", lambda: fake_db)
+
+        mock_refresh = AsyncMock(return_value="fresh-access-token")
+        monkeypatch.setattr(
+            report_api_access, "refresh_spapi_access_token", mock_refresh
+        )
+
+        mock_groups = AsyncMock(
+            return_value=[
+                {
+                    "FinancialEventGroupId": "FEG-123",
+                    "ProcessingStatus": "Closed",
+                    "FundTransferStatus": "Successful",
+                    "OriginalTotal": {"CurrencyCode": "USD", "CurrencyAmount": 1234.56},
+                    "ConvertedTotal": {"CurrencyCode": "USD", "CurrencyAmount": 1234.56},
+                    "FundTransferDate": "2026-03-15T00:00:00Z",
+                    "TraceId": "TRACE-ABC",
+                    "AccountTail": "1234",
+                    "BeginningBalance": {"CurrencyCode": "USD", "CurrencyAmount": 0},
+                    "FinancialEventGroupStart": "2026-03-01T00:00:00Z",
+                    "FinancialEventGroupEnd": "2026-03-15T00:00:00Z",
+                },
+            ]
+        )
+        monkeypatch.setattr(
+            report_api_access, "list_financial_event_groups", mock_groups
+        )
+
+        mock_txns = AsyncMock(
+            return_value=[
+                {
+                    "transactionId": "TXN-1",
+                    "transactionType": "Shipment",
+                    "transactionStatus": "RELEASED",
+                    "totalAmount": {"currencyCode": "USD", "currencyAmount": 50.00},
+                    "description": "Order payment",
+                    "relatedIdentifiers": [
+                        {
+                            "relatedIdentifierName": "ORDER_ID",
+                            "relatedIdentifierValue": "111-222-333",
+                        }
+                    ],
+                    "postingDate": "2026-03-10T00:00:00Z",
+                    "marketplaceDetails": {
+                        "marketplaceId": "ATVPDKIKX0DER",
+                        "marketplaceName": "Amazon.com",
+                    },
+                },
+            ]
+        )
+        monkeypatch.setattr(
+            report_api_access, "list_transactions", mock_txns
+        )
+
+        app.dependency_overrides[report_api_access.require_admin_user] = _override_admin
+        try:
+            with TestClient(app) as client:
+                resp = client.post(
+                    "/admin/reports/api-access/amazon-spapi/finance-smoke-test",
+                    json={"client_id": "client-1"},
+                )
+            assert resp.status_code == 200
+            body = resp.json()
+            assert body["ok"] is True
+            assert body["target_group_id"] == "FEG-123"
+            assert body["group_count"] == 1
+            assert body["transaction_count"] == 1
+            assert body["groups"][0]["FinancialEventGroupId"] == "FEG-123"
+            assert body["transactions"][0]["transactionId"] == "TXN-1"
+            mock_refresh.assert_awaited_once_with("stored-refresh-token")
+            mock_groups.assert_awaited_once()
+            mock_txns.assert_awaited_once()
+            # Verify the listTransactions call used the right group ID
+            call_kwargs = mock_txns.await_args
+            assert call_kwargs[1]["financial_event_group_id"] == "FEG-123"
+        finally:
+            app.dependency_overrides.pop(report_api_access.require_admin_user, None)
+
+    def test_no_connection_returns_404(self, monkeypatch):
+        fake_db = _FakeSupabase(tables={"report_api_connections": []})
+        monkeypatch.setattr(report_api_access, "_get_supabase", lambda: fake_db)
+        app.dependency_overrides[report_api_access.require_admin_user] = _override_admin
+        try:
+            with TestClient(app) as client:
+                resp = client.post(
+                    "/admin/reports/api-access/amazon-spapi/finance-smoke-test",
+                    json={"client_id": "client-1"},
+                )
+            assert resp.status_code == 404
+        finally:
+            app.dependency_overrides.pop(report_api_access.require_admin_user, None)
+
+    def test_token_refresh_failure(self, monkeypatch):
+        fake_db = _FakeSupabase(
+            tables={"report_api_connections": [_SPAPI_CONNECTION_ROW]}
+        )
+        monkeypatch.setattr(report_api_access, "_get_supabase", lambda: fake_db)
+        mock_refresh = AsyncMock(
+            side_effect=WBRValidationError("SP-API token refresh failed (401)")
+        )
+        monkeypatch.setattr(
+            report_api_access, "refresh_spapi_access_token", mock_refresh
+        )
+        app.dependency_overrides[report_api_access.require_admin_user] = _override_admin
+        try:
+            with TestClient(app) as client:
+                resp = client.post(
+                    "/admin/reports/api-access/amazon-spapi/finance-smoke-test",
+                    json={"client_id": "client-1"},
+                )
+            assert resp.status_code == 200
+            body = resp.json()
+            assert body["ok"] is False
+            assert body["step"] == "token_refresh"
+        finally:
+            app.dependency_overrides.pop(report_api_access.require_admin_user, None)
+
+    def test_groups_api_failure(self, monkeypatch):
+        fake_db = _FakeSupabase(
+            tables={"report_api_connections": [_SPAPI_CONNECTION_ROW]}
+        )
+        monkeypatch.setattr(report_api_access, "_get_supabase", lambda: fake_db)
+        monkeypatch.setattr(
+            report_api_access,
+            "refresh_spapi_access_token",
+            AsyncMock(return_value="token"),
+        )
+        monkeypatch.setattr(
+            report_api_access,
+            "list_financial_event_groups",
+            AsyncMock(side_effect=WBRValidationError("listFinancialEventGroups failed (403)")),
+        )
+        app.dependency_overrides[report_api_access.require_admin_user] = _override_admin
+        try:
+            with TestClient(app) as client:
+                resp = client.post(
+                    "/admin/reports/api-access/amazon-spapi/finance-smoke-test",
+                    json={"client_id": "client-1"},
+                )
+            assert resp.status_code == 200
+            body = resp.json()
+            assert body["ok"] is False
+            assert body["step"] == "list_financial_event_groups"
+        finally:
+            app.dependency_overrides.pop(report_api_access.require_admin_user, None)
+
+    def test_empty_groups_returns_ok_with_note(self, monkeypatch):
+        fake_db = _FakeSupabase(
+            tables={"report_api_connections": [_SPAPI_CONNECTION_ROW]}
+        )
+        monkeypatch.setattr(report_api_access, "_get_supabase", lambda: fake_db)
+        monkeypatch.setattr(
+            report_api_access,
+            "refresh_spapi_access_token",
+            AsyncMock(return_value="token"),
+        )
+        monkeypatch.setattr(
+            report_api_access,
+            "list_financial_event_groups",
+            AsyncMock(return_value=[]),
+        )
+        app.dependency_overrides[report_api_access.require_admin_user] = _override_admin
+        try:
+            with TestClient(app) as client:
+                resp = client.post(
+                    "/admin/reports/api-access/amazon-spapi/finance-smoke-test",
+                    json={"client_id": "client-1"},
+                )
+            assert resp.status_code == 200
+            body = resp.json()
+            assert body["ok"] is True
+            assert "No financial event groups" in body["note"]
+        finally:
+            app.dependency_overrides.pop(report_api_access.require_admin_user, None)
+
+    def test_transactions_api_failure(self, monkeypatch):
+        fake_db = _FakeSupabase(
+            tables={"report_api_connections": [_SPAPI_CONNECTION_ROW]}
+        )
+        monkeypatch.setattr(report_api_access, "_get_supabase", lambda: fake_db)
+        monkeypatch.setattr(
+            report_api_access,
+            "refresh_spapi_access_token",
+            AsyncMock(return_value="token"),
+        )
+        monkeypatch.setattr(
+            report_api_access,
+            "list_financial_event_groups",
+            AsyncMock(
+                return_value=[{"FinancialEventGroupId": "FEG-1", "ProcessingStatus": "Closed"}]
+            ),
+        )
+        monkeypatch.setattr(
+            report_api_access,
+            "list_transactions",
+            AsyncMock(side_effect=WBRValidationError("listTransactions failed (429)")),
+        )
+        app.dependency_overrides[report_api_access.require_admin_user] = _override_admin
+        try:
+            with TestClient(app) as client:
+                resp = client.post(
+                    "/admin/reports/api-access/amazon-spapi/finance-smoke-test",
+                    json={"client_id": "client-1"},
+                )
+            assert resp.status_code == 200
+            body = resp.json()
+            assert body["ok"] is False
+            assert body["step"] == "list_transactions"
+            assert body["target_group_id"] == "FEG-1"
+            # Groups should still be in the response
+            assert len(body["groups"]) == 1
+        finally:
+            app.dependency_overrides.pop(report_api_access.require_admin_user, None)

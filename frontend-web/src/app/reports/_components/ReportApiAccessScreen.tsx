@@ -8,9 +8,11 @@ import {
   createSpApiAuthorizationUrl,
   listAmazonAdsApiAccess,
   listSpApiConnections,
+  runSpApiFinanceSmokeTest,
   validateSpApiConnection,
   type AmazonAdsApiAccessSummary,
   type SpApiConnectionSummary,
+  type SpApiFinanceSmokeResult,
   type SpApiValidateResult,
 } from "../_lib/reportApiAccessApi";
 
@@ -34,6 +36,8 @@ export default function ReportApiAccessScreen() {
   const [summaries, setSummaries] = useState<AmazonAdsApiAccessSummary[]>([]);
   const [spApiSummaries, setSpApiSummaries] = useState<SpApiConnectionSummary[]>([]);
   const [lastValidation, setLastValidation] = useState<SpApiValidateResult | null>(null);
+  const [smokeTesting, setSmokeTesting] = useState<string | null>(null);
+  const [smokeResult, setSmokeResult] = useState<SpApiFinanceSmokeResult | null>(null);
 
   const loadSummaries = useCallback(async () => {
     setLoading(true);
@@ -110,6 +114,33 @@ export default function ReportApiAccessScreen() {
         setErrorMessage(
           error instanceof Error ? error.message : "Unable to start Seller API connection",
         );
+      }
+    },
+    [supabase],
+  );
+
+  const handleFinanceSmokeTest = useCallback(
+    async (clientId: string) => {
+      setSmokeTesting(clientId);
+      setSmokeResult(null);
+      setErrorMessage(null);
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+
+        if (!session?.access_token) {
+          throw new Error("Please sign in again.");
+        }
+
+        const result = await runSpApiFinanceSmokeTest(session.access_token, clientId);
+        setSmokeResult(result);
+      } catch (error) {
+        setErrorMessage(
+          error instanceof Error ? error.message : "Finance smoke test failed",
+        );
+      } finally {
+        setSmokeTesting(null);
       }
     },
     [supabase],
@@ -337,6 +368,40 @@ export default function ReportApiAccessScreen() {
             </div>
           ) : null}
 
+          {smokeResult ? (
+            <div
+              className={`rounded-xl border px-4 py-3 text-sm ${
+                smokeResult.ok
+                  ? "border-[#c4b5fd] bg-[#f5f3ff] text-[#5b21b6]"
+                  : "border-[#fecaca] bg-[#fff1f2] text-[#991b1b]"
+              }`}
+            >
+              {smokeResult.ok ? (
+                <div className="space-y-2">
+                  <p className="font-semibold">
+                    Finance smoke test passed
+                    {smokeResult.target_group_id
+                      ? ` — group ${smokeResult.target_group_id}`
+                      : ""}
+                  </p>
+                  <p>
+                    {smokeResult.group_count} group(s),{" "}
+                    {smokeResult.transaction_count} transaction(s)
+                  </p>
+                  {smokeResult.note ? <p>{smokeResult.note}</p> : null}
+                  <details className="mt-2">
+                    <summary className="cursor-pointer font-medium">Raw result</summary>
+                    <pre className="mt-2 max-h-96 overflow-auto rounded-lg bg-white p-3 text-xs">
+                      {JSON.stringify(smokeResult, null, 2)}
+                    </pre>
+                  </details>
+                </div>
+              ) : (
+                `Finance smoke test failed at ${smokeResult.step}: ${smokeResult.error}`
+              )}
+            </div>
+          ) : null}
+
           {loading ? (
             <div className="rounded-2xl border border-slate-200 bg-white p-5 text-sm text-[#64748b]">
               Loading Seller API connections...
@@ -354,6 +419,7 @@ export default function ReportApiAccessScreen() {
               const conn = summary.connection;
               const isLaunching = launchingSpApiClientId === summary.client_id;
               const isValidating = validatingClientId === summary.client_id;
+              const isSmoking = smokeTesting === summary.client_id;
 
               return (
                 <div
@@ -426,13 +492,22 @@ export default function ReportApiAccessScreen() {
                               : "Connect"}
                         </button>
                         {summary.connected ? (
-                          <button
-                            onClick={() => void handleSpApiValidate(summary.client_id)}
-                            disabled={Boolean(validatingClientId)}
-                            className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-[#0a6fd6] shadow transition hover:-translate-y-0.5 hover:shadow-lg disabled:cursor-not-allowed disabled:text-slate-400"
-                          >
-                            {isValidating ? "Validating..." : "Validate"}
-                          </button>
+                          <>
+                            <button
+                              onClick={() => void handleSpApiValidate(summary.client_id)}
+                              disabled={Boolean(validatingClientId)}
+                              className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-[#0a6fd6] shadow transition hover:-translate-y-0.5 hover:shadow-lg disabled:cursor-not-allowed disabled:text-slate-400"
+                            >
+                              {isValidating ? "Validating..." : "Validate"}
+                            </button>
+                            <button
+                              onClick={() => void handleFinanceSmokeTest(summary.client_id)}
+                              disabled={Boolean(smokeTesting)}
+                              className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-[#7c3aed] shadow transition hover:-translate-y-0.5 hover:shadow-lg disabled:cursor-not-allowed disabled:text-slate-400"
+                            >
+                              {isSmoking ? "Running..." : "Finance Smoke Test"}
+                            </button>
+                          </>
                         ) : null}
                       </div>
                     </div>

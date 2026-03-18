@@ -244,3 +244,85 @@ async def get_marketplace_participations(
         )
 
     return payload
+
+
+# ---------------------------------------------------------------------------
+# Finances API – smoke-test helpers
+# ---------------------------------------------------------------------------
+
+FINANCES_V0_BASE = f"{SPAPI_NA_ENDPOINT}/finances/v0"
+FINANCES_V2024_BASE = f"{SPAPI_NA_ENDPOINT}/finances/2024-06-19"
+
+
+async def list_financial_event_groups(
+    access_token: str,
+    *,
+    max_results: int = 10,
+) -> list[dict[str, Any]]:
+    """Call Finances API v0 listFinancialEventGroups.
+
+    Returns the most recent financial event groups (payment/disbursement
+    batches).  Kept deliberately low-volume per the rate-limit guidance.
+    """
+    params: dict[str, str] = {"MaxResultsPerPage": str(max_results)}
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.get(
+            f"{FINANCES_V0_BASE}/financialEventGroups",
+            params=params,
+            headers={"x-amz-access-token": access_token},
+        )
+
+    if response.status_code != 200:
+        detail = response.text[:500]
+        raise WBRValidationError(
+            f"listFinancialEventGroups failed ({response.status_code}): {detail}"
+        )
+
+    data = response.json()
+    groups = data.get("payload", {}).get("FinancialEventGroupList", [])
+    if not isinstance(groups, list):
+        raise WBRValidationError(
+            "Unexpected listFinancialEventGroups response shape"
+        )
+    return groups
+
+
+async def list_transactions(
+    access_token: str,
+    *,
+    financial_event_group_id: str,
+    transaction_status: str = "RELEASED",
+    max_results: int = 20,
+) -> list[dict[str, Any]]:
+    """Call Finances API v2024-06-19 listTransactions.
+
+    Retrieves released transactions tied to a specific financial event group,
+    which is the Amazon-documented path for determining which transactions
+    make up a payment/disbursement.
+    """
+    params: dict[str, str] = {
+        "relatedIdentifierName": "FINANCIAL_EVENT_GROUP_ID",
+        "relatedIdentifierValue": financial_event_group_id,
+        "transactionStatus": transaction_status,
+        "maxResults": str(max_results),
+    }
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.get(
+            f"{FINANCES_V2024_BASE}/transactions",
+            params=params,
+            headers={"x-amz-access-token": access_token},
+        )
+
+    if response.status_code != 200:
+        detail = response.text[:500]
+        raise WBRValidationError(
+            f"listTransactions failed ({response.status_code}): {detail}"
+        )
+
+    data = response.json()
+    transactions = data.get("transactions", [])
+    if not isinstance(transactions, list):
+        raise WBRValidationError(
+            "Unexpected listTransactions response shape"
+        )
+    return transactions

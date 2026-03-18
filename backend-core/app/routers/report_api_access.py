@@ -13,6 +13,8 @@ from ..services.reports.amazon_spapi_auth import (
     build_seller_auth_url,
     create_spapi_signed_state,
     get_marketplace_participations,
+    list_financial_event_groups,
+    list_transactions,
     refresh_spapi_access_token,
 )
 from ..services.reports.api_access import (
@@ -215,4 +217,154 @@ async def validate_report_api_access_spapi(
         "ok": True,
         "marketplace_count": len(participations),
         "marketplace_ids": marketplace_ids,
+    }
+
+
+# ---------------------------------------------------------------------------
+# P&L-first direct-SP-API smoke test (Pass 4)
+# ---------------------------------------------------------------------------
+
+
+class SpApiFinanceSmokeRequest(BaseModel):
+    client_id: str = Field(..., min_length=1)
+    max_groups: int = Field(5, ge=1, le=20)
+    max_transactions: int = Field(20, ge=1, le=100)
+
+
+@router.post("/amazon-spapi/finance-smoke-test")
+async def spapi_finance_smoke_test(
+    request: SpApiFinanceSmokeRequest,
+    user=Depends(require_admin_user),
+):
+    """Run the Finances API smoke test against a stored SP-API connection.
+
+    Sequence:
+    1. Refresh access token from stored refresh token
+    2. Call Finances API v0 listFinancialEventGroups
+    3. Pick the first group with a FinancialEventGroupId
+    4. Call Finances API v2024-06-19 listTransactions for that group
+    5. Return raw results for inspection
+    """
+    del user
+    db = _get_supabase()
+    connection = get_spapi_connection(db, request.client_id)
+    if not connection:
+        raise HTTPException(
+            status_code=404,
+            detail="No Amazon Seller API connection found for this client",
+        )
+
+    refresh_token = str(connection.get("refresh_token") or "").strip()
+    if not refresh_token:
+        raise HTTPException(
+            status_code=400,
+            detail="Stored SP-API connection has no refresh token",
+        )
+
+    # Step 1: refresh access token
+    try:
+        access_token = await refresh_spapi_access_token(refresh_token)
+    except WBRValidationError as exc:
+        return {
+            "ok": False,
+            "step": "token_refresh",
+            "error": str(exc),
+        }
+
+    # Step 2: listFinancialEventGroups
+    try:
+        groups = await list_financial_event_groups(
+            access_token, max_results=request.max_groups
+        )
+    except WBRValidationError as exc:
+        return {
+            "ok": False,
+            "step": "list_financial_event_groups",
+            "error": str(exc),
+        }
+
+    if not groups:
+        return {
+            "ok": True,
+            "step": "list_financial_event_groups",
+            "note": "No financial event groups returned",
+            "groups": [],
+            "transactions": [],
+        }
+
+    # Summarize groups for the response
+    group_summaries = []
+    for g in groups:
+        group_summaries.append(
+            {
+                "FinancialEventGroupId": g.get("FinancialEventGroupId"),
+                "ProcessingStatus": g.get("ProcessingStatus"),
+                "FundTransferStatus": g.get("FundTransferStatus"),
+                "OriginalTotal": g.get("OriginalTotal"),
+                "ConvertedTotal": g.get("ConvertedTotal"),
+                "FundTransferDate": g.get("FundTransferDate"),
+                "TraceId": g.get("TraceId"),
+                "AccountTail": g.get("AccountTail"),
+                "BeginningBalance": g.get("BeginningBalance"),
+                "FinancialEventGroupStart": g.get("FinancialEventGroupStart"),
+                "FinancialEventGroupEnd": g.get("FinancialEventGroupEnd"),
+            }
+        )
+
+    # Step 3: pick the first group that has an ID
+    target_group_id = None
+    for g in groups:
+        gid = g.get("FinancialEventGroupId")
+        if gid:
+            target_group_id = str(gid)
+            break
+
+    if not target_group_id:
+        return {
+            "ok": True,
+            "step": "list_financial_event_groups",
+            "note": "Groups returned but none have a FinancialEventGroupId",
+            "groups": group_summaries,
+            "transactions": [],
+        }
+
+    # Step 4: listTransactions for the selected group
+    try:
+        transactions = await list_transactions(
+            access_token,
+            financial_event_group_id=target_group_id,
+            max_results=request.max_transactions,
+        )
+    except WBRValidationError as exc:
+        return {
+            "ok": False,
+            "step": "list_transactions",
+            "target_group_id": target_group_id,
+            "error": str(exc),
+            "groups": group_summaries,
+        }
+
+    # Summarize transactions
+    transaction_summaries = []
+    for t in transactions:
+        transaction_summaries.append(
+            {
+                "transactionId": t.get("transactionId"),
+                "transactionType": t.get("transactionType"),
+                "transactionStatus": t.get("transactionStatus"),
+                "totalAmount": t.get("totalAmount"),
+                "description": t.get("description"),
+                "relatedIdentifiers": t.get("relatedIdentifiers"),
+                "postingDate": t.get("postingDate"),
+                "marketplaceDetails": t.get("marketplaceDetails"),
+            }
+        )
+
+    return {
+        "ok": True,
+        "target_group_id": target_group_id,
+        "group_count": len(groups),
+        "groups": group_summaries,
+        "transaction_count": len(transactions),
+        "transactions": transaction_summaries,
     }

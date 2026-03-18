@@ -250,6 +250,38 @@ export const validateSpApiConnection = async (
   return (await response.json()) as SpApiValidateResult;
 };
 
+export type SpApiFinanceSmokeResult = {
+  ok: boolean;
+  step?: string;
+  error?: string;
+  note?: string;
+  target_group_id?: string;
+  group_count?: number;
+  groups?: Record<string, unknown>[];
+  transaction_count?: number;
+  transactions?: Record<string, unknown>[];
+};
+
+export const runSpApiFinanceSmokeTest = async (
+  token: string,
+  clientId: string,
+): Promise<SpApiFinanceSmokeResult> => {
+  const response = await fetch(
+    `${getBackendUrl()}/admin/reports/api-access/amazon-spapi/finance-smoke-test`,
+    {
+      method: "POST",
+      cache: "no-store",
+      headers: authJsonHeaders(token),
+      body: JSON.stringify({ client_id: clientId }),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(await parseErrorDetail(response));
+  }
+
+  return (await response.json()) as SpApiFinanceSmokeResult;
+};
+
 // ---------------------------------------------------------------------------
 // Amazon Ads
 // ---------------------------------------------------------------------------
