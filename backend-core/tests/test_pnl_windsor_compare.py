@@ -301,6 +301,90 @@ class TestWindsorSettlementCompareService:
         assert result["windsor"]["marketplace_totals"] == [
             {"marketplace_name": "Amazon.com", "row_count": 1, "amount": "100.00"}
         ]
+        assert result["scope_diagnostics"]["excluded_row_count"] == 2
+        assert result["scope_diagnostics"]["blank_marketplace_row_count"] == 0
+        assert result["scope_diagnostics"]["excluded_bucket_totals"] == [
+            {"bucket": "product_sales", "amount": "75.00"}
+        ]
+
+    @pytest.mark.asyncio
+    async def test_compare_month_reports_blank_marketplace_rows_excluded_by_scope(self):
+        db = _db_with_tables(
+            monthly_pnl_profiles=_chain_table(
+                [{"id": "p1", "client_id": "c1", "marketplace_code": "US", "currency_code": "USD"}]
+            ),
+            wbr_profiles=_chain_table([{"id": "w1", "windsor_account_id": "acct-us"}]),
+            monthly_pnl_import_months=_chain_table(
+                [{"id": "im1", "import_id": "imp1", "entry_month": "2026-02-01"}]
+            ),
+            monthly_pnl_imports=_chain_table([{"id": "imp1"}]),
+            monthly_pnl_import_month_bucket_totals=_chain_table(
+                [
+                    {"import_month_id": "im1", "ledger_bucket": "advertising", "amount": "-25.00"},
+                    {"import_month_id": "im1", "ledger_bucket": "fba_monthly_storage_fees", "amount": "-7.00"},
+                ]
+            ),
+        )
+        svc = WindsorSettlementCompareService(db)
+        svc._fetch_rows = AsyncMock(
+            return_value=[
+                {
+                    FIELD_TRANSACTION_TYPE: "ServiceFee",
+                    FIELD_AMOUNT_TYPE: "Cost of Advertising",
+                    FIELD_AMOUNT_DESCRIPTION: "TransactionTotalAmount",
+                    FIELD_AMOUNT: "-25.00",
+                    FIELD_MARKETPLACE_NAME: "",
+                },
+                {
+                    FIELD_TRANSACTION_TYPE: "other-transaction",
+                    FIELD_AMOUNT_TYPE: "other-transaction",
+                    FIELD_AMOUNT_DESCRIPTION: "Storage Fee",
+                    FIELD_AMOUNT: "-7.00",
+                    FIELD_MARKETPLACE_NAME: "",
+                },
+                {
+                    FIELD_TRANSACTION_TYPE: "Order",
+                    FIELD_AMOUNT_TYPE: "ItemPrice",
+                    FIELD_AMOUNT_DESCRIPTION: "Principal",
+                    FIELD_AMOUNT: "100.00",
+                    FIELD_MARKETPLACE_NAME: "Amazon.com",
+                },
+            ]
+        )
+
+        result = await svc.compare_month("p1", "2026-02-01", "amazon_com_only")
+
+        assert result["windsor"]["row_count"] == 1
+        assert result["scope_diagnostics"]["excluded_row_count"] == 2
+        assert result["scope_diagnostics"]["excluded_amount"] == "-32.00"
+        assert result["scope_diagnostics"]["blank_marketplace_row_count"] == 2
+        assert result["scope_diagnostics"]["blank_marketplace_amount"] == "-32.00"
+        assert result["scope_diagnostics"]["excluded_bucket_totals"] == [
+            {"bucket": "advertising", "amount": "-25.00"},
+            {"bucket": "fba_monthly_storage_fees", "amount": "-7.00"},
+        ]
+        assert result["scope_diagnostics"]["top_blank_marketplace_combos"] == [
+            {
+                "transaction_type": "ServiceFee",
+                "amount_type": "Cost of Advertising",
+                "amount_description": "TransactionTotalAmount",
+                "classification": "mapped",
+                "bucket": "advertising",
+                "reason": None,
+                "row_count": 1,
+                "amount": "-25.00",
+            },
+            {
+                "transaction_type": "other-transaction",
+                "amount_type": "other-transaction",
+                "amount_description": "Storage Fee",
+                "classification": "mapped",
+                "bucket": "fba_monthly_storage_fees",
+                "reason": None,
+                "row_count": 1,
+                "amount": "-7.00",
+            },
+        ]
 
     def test_compare_month_requires_active_csv_month(self):
         db = _db_with_tables(

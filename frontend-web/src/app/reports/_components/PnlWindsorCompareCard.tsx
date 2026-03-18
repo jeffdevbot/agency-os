@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type {
+  PnlWindsorBucketAmount,
   PnlWindsorBucketDelta,
   PnlWindsorComboSummary,
   PnlWindsorCompare,
@@ -89,6 +90,29 @@ function renderBucketRows(bucketDeltas: PnlWindsorBucketDelta[]) {
   );
 }
 
+function renderBucketAmountRows(rows: PnlWindsorBucketAmount[]) {
+  return (
+    <div className="overflow-x-auto rounded-2xl border border-[#dbe4f0]">
+      <table className="min-w-full divide-y divide-[#dbe4f0] text-sm">
+        <thead className="bg-[#f8fafc] text-left text-xs uppercase tracking-[0.14em] text-[#64748b]">
+          <tr>
+            <th className="px-4 py-3 font-semibold">Bucket</th>
+            <th className="px-4 py-3 font-semibold">Amount</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-[#e2e8f0] bg-white text-[#0f172a]">
+          {rows.map((row) => (
+            <tr key={row.bucket}>
+              <td className="px-4 py-3 font-medium">{row.bucket}</td>
+              <td className="px-4 py-3 font-semibold">{formatAmount(row.amount)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export default function PnlWindsorCompareCard({
   entryMonth,
   marketplaceScope,
@@ -112,6 +136,7 @@ export default function PnlWindsorCompareCard({
     () => comparison?.windsor.mapped_bucket_drilldowns ?? [],
     [comparison],
   );
+  const scopeDiagnostics = comparison?.scope_diagnostics ?? null;
   const drilldownBuckets = useMemo(
     () => Array.from(new Set(bucketDeltas.map((row) => row.bucket))),
     [bucketDeltas],
@@ -241,6 +266,25 @@ export default function PnlWindsorCompareCard({
             </div>
           </div>
 
+          {scopeDiagnostics && scopeDiagnostics.marketplace_scope !== "all" && scopeDiagnostics.excluded_row_count > 0 ? (
+            <div className="rounded-2xl border border-[#f59e0b]/30 bg-[#fff7ed] p-4">
+              <h3 className="text-base font-semibold text-[#9a3412]">Scope diagnostics</h3>
+              <p className="mt-1 text-sm text-[#9a3412]">
+                {scopeDiagnostics.excluded_row_count.toLocaleString("en-US")} Windsor rows
+                {" · "}
+                {formatAmount(scopeDiagnostics.excluded_amount)}
+                {" "}
+                were excluded by the current marketplace scope.
+              </p>
+              <p className="mt-1 text-sm text-[#9a3412]">
+                {scopeDiagnostics.blank_marketplace_row_count.toLocaleString("en-US")} of those rows
+                have a blank marketplace label
+                {" · "}
+                {formatAmount(scopeDiagnostics.blank_marketplace_amount)}
+              </p>
+            </div>
+          ) : null}
+
           {comparison.csv_baseline.active_imports.length > 0 ? (
             <div className="grid gap-3 lg:grid-cols-2">
               {comparison.csv_baseline.active_imports.map((activeImport) => (
@@ -282,6 +326,55 @@ export default function PnlWindsorCompareCard({
             </div>
             {renderBucketRows(topDeltas.length > 0 ? topDeltas : bucketDeltas)}
           </div>
+
+          {scopeDiagnostics && scopeDiagnostics.marketplace_scope !== "all" && scopeDiagnostics.excluded_row_count > 0 ? (
+            <div className="grid gap-5 xl:grid-cols-2">
+              <div>
+                <h3 className="text-base font-semibold text-[#0f172a]">Excluded by scope</h3>
+                <p className="mt-1 text-sm text-[#64748b]">
+                  Mapped Windsor buckets that were dropped by the current marketplace filter.
+                </p>
+                <div className="mt-3">
+                  {scopeDiagnostics.excluded_bucket_totals.length > 0 ? (
+                    renderBucketAmountRows(scopeDiagnostics.excluded_bucket_totals.slice(0, 12))
+                  ) : (
+                    <div className="rounded-2xl border border-[#dbe4f0] bg-[#f8fafc] px-4 py-4 text-sm text-[#64748b]">
+                      No mapped Windsor buckets were excluded by this scope.
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <h3 className="text-base font-semibold text-[#0f172a]">Blank marketplace combos</h3>
+                <p className="mt-1 text-sm text-[#64748b]">
+                  These rows have no Windsor marketplace label, so scoped compares drop them.
+                </p>
+                {scopeDiagnostics.top_blank_marketplace_combos.length > 0 ? (
+                  <div className="mt-3 space-y-2">
+                    {scopeDiagnostics.top_blank_marketplace_combos.slice(0, 8).map((combo) => (
+                      <div
+                        key={`blank-${combo.transaction_type}-${combo.amount_type}-${combo.amount_description}`}
+                        className="rounded-2xl border border-[#dbe4f0] bg-[#f8fafc] px-4 py-3 text-sm"
+                      >
+                        <p className="font-medium text-[#0f172a]">{renderComboLabel(combo)}</p>
+                        <p className="mt-1 text-[#64748b]">
+                          {combo.row_count.toLocaleString("en-US")} rows
+                          {" · "}
+                          {formatAmount(combo.amount)}
+                          {combo.bucket ? ` · ${formatBucketLabel(combo.bucket)}` : ""}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mt-3 rounded-2xl border border-[#dbe4f0] bg-[#f8fafc] px-4 py-4 text-sm text-[#64748b]">
+                    No blank-marketplace Windsor combos were found.
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : null}
 
           <div className="grid gap-5 xl:grid-cols-2">
             <div>

@@ -129,6 +129,11 @@ export type PnlWindsorBucketDelta = {
   delta_amount: string;
 };
 
+export type PnlWindsorBucketAmount = {
+  bucket: string;
+  amount: string;
+};
+
 export type PnlWindsorMarketplaceTotal = {
   marketplace_name: string;
   row_count: number;
@@ -173,6 +178,20 @@ export type PnlWindsorCompare = {
     }>;
     top_unmapped_combos: PnlWindsorComboSummary[];
     top_ignored_combos: PnlWindsorComboSummary[];
+  };
+  scope_diagnostics: {
+    marketplace_scope: "all" | "amazon_com_only" | "amazon_com_and_ca";
+    total_row_count: number;
+    included_row_count: number;
+    excluded_row_count: number;
+    excluded_amount: string;
+    blank_marketplace_row_count: number;
+    blank_marketplace_amount: string;
+    excluded_marketplace_totals: PnlWindsorMarketplaceTotal[];
+    excluded_bucket_totals: PnlWindsorBucketAmount[];
+    top_excluded_combos: PnlWindsorComboSummary[];
+    blank_marketplace_bucket_totals: PnlWindsorBucketAmount[];
+    top_blank_marketplace_combos: PnlWindsorComboSummary[];
   };
   comparison: {
     bucket_deltas: PnlWindsorBucketDelta[];
@@ -437,6 +456,20 @@ export async function getPnlWindsorCompare(
       mapped_bucket_drilldowns: (data?.windsor?.mapped_bucket_drilldowns ?? []) as PnlWindsorCompare["windsor"]["mapped_bucket_drilldowns"],
       top_unmapped_combos: (data?.windsor?.top_unmapped_combos ?? []) as PnlWindsorComboSummary[],
       top_ignored_combos: (data?.windsor?.top_ignored_combos ?? []) as PnlWindsorComboSummary[],
+    },
+    scope_diagnostics: {
+      marketplace_scope: (data?.scope_diagnostics?.marketplace_scope ?? "all") as PnlWindsorCompare["scope_diagnostics"]["marketplace_scope"],
+      total_row_count: Number(data?.scope_diagnostics?.total_row_count ?? 0),
+      included_row_count: Number(data?.scope_diagnostics?.included_row_count ?? 0),
+      excluded_row_count: Number(data?.scope_diagnostics?.excluded_row_count ?? 0),
+      excluded_amount: String(data?.scope_diagnostics?.excluded_amount ?? "0.00"),
+      blank_marketplace_row_count: Number(data?.scope_diagnostics?.blank_marketplace_row_count ?? 0),
+      blank_marketplace_amount: String(data?.scope_diagnostics?.blank_marketplace_amount ?? "0.00"),
+      excluded_marketplace_totals: (data?.scope_diagnostics?.excluded_marketplace_totals ?? []) as PnlWindsorMarketplaceTotal[],
+      excluded_bucket_totals: (data?.scope_diagnostics?.excluded_bucket_totals ?? []) as PnlWindsorBucketAmount[],
+      top_excluded_combos: (data?.scope_diagnostics?.top_excluded_combos ?? []) as PnlWindsorComboSummary[],
+      blank_marketplace_bucket_totals: (data?.scope_diagnostics?.blank_marketplace_bucket_totals ?? []) as PnlWindsorBucketAmount[],
+      top_blank_marketplace_combos: (data?.scope_diagnostics?.top_blank_marketplace_combos ?? []) as PnlWindsorComboSummary[],
     },
     comparison: {
       bucket_deltas: (data?.comparison?.bucket_deltas ?? []) as PnlWindsorBucketDelta[],

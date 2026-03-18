@@ -93,6 +93,17 @@ def _bucket_sort_key(bucket: str) -> tuple[int, str]:
     return (0 if bucket != "unmapped" else 1, bucket)
 
 
+def _row_matches_marketplace_scope(row: dict[str, Any], marketplace_scope: str) -> bool:
+    if marketplace_scope == "all":
+        return True
+
+    allowed_marketplaces = {"amazon.com"}
+    if marketplace_scope == "amazon_com_and_ca":
+        allowed_marketplaces.add("amazon.ca")
+
+    return _normalize_key(row.get(FIELD_MARKETPLACE_NAME)) in allowed_marketplaces
+
+
 def _classify_windsor_row(row: dict[str, Any], amount: Decimal) -> WindsorMappingResult:
     transaction_type = _normalize_key(row.get(FIELD_TRANSACTION_TYPE))
     amount_type = _normalize_key(row.get(FIELD_AMOUNT_TYPE))
@@ -205,7 +216,10 @@ class WindsorSettlementCompareService:
             date_from=date_from,
             date_to=date_to,
         )
-        windsor_rows = self._filter_rows_by_marketplace_scope(all_windsor_rows, resolved_marketplace_scope)
+        windsor_rows, excluded_rows = self._split_rows_by_marketplace_scope(
+            all_windsor_rows,
+            resolved_marketplace_scope,
+        )
         windsor_analysis = self._analyze_rows(windsor_rows)
 
         return {
@@ -222,6 +236,12 @@ class WindsorSettlementCompareService:
             "windsor_account_id": windsor_account_id,
             "csv_baseline": csv_baseline,
             "windsor": windsor_analysis,
+            "scope_diagnostics": self._build_scope_diagnostics(
+                all_rows=all_windsor_rows,
+                included_rows=windsor_rows,
+                excluded_rows=excluded_rows,
+                marketplace_scope=resolved_marketplace_scope,
+            ),
             "comparison": {
                 "bucket_deltas": self._build_bucket_deltas(
                     csv_baseline["bucket_totals"],
@@ -262,23 +282,22 @@ class WindsorSettlementCompareService:
             )
         return scope
 
-    def _filter_rows_by_marketplace_scope(
+    def _split_rows_by_marketplace_scope(
         self,
         rows: list[dict[str, Any]],
         marketplace_scope: str,
-    ) -> list[dict[str, Any]]:
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         if marketplace_scope == "all":
-            return rows
+            return rows, []
 
-        allowed_marketplaces = {"amazon.com"}
-        if marketplace_scope == "amazon_com_and_ca":
-            allowed_marketplaces.add("amazon.ca")
-
-        return [
-            row
-            for row in rows
-            if _normalize_key(row.get(FIELD_MARKETPLACE_NAME)) in allowed_marketplaces
-        ]
+        included_rows: list[dict[str, Any]] = []
+        excluded_rows: list[dict[str, Any]] = []
+        for row in rows:
+            if _row_matches_marketplace_scope(row, marketplace_scope):
+                included_rows.append(row)
+            else:
+                excluded_rows.append(row)
+        return included_rows, excluded_rows
 
     def _resolve_windsor_account_id(self, profile: dict[str, Any]) -> str:
         client_id = str(profile.get("client_id") or "").strip()
@@ -592,11 +611,97 @@ class WindsorSettlementCompareService:
         deltas.sort(key=lambda row: abs(_parse_decimal(row["delta_amount"])), reverse=True)
         return deltas
 
+    def _build_scope_diagnostics(
+        self,
+        *,
+        all_rows: list[dict[str, Any]],
+        included_rows: list[dict[str, Any]],
+        excluded_rows: list[dict[str, Any]],
+        marketplace_scope: str,
+    ) -> dict[str, Any]:
+        excluded_amount = sum((_parse_decimal(row.get(FIELD_AMOUNT)) for row in excluded_rows), Decimal("0"))
+        blank_marketplace_rows = [
+            row for row in excluded_rows if not _normalize(row.get(FIELD_MARKETPLACE_NAME))
+        ]
+        blank_marketplace_amount = sum(
+            (_parse_decimal(row.get(FIELD_AMOUNT)) for row in blank_marketplace_rows),
+            Decimal("0"),
+        )
+        excluded_analysis = self._analyze_rows(excluded_rows)
+        blank_marketplace_analysis = self._analyze_rows(blank_marketplace_rows)
+
+        return {
+            "marketplace_scope": marketplace_scope,
+            "total_row_count": len(all_rows),
+            "included_row_count": len(included_rows),
+            "excluded_row_count": len(excluded_rows),
+            "excluded_amount": self._format_amount(excluded_amount),
+            "blank_marketplace_row_count": len(blank_marketplace_rows),
+            "blank_marketplace_amount": self._format_amount(blank_marketplace_amount),
+            "excluded_marketplace_totals": excluded_analysis["marketplace_totals"],
+            "excluded_bucket_totals": self._serialize_bucket_total_rows(excluded_analysis["bucket_totals"]),
+            "top_excluded_combos": self._top_combo_summaries(excluded_rows),
+            "blank_marketplace_bucket_totals": self._serialize_bucket_total_rows(
+                blank_marketplace_analysis["bucket_totals"]
+            ),
+            "top_blank_marketplace_combos": self._top_combo_summaries(blank_marketplace_rows),
+        }
+
     def _serialize_bucket_totals(self, totals: dict[str, Decimal]) -> dict[str, str]:
         return {
             bucket: self._format_amount(totals[bucket])
             for bucket in sorted(totals, key=_bucket_sort_key)
         }
+
+    def _serialize_bucket_total_rows(self, totals: dict[str, str]) -> list[dict[str, Any]]:
+        rows = [
+            {"bucket": bucket, "amount": amount}
+            for bucket, amount in totals.items()
+            if _parse_decimal(amount) != 0
+        ]
+        rows.sort(key=lambda row: abs(_parse_decimal(row["amount"])), reverse=True)
+        return rows
+
+    def _top_combo_summaries(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        limit: int = 12,
+    ) -> list[dict[str, Any]]:
+        combo_totals: dict[tuple[str, str, str], dict[str, Any]] = {}
+
+        for row in rows:
+            amount = _parse_decimal(row.get(FIELD_AMOUNT))
+            mapping = _classify_windsor_row(row, amount)
+            combo_key = (
+                _normalize(row.get(FIELD_TRANSACTION_TYPE)),
+                _normalize(row.get(FIELD_AMOUNT_TYPE)),
+                _normalize(row.get(FIELD_AMOUNT_DESCRIPTION)),
+            )
+            summary = combo_totals.setdefault(
+                combo_key,
+                {
+                    "transaction_type": combo_key[0],
+                    "amount_type": combo_key[1],
+                    "amount_description": combo_key[2],
+                    "classification": mapping.classification,
+                    "bucket": mapping.bucket,
+                    "reason": mapping.reason,
+                    "row_count": 0,
+                    "amount": Decimal("0"),
+                },
+            )
+            summary["row_count"] += 1
+            summary["amount"] += amount
+
+        return [
+            self._serialize_combo(summary)
+            for summary in sorted(
+                combo_totals.values(),
+                key=lambda summary: (abs(summary["amount"]), summary["row_count"]),
+                reverse=True,
+            )[:limit]
+        ]
 
     def _serialize_combo(self, summary: dict[str, Any]) -> dict[str, Any]:
         return {
