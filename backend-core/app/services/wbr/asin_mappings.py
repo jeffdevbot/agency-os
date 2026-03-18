@@ -42,6 +42,7 @@ CSV_IMPORT_COLUMN_ALIASES = {
 }
 
 _BATCH_SIZE = 500
+_PAGE_SIZE = 1000
 _EXCLUDE_STATUSES = {"exclude", "excluded", "ignore", "ignored", "out_of_scope", "out of scope"}
 _TRUE_VALUES = {"1", "true", "yes", "y", "exclude", "excluded", "ignore", "ignored"}
 
@@ -75,50 +76,49 @@ class AsinMappingService:
     def list_child_asins(self, profile_id: str) -> list[dict[str, Any]]:
         self._get_profile(profile_id)
 
-        child_response = (
-            self.db.table("wbr_profile_child_asins")
-            .select("*")
-            .eq("profile_id", profile_id)
-            .eq("active", True)
-            .execute()
+        child_rows = self._select_all(
+            "wbr_profile_child_asins",
+            "*",
+            [
+                ("eq", "profile_id", profile_id),
+                ("eq", "active", True),
+            ],
         )
-        child_rows = child_response.data if isinstance(child_response.data, list) else []
-
-        mapping_response = (
-            self.db.table("wbr_asin_row_map")
-            .select("child_asin,row_id")
-            .eq("profile_id", profile_id)
-            .eq("active", True)
-            .execute()
+        mappings = self._select_all(
+            "wbr_asin_row_map",
+            "child_asin,row_id",
+            [
+                ("eq", "profile_id", profile_id),
+                ("eq", "active", True),
+            ],
         )
-        mappings = mapping_response.data if isinstance(mapping_response.data, list) else []
         mapping_by_asin = {
             str(row["child_asin"]): str(row["row_id"])
             for row in mappings
             if isinstance(row, dict) and row.get("child_asin") and row.get("row_id")
         }
 
-        row_response = (
-            self.db.table("wbr_rows")
-            .select("id,row_label,active")
-            .eq("profile_id", profile_id)
-            .eq("row_kind", "leaf")
-            .execute()
+        leaf_rows = self._select_all(
+            "wbr_rows",
+            "id,row_label,active",
+            [
+                ("eq", "profile_id", profile_id),
+                ("eq", "row_kind", "leaf"),
+            ],
         )
-        leaf_rows = row_response.data if isinstance(row_response.data, list) else []
         row_by_id = {
             str(row["id"]): row
             for row in leaf_rows
             if isinstance(row, dict) and row.get("id")
         }
-        exclusion_response = (
-            self.db.table("wbr_asin_exclusions")
-            .select("child_asin,exclusion_reason")
-            .eq("profile_id", profile_id)
-            .eq("active", True)
-            .execute()
+        exclusions = self._select_all(
+            "wbr_asin_exclusions",
+            "child_asin,exclusion_reason",
+            [
+                ("eq", "profile_id", profile_id),
+                ("eq", "active", True),
+            ],
         )
-        exclusions = exclusion_response.data if isinstance(exclusion_response.data, list) else []
         exclusion_by_asin = {
             str(row["child_asin"]).strip().upper(): row
             for row in exclusions
@@ -482,24 +482,24 @@ class AsinMappingService:
             raise WBRValidationError("ASIN mapping import supports .csv files only")
 
     def _list_leaf_rows(self, profile_id: str) -> list[dict[str, Any]]:
-        response = (
-            self.db.table("wbr_rows")
-            .select("*")
-            .eq("profile_id", profile_id)
-            .eq("row_kind", "leaf")
-            .execute()
+        return self._select_all(
+            "wbr_rows",
+            "*",
+            [
+                ("eq", "profile_id", profile_id),
+                ("eq", "row_kind", "leaf"),
+            ],
         )
-        return response.data if isinstance(response.data, list) else []
 
     def _list_active_child_asins(self, profile_id: str) -> set[str]:
-        response = (
-            self.db.table("wbr_profile_child_asins")
-            .select("child_asin")
-            .eq("profile_id", profile_id)
-            .eq("active", True)
-            .execute()
+        rows = self._select_all(
+            "wbr_profile_child_asins",
+            "child_asin",
+            [
+                ("eq", "profile_id", profile_id),
+                ("eq", "active", True),
+            ],
         )
-        rows = response.data if isinstance(response.data, list) else []
         return {
             str(row["child_asin"]).strip().upper()
             for row in rows
@@ -507,14 +507,14 @@ class AsinMappingService:
         }
 
     def _list_active_mapping_by_asin(self, profile_id: str) -> dict[str, dict[str, Any]]:
-        response = (
-            self.db.table("wbr_asin_row_map")
-            .select("id,child_asin,row_id")
-            .eq("profile_id", profile_id)
-            .eq("active", True)
-            .execute()
+        rows = self._select_all(
+            "wbr_asin_row_map",
+            "id,child_asin,row_id",
+            [
+                ("eq", "profile_id", profile_id),
+                ("eq", "active", True),
+            ],
         )
-        rows = response.data if isinstance(response.data, list) else []
         return {
             str(row["child_asin"]).strip().upper(): row
             for row in rows
@@ -522,14 +522,14 @@ class AsinMappingService:
         }
 
     def _list_active_exclusions_by_asin(self, profile_id: str) -> dict[str, dict[str, Any]]:
-        response = (
-            self.db.table("wbr_asin_exclusions")
-            .select("id,child_asin")
-            .eq("profile_id", profile_id)
-            .eq("active", True)
-            .execute()
+        rows = self._select_all(
+            "wbr_asin_exclusions",
+            "id,child_asin",
+            [
+                ("eq", "profile_id", profile_id),
+                ("eq", "active", True),
+            ],
         )
-        rows = response.data if isinstance(response.data, list) else []
         return {
             str(row["child_asin"]).strip().upper(): row
             for row in rows
@@ -649,3 +649,29 @@ class AsinMappingService:
             rows = response.data if isinstance(response.data, list) else []
             if len(rows) != len(chunk):
                 raise WBRValidationError("Failed to save ASIN exclusions")
+
+    def _select_all(
+        self,
+        table_name: str,
+        columns: str,
+        filters: list[tuple[str, str, Any]],
+        *,
+        page_size: int = _PAGE_SIZE,
+    ) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        offset = 0
+
+        while True:
+            query = self.db.table(table_name).select(columns)
+            for op, field, value in filters:
+                query = getattr(query, op)(field, value)
+
+            response = query.range(offset, offset + page_size - 1).execute()
+            batch = response.data if isinstance(response.data, list) else []
+            rows.extend(batch)
+
+            if len(batch) < page_size:
+                break
+            offset += page_size
+
+        return rows
