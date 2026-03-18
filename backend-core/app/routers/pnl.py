@@ -19,6 +19,7 @@ from ..services.pnl.profiles import (
 from ..services.pnl.report import PNLReportService
 from ..services.pnl.transaction_import import TransactionImportService
 from ..services.pnl.workbook import PNLWorkbookExportService
+from ..services.pnl.windsor_compare import WindsorSettlementCompareService
 
 router = APIRouter(prefix="/admin/pnl", tags=["pnl-admin"])
 
@@ -39,6 +40,10 @@ def _get_report_service() -> PNLReportService:
 
 def _get_workbook_export_service() -> PNLWorkbookExportService:
     return PNLWorkbookExportService(_get_supabase_admin_client())
+
+
+def _get_windsor_compare_service() -> WindsorSettlementCompareService:
+    return WindsorSettlementCompareService(_get_supabase_admin_client())
 
 
 # ── Request / response models ────────────────────────────────────────
@@ -342,6 +347,24 @@ async def get_pnl_report(
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception:
         raise HTTPException(status_code=500, detail="Failed to build P&L report")
+
+
+@router.get("/profiles/{profile_id}/windsor-compare")
+async def get_windsor_month_compare(
+    profile_id: str,
+    entry_month: str = Query(..., pattern=r"^\d{4}-\d{2}-01$"),
+    user=Depends(require_admin_user),
+):
+    svc = _get_windsor_compare_service()
+    try:
+        comparison = await svc.compare_month(profile_id, entry_month)
+        return {"ok": True, **comparison}
+    except PNLNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except PNLValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to compare Windsor settlement data")
 
 
 @router.get("/profiles/{profile_id}/export.xlsx")

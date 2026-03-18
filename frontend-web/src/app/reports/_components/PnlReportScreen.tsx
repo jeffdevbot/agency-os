@@ -21,6 +21,7 @@ import {
 import { buildPnlImportProgressLines } from "../pnl/_lib/pnlImportProgress";
 import { usePnlOtherExpenses } from "../pnl/_lib/usePnlOtherExpenses";
 import { usePnlSkuCogs } from "../pnl/_lib/usePnlSkuCogs";
+import { usePnlWindsorCompare } from "../pnl/_lib/usePnlWindsorCompare";
 import { defaultPnlCurrencyCode } from "../pnl/_lib/pnlProfileDefaults";
 import type { PnlDisplayMode } from "../pnl/_lib/pnlPresentation";
 import { usePnlWorkbookExport } from "../pnl/_lib/usePnlWorkbookExport";
@@ -32,6 +33,7 @@ import PnlReportHeader from "./PnlReportHeader";
 import PnlReportTable from "./PnlReportTable";
 import PnlUploadCard from "./PnlUploadCard";
 import PnlWarningBanner from "./PnlWarningBanner";
+import PnlWindsorCompareCard from "./PnlWindsorCompareCard";
 
 type Props = {
   clientSlug: string;
@@ -59,6 +61,7 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
   const [processingImport, setProcessingImport] = useState<PnlImport | null>(null);
   const [processingImportStatus, setProcessingImportStatus] = useState<string | null>(null);
   const [processingImportLabel, setProcessingImportLabel] = useState<string | null>(null);
+  const [windsorCompareMonth, setWindsorCompareMonth] = useState<string>(defaultRangeEnd);
 
   const profileId = resolved.resolved?.profile?.id ?? null;
   const reportState = usePnlReport(
@@ -83,6 +86,7 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
   const cogsStartMonth = months[0] ?? null;
   const cogsEndMonth = months.length > 0 ? months[months.length - 1] : null;
   const cogsState = usePnlSkuCogs(profileId, showSettings);
+  const windsorCompareState = usePnlWindsorCompare(profileId);
   const otherExpensesState = usePnlOtherExpenses(
     profileId,
     cogsStartMonth,
@@ -97,6 +101,18 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
   useEffect(() => {
     setUploadError(null);
   }, [filterMode, rangeEnd, rangeStart]);
+
+  useEffect(() => {
+    if (months.length > 0 && windsorCompareState.loadedMonth === null) {
+      setWindsorCompareMonth(months[months.length - 1] || defaultRangeEnd);
+    }
+  }, [defaultRangeEnd, months, windsorCompareState.loadedMonth]);
+
+  useEffect(() => {
+    if (!showSettings) {
+      windsorCompareState.resetComparison();
+    }
+  }, [showSettings, windsorCompareState.resetComparison]);
 
   useEffect(() => {
     if (!profileId || !processingImportId) {
@@ -296,6 +312,15 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
     });
   };
 
+  const handleRunWindsorCompare = async () => {
+    if (!profileId || !windsorCompareMonth) return;
+    try {
+      await windsorCompareState.loadComparison(windsorCompareMonth);
+    } catch {
+      // Error state is already surfaced by the Windsor compare hook.
+    }
+  };
+
   if (resolved.loading || (profileId !== null && reportState.loading)) {
     return (
       <main className="space-y-3">
@@ -388,6 +413,14 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
           </div>
 
           <div className="mt-5 space-y-3">
+            <PnlWindsorCompareCard
+              entryMonth={windsorCompareMonth}
+              comparison={windsorCompareState.comparison}
+              loading={windsorCompareState.loading}
+              errorMessage={windsorCompareState.errorMessage}
+              onEntryMonthChange={setWindsorCompareMonth}
+              onRunCompare={() => void handleRunWindsorCompare()}
+            />
             <PnlUploadCard
               selectedFileName={selectedFile?.name ?? null}
               uploadPending={uploadPending}

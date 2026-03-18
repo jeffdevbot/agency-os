@@ -5,7 +5,7 @@ from __future__ import annotations
 from io import BytesIO
 from pathlib import Path
 import tempfile
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi.testclient import TestClient
 
@@ -388,3 +388,78 @@ class TestTransactionUpload:
             app.dependency_overrides.pop(pnl.require_admin_user, None)
 
         assert resp.status_code == 404
+
+
+class TestWindsorCompare:
+    def test_get_windsor_compare(self, monkeypatch):
+        fake_svc = MagicMock()
+        fake_svc.compare_month = AsyncMock(
+            return_value={
+                "profile": {"id": "p1", "marketplace_code": "US"},
+                "entry_month": "2026-02-01",
+                "date_from": "2026-02-01",
+                "date_to": "2026-02-28",
+                "windsor_account_id": "acct-us",
+                "csv_baseline": {"active_imports": [], "bucket_totals": {"product_sales": "100.00"}},
+                "windsor": {
+                    "row_count": 1,
+                    "mapped_row_count": 1,
+                    "ignored_row_count": 0,
+                    "unmapped_row_count": 0,
+                    "ignored_amount": "0.00",
+                    "unmapped_amount": "0.00",
+                    "bucket_totals": {"product_sales": "100.00"},
+                    "marketplace_totals": [],
+                    "top_unmapped_combos": [],
+                    "top_ignored_combos": [],
+                },
+                "comparison": {
+                    "bucket_deltas": [
+                        {
+                            "bucket": "product_sales",
+                            "csv_amount": "100.00",
+                            "windsor_amount": "100.00",
+                            "delta_amount": "0.00",
+                        }
+                    ]
+                },
+            }
+        )
+        monkeypatch.setattr(pnl, "_get_windsor_compare_service", lambda: fake_svc)
+        app.dependency_overrides[pnl.require_admin_user] = _override_admin
+
+        try:
+            with TestClient(app) as client:
+                resp = client.get(
+                    "/admin/pnl/profiles/p1/windsor-compare",
+                    params={"entry_month": "2026-02-01"},
+                )
+        finally:
+            app.dependency_overrides.pop(pnl.require_admin_user, None)
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is True
+        assert data["windsor_account_id"] == "acct-us"
+        assert data["comparison"]["bucket_deltas"][0]["bucket"] == "product_sales"
+        fake_svc.compare_month.assert_awaited_once_with("p1", "2026-02-01")
+
+    def test_get_windsor_compare_validation_error_returns_400(self, monkeypatch):
+        from app.services.pnl.profiles import PNLValidationError
+
+        fake_svc = MagicMock()
+        fake_svc.compare_month = AsyncMock(side_effect=PNLValidationError("bad month"))
+        monkeypatch.setattr(pnl, "_get_windsor_compare_service", lambda: fake_svc)
+        app.dependency_overrides[pnl.require_admin_user] = _override_admin
+
+        try:
+            with TestClient(app) as client:
+                resp = client.get(
+                    "/admin/pnl/profiles/p1/windsor-compare",
+                    params={"entry_month": "2026-02-01"},
+                )
+        finally:
+            app.dependency_overrides.pop(pnl.require_admin_user, None)
+
+        assert resp.status_code == 400
+        assert "bad month" in resp.json()["detail"]

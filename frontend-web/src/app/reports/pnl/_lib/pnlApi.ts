@@ -112,6 +112,67 @@ export type ExportPnlWorkbookResult = {
   filename: string;
 };
 
+export type PnlWindsorActiveImport = {
+  import_month_id: string;
+  import_id: string;
+  source_type: string;
+  source_filename: string | null;
+  import_status: string;
+  created_at: string | null;
+  finished_at: string | null;
+};
+
+export type PnlWindsorBucketDelta = {
+  bucket: string;
+  csv_amount: string;
+  windsor_amount: string;
+  delta_amount: string;
+};
+
+export type PnlWindsorMarketplaceTotal = {
+  marketplace_name: string;
+  row_count: number;
+  amount: string;
+};
+
+export type PnlWindsorComboSummary = {
+  transaction_type: string;
+  amount_type: string;
+  amount_description: string;
+  classification: string;
+  bucket: string | null;
+  reason: string | null;
+  row_count: number;
+  amount: string;
+};
+
+export type PnlWindsorCompare = {
+  profile: Pick<PnlProfile, "id" | "client_id" | "marketplace_code" | "currency_code">;
+  entry_month: string;
+  date_from: string;
+  date_to: string;
+  windsor_account_id: string;
+  csv_baseline: {
+    active_imports: PnlWindsorActiveImport[];
+    bucket_totals: Record<string, string>;
+  };
+  windsor: {
+    row_count: number;
+    mapped_row_count: number;
+    ignored_row_count: number;
+    unmapped_row_count: number;
+    ignored_amount: string;
+    unmapped_amount: string;
+    bucket_totals: Record<string, string>;
+    marketplace_totals: PnlWindsorMarketplaceTotal[];
+    top_unmapped_combos: PnlWindsorComboSummary[];
+    top_ignored_combos: PnlWindsorComboSummary[];
+  };
+  comparison: {
+    bucket_deltas: PnlWindsorBucketDelta[];
+  };
+};
+
 // ── Helpers ──────────────────────────────────────────────────────────
 
 const getBackendUrl = (): string => {
@@ -321,6 +382,53 @@ export async function exportPnlWorkbook(
   return {
     blob: await response.blob(),
     filename: parseAttachmentFilename(response, "amazon-pnl.xlsx"),
+  };
+}
+
+export async function getPnlWindsorCompare(
+  token: string,
+  profileId: string,
+  entryMonth: string,
+): Promise<PnlWindsorCompare> {
+  const params = new URLSearchParams({ entry_month: entryMonth });
+  const response = await fetch(
+    `${getBackendUrl()}/admin/pnl/profiles/${profileId}/windsor-compare?${params.toString()}`,
+    {
+      method: "GET",
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  );
+  if (!response.ok) {
+    const detail = await parseErrorDetail(response);
+    throw new Error(detail);
+  }
+
+  const data = await response.json();
+  return {
+    profile: data.profile as PnlWindsorCompare["profile"],
+    entry_month: String(data.entry_month ?? ""),
+    date_from: String(data.date_from ?? ""),
+    date_to: String(data.date_to ?? ""),
+    windsor_account_id: String(data.windsor_account_id ?? ""),
+    csv_baseline: {
+      active_imports: (data?.csv_baseline?.active_imports ?? []) as PnlWindsorActiveImport[],
+      bucket_totals: (data?.csv_baseline?.bucket_totals ?? {}) as Record<string, string>,
+    },
+    windsor: {
+      row_count: Number(data?.windsor?.row_count ?? 0),
+      mapped_row_count: Number(data?.windsor?.mapped_row_count ?? 0),
+      ignored_row_count: Number(data?.windsor?.ignored_row_count ?? 0),
+      unmapped_row_count: Number(data?.windsor?.unmapped_row_count ?? 0),
+      ignored_amount: String(data?.windsor?.ignored_amount ?? "0.00"),
+      unmapped_amount: String(data?.windsor?.unmapped_amount ?? "0.00"),
+      bucket_totals: (data?.windsor?.bucket_totals ?? {}) as Record<string, string>,
+      marketplace_totals: (data?.windsor?.marketplace_totals ?? []) as PnlWindsorMarketplaceTotal[],
+      top_unmapped_combos: (data?.windsor?.top_unmapped_combos ?? []) as PnlWindsorComboSummary[],
+      top_ignored_combos: (data?.windsor?.top_ignored_combos ?? []) as PnlWindsorComboSummary[],
+    },
+    comparison: {
+      bucket_deltas: (data?.comparison?.bucket_deltas ?? []) as PnlWindsorBucketDelta[],
+    },
   };
 }
 
