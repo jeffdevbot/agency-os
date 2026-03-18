@@ -49,6 +49,31 @@ Current reality:
     - Amazon Ads connection management moved there
     - Amazon Seller API auth added there
     - P&L-first direct-SP-API follow-up after auth exists
+15. `Reports / API Access` Passes 1-4 are now implemented and deployed:
+    - shared `report_api_connections` storage is live
+    - `/reports/api-access` is live
+    - Amazon Ads connection visibility/launch moved there
+    - Amazon Seller API auth/validate/finance-smoke scaffolding is live
+16. Region-aware SP-API routing is implemented for `NA`, `EU`, and `FE`.
+17. Connection health/status semantics are hardened:
+    - shared connections only count as healthy when
+      `connection_status = 'connected'`
+    - WBR Amazon Ads falls back to legacy storage if a shared Ads connection is
+      present but unhealthy
+18. WBR Windsor flows and manual Monthly P&L CSV upload mode were not replaced
+    by this work and should still be treated as the active stable paths.
+19. The current blocker is Amazon app-side approval/configuration, not code:
+    - seller auth reached Amazon successfully
+    - draft auth required `AMAZON_SPAPI_DRAFT_APP=true`
+    - Amazon then returned `MD9100`, indicating missing Login URI /
+      Redirect URI config on the SP-API app
+    - the user has applied for public app approval and paused work pending
+      Amazon response
+20. Render/frontend stability note:
+    - frontend Node runtime is now pinned to `20.19.0`
+    - repo files:
+      - `frontend-web/package.json`
+      - `frontend-web/.node-version`
 
 Primary goal:
 
@@ -81,10 +106,17 @@ Current direct-Amazon notes:
    - `AMAZON_SPAPI_LWA_CLIENT_ID`
    - `AMAZON_SPAPI_LWA_CLIENT_SECRET`
    - `AMAZON_SPAPI_APP_ID`
-2. A seller-authorized refresh token is still required for Finances API calls.
-3. Long-term, refresh tokens should be stored per seller/profile in the
+2. Temporary draft-app env used during testing:
+   - `AMAZON_SPAPI_DRAFT_APP=true`
+3. A seller-authorized refresh token is still required for Finances API calls.
+4. For the current deployed auth flow, Amazon app config should include:
+   - Login URI: `https://tools.ecomlabs.ca/reports/api-access`
+   - Redirect URI: `https://backend-core-re6d.onrender.com/amazon-spapi/callback`
+   - optional additional redirect URI:
+     `https://backend-core-re6d.onrender.com/api/amazon-spapi/callback`
+5. Long-term, refresh tokens should be stored per seller/profile in the
    database rather than as one global env var.
-4. For a new build session, the reviewed source-of-truth design doc is:
+6. For a new build session, the reviewed source-of-truth design doc is:
    - `docs/reports_api_access_and_spapi_plan.md`
 
 Docs currently known to be partially outdated for this new direction:

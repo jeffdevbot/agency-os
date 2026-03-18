@@ -2,6 +2,47 @@
 
 _Drafted: 2026-03-18 (ET)_
 
+## Status update
+
+This document began as the reviewed implementation plan. As of 2026-03-18 ET,
+the first four slices are now implemented and deployed.
+
+Implemented:
+
+1. shared `report_api_connections` storage
+2. admin `Reports / API Access` page at `/reports/api-access`
+3. Amazon Ads shared connection visibility / launch
+4. Amazon Seller API auth scaffolding
+5. Seller API validation via `getMarketplaceParticipations`
+6. Seller API finances smoke test via `listFinancialEventGroups` and
+   `listTransactions`
+7. region-aware Seller Central + SP-API routing for `NA`, `EU`, and `FE`
+8. connection health semantics that distinguish:
+   - `connected`
+   - `error`
+   - `revoked`
+   - `not connected`
+
+Operational notes from live rollout:
+
+1. production initially failed because the shared table migration had not yet
+   been applied; that is now fixed and the page is live
+2. frontend Render deploys hit a broken default Node `22.16.0` image; frontend
+   runtime is now pinned to `20.19.0`
+3. current blocker is Amazon app-side approval/configuration, not internal
+   code:
+   - first observed auth error: `MD1000`
+   - draft testing required `AMAZON_SPAPI_DRAFT_APP=true`
+   - next observed auth error: `MD9100`
+   - user has applied for public app approval and paused until Amazon responds
+4. current expected SP-API app URIs for this implementation:
+   - Login URI: `https://tools.ecomlabs.ca/reports/api-access`
+   - Redirect URI: `https://backend-core-re6d.onrender.com/amazon-spapi/callback`
+   - optional additional redirect URI:
+     `https://backend-core-re6d.onrender.com/api/amazon-spapi/callback`
+5. WBR Windsor flows and manual Monthly P&L CSV upload mode remain intact and
+   are still the active stable paths while SP-API auth is blocked
+
 ## Goal
 
 Create a shared `Reports / API Access` surface for external account
@@ -78,6 +119,16 @@ Current coupling problems:
 2. auth state is keyed to WBR `profile_id`
 3. connection management and WBR sync behavior are mixed together in one UI
 
+Current live transition state:
+
+1. Amazon Ads callback now dual-writes into shared `report_api_connections`
+   while preserving legacy `wbr_amazon_ads_connections`
+2. WBR Amazon Ads reads prefer shared connection storage when a healthy shared
+   connection exists
+3. WBR falls back to legacy storage when the shared Ads row is absent or not
+   healthy
+4. advertiser-profile selection remains WBR-owned
+
 ### Monthly P&L direct-Amazon status
 
 Current SP-API setup progress:
@@ -86,7 +137,9 @@ Current SP-API setup progress:
    - `AMAZON_SPAPI_LWA_CLIENT_ID`
    - `AMAZON_SPAPI_LWA_CLIENT_SECRET`
    - `AMAZON_SPAPI_APP_ID`
-2. missing production credential for real calls:
+2. Draft-auth env was needed during testing:
+   - `AMAZON_SPAPI_DRAFT_APP=true`
+3. Missing production credential for real calls:
    - seller-authorized refresh token
 
 Important constraint:
@@ -94,6 +147,13 @@ Important constraint:
 1. client ID and client secret are not enough to call seller-authorized SP-API
    endpoints such as Finances API
 2. we need a seller OAuth flow and refresh-token storage
+
+Current live blocker:
+
+1. seller OAuth flow is implemented and reaches Amazon successfully
+2. production does not yet have a completed seller authorization
+3. Amazon app approval/configuration is the blocker, not backend/frontend
+   implementation
 
 ## Architecture principles
 
@@ -297,6 +357,7 @@ Potentially reuse patterns from:
 1. `AMAZON_SPAPI_LWA_CLIENT_ID`
 2. `AMAZON_SPAPI_LWA_CLIENT_SECRET`
 3. `AMAZON_SPAPI_APP_ID`
+4. `AMAZON_SPAPI_DRAFT_APP` during draft/beta auth testing
 
 ### Auth flow
 
@@ -315,6 +376,14 @@ Potentially reuse patterns from:
 10. backend runs a validation call
 11. backend redirects back to frontend API Access page
 
+Implemented additions:
+
+1. state now records explicit `region_code`
+2. stored shared connection also records `region_code`
+3. downstream validate + finance smoke test use the stored region
+4. frontend requires explicit region selection before launch
+5. redirect errors are surfaced back on `/reports/api-access`
+
 Error handling should follow the existing Amazon Ads callback patterns:
 
 1. invalid or expired state
@@ -329,6 +398,12 @@ If the SP-API app is still in draft/beta during testing, the auth URL should
 include the appropriate beta/draft version parameter for the seller auth flow.
 Treat this as a potential implementation blocker, not a cosmetic detail.
 
+Observed live result:
+
+1. draft-app handling was required in practice
+2. after enabling draft mode, the next observed blocker became Amazon app
+   configuration / approval rather than auth URL construction itself
+
 ### Connection validation target
 
 First validation should be lightweight and explicit.
@@ -338,6 +413,12 @@ Recommended first validation:
 1. fetch an LWA access token using the stored refresh token
 2. call Sellers API `getMarketplaceParticipations`
 3. persist last-success / last-error status
+
+Status:
+
+1. implemented
+2. deployed
+3. blocked on obtaining the first real seller refresh token
 
 ## Monthly P&L direct-SP-API plan
 

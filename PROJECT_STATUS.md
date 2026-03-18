@@ -1,10 +1,19 @@
 # Changelog — Ecomlabs Tools
 
-_Last updated: 2026-03-17 (ET)_
+_Last updated: 2026-03-18 (ET)_
 
 > Development history for the project. For setup instructions and project overview, see [AGENTS.md](AGENTS.md).
 
 ---
+
+## 2026-03-18 (ET)
+- **Shared Reports/API Access shipped as the new auth surface:** Added shared `report_api_connections` storage, launched admin `/reports/api-access`, and moved Amazon Ads connection visibility/launch into that shared reporting surface without removing WBR-owned advertiser profile selection.
+- **Amazon Seller API auth scaffolding is now live end to end:** Added signed state, public callback handling, shared connection persistence, Seller API validation via `getMarketplaceParticipations`, and a P&L-first finances smoke test via `listFinancialEventGroups` plus `listTransactions`.
+- **SP-API hardening landed before live testing:** Seller auth/validation now route by explicit region (`NA` / `EU` / `FE`), redirect errors are surfaced back into the UI, and shared connection health is no longer inferred from row existence alone.
+- **WBR safety was preserved during the shared-auth migration:** WBR Amazon Ads now prefers healthy shared credentials but falls back to legacy `wbr_amazon_ads_connections` when the shared row is absent or unhealthy. Windsor-backed WBR behavior and manual Monthly P&L CSV upload mode remain intact.
+- **Production schema gap was fixed live:** The initial `/reports/api-access` failure was traced to a missing `report_api_connections` migration in production; the additive migration was then applied to Supabase so the page could load real clients.
+- **Frontend deploy stability was hardened on Render:** A Render build failure caused by a broken default Node `22.16.0` image was resolved by pinning the frontend runtime to `20.19.0` via `frontend-web/package.json` and `frontend-web/.node-version`.
+- **Current SP-API blocker is Amazon-side approval/configuration:** Live seller auth reached Amazon but hit app-side errors (`MD1000`, then `MD9100`). Draft testing now uses `AMAZON_SPAPI_DRAFT_APP=true`, and the remaining blocker is public-app approval plus correct Amazon app Login URI / Redirect URI configuration.
 
 ## 2026-03-17 (ET)
 - **WBR Section 2 ad-type drilldowns shipped:** Section 2 Advertising rows can now expand inline under parent or leaf rows to show `Sponsored Products`, `Sponsored Brands`, and `Sponsored Display` breakdown rows with chevron controls. The breakdowns reuse the existing report payload, keep `TACoS` blank at the subtype level to avoid implying unavailable total-sales attribution, and passed the backend WBR suite plus frontend type/test coverage before push.

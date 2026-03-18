@@ -27,6 +27,40 @@ Current strategic direction:
 4. `non_pnl_transfer` remains the clearest reason to validate direct Amazon
    payment/disbursement access.
 
+Current implementation state on that direction:
+
+1. Passes 1-4 of the shared `Reports / API Access` plan are now implemented.
+2. Shared `report_api_connections` storage is live in production.
+3. `/reports/api-access` is live as an admin surface for:
+   - Amazon Ads shared connection visibility / launch
+   - Amazon Seller API shared connection visibility / launch
+   - SP-API validation
+   - SP-API finance smoke testing
+4. Region-aware SP-API routing is implemented across auth, persistence,
+   validation, and finance smoke-test calls for `NA`, `EU`, and `FE`.
+5. Shared connection health handling is hardened:
+   - only `connection_status = 'connected'` is treated as healthy
+   - `error` / `revoked` are surfaced distinctly
+   - WBR Ads lookup falls back to legacy storage if the shared Ads row is not
+     healthy
+6. WBR Windsor-backed behavior and manual Monthly P&L CSV upload mode remain
+   the active stable paths and were not replaced.
+7. Current blocker is now Amazon app-side approval/configuration, not product
+   code:
+   - auth first failed with `MD1000` until draft-app mode was enabled
+   - draft testing now uses `AMAZON_SPAPI_DRAFT_APP=true`
+   - auth then failed with `MD9100`, indicating missing SP-API app Login URI /
+     Redirect URI configuration
+   - the user has applied for public app approval and paused work pending
+     Amazon response
+8. Required Amazon app URIs for the currently deployed callback shape:
+   - Login URI: `https://tools.ecomlabs.ca/reports/api-access`
+   - Redirect URI: `https://backend-core-re6d.onrender.com/amazon-spapi/callback`
+   - optional secondary redirect URI:
+     `https://backend-core-re6d.onrender.com/api/amazon-spapi/callback`
+9. During this work, the frontend Render service hit a broken default Node
+   image on `22.16.0`; the repo now pins frontend Node to `20.19.0`.
+
 Docs currently known to be partially outdated for the new direction:
 
 1. `docs/wbr_v2_handoff.md`
