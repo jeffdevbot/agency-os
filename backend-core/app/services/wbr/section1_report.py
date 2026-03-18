@@ -78,6 +78,7 @@ class Section1ReportService:
             for item in mappings
             if item.get("child_asin") and item.get("row_id") and str(item["row_id"]) in leaf_ids
         }
+        excluded_asins = self._list_active_asin_exclusions(profile_id)
 
         facts = self._list_facts(
             profile_id,
@@ -116,6 +117,8 @@ class Section1ReportService:
             child_asin = str(fact.get("child_asin") or "").strip().upper()
             row_id = mapping_by_asin.get(child_asin)
             if not row_id:
+                if child_asin and child_asin in excluded_asins:
+                    continue
                 unmapped_fact_rows += 1
                 if child_asin:
                     unmapped_asins.add(child_asin)
@@ -240,6 +243,21 @@ class Section1ReportService:
                 ("eq", "active", True),
             ],
         )
+
+    def _list_active_asin_exclusions(self, profile_id: str) -> set[str]:
+        rows = self._select_all(
+            "wbr_asin_exclusions",
+            "child_asin",
+            [
+                ("eq", "profile_id", profile_id),
+                ("eq", "active", True),
+            ],
+        )
+        return {
+            str(row["child_asin"]).strip().upper()
+            for row in rows
+            if isinstance(row, dict) and row.get("child_asin")
+        }
 
     def _list_facts(self, profile_id: str, *, date_from: date, date_to: date) -> list[dict[str, Any]]:
         return self._select_all(

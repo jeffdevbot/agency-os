@@ -100,6 +100,7 @@ def test_build_report_rolls_up_leafs_and_parents(monkeypatch):
                     ]
                 )
             ],
+            "wbr_asin_exclusions": [_chain_table([])],
             "wbr_business_asin_daily": [
                 _chain_table(
                     [
@@ -161,6 +162,7 @@ def test_build_report_counts_unmapped_activity(monkeypatch):
             "wbr_profiles": [_chain_table([{"id": "profile-1", "week_start_day": "sunday"}])],
             "wbr_rows": [_chain_table([])],
             "wbr_asin_row_map": [_chain_table([])],
+            "wbr_asin_exclusions": [_chain_table([])],
             "wbr_business_asin_daily": [
                 _chain_table(
                     [
@@ -184,6 +186,43 @@ def test_build_report_counts_unmapped_activity(monkeypatch):
     ]
     assert report["qa"]["unmapped_asin_count"] == 1
     assert report["qa"]["unmapped_fact_rows"] == 1
+    assert report["qa"]["fact_row_count"] == 1
+
+
+def test_build_report_ignores_excluded_unmapped_asins(monkeypatch):
+    class _FakeDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 3, 13, 12, 0, 0, tzinfo=tz or UTC)
+
+    monkeypatch.setattr(report_module, "datetime", _FakeDateTime)
+
+    db = _multi_table_db(
+        {
+            "wbr_profiles": [_chain_table([{"id": "profile-1", "week_start_day": "sunday"}])],
+            "wbr_rows": [_chain_table([])],
+            "wbr_asin_row_map": [_chain_table([])],
+            "wbr_asin_exclusions": [_chain_table([{"child_asin": "EXCLUDED1"}])],
+            "wbr_business_asin_daily": [
+                _chain_table(
+                    [
+                        {
+                            "report_date": "2026-03-05",
+                            "child_asin": "EXCLUDED1",
+                            "page_views": 20,
+                            "unit_sales": 2,
+                            "sales": "19.99",
+                        }
+                    ]
+                )
+            ],
+        }
+    )
+
+    report = Section1ReportService(db).build_report("profile-1", weeks=1)
+
+    assert report["qa"]["unmapped_asin_count"] == 0
+    assert report["qa"]["unmapped_fact_rows"] == 0
     assert report["qa"]["fact_row_count"] == 1
 
 
@@ -234,6 +273,7 @@ def test_build_report_paginates_business_facts(monkeypatch):
                 )
             ],
             "wbr_asin_row_map": [_chain_table([{"child_asin": "ASIN1", "row_id": "leaf-1"}])],
+            "wbr_asin_exclusions": [_chain_table([])],
             "wbr_business_asin_daily": [_chain_table(first_page), _chain_table(second_page)],
         }
     )

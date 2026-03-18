@@ -532,6 +532,7 @@ def test_build_report_paginates_business_facts(monkeypatch):
                 )
             ],
             "wbr_asin_row_map": [_chain_table([{"child_asin": "ASIN1", "row_id": "leaf-1"}])],
+            "wbr_asin_exclusions": [_chain_table([])],
             "wbr_inventory_asin_snapshots": [_chain_table([{"snapshot_date": "2026-03-16"}]), _chain_table([])],
             "wbr_returns_asin_daily": [_chain_table([])],
             "wbr_business_asin_daily": [_chain_table(first_page), _chain_table(second_page)],
@@ -543,3 +544,66 @@ def test_build_report_paginates_business_facts(monkeypatch):
     row = report["rows"][0]
     assert row["_unit_sales_4w"] == 1100
     assert row["_unit_sales_2w"] == 1100
+
+
+def test_build_report_ignores_excluded_inventory_and_sales(monkeypatch):
+    class _FakeDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 3, 13, 12, 0, 0, tzinfo=tz or UTC)
+
+    monkeypatch.setattr(report_module, "datetime", _FakeDateTime)
+
+    db = _multi_table_db(
+        {
+            "wbr_profiles": [_chain_table([{"id": "profile-1", "week_start_day": "monday"}])],
+            "wbr_rows": [_chain_table([])],
+            "wbr_asin_row_map": [_chain_table([])],
+            "wbr_asin_exclusions": [_chain_table([{"child_asin": "EXCLUDED1"}])],
+            "wbr_inventory_asin_snapshots": [
+                _chain_table([{"snapshot_date": "2026-03-16"}]),
+                _chain_table(
+                    [
+                        {
+                            "child_asin": "EXCLUDED1",
+                            "instock": 10,
+                            "working": 1,
+                            "reserved_plus_fc_transfer": 2,
+                            "receiving_plus_intransit": 3,
+                            "source_row_count": 1,
+                        }
+                    ]
+                ),
+            ],
+            "wbr_returns_asin_daily": [
+                _chain_table(
+                    [
+                        {
+                            "return_date": "2026-03-08",
+                            "child_asin": "EXCLUDED1",
+                            "return_units": 2,
+                        }
+                    ]
+                )
+            ],
+            "wbr_business_asin_daily": [
+                _chain_table(
+                    [
+                        {
+                            "report_date": "2026-03-05",
+                            "child_asin": "EXCLUDED1",
+                            "unit_sales": 5,
+                        }
+                    ]
+                )
+            ],
+        }
+    )
+
+    report = Section3ReportService(db).build_report("profile-1", weeks=4)
+
+    assert report["qa"]["unmapped_inventory_asin_count"] == 0
+    assert report["qa"]["inventory_fact_count"] == 1
+    assert report["qa"]["returns_fact_count"] == 1
+    assert report["qa"]["business_fact_count"] == 1
+    assert report["rows"] == []

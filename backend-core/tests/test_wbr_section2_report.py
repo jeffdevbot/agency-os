@@ -95,6 +95,7 @@ def test_build_report_rolls_up_leafs_and_parents(monkeypatch):
                     ]
                 )
             ],
+            "wbr_campaign_exclusions": [_chain_table([])],
             "wbr_asin_row_map": [
                 _chain_table(
                     [
@@ -199,6 +200,7 @@ def test_build_report_counts_unmapped_campaign_activity(monkeypatch):
             "wbr_profiles": [_chain_table([{"id": "profile-1", "week_start_day": "sunday"}])],
             "wbr_rows": [_chain_table([])],
             "wbr_pacvue_campaign_map": [_chain_table([])],
+            "wbr_campaign_exclusions": [_chain_table([])],
             "wbr_asin_row_map": [_chain_table([])],
             "wbr_ads_campaign_daily": [
                 _chain_table(
@@ -257,6 +259,49 @@ def test_build_report_counts_unmapped_campaign_activity(monkeypatch):
     ]
 
 
+def test_build_report_ignores_excluded_campaigns(monkeypatch):
+    class _FakeDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 3, 13, 12, 0, 0, tzinfo=tz or UTC)
+
+    monkeypatch.setattr(report_module, "datetime", _FakeDateTime)
+
+    db = _multi_table_db(
+        {
+            "wbr_profiles": [_chain_table([{"id": "profile-1", "week_start_day": "sunday"}])],
+            "wbr_rows": [_chain_table([])],
+            "wbr_pacvue_campaign_map": [_chain_table([])],
+            "wbr_campaign_exclusions": [_chain_table([{"campaign_name": "Legacy Campaign"}])],
+            "wbr_asin_row_map": [_chain_table([])],
+            "wbr_ads_campaign_daily": [
+                _chain_table(
+                    [
+                        {
+                            "report_date": "2026-03-05",
+                            "campaign_name": "Legacy Campaign",
+                            "campaign_type": "sponsored_products",
+                            "impressions": 250,
+                            "clicks": 5,
+                            "spend": "10.00",
+                            "orders": 1,
+                            "sales": "20.00",
+                        }
+                    ]
+                )
+            ],
+            "wbr_business_asin_daily": [_chain_table([])],
+        }
+    )
+
+    report = Section2ReportService(db).build_report("profile-1", weeks=1)
+
+    assert report["qa"]["unmapped_campaign_count"] == 0
+    assert report["qa"]["unmapped_fact_rows"] == 0
+    assert report["qa"]["fact_row_count"] == 1
+    assert report["rows"] == []
+
+
 def test_build_report_appends_unmapped_legacy_row_without_affecting_mapped_rows(monkeypatch):
     class _FakeDateTime(datetime):
         @classmethod
@@ -283,6 +328,7 @@ def test_build_report_appends_unmapped_legacy_row_without_affecting_mapped_rows(
                 )
             ],
             "wbr_pacvue_campaign_map": [_chain_table([{"campaign_name": "Tagged Campaign", "row_id": "leaf-1"}])],
+            "wbr_campaign_exclusions": [_chain_table([])],
             "wbr_asin_row_map": [_chain_table([])],
             "wbr_ads_campaign_daily": [
                 _chain_table(
@@ -380,6 +426,7 @@ def test_build_report_pages_through_large_ads_fact_sets(monkeypatch):
                 )
             ],
             "wbr_pacvue_campaign_map": [_chain_table([{"campaign_name": "Campaign A", "row_id": "leaf-1"}])],
+            "wbr_campaign_exclusions": [_chain_table([])],
             "wbr_asin_row_map": [_chain_table([])],
             "wbr_ads_campaign_daily": [_chain_table(first_page), _chain_table(second_page)],
             "wbr_business_asin_daily": [_chain_table([])],

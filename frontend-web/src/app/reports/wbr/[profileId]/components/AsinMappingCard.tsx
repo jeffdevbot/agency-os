@@ -15,6 +15,7 @@ type Props = {
     total: number;
     mapped: number;
     unmapped: number;
+    excluded: number;
   };
   search: string;
   unmappedOnly: boolean;
@@ -78,7 +79,7 @@ export default function AsinMappingCard({
         </button>
       </div>
 
-      <div className="mt-4 grid gap-3 md:grid-cols-3">
+      <div className="mt-4 grid gap-3 md:grid-cols-4">
         <div className="rounded-2xl border border-[#c7d8f5] bg-[#f7faff] p-4">
           <p className="text-xs font-semibold uppercase tracking-wide text-[#4c576f]">Total</p>
           <p className="mt-2 text-2xl font-semibold text-[#0f172a]">{counts.total}</p>
@@ -91,6 +92,10 @@ export default function AsinMappingCard({
           <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">Unmapped</p>
           <p className="mt-2 text-2xl font-semibold text-amber-950">{counts.unmapped}</p>
         </div>
+        <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-rose-800">Excluded</p>
+          <p className="mt-2 text-2xl font-semibold text-rose-950">{counts.excluded}</p>
+        </div>
       </div>
 
       <div className="mt-4 rounded-2xl border border-[#c7d8f5] bg-[#f7faff] p-4">
@@ -98,8 +103,8 @@ export default function AsinMappingCard({
           <div>
             <p className="text-sm font-semibold text-[#0f172a]">Bulk CSV Mapping</p>
             <p className="mt-1 text-sm text-[#4c576f]">
-              Download the current child-ASIN catalog, edit the `row_label` column in Excel, then
-              upload the same CSV back.
+              Download the current child-ASIN catalog, edit `row_label` to map rows, or set
+              `scope_status` to `excluded` for out-of-scope ASINs, then upload the same CSV back.
             </p>
           </div>
           <button
@@ -138,13 +143,14 @@ export default function AsinMappingCard({
 
         <div className="mt-3 space-y-1 text-xs text-[#64748b]">
           <p>
-            Edit `row_label` in the exported file. Leave it blank to clear a mapping.
+            Edit `row_label` in the exported file. Leave it blank to clear a mapping, or set
+            `scope_status` to `excluded` to keep an ASIN out of WBR totals and QA noise.
           </p>
           {selectedCsvFile ? <p>Selected: {selectedCsvFile.name}</p> : null}
         </div>
 
         {latestCsvImportSummary ? (
-          <div className="mt-4 grid gap-3 md:grid-cols-4">
+          <div className="mt-4 grid gap-3 md:grid-cols-5">
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-[#4c576f]">Rows Read</p>
               <p className="text-sm font-semibold text-[#0f172a]">{latestCsvImportSummary.rows_read}</p>
@@ -156,6 +162,10 @@ export default function AsinMappingCard({
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-[#4c576f]">Cleared</p>
               <p className="text-sm font-semibold text-[#0f172a]">{latestCsvImportSummary.rows_cleared}</p>
+            </div>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-[#4c576f]">Excluded</p>
+              <p className="text-sm font-semibold text-[#0f172a]">{latestCsvImportSummary.rows_excluded}</p>
             </div>
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-[#4c576f]">Unchanged</p>
@@ -211,6 +221,7 @@ export default function AsinMappingCard({
               <th className="px-3 py-2">Child ASIN</th>
               <th className="px-3 py-2">SKU</th>
               <th className="px-3 py-2">Product</th>
+              <th className="px-3 py-2">Scope</th>
               <th className="px-3 py-2">Current Row</th>
               <th className="px-3 py-2">Map To Leaf</th>
               <th className="px-3 py-2">Action</th>
@@ -219,13 +230,13 @@ export default function AsinMappingCard({
           <tbody className="divide-y divide-slate-200 bg-white">
             {loading ? (
               <tr>
-                <td colSpan={6} className="px-3 py-4 text-[#64748b]">
+                <td colSpan={7} className="px-3 py-4 text-[#64748b]">
                   Loading child ASIN catalog...
                 </td>
               </tr>
             ) : childAsins.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-3 py-4 text-[#64748b]">
+                <td colSpan={7} className="px-3 py-4 text-[#64748b]">
                   No imported child ASINs yet.
                 </td>
               </tr>
@@ -242,8 +253,26 @@ export default function AsinMappingCard({
                     <td className="px-3 py-2 font-semibold text-[#0f172a]">{item.child_asin}</td>
                     <td className="px-3 py-2 text-[#4c576f]">{item.child_sku ?? "—"}</td>
                     <td className="px-3 py-2 text-[#0f172a]">{item.child_product_name ?? "—"}</td>
+                    <td className="px-3 py-2">
+                      <span
+                        className={`inline-flex rounded-full border px-2 py-1 text-xs font-semibold ${
+                          item.scope_status === "included"
+                            ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                            : item.scope_status === "excluded"
+                              ? "border-rose-200 bg-rose-50 text-rose-800"
+                              : "border-amber-200 bg-amber-50 text-amber-800"
+                        }`}
+                      >
+                        {item.scope_status}
+                      </span>
+                      {item.exclusion_reason ? (
+                        <p className="mt-1 max-w-48 text-xs text-[#64748b]">{item.exclusion_reason}</p>
+                      ) : null}
+                    </td>
                     <td className="px-3 py-2 text-[#4c576f]">
-                      {item.mapped_row_label ? (
+                      {item.scope_status === "excluded" ? (
+                        <span className="text-rose-700">Excluded from WBR</span>
+                      ) : item.mapped_row_label ? (
                         <span className={item.mapped_row_active === false ? "text-amber-700" : undefined}>
                           {item.mapped_row_label}
                           {item.mapped_row_active === false ? " [inactive]" : ""}

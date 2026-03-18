@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import AsinMappingCard from "./components/AsinMappingCard";
+import CampaignExclusionCard from "./components/CampaignExclusionCard";
 import CreateRowForm from "./components/CreateRowForm";
 import LeafRowsTable from "./components/LeafRowsTable";
 import ListingsImportCard from "./components/ListingsImportCard";
@@ -10,6 +11,7 @@ import ParentRowsTable from "./components/ParentRowsTable";
 import ProfileIntegrationsCard from "./components/ProfileIntegrationsCard";
 import ProfileSummaryCard from "./components/ProfileSummaryCard";
 import { useAsinMappings } from "./useAsinMappings";
+import { useCampaignExclusions } from "./useCampaignExclusions";
 import { useListingImport } from "./useListingImport";
 import { usePacvueImport } from "./usePacvueImport";
 import { useWbrProfileWorkspace } from "./useWbrProfileWorkspace";
@@ -24,6 +26,7 @@ type Props = {
 export default function WbrProfileWorkspace({ profileId, clientSlug, marketplaceCode }: Props) {
   const workspace = useWbrProfileWorkspace(profileId);
   const asinMappings = useAsinMappings(profileId);
+  const campaignExclusions = useCampaignExclusions(profileId);
   const listingImport = useListingImport(profileId, {
     onImportSuccess: async () => {
       await asinMappings.loadChildAsins(true);
@@ -100,6 +103,20 @@ export default function WbrProfileWorkspace({ profileId, clientSlug, marketplace
           latestImport={pacvueImport.latestImport}
           onRefresh={() => void pacvueImport.loadBatches(true)}
           onUpload={(file) => void pacvueImport.handleUpload(file)}
+        />
+
+        <CampaignExclusionCard
+          loading={campaignExclusions.loading}
+          refreshing={campaignExclusions.refreshing}
+          exportingCsv={campaignExclusions.exportingCsv}
+          importingCsv={campaignExclusions.importingCsv}
+          items={campaignExclusions.items}
+          errorMessage={campaignExclusions.errorMessage}
+          successMessage={campaignExclusions.successMessage}
+          latestImportSummary={campaignExclusions.latestImportSummary}
+          onRefresh={() => void campaignExclusions.loadItems(true)}
+          onDownloadCsv={() => void campaignExclusions.downloadCsv()}
+          onUploadCsv={(file) => void campaignExclusions.uploadCsv(file)}
         />
 
         <ListingsImportCard

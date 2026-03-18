@@ -69,6 +69,7 @@ class Section3ReportService:
             for item in mappings
             if item.get("child_asin") and item.get("row_id") and str(item["row_id"]) in leaf_ids
         }
+        excluded_asins = self._list_active_asin_exclusions(profile_id)
 
         # Fetch latest inventory snapshot
         inventory_facts = self._list_latest_inventory(profile_id)
@@ -120,6 +121,8 @@ class Section3ReportService:
             asin = str(fact.get("child_asin") or "").strip().upper()
             row_id = mapping_by_asin.get(asin)
             if not row_id:
+                if asin and asin in excluded_asins:
+                    continue
                 if asin:
                     unmapped_inventory_asins.add(asin)
                 continue
@@ -139,6 +142,8 @@ class Section3ReportService:
             asin = str(fact.get("child_asin") or "").strip().upper()
             row_id = mapping_by_asin.get(asin)
             if not row_id:
+                if asin and asin in excluded_asins:
+                    continue
                 continue
             return_date = date.fromisoformat(str(fact["return_date"]))
             week_index = week_index_by_date.get(return_date)
@@ -159,6 +164,8 @@ class Section3ReportService:
             asin = str(fact.get("child_asin") or "").strip().upper()
             row_id = mapping_by_asin.get(asin)
             if not row_id:
+                if asin and asin in excluded_asins:
+                    continue
                 continue
             leaf_unit_sales[row_id][week_index] += int(fact.get("unit_sales") or 0)
 
@@ -359,6 +366,21 @@ class Section3ReportService:
                 ("eq", "active", True),
             ],
         )
+
+    def _list_active_asin_exclusions(self, profile_id: str) -> set[str]:
+        rows = self._select_all(
+            "wbr_asin_exclusions",
+            "child_asin",
+            [
+                ("eq", "profile_id", profile_id),
+                ("eq", "active", True),
+            ],
+        )
+        return {
+            str(row["child_asin"]).strip().upper()
+            for row in rows
+            if isinstance(row, dict) and row.get("child_asin")
+        }
 
     def _list_latest_inventory(self, profile_id: str) -> list[dict[str, Any]]:
         """Fetch the most recent inventory snapshot for the profile."""

@@ -82,13 +82,15 @@ export function useAsinMappings(profileId: string) {
   const filteredChildAsins = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
     return childAsins.filter((item) => {
-      if (unmappedOnly && item.mapped_row_id) return false;
+      if (unmappedOnly && item.scope_status !== "unmapped") return false;
       if (!normalizedSearch) return true;
       return (
         item.child_asin.toLowerCase().includes(normalizedSearch) ||
         (item.child_sku ?? "").toLowerCase().includes(normalizedSearch) ||
         (item.child_product_name ?? "").toLowerCase().includes(normalizedSearch) ||
-        (item.mapped_row_label ?? "").toLowerCase().includes(normalizedSearch)
+        (item.mapped_row_label ?? "").toLowerCase().includes(normalizedSearch) ||
+        item.scope_status.toLowerCase().includes(normalizedSearch) ||
+        (item.exclusion_reason ?? "").toLowerCase().includes(normalizedSearch)
       );
     });
   }, [childAsins, search, unmappedOnly]);
@@ -96,10 +98,13 @@ export function useAsinMappings(profileId: string) {
   const counts = useMemo(() => {
     const total = childAsins.length;
     const mapped = childAsins.filter((item) => Boolean(item.mapped_row_id)).length;
+    const unmapped = childAsins.filter((item) => item.scope_status === "unmapped").length;
+    const excluded = childAsins.filter((item) => item.scope_status === "excluded").length;
     return {
       total,
       mapped,
-      unmapped: total - mapped,
+      unmapped,
+      excluded,
     };
   }, [childAsins]);
 
@@ -126,6 +131,9 @@ export function useAsinMappings(profileId: string) {
                 mapped_row_id: result.mapped_row_id,
                 mapped_row_label: result.mapped_row_label,
                 mapped_row_active: result.mapped_row_active,
+                is_excluded: false,
+                scope_status: result.mapped_row_id ? "included" : "unmapped",
+                exclusion_reason: null,
               }
             : current
         )
@@ -184,7 +192,7 @@ export function useAsinMappings(profileId: string) {
         const summary = await importWbrChildAsinMappingCsv(token, profileId, file);
         setLatestCsvImportSummary(summary);
         setSuccessMessage(
-          `Imported mapping CSV: ${summary.rows_updated} updated, ${summary.rows_cleared} cleared, ${summary.rows_unchanged} unchanged.`
+          `Imported mapping CSV: ${summary.rows_updated} updated, ${summary.rows_cleared} cleared, ${summary.rows_excluded} excluded, ${summary.rows_unchanged} unchanged.`
         );
         await loadChildAsins(true);
       } catch (error) {

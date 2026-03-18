@@ -29,9 +29,21 @@ CSV_IMPORT_COLUMN_ALIASES = {
         "row_label",
         "row label",
     },
+    "scope_status": {
+        "scope_status",
+        "scope status",
+        "status",
+        "wbr_status",
+        "wbr status",
+        "scope",
+    },
+    "excluded": {"excluded", "exclude", "ignored", "ignore"},
+    "exclusion_reason": {"exclusion_reason", "exclusion reason", "reason", "notes"},
 }
 
 _BATCH_SIZE = 500
+_EXCLUDE_STATUSES = {"exclude", "excluded", "ignore", "ignored", "out_of_scope", "out of scope"}
+_TRUE_VALUES = {"1", "true", "yes", "y", "exclude", "excluded", "ignore", "ignored"}
 
 
 def _decode_csv_text(file_bytes: bytes) -> str:
@@ -99,6 +111,19 @@ class AsinMappingService:
             for row in leaf_rows
             if isinstance(row, dict) and row.get("id")
         }
+        exclusion_response = (
+            self.db.table("wbr_asin_exclusions")
+            .select("child_asin,exclusion_reason")
+            .eq("profile_id", profile_id)
+            .eq("active", True)
+            .execute()
+        )
+        exclusions = exclusion_response.data if isinstance(exclusion_response.data, list) else []
+        exclusion_by_asin = {
+            str(row["child_asin"]).strip().upper(): row
+            for row in exclusions
+            if isinstance(row, dict) and row.get("child_asin")
+        }
 
         results: list[dict[str, Any]] = []
         for row in child_rows:
@@ -109,6 +134,7 @@ class AsinMappingService:
                 continue
             mapped_row_id = mapping_by_asin.get(child_asin)
             mapped_row = row_by_id.get(mapped_row_id) if mapped_row_id else None
+            exclusion = exclusion_by_asin.get(child_asin)
             results.append(
                 {
                     "id": row.get("id"),
@@ -124,6 +150,9 @@ class AsinMappingService:
                     "mapped_row_id": mapped_row_id,
                     "mapped_row_label": mapped_row.get("row_label") if mapped_row else None,
                     "mapped_row_active": bool(mapped_row.get("active")) if mapped_row else None,
+                    "is_excluded": exclusion is not None,
+                    "scope_status": "excluded" if exclusion else "included" if mapped_row_id else "unmapped",
+                    "exclusion_reason": exclusion.get("exclusion_reason") if exclusion else None,
                     "created_at": row.get("created_at"),
                     "updated_at": row.get("updated_at"),
                 }
@@ -147,6 +176,8 @@ class AsinMappingService:
                 "child_sku",
                 "child_product_name",
                 "row_label",
+                "scope_status",
+                "exclusion_reason",
             ],
             lineterminator="\n",
         )
@@ -158,6 +189,8 @@ class AsinMappingService:
                     "child_sku": item.get("child_sku") or "",
                     "child_product_name": item.get("child_product_name") or "",
                     "row_label": item.get("mapped_row_label") or "",
+                    "scope_status": item.get("scope_status") or "",
+                    "exclusion_reason": item.get("exclusion_reason") or "",
                 }
             )
         return output.getvalue()
@@ -182,12 +215,15 @@ class AsinMappingService:
         child_asin_column = _resolve_column(fieldnames, CSV_IMPORT_COLUMN_ALIASES["child_asin"])
         row_id_column = _resolve_column(fieldnames, CSV_IMPORT_COLUMN_ALIASES["mapped_row_id"])
         row_label_column = _resolve_column(fieldnames, CSV_IMPORT_COLUMN_ALIASES["mapped_row_label"])
+        scope_status_column = _resolve_column(fieldnames, CSV_IMPORT_COLUMN_ALIASES["scope_status"])
+        excluded_column = _resolve_column(fieldnames, CSV_IMPORT_COLUMN_ALIASES["excluded"])
+        exclusion_reason_column = _resolve_column(fieldnames, CSV_IMPORT_COLUMN_ALIASES["exclusion_reason"])
 
         if not child_asin_column:
             raise WBRValidationError("ASIN mapping CSV must include a child_asin column")
-        if not row_id_column and not row_label_column:
+        if not row_id_column and not row_label_column and not scope_status_column and not excluded_column:
             raise WBRValidationError(
-                "ASIN mapping CSV must include mapped_row_id or mapped_row_label"
+                "ASIN mapping CSV must include mapped_row_id, mapped_row_label, scope_status, or excluded"
             )
 
         active_child_asins = self._list_active_child_asins(profile_id)
@@ -204,7 +240,7 @@ class AsinMappingService:
         }
 
         seen_child_asins: set[str] = set()
-        operations: list[tuple[str, str | None]] = []
+        operations: list[tuple[str, str | None, bool, str | None]] = []
 
         for index, row in enumerate(reader, start=2):
             child_asin = str(row.get(child_asin_column) or "").strip().upper()
@@ -221,6 +257,19 @@ class AsinMappingService:
 
             mapped_row_id = str(row.get(row_id_column) or "").strip() if row_id_column else ""
             mapped_row_label = str(row.get(row_label_column) or "").strip() if row_label_column else ""
+            scope_status = str(row.get(scope_status_column) or "").strip().lower() if scope_status_column else ""
+            excluded_value = str(row.get(excluded_column) or "").strip().lower() if excluded_column else ""
+            exclusion_reason = str(row.get(exclusion_reason_column) or "").strip() if exclusion_reason_column else ""
+            is_excluded = scope_status in _EXCLUDE_STATUSES or excluded_value in _TRUE_VALUES
+
+            if is_excluded:
+                operations.append((child_asin, None, True, exclusion_reason or None))
+                continue
+
+            if not row_id_column and not row_label_column:
+                raise WBRValidationError(
+                    f"ASIN mapping CSV row {index} must provide mapped_row_id or mapped_row_label when scope_status is not excluded"
+                )
 
             if mapped_row_id:
                 target_row = active_rows_by_id.get(mapped_row_id)
@@ -228,7 +277,7 @@ class AsinMappingService:
                     raise WBRValidationError(
                         f"ASIN mapping CSV row {index} references unknown active mapped_row_id {mapped_row_id}"
                     )
-                operations.append((child_asin, str(target_row["id"])))
+                operations.append((child_asin, str(target_row["id"]), False, None))
                 continue
 
             if mapped_row_label:
@@ -237,21 +286,54 @@ class AsinMappingService:
                     raise WBRValidationError(
                         f'ASIN mapping CSV row {index} references unknown active mapped_row_label "{mapped_row_label}"'
                     )
-                operations.append((child_asin, str(target_row["id"])))
+                operations.append((child_asin, str(target_row["id"]), False, None))
                 continue
 
-            operations.append((child_asin, None))
+            operations.append((child_asin, None, False, None))
 
         rows_updated = 0
         rows_cleared = 0
+        rows_excluded = 0
         rows_unchanged = 0
         active_mapping_by_asin = self._list_active_mapping_by_asin(profile_id)
+        active_exclusions_by_asin = self._list_active_exclusions_by_asin(profile_id)
         mapping_ids_to_deactivate: list[str] = []
         mapping_payloads_to_insert: list[dict[str, Any]] = []
+        exclusion_ids_to_deactivate: list[str] = []
+        exclusion_payloads_to_insert: list[dict[str, Any]] = []
 
-        for child_asin, target_row_id in operations:
+        for child_asin, target_row_id, is_excluded, exclusion_reason in operations:
             current = active_mapping_by_asin.get(child_asin)
             current_row_id = str(current.get("row_id")) if current and current.get("row_id") else None
+            current_exclusion = active_exclusions_by_asin.get(child_asin)
+            current_is_excluded = current_exclusion is not None
+
+            if is_excluded:
+                if current and current.get("id"):
+                    mapping_ids_to_deactivate.append(str(current["id"]))
+                if current_is_excluded:
+                    if not current:
+                        rows_unchanged += 1
+                    else:
+                        rows_excluded += 1
+                    continue
+                payload: dict[str, Any] = {
+                    "profile_id": profile_id,
+                    "child_asin": child_asin,
+                    "exclusion_source": "imported",
+                    "exclusion_reason": exclusion_reason,
+                    "active": True,
+                }
+                if user_id:
+                    payload["created_by"] = user_id
+                    payload["updated_by"] = user_id
+                exclusion_payloads_to_insert.append(payload)
+                rows_excluded += 1
+                continue
+
+            if current_exclusion and current_exclusion.get("id"):
+                exclusion_ids_to_deactivate.append(str(current_exclusion["id"]))
+
             if current_row_id == target_row_id:
                 rows_unchanged += 1
                 continue
@@ -274,12 +356,15 @@ class AsinMappingService:
                 mapping_payloads_to_insert.append(payload)
 
         self._deactivate_mapping_ids(mapping_ids_to_deactivate, user_id=user_id)
+        self._deactivate_exclusion_ids(exclusion_ids_to_deactivate, user_id=user_id)
         self._insert_mapping_payloads(mapping_payloads_to_insert)
+        self._insert_exclusion_payloads(exclusion_payloads_to_insert)
 
         return {
             "rows_read": len(operations),
             "rows_updated": rows_updated,
             "rows_cleared": rows_cleared,
+            "rows_excluded": rows_excluded,
             "rows_unchanged": rows_unchanged,
         }
 
@@ -294,6 +379,7 @@ class AsinMappingService:
         self._get_profile(profile_id)
         child = self._get_child_asin(profile_id, child_asin)
         existing = self._get_active_mapping(profile_id, child_asin)
+        existing_exclusion = self._get_active_exclusion(profile_id, child_asin)
 
         if row_id is None:
             if existing:
@@ -304,6 +390,16 @@ class AsinMappingService:
                     self.db.table("wbr_asin_row_map")
                     .update(updates)
                     .eq("id", existing["id"])
+                    .execute()
+                )
+            if existing_exclusion:
+                updates: dict[str, Any] = {"active": False}
+                if user_id:
+                    updates["updated_by"] = user_id
+                (
+                    self.db.table("wbr_asin_exclusions")
+                    .update(updates)
+                    .eq("id", existing_exclusion["id"])
                     .execute()
                 )
             return {
@@ -331,6 +427,16 @@ class AsinMappingService:
                 self.db.table("wbr_asin_row_map")
                 .update(updates)
                 .eq("id", existing["id"])
+                .execute()
+            )
+        if existing_exclusion:
+            updates = {"active": False}
+            if user_id:
+                updates["updated_by"] = user_id
+            (
+                self.db.table("wbr_asin_exclusions")
+                .update(updates)
+                .eq("id", existing_exclusion["id"])
                 .execute()
             )
 
@@ -415,6 +521,21 @@ class AsinMappingService:
             if isinstance(row, dict) and row.get("child_asin")
         }
 
+    def _list_active_exclusions_by_asin(self, profile_id: str) -> dict[str, dict[str, Any]]:
+        response = (
+            self.db.table("wbr_asin_exclusions")
+            .select("id,child_asin")
+            .eq("profile_id", profile_id)
+            .eq("active", True)
+            .execute()
+        )
+        rows = response.data if isinstance(response.data, list) else []
+        return {
+            str(row["child_asin"]).strip().upper(): row
+            for row in rows
+            if isinstance(row, dict) and row.get("child_asin")
+        }
+
     def _get_child_asin(self, profile_id: str, child_asin: str) -> dict[str, Any]:
         response = (
             self.db.table("wbr_profile_child_asins")
@@ -460,6 +581,19 @@ class AsinMappingService:
         rows = response.data if isinstance(response.data, list) else []
         return rows[0] if rows else None
 
+    def _get_active_exclusion(self, profile_id: str, child_asin: str) -> dict[str, Any] | None:
+        response = (
+            self.db.table("wbr_asin_exclusions")
+            .select("*")
+            .eq("profile_id", profile_id)
+            .eq("child_asin", child_asin)
+            .eq("active", True)
+            .limit(1)
+            .execute()
+        )
+        rows = response.data if isinstance(response.data, list) else []
+        return rows[0] if rows else None
+
     def _deactivate_mapping_ids(self, mapping_ids: list[str], *, user_id: str | None = None) -> None:
         if not mapping_ids:
             return
@@ -477,6 +611,23 @@ class AsinMappingService:
                 .execute()
             )
 
+    def _deactivate_exclusion_ids(self, exclusion_ids: list[str], *, user_id: str | None = None) -> None:
+        if not exclusion_ids:
+            return
+
+        updates: dict[str, Any] = {"active": False}
+        if user_id:
+            updates["updated_by"] = user_id
+
+        for start in range(0, len(exclusion_ids), _BATCH_SIZE):
+            chunk = exclusion_ids[start:start + _BATCH_SIZE]
+            (
+                self.db.table("wbr_asin_exclusions")
+                .update(updates)
+                .in_("id", chunk)
+                .execute()
+            )
+
     def _insert_mapping_payloads(self, payloads: list[dict[str, Any]]) -> None:
         if not payloads:
             return
@@ -487,3 +638,14 @@ class AsinMappingService:
             rows = response.data if isinstance(response.data, list) else []
             if len(rows) != len(chunk):
                 raise WBRValidationError("Failed to save ASIN mapping")
+
+    def _insert_exclusion_payloads(self, payloads: list[dict[str, Any]]) -> None:
+        if not payloads:
+            return
+
+        for start in range(0, len(payloads), _BATCH_SIZE):
+            chunk = payloads[start:start + _BATCH_SIZE]
+            response = self.db.table("wbr_asin_exclusions").insert(chunk).execute()
+            rows = response.data if isinstance(response.data, list) else []
+            if len(rows) != len(chunk):
+                raise WBRValidationError("Failed to save ASIN exclusions")

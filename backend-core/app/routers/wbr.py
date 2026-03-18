@@ -21,10 +21,12 @@ from ..services.wbr.amazon_ads_auth import (
 )
 from ..services.wbr.amazon_ads_sync import AmazonAdsSyncService
 from ..services.wbr.asin_mappings import AsinMappingService
+from ..services.wbr.campaign_exclusions import CampaignExclusionService
 from ..config import settings
 from ..services.wbr.listing_imports import ListingImportService
 from ..services.wbr.pacvue_imports import PacvueImportService
 from ..services.wbr.profiles import WBRNotFoundError, WBRValidationError, WBRProfileService
+from ..services.wbr.report_snapshots import WBRSnapshotService
 from ..services.wbr.section1_report import Section1ReportService
 from ..services.wbr.section2_report import Section2ReportService
 from ..services.wbr.section3_report import Section3ReportService
@@ -66,6 +68,10 @@ def _get_asin_mapping_service() -> AsinMappingService:
     return AsinMappingService(_get_supabase())
 
 
+def _get_campaign_exclusion_service() -> CampaignExclusionService:
+    return CampaignExclusionService(_get_supabase())
+
+
 def _get_windsor_business_sync_service() -> WindsorBusinessSyncService:
     return WindsorBusinessSyncService(_get_supabase())
 
@@ -92,6 +98,10 @@ def _get_amazon_ads_sync_service() -> AmazonAdsSyncService:
 
 def _get_wbr_workbook_export_service() -> WbrWorkbookExportService:
     return WbrWorkbookExportService(_get_supabase())
+
+
+def _get_snapshot_service() -> WBRSnapshotService:
+    return WBRSnapshotService(_get_supabase())
 
 
 def _user_id(user: dict) -> str | None:
@@ -544,6 +554,79 @@ async def import_child_asin_mapping_csv(
         raise HTTPException(status_code=500, detail="Failed to import ASIN mapping CSV")
 
 
+@router.get("/profiles/{profile_id}/campaign-exclusions")
+async def list_campaign_exclusions(
+    profile_id: str,
+    user=Depends(require_admin_user),
+):
+    svc = _get_campaign_exclusion_service()
+    try:
+        items = svc.list_exclusions(profile_id)
+        return {"ok": True, "items": items}
+    except WBRNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except WBRValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to list campaign exclusions")
+
+
+@router.get("/profiles/{profile_id}/campaign-exclusions/export")
+async def export_campaign_exclusions_csv(
+    profile_id: str,
+    user=Depends(require_admin_user),
+):
+    svc = _get_campaign_exclusion_service()
+    try:
+        csv_text = svc.export_exclusions_csv(profile_id)
+        return Response(
+            content=csv_text,
+            media_type="text/csv",
+            headers={
+                "Content-Disposition": f'attachment; filename="wbr-campaign-exclusions-{profile_id}.csv"'
+            },
+        )
+    except WBRNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except WBRValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to export campaign exclusions CSV")
+
+
+@router.post("/profiles/{profile_id}/campaign-exclusions/import")
+async def import_campaign_exclusions_csv(
+    profile_id: str,
+    file: UploadFile = File(...),
+    user=Depends(require_admin_user),
+):
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="File name is required")
+
+    contents = await file.read()
+    if len(contents) > MAX_UPLOAD_MB * 1024 * 1024:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File exceeds {MAX_UPLOAD_MB} MB upload limit",
+        )
+
+    svc = _get_campaign_exclusion_service()
+    try:
+        summary = svc.import_exclusions_csv(
+            profile_id=profile_id,
+            file_name=file.filename,
+            file_bytes=contents,
+            user_id=_user_id(user),
+        )
+        return {"ok": True, "summary": summary}
+    except WBRNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except WBRValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to import campaign exclusions CSV")
+
+
 @router.get("/profiles/{profile_id}/sync-runs")
 async def list_sync_runs(
     profile_id: str,
@@ -941,3 +1024,71 @@ async def select_amazon_ads_profile(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception:
         raise HTTPException(status_code=500, detail="Failed to save Amazon Ads profile selection")
+
+
+# ------------------------------------------------------------------
+# WBR Snapshots
+# ------------------------------------------------------------------
+
+
+class CreateSnapshotRequest(BaseModel):
+    weeks: int = Field(4, ge=1, le=12)
+    snapshot_kind: str = Field("manual")
+    include_raw: bool = Field(False)
+
+
+@router.post("/profiles/{profile_id}/snapshots")
+async def create_wbr_snapshot(
+    profile_id: str,
+    request: CreateSnapshotRequest,
+    user=Depends(require_admin_user),
+):
+    """Build and persist a WBR digest snapshot."""
+    svc = _get_snapshot_service()
+    try:
+        result = svc.create_snapshot(
+            profile_id,
+            weeks=request.weeks,
+            snapshot_kind=request.snapshot_kind,
+            include_raw=request.include_raw,
+            created_by=_user_id(user),
+        )
+        return {"ok": True, "snapshot": result}
+    except WBRNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except WBRValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to create WBR snapshot")
+
+
+@router.get("/profiles/{profile_id}/snapshots")
+async def list_wbr_snapshots(
+    profile_id: str,
+    limit: int = Query(10, ge=1, le=50),
+    user=Depends(require_admin_user),
+):
+    """List recent snapshots for a profile."""
+    svc = _get_snapshot_service()
+    try:
+        snapshots = svc.list_snapshots(profile_id, limit=limit)
+        return {"ok": True, "snapshots": snapshots}
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to list WBR snapshots")
+
+
+@router.get("/profiles/{profile_id}/snapshots/{snapshot_id}")
+async def get_wbr_snapshot(
+    profile_id: str,
+    snapshot_id: str,
+    user=Depends(require_admin_user),
+):
+    """Return a single snapshot with its full digest."""
+    svc = _get_snapshot_service()
+    try:
+        snapshot = svc.get_snapshot(profile_id, snapshot_id)
+        return {"ok": True, "snapshot": snapshot}
+    except WBRNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to load WBR snapshot")

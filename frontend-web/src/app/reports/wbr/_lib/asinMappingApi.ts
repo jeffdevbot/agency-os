@@ -14,6 +14,9 @@ export type WbrChildAsinItem = {
   mapped_row_id: string | null;
   mapped_row_label: string | null;
   mapped_row_active: boolean | null;
+  is_excluded: boolean;
+  scope_status: "included" | "unmapped" | "excluded";
+  exclusion_reason: string | null;
   created_at: string | null;
   updated_at: string | null;
 };
@@ -29,6 +32,7 @@ export type ImportWbrChildAsinMappingSummary = {
   rows_read: number;
   rows_updated: number;
   rows_cleared: number;
+  rows_excluded: number;
   rows_unchanged: number;
 };
 
@@ -100,6 +104,12 @@ const parseChildAsinItem = (value: unknown): WbrChildAsinItem => {
     mapped_row_id: asNullableString(value.mapped_row_id),
     mapped_row_label: asNullableString(value.mapped_row_label),
     mapped_row_active: typeof value.mapped_row_active === "boolean" ? value.mapped_row_active : null,
+    is_excluded: asBoolean(value.is_excluded),
+    scope_status:
+      value.scope_status === "included" || value.scope_status === "excluded"
+        ? value.scope_status
+        : "unmapped",
+    exclusion_reason: asNullableString(value.exclusion_reason),
     created_at: asNullableString(value.created_at),
     updated_at: asNullableString(value.updated_at),
   };
@@ -209,6 +219,7 @@ export const importWbrChildAsinMappingCsv = async (
       rows_read: typeof summary.rows_read === "number" ? summary.rows_read : 0,
       rows_updated: typeof summary.rows_updated === "number" ? summary.rows_updated : 0,
       rows_cleared: typeof summary.rows_cleared === "number" ? summary.rows_cleared : 0,
+      rows_excluded: typeof summary.rows_excluded === "number" ? summary.rows_excluded : 0,
       rows_unchanged: typeof summary.rows_unchanged === "number" ? summary.rows_unchanged : 0,
     };
   } catch (error) {

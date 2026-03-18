@@ -134,6 +134,7 @@ class Section2ReportService:
             for item in mappings
             if item.get("campaign_name") and item.get("row_id") and str(item["row_id"]) in leaf_ids
         }
+        excluded_campaigns = self._list_active_campaign_exclusions(profile_id)
         asin_mappings = self._list_active_asin_mappings(profile_id)
         mapping_by_asin = {
             str(item["child_asin"]).strip().upper(): str(item["row_id"])
@@ -185,6 +186,8 @@ class Section2ReportService:
             campaign_type = _normalize_campaign_type(fact.get("campaign_type"))
             row_id = mapping_by_campaign.get(campaign_name)
             if not row_id:
+                if campaign_name and campaign_name in excluded_campaigns:
+                    continue
                 unmapped_fact_rows += 1
                 unmapped_week = unmapped_values[week_index]
                 unmapped_week["impressions"] = int(unmapped_week["impressions"]) + int(fact.get("impressions") or 0)
@@ -386,6 +389,21 @@ class Section2ReportService:
                 ("eq", "active", True),
             ],
         )
+
+    def _list_active_campaign_exclusions(self, profile_id: str) -> set[str]:
+        rows = self._select_all(
+            "wbr_campaign_exclusions",
+            "campaign_name",
+            [
+                ("eq", "profile_id", profile_id),
+                ("eq", "active", True),
+            ],
+        )
+        return {
+            str(row["campaign_name"])
+            for row in rows
+            if isinstance(row, dict) and row.get("campaign_name")
+        }
 
     def _list_active_asin_mappings(self, profile_id: str) -> list[dict[str, Any]]:
         return self._select_all(

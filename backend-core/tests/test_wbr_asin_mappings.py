@@ -40,6 +40,7 @@ class TestAsinMappingService:
                 "wbr_profiles": [_chain_table([{"id": "p1"}])],
                 "wbr_profile_child_asins": [_chain_table([{"id": "a1", "profile_id": "p1", "child_asin": "B012345678", "child_sku": "SKU-1", "child_product_name": "Widget A", "active": True}])],
                 "wbr_asin_row_map": [_chain_table([{"child_asin": "B012345678", "row_id": "r1"}])],
+                "wbr_asin_exclusions": [_chain_table([])],
                 "wbr_rows": [_chain_table([{"id": "r1", "row_label": "Screen Shine | Go", "active": True}])],
             }
         )
@@ -50,6 +51,8 @@ class TestAsinMappingService:
         assert len(items) == 1
         assert items[0]["mapped_row_id"] == "r1"
         assert items[0]["mapped_row_label"] == "Screen Shine | Go"
+        assert items[0]["scope_status"] == "included"
+        assert items[0]["is_excluded"] is False
 
     def test_set_child_asin_mapping_creates_new_manual_mapping(self):
         db = _multi_table_db(
@@ -60,6 +63,7 @@ class TestAsinMappingService:
                     _chain_table([]),  # active mapping lookup
                     _chain_table([{"id": "m1", "child_asin": "B012345678", "row_id": "r1"}]),  # insert
                 ],
+                "wbr_asin_exclusions": [_chain_table([])],
                 "wbr_rows": [_chain_table([{"id": "r1", "profile_id": "p1", "row_kind": "leaf", "row_label": "Screen Shine | Go", "active": True}])],
             }
         )
@@ -84,6 +88,7 @@ class TestAsinMappingService:
                     _chain_table([{"id": "m1", "child_asin": "B012345678", "row_id": "r1"}]),  # active mapping lookup
                     _chain_table([{"id": "m1", "active": False}]),  # deactivate
                 ],
+                "wbr_asin_exclusions": [_chain_table([])],
             }
         )
 
@@ -103,6 +108,7 @@ class TestAsinMappingService:
                 "wbr_profiles": [_chain_table([{"id": "p1"}])],
                 "wbr_profile_child_asins": [_chain_table([{"child_asin": "B012345678"}])],
                 "wbr_asin_row_map": [_chain_table([])],
+                "wbr_asin_exclusions": [_chain_table([])],
                 "wbr_rows": [_chain_table([{"id": "r1", "profile_id": "p1", "row_kind": "parent", "row_label": "Parent"}])],
             }
         )
@@ -136,6 +142,7 @@ class TestAsinMappingService:
                     )
                 ],
                 "wbr_asin_row_map": [_chain_table([{"child_asin": "B012345678", "row_id": "r1"}])],
+                "wbr_asin_exclusions": [_chain_table([])],
                 "wbr_rows": [_chain_table([{"id": "r1", "row_label": "Screen Shine | Go", "active": True}])],
             }
         )
@@ -143,8 +150,8 @@ class TestAsinMappingService:
         svc = AsinMappingService(db)
         csv_text = svc.export_child_asin_mapping_csv("p1")
 
-        assert "child_asin,child_sku,child_product_name,row_label" in csv_text
-        assert "B012345678,SKU-1,Widget A,Screen Shine | Go" in csv_text
+        assert "child_asin,child_sku,child_product_name,row_label,scope_status,exclusion_reason" in csv_text
+        assert "B012345678,SKU-1,Widget A,Screen Shine | Go,included," in csv_text
 
     def test_import_child_asin_mapping_csv_applies_updates_and_clears(self):
         csv_text = (
@@ -176,6 +183,9 @@ class TestAsinMappingService:
                     ]),
                     _chain_table([{"id": "m2", "active": False}]),
                 ],
+                "wbr_asin_exclusions": [
+                    _chain_table([]),
+                ],
             }
         )
 
@@ -191,6 +201,7 @@ class TestAsinMappingService:
             "rows_read": 2,
             "rows_updated": 0,
             "rows_cleared": 1,
+            "rows_excluded": 0,
             "rows_unchanged": 1,
         }
 
@@ -212,6 +223,7 @@ class TestAsinMappingService:
                 "wbr_rows": [
                     _chain_table([{"id": "r1", "row_label": "Row 1", "active": True}]),
                 ],
+                "wbr_asin_exclusions": [_chain_table([])],
             }
         )
 
@@ -242,6 +254,7 @@ class TestAsinMappingService:
                 "wbr_asin_row_map": [
                     _chain_table([{"id": "m1", "child_asin": "B012345678", "row_id": "r1"}]),
                 ],
+                "wbr_asin_exclusions": [_chain_table([])],
                 "wbr_rows": [
                     _chain_table([{"id": "r1", "row_label": "Row 1", "active": True}]),
                 ],
@@ -260,6 +273,7 @@ class TestAsinMappingService:
             "rows_read": 1,
             "rows_updated": 0,
             "rows_cleared": 0,
+            "rows_excluded": 0,
             "rows_unchanged": 1,
         }
 
@@ -288,6 +302,7 @@ class TestAsinMappingService:
                     insert_first,
                     insert_second,
                 ],
+                "wbr_asin_exclusions": [_chain_table([])],
             }
         )
 
@@ -303,7 +318,112 @@ class TestAsinMappingService:
             "rows_read": 503,
             "rows_updated": 503,
             "rows_cleared": 0,
+            "rows_excluded": 0,
             "rows_unchanged": 0,
         }
         deactivate_first.in_.assert_called_once()
         deactivate_second.in_.assert_called_once()
+
+    def test_list_child_asins_marks_excluded_scope(self):
+        db = _multi_table_db(
+            {
+                "wbr_profiles": [_chain_table([{"id": "p1"}])],
+                "wbr_profile_child_asins": [
+                    _chain_table(
+                        [
+                            {
+                                "id": "a1",
+                                "profile_id": "p1",
+                                "child_asin": "B012345678",
+                                "child_sku": "SKU-1",
+                                "child_product_name": "Widget A",
+                                "active": True,
+                            }
+                        ]
+                    )
+                ],
+                "wbr_asin_row_map": [_chain_table([])],
+                "wbr_rows": [_chain_table([])],
+                "wbr_asin_exclusions": [_chain_table([{"child_asin": "B012345678", "exclusion_reason": "Out of scope"}])],
+            }
+        )
+
+        items = AsinMappingService(db).list_child_asins("p1")
+
+        assert items[0]["scope_status"] == "excluded"
+        assert items[0]["is_excluded"] is True
+        assert items[0]["exclusion_reason"] == "Out of scope"
+
+    def test_import_child_asin_mapping_csv_supports_exclusions(self):
+        csv_text = (
+            "child_asin,scope_status,exclusion_reason,mapped_row_label\n"
+            "B012345678,excluded,Not agency managed,\n"
+        ).encode("utf-8")
+
+        db = _multi_table_db(
+            {
+                "wbr_profiles": [_chain_table([{"id": "p1"}])],
+                "wbr_profile_child_asins": [_chain_table([{"child_asin": "B012345678", "active": True}])],
+                "wbr_rows": [_chain_table([{"id": "r1", "row_label": "Row 1", "active": True}])],
+                "wbr_asin_row_map": [
+                    _chain_table([{"id": "m1", "child_asin": "B012345678", "row_id": "r1"}]),
+                    _chain_table([{"id": "m1", "active": False}]),
+                ],
+                "wbr_asin_exclusions": [
+                    _chain_table([]),
+                    _chain_table([{"id": "e1"}]),
+                ],
+            }
+        )
+
+        summary = AsinMappingService(db).import_child_asin_mapping_csv(
+            profile_id="p1",
+            file_name="asin-mapping.csv",
+            file_bytes=csv_text,
+            user_id="u1",
+        )
+
+        assert summary == {
+            "rows_read": 1,
+            "rows_updated": 0,
+            "rows_cleared": 0,
+            "rows_excluded": 1,
+            "rows_unchanged": 0,
+        }
+
+    def test_import_child_asin_mapping_csv_clears_existing_exclusion_when_mapping_restored(self):
+        csv_text = (
+            "child_asin,mapped_row_label\n"
+            "B012345678,Row 1\n"
+        ).encode("utf-8")
+
+        db = _multi_table_db(
+            {
+                "wbr_profiles": [_chain_table([{"id": "p1"}])],
+                "wbr_profile_child_asins": [_chain_table([{"child_asin": "B012345678", "active": True}])],
+                "wbr_rows": [_chain_table([{"id": "r1", "row_label": "Row 1", "active": True}])],
+                "wbr_asin_row_map": [
+                    _chain_table([]),
+                    _chain_table([{"id": "m1"}]),
+                ],
+                "wbr_asin_exclusions": [
+                    _chain_table([{"id": "e1", "child_asin": "B012345678"}]),
+                    _chain_table([{"id": "e1", "active": False}]),
+                ],
+            }
+        )
+
+        summary = AsinMappingService(db).import_child_asin_mapping_csv(
+            profile_id="p1",
+            file_name="asin-mapping.csv",
+            file_bytes=csv_text,
+            user_id="u1",
+        )
+
+        assert summary == {
+            "rows_read": 1,
+            "rows_updated": 1,
+            "rows_cleared": 0,
+            "rows_excluded": 0,
+            "rows_unchanged": 0,
+        }
