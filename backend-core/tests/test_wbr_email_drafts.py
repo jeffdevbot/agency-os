@@ -669,3 +669,5 @@ class TestSkillMdPresence:
         assert "list_wbr_profiles" in content
         assert "not inside a code block" in content
         assert "normal Slack mrkdwn text" in content
+        assert "Treat follow-up instructions as revision constraints" in content
+        assert "don't mention inventory" in content
