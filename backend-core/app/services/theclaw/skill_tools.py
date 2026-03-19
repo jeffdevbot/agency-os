@@ -44,9 +44,11 @@ _WBR_LOOKUP_TOOL: dict[str, Any] = {
     "function": {
         "name": "lookup_wbr",
         "description": (
-            "Look up the Weekly Business Review (WBR) snapshot for a client "
-            "and marketplace.  Returns the WBR digest with key metrics on "
-            "success, or an error object if the combination is not found."
+            "Look up the Weekly Business Review (WBR) snapshot for a concrete "
+            "client and marketplace pair. Use this after you have chosen the "
+            "best matching canonical client name. This is not the fuzzy "
+            "discovery step. Returns the WBR digest with key metrics on "
+            "success, or a miss/error object if the combination is not found."
         ),
         "parameters": {
             "type": "object",
@@ -71,8 +73,10 @@ _WBR_LIST_PROFILES_TOOL: dict[str, Any] = {
         "name": "list_wbr_profiles",
         "description": (
             "List the configured WBR client/marketplace profiles so you can "
-            "resolve the best matching client name and marketplace before "
-            "calling lookup_wbr."
+            "resolve the best matching canonical client name and marketplace "
+            "before calling lookup_wbr. Use this when the user gives a short, "
+            "partial, abbreviated, or uncertain client name, or when a prior "
+            "lookup_wbr call misses."
         ),
         "parameters": {
             "type": "object",

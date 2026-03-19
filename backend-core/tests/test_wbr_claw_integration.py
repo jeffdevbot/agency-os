@@ -779,6 +779,96 @@ async def test_runtime_can_recover_via_list_profiles_then_lookup(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_runtime_follow_up_marketplace_reply_can_recover_partial_client_via_profile_listing(monkeypatch):
+    """When the follow-up turn is only the marketplace, the model still has enough history to discover and retry."""
+    from tests.theclaw_runtime_test_fakes import FakeSession, FakeSlackService
+    from app.services.theclaw.slack_minimal_runtime import run_theclaw_minimal_dm_turn
+
+    fake_slack = FakeSlackService()
+    preloaded_session = FakeSession(context={
+        "theclaw_history_v1": [
+            {"role": "user", "content": "How did Basari do?"},
+            {"role": "assistant", "content": "Could you please specify the marketplace for Basari?"},
+        ]
+    })
+
+    class _SessionService:
+        def __init__(self, session):
+            self._session = session
+            self.updated: list[tuple[str, dict]] = []
+
+        def get_active_session(self, slack_user_id):
+            _ = slack_user_id
+            return self._session
+
+        def ensure_session_profile_link(self, session):
+            return session
+
+        def get_profile_id_by_slack_user_id(self, slack_user_id):
+            _ = slack_user_id
+            return None
+
+        def create_session(self, slack_user_id, profile_id):
+            _ = (slack_user_id, profile_id)
+            return self._session
+
+        def update_context(self, session_id, context_updates):
+            self.updated.append((session_id, context_updates))
+            self._session.context.update(context_updates)
+
+    fake_session_service = _SessionService(preloaded_session)
+    calls: list[dict[str, object]] = []
+
+    async def _fake_call_chat_completion(**kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            return _make_fake_llm_response('{"skill_id":"wbr_summary","confidence":0.95,"reason":"follow-up marketplace for wbr"}')
+        if len(calls) == 2:
+            return _make_fake_llm_response(
+                "",
+                tool_calls=[_make_tool_call(call_id="call_1", name="list_wbr_profiles", arguments={})],
+            )
+        if len(calls) == 3:
+            return _make_fake_llm_response(
+                "",
+                tool_calls=[_make_tool_call(call_id="call_2", name="lookup_wbr", arguments={"client": "Basari World", "marketplace": "MX"})],
+            )
+        return _make_fake_llm_response(
+            "*WBR Summary — Basari World MX*\nWeek ending 2026-03-15\n"
+            "---THECLAW_STATE_JSON---\n{\"context_updates\":{}}\n---END_THECLAW_STATE_JSON---"
+        )
+
+    monkeypatch.setattr(
+        "app.services.theclaw.wbr_skill_bridge.list_wbr_profiles",
+        lambda: {"profiles": [{"client_name": "Basari World", "display_name": "Basari World", "marketplace_code": "MX"}]},
+    )
+    monkeypatch.setattr(
+        "app.services.theclaw.wbr_skill_bridge.lookup_wbr_digest",
+        lambda client, market: {"digest_version": "wbr_digest_v1", "profile": {"client_name": client}, "marketplace_code": market},
+    )
+    monkeypatch.setattr("app.services.theclaw.slack_minimal_runtime.get_slack_service", lambda: fake_slack)
+    monkeypatch.setattr("app.services.theclaw.slack_minimal_runtime.call_chat_completion", _fake_call_chat_completion)
+    monkeypatch.setattr("app.services.theclaw.slack_minimal_runtime._get_session_service", lambda: fake_session_service)
+
+    await run_theclaw_minimal_dm_turn(slack_user_id="U31B", channel="D31B", text="mx")
+
+    assert len(calls) == 4
+    # Skill execution should see prior Basari context in history.
+    history_user_messages = [
+        m["content"]
+        for m in calls[1]["messages"]
+        if m.get("role") == "user"
+    ]
+    assert "How did Basari do?" in history_user_messages
+    assert history_user_messages[-1] == "mx"
+    tool_msgs = [m for m in calls[3]["messages"] if m.get("role") == "tool"]
+    assert len(tool_msgs) == 2
+    assert "Basari World" in tool_msgs[0]["content"]
+    assert "wbr_digest_v1" in tool_msgs[1]["content"]
+    assert "Basari World MX" in fake_slack.messages[0]["text"]
+
+
+@pytest.mark.asyncio
 async def test_runtime_tool_budget_exhaustion(monkeypatch):
     """If the model keeps calling tools past the budget, runtime returns fallback."""
     from app.services.theclaw import slack_minimal_runtime

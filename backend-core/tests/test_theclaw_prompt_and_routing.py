@@ -30,6 +30,18 @@ def test_build_system_prompt_includes_selected_skill_contract():
     assert "internal clickup tasks (agency)" in prompt
 
 
+def test_wbr_summary_skill_prompt_prefers_profile_listing_for_partial_names():
+    skill = get_skill_by_id("wbr_summary")
+    assert skill is not None
+    prompt = skill.system_prompt.lower()
+    assert "lookup_wbr" in prompt
+    assert "list_wbr_profiles" in prompt
+    assert "not a fuzzy search tool" in prompt
+    assert "partial, abbreviated" in prompt
+    assert "then replied `mx`" in prompt
+    assert "retry once with the closest match" in prompt
+
+
 def test_build_system_prompt_includes_existing_draft_tasks_for_task_extraction():
     skill = get_skill_by_id("task_extraction")
     assert skill is not None
