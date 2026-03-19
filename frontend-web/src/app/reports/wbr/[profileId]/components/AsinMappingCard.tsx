@@ -1,9 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { WbrChildAsinItem } from "../../_lib/asinMappingApi";
 import type { ImportWbrChildAsinMappingSummary } from "../../_lib/asinMappingApi";
 import type { WbrRow } from "../../_lib/wbrApi";
+
+const COLLAPSED_ROW_COUNT = 50;
 
 type Props = {
   loading: boolean;
@@ -58,8 +60,20 @@ export default function AsinMappingCard({
   onUploadCsv,
 }: Props) {
   const [selectedCsvFile, setSelectedCsvFile] = useState<File | null>(null);
+  const [visibleCount, setVisibleCount] = useState(COLLAPSED_ROW_COUNT);
   const activeLeafRows = leafRows.filter((row) => row.active);
   const leafRowById = Object.fromEntries(leafRows.map((row) => [row.id, row]));
+  const shouldCollapse = search.trim().length === 0 && !unmappedOnly;
+
+  useEffect(() => {
+    setVisibleCount(COLLAPSED_ROW_COUNT);
+  }, [childAsins.length, search, unmappedOnly]);
+
+  const visibleChildAsins = useMemo(
+    () => (shouldCollapse ? childAsins.slice(0, visibleCount) : childAsins),
+    [childAsins, shouldCollapse, visibleCount]
+  );
+  const remainingCount = shouldCollapse ? Math.max(childAsins.length - visibleCount, 0) : 0;
 
   return (
     <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5">
@@ -241,7 +255,7 @@ export default function AsinMappingCard({
                 </td>
               </tr>
             ) : (
-              childAsins.map((item) => {
+              visibleChildAsins.map((item) => {
                 const selectedRowId = draftRowIds[item.child_asin] ?? "";
                 const currentInactiveRow =
                   selectedRowId && leafRowById[selectedRowId] && leafRowById[selectedRowId].active === false
@@ -317,6 +331,29 @@ export default function AsinMappingCard({
           </tbody>
         </table>
       </div>
+
+      {shouldCollapse && childAsins.length > COLLAPSED_ROW_COUNT ? (
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          {remainingCount > 0 ? (
+            <button
+              type="button"
+              onClick={() => setVisibleCount((count) => count + COLLAPSED_ROW_COUNT)}
+              className="rounded-full border border-[#cbd5e1] bg-white px-4 py-2 text-sm font-semibold text-[#334155] transition hover:border-[#94a3b8] hover:text-[#0f172a]"
+            >
+              See more ({Math.min(remainingCount, COLLAPSED_ROW_COUNT)} more)
+            </button>
+          ) : null}
+          {visibleCount > COLLAPSED_ROW_COUNT ? (
+            <button
+              type="button"
+              onClick={() => setVisibleCount(COLLAPSED_ROW_COUNT)}
+              className="rounded-full px-4 py-2 text-sm font-semibold text-[#64748b] transition hover:text-[#0f172a]"
+            >
+              Show fewer
+            </button>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }
