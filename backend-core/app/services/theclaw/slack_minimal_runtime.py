@@ -210,14 +210,25 @@ def _build_execution_grounding_note(round_tools: list[tuple[str, str]]) -> str:
         )
 
     if "tool_error" in outcomes:
-        if "read_only_success" in outcomes:
-            prefix = "Some tools retrieved data successfully but others encountered errors."
+        if "read_only_success" in outcomes or "read_only_miss" in outcomes:
+            prefix = "Some tools retrieved data or executed normally but others encountered errors."
         else:
             prefix = "The tool(s) encountered errors."
         return (
             f"{prefix} "
             "No external systems were modified. "
             "Do not claim to have performed any external action."
+        )
+
+    if "read_only_miss" in outcomes:
+        if "read_only_success" in outcomes:
+            prefix = "Some tools retrieved data but others found no matching profile or data."
+        else:
+            prefix = "The tool(s) executed but found no matching profile or data."
+        return (
+            f"{prefix} "
+            "No external systems were modified. "
+            "Do not claim the requested data was successfully retrieved."
         )
 
     # All read_only_success
@@ -228,16 +239,16 @@ def _build_execution_grounding_note(round_tools: list[tuple[str, str]]) -> str:
     )
 
 
-def _parse_skill_selection(raw_text: str) -> tuple[str | None, float]:
+def _parse_skill_selection(raw_text: str) -> tuple[str | None, float, str]:
     """Parse skill-selection JSON.  response_format=json_object guarantees clean JSON."""
     text = (raw_text or "").strip()
     try:
         payload = json.loads(text)
     except (json.JSONDecodeError, TypeError):
-        return None, 0.0
+        return None, 0.0, ""
 
     if not isinstance(payload, dict):
-        return None, 0.0
+        return None, 0.0, ""
 
     skill_id_value = str(payload.get("skill_id") or "").strip().lower()
     confidence_raw = payload.get("confidence", 0)
@@ -246,9 +257,10 @@ def _parse_skill_selection(raw_text: str) -> tuple[str | None, float]:
     except (TypeError, ValueError):
         confidence = 0.0
 
+    reason = str(payload.get("reason") or "").strip()
     if skill_id_value in {"", "none", "null"}:
-        return None, max(0.0, min(1.0, confidence))
-    return skill_id_value, max(0.0, min(1.0, confidence))
+        return None, max(0.0, min(1.0, confidence)), reason
+    return skill_id_value, max(0.0, min(1.0, confidence)), reason
 
 
 async def _select_skill_for_turn(
@@ -276,21 +288,21 @@ async def _select_skill_for_turn(
         _logger.warning("The Claw skill selection failed, falling back to no skill: %s", exc)
         return None
 
-    selected_skill_id, confidence = _parse_skill_selection(selection_response["content"])
+    selected_skill_id, confidence, reason = _parse_skill_selection(selection_response["content"])
     if not selected_skill_id:
+        _logger.info(f"The Claw skill selection decided no skill is needed | confidence={confidence} reason='{reason}'")
         return None
 
     selected_skill = get_skill_by_id(selected_skill_id)
     if selected_skill is None:
-        _logger.warning("The Claw selected unknown skill id '%s'", selected_skill_id)
+        _logger.warning(f"The Claw selected unknown skill id '{selected_skill_id}' | confidence={confidence} reason='{reason}'")
         return None
 
     if confidence < 0.45:
-        _logger.info(
-            "The Claw skill selection confidence too low; skipping skill",
-            extra={"skill_id": selected_skill_id, "confidence": confidence},
-        )
+        _logger.info(f"The Claw skill selection confidence too low; skipping skill | skill_id={selected_skill_id} confidence={confidence} reason='{reason}'")
         return None
+
+    _logger.info(f"The Claw selected skill | skill_id={selected_skill_id} confidence={confidence} reason='{reason}'")
     return selected_skill
 
 
@@ -298,6 +310,8 @@ async def run_theclaw_minimal_dm_turn(*, slack_user_id: str, channel: str, text:
     user_text = (text or "").strip()
     if not user_text:
         return
+
+    _logger.info(f"The Claw minimal turn started | slack_user_id={slack_user_id} channel={channel} text_len={len(user_text)}")
 
     session = None
     session_context: dict[str, Any] = {}
@@ -328,16 +342,25 @@ async def run_theclaw_minimal_dm_turn(*, slack_user_id: str, channel: str, text:
 
     if session_service is not None:
         try:
-            session = session_service.get_or_create_session(slack_user_id)
+            existing_session = session_service.get_active_session(slack_user_id)
+            if existing_session:
+                session = session_service.ensure_session_profile_link(existing_session)
+                _logger.info(f"The Claw found active session | session_id={session.id}")
+            else:
+                profile_id = session_service.get_profile_id_by_slack_user_id(slack_user_id)
+                session = session_service.create_session(slack_user_id=slack_user_id, profile_id=profile_id)
+                _logger.info(f"The Claw created new session | session_id={session.id}")
+
             session_context = getattr(session, "context", {})
             history_messages = _history_from_session_context(session_context)
             pending_confirmation = _pending_confirmation_from_session_context(session_context)
         except Exception as exc:  # noqa: BLE001
-            _logger.warning("The Claw session retrieval failed: %s", exc)
+            _logger.warning("The Claw session retrieval/creation failed: %s", exc)
             session = None
             session_context = {}
             history_messages = []
             pending_confirmation = None
+            _logger.info("The Claw active session not found or unavailable")
 
     if pending_confirmation is not None:
         reply_text, state_updates = await _build_pending_confirmation_reply(
@@ -420,6 +443,9 @@ async def run_theclaw_minimal_dm_turn(*, slack_user_id: str, channel: str, text:
             # The LLM can call tools, see results, and call more tools
             # until it produces a final text reply or the budget runs out.
             tool_budget_exhausted = False
+            total_tool_calls_this_turn = 0
+            total_tool_rounds_this_turn = 0
+            
             for _tool_turn in range(_MAX_TOOL_TURNS):
                 response = await call_chat_completion(
                     messages=llm_messages,
@@ -433,6 +459,9 @@ async def run_theclaw_minimal_dm_turn(*, slack_user_id: str, channel: str, text:
 
                 # Model wants to call tools — execute and loop.
                 from .skill_tools import execute_skill_tool_call
+
+                total_tool_rounds_this_turn += 1
+                total_tool_calls_this_turn += len(response["tool_calls"])
 
                 llm_messages.append({
                     "role": "assistant",
@@ -483,6 +512,16 @@ async def run_theclaw_minimal_dm_turn(*, slack_user_id: str, channel: str, text:
                     state_updates=state_updates,
                     session_context=session_context,
                 )
+
+            _logger.info(
+                f"The Claw turn completion | "
+                f"answered_directly={total_tool_rounds_this_turn == 0} "
+                f"tool_rounds={total_tool_rounds_this_turn} "
+                f"tool_calls={total_tool_calls_this_turn} "
+                f"budget_exhausted={tool_budget_exhausted} "
+                f"reply_length={len(reply_text)} "
+                f"session_updated={bool(state_updates)}"
+            )
         except OpenAIConfigurationError:
             reply_text = "The Claw is not configured yet. Please set OPENAI_API_KEY and try again."
             state_updates = {}

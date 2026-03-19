@@ -51,17 +51,18 @@ def test_build_skill_selection_prompt_includes_available_skills_xml():
 
 
 @pytest.mark.parametrize(
-    ("text", "expected_skill", "expected_confidence"),
+    ("text", "expected_skill", "expected_confidence", "expected_reason"),
     [
-        ('{"skill_id":"task_extraction","confidence":0.8,"reason":"meeting notes"}', "task_extraction", 0.8),
-        ('{"skill_id":"none","confidence":0.31,"reason":"none"}', None, 0.31),
-        ("not-json", None, 0.0),
+        ('{"skill_id":"task_extraction","confidence":0.8,"reason":"meeting notes"}', "task_extraction", 0.8, "meeting notes"),
+        ('{"skill_id":"none","confidence":0.31,"reason":"none"}', None, 0.31, "none"),
+        ("not-json", None, 0.0, ""),
     ],
 )
-def test_parse_skill_selection(text: str, expected_skill: str | None, expected_confidence: float):
-    skill_id, confidence = _parse_skill_selection(text)
+def test_parse_skill_selection(text: str, expected_skill: str | None, expected_confidence: float, expected_reason: str):
+    skill_id, confidence, reason = _parse_skill_selection(text)
     assert skill_id == expected_skill
     assert confidence == expected_confidence
+    assert reason == expected_reason
 
 
 def test_append_turn_and_cap_history_limits_to_25_turns():
@@ -221,7 +222,7 @@ def test_grounding_note_tool_error():
 def test_grounding_note_tool_error_mixed_with_read_only():
     """Mix of successful read-only and errored tools."""
     note = _build_execution_grounding_note([("lookup_wbr", "read_only_success"), ("other", "tool_error")])
-    assert "some tools retrieved data" in note.lower()
+    assert "retrieved data or executed normally" in note.lower()
     assert "error" in note.lower()
     assert "no external systems were modified" in note.lower()
 
@@ -231,6 +232,21 @@ def test_grounding_note_mutation_executed_overrides_errors():
     note = _build_execution_grounding_note([("create_task", "mutation_executed"), ("other", "tool_error")])
     assert "modified external systems" in note.lower()
     assert "report" in note.lower()
+
+
+def test_grounding_note_read_only_miss_only():
+    """Read-only tool executes but finds no data/profile."""
+    note = _build_execution_grounding_note([("lookup_wbr", "read_only_miss")])
+    assert "found no matching profile or data" in note.lower()
+    assert "no external systems were modified" in note.lower()
+    assert "do not claim the requested data was successfully retrieved" in note.lower()
+
+
+def test_grounding_note_read_only_miss_mixed_with_success():
+    """Mix of successful read-only tools and read-only misses."""
+    note = _build_execution_grounding_note([("lookup_wbr", "read_only_miss"), ("other", "read_only_success")])
+    assert "some tools retrieved data but others found no matching profile" in note.lower()
+    assert "no external systems were modified" in note.lower()
 
 
 # ---------------------------------------------------------------------------

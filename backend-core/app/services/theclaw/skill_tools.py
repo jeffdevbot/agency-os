@@ -14,6 +14,7 @@ from typing import Any, Literal, TypedDict
 
 ToolOutcome = Literal[
     "read_only_success",
+    "read_only_miss",
     "mutation_executed",
     "mutation_not_executed",
     "tool_error",
@@ -165,10 +166,19 @@ async def execute_skill_tool_call(
     except json.JSONDecodeError:
         args = {}
 
+    safe_args = {}
+    for k in ("client", "marketplace", "skill_id", "tool_name", "action", "status"):
+        if k in args:
+            safe_args[k] = str(args[k])[:50]
+    arg_summary = ", ".join(f"{k}='{v}'" for k, v in safe_args.items())
+    keys_present = ",".join(args.keys())
+
+    _logger.info(f"The Claw executing tool | skill_id={skill_id} tool_name={tool_name} keys=[{keys_present}] safe_args=[{arg_summary}]")
+
     try:
         result = await handler(args)
     except Exception as exc:  # noqa: BLE001
-        _logger.warning("Skill tool '%s' failed: %s", tool_name, exc)
+        _logger.warning(f"Skill tool '{tool_name}' failed: {exc} | skill_id={skill_id}")
         return ToolCallResult(
             content=json.dumps({"error": f"Tool execution failed: {exc}"}),
             outcome="tool_error",
@@ -177,12 +187,32 @@ async def execute_skill_tool_call(
     content = json.dumps(result, default=str, ensure_ascii=True)
     mutates = bool(entry.get("mutates", {}).get(tool_name, True))
     is_error_result = isinstance(result, dict) and "error" in result
+    is_miss_result = isinstance(result, dict) and result.get("status") in {"no_profile", "no_data"}
 
     if is_error_result:
         outcome: ToolOutcome = "mutation_not_executed" if mutates else "tool_error"
+    elif is_miss_result and not mutates:
+        outcome: ToolOutcome = "read_only_miss"
     elif not mutates:
         outcome = "read_only_success"
     else:
         outcome = "mutation_executed"
+
+    if isinstance(result, dict):
+        status_val = str(result.get("status", ""))
+        version_val = str(result.get("digest_version", ""))
+        res_summary = ""
+        if status_val:
+            res_summary += f"status='{status_val}' "
+        if version_val:
+            res_summary += f"version='{version_val}'"
+        res_keys = ",".join(result.keys())
+    else:
+        res_summary = f"type='{type(result).__name__}'"
+        res_keys = ""
+
+    _logger.info(
+        f"The Claw tool execution completed | skill_id={skill_id} tool_name={tool_name} outcome={outcome} keys=[{res_keys}] result_summary=[{res_summary.strip()}]"
+    )
 
     return ToolCallResult(content=content, outcome=outcome)

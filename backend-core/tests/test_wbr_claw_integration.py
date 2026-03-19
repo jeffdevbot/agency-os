@@ -426,7 +426,9 @@ def _make_tool_call(*, call_id="call_1", name="lookup_wbr", arguments=None):
 
 
 @pytest.mark.asyncio
-async def test_runtime_tool_use_full_flow(monkeypatch):
+async def test_runtime_tool_use_full_flow(monkeypatch, caplog):
+    import logging
+    caplog.set_level(logging.INFO, logger="app.services.theclaw")
     """LLM selects skill → calls lookup_wbr tool → gets digest → formats summary."""
     from app.services.theclaw.slack_minimal_runtime import run_theclaw_minimal_dm_turn
     from tests.theclaw_runtime_test_fakes import FakeSessionService, FakeSlackService
@@ -482,9 +484,20 @@ async def test_runtime_tool_use_full_flow(monkeypatch):
     assert len(fake_slack.messages) == 1
     assert "*WBR Summary — Whoosh US*" in fake_slack.messages[0]["text"]
 
+    logs = caplog.text
+    assert "The Claw minimal turn started | slack_user_id=U20 channel=D20 text_len=21" in logs
+    assert "The Claw selected skill | skill_id=wbr_summary confidence=0.95 reason='wbr request'" in logs
+    assert "The Claw executing tool | skill_id=wbr_summary tool_name=lookup_wbr" in logs
+    assert "client='Whoosh'" in logs
+    assert "marketplace='US'" in logs
+    assert "The Claw tool execution completed | skill_id=wbr_summary tool_name=lookup_wbr outcome=read_only_success" in logs
+    assert "The Claw turn completion | answered_directly=False tool_rounds=1 tool_calls=1 budget_exhausted=False" in logs
+
 
 @pytest.mark.asyncio
-async def test_runtime_llm_asks_for_clarification_without_tool(monkeypatch):
+async def test_runtime_llm_asks_for_clarification_without_tool(monkeypatch, caplog):
+    import logging
+    caplog.set_level(logging.INFO, logger="app.services.theclaw")
     """Ambiguous request → LLM asks for clarification without calling any tool."""
     from app.services.theclaw.slack_minimal_runtime import run_theclaw_minimal_dm_turn
     from tests.theclaw_runtime_test_fakes import FakeSessionService, FakeSlackService
@@ -509,10 +522,13 @@ async def test_runtime_llm_asks_for_clarification_without_tool(monkeypatch):
 
     await run_theclaw_minimal_dm_turn(slack_user_id="U21", channel="D21", text="show me the WBR")
 
-    # Only 2 LLM calls: selection + direct response (no tool call)
     assert len(calls) == 2
     assert len(fake_slack.messages) == 1
     assert "client" in fake_slack.messages[0]["text"].lower() or "marketplace" in fake_slack.messages[0]["text"].lower()
+
+    logs = caplog.text
+    assert "The Claw selected skill | skill_id=wbr_summary" in logs
+    assert "The Claw turn completion | answered_directly=True tool_rounds=0 tool_calls=0" in logs
 
 
 @pytest.mark.asyncio
@@ -544,7 +560,9 @@ async def test_runtime_no_tools_for_non_wbr_skill(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_runtime_tool_returns_no_profile(monkeypatch):
+async def test_runtime_tool_returns_no_profile(monkeypatch, caplog):
+    import logging
+    caplog.set_level(logging.INFO, logger="app.services.theclaw")
     """Tool returns no_profile error → LLM tells user naturally."""
     from app.services.theclaw.slack_minimal_runtime import run_theclaw_minimal_dm_turn
     from tests.theclaw_runtime_test_fakes import FakeSessionService, FakeSlackService
@@ -583,6 +601,13 @@ async def test_runtime_tool_returns_no_profile(monkeypatch):
     assert "no_profile" in tool_msg[0]["content"]
     # LLM response is natural
     assert "FakeClient" in fake_slack.messages[0]["text"]
+
+    logs = caplog.text
+    assert "The Claw executing tool | skill_id=wbr_summary tool_name=lookup_wbr" in logs
+    assert "client='FakeClient'" in logs
+    assert "marketplace='US'" in logs
+    assert "The Claw tool execution completed | skill_id=wbr_summary tool_name=lookup_wbr outcome=read_only_miss" in logs
+    assert "status='no_profile'" in logs
 
 
 @pytest.mark.asyncio
