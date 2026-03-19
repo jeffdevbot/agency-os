@@ -17,6 +17,7 @@ CSV_IMPORT_COLUMN_ALIASES = {
     "exclusion_reason": {"exclusion_reason", "exclusion reason", "reason", "notes"},
 }
 _BATCH_SIZE = 500
+_PAGE_SIZE = 1000
 _EXCLUDE_STATUSES = {"exclude", "excluded", "ignore", "ignored", "out_of_scope", "out of scope"}
 _CLEAR_STATUSES = {"", "include", "included", "clear", "cleared"}
 
@@ -61,20 +62,21 @@ class CampaignExclusionService:
         return rows
 
     def export_exclusions_csv(self, profile_id: str) -> str:
-        items = self.list_exclusions(profile_id)
+        self._get_profile(profile_id)
+        active_exclusions = self._list_active_exclusions_by_campaign(profile_id)
+        campaign_names = self._list_known_campaign_names(profile_id)
         output = io.StringIO()
         writer = csv.DictWriter(
             output,
-            fieldnames=["campaign_name", "scope_status", "exclusion_reason"],
+            fieldnames=["campaign_name", "scope_status"],
             lineterminator="\n",
         )
         writer.writeheader()
-        for item in items:
+        for campaign_name in campaign_names:
             writer.writerow(
                 {
-                    "campaign_name": item.get("campaign_name") or "",
-                    "scope_status": "excluded",
-                    "exclusion_reason": item.get("exclusion_reason") or "",
+                    "campaign_name": campaign_name,
+                    "scope_status": "excluded" if campaign_name in active_exclusions else "",
                 }
             )
         return output.getvalue()
@@ -180,19 +182,42 @@ class CampaignExclusionService:
             raise WBRValidationError("Campaign exclusion import supports .csv files only")
 
     def _list_active_exclusions_by_campaign(self, profile_id: str) -> dict[str, dict[str, Any]]:
-        response = (
-            self.db.table("wbr_campaign_exclusions")
-            .select("id, campaign_name")
-            .eq("profile_id", profile_id)
-            .eq("active", True)
-            .execute()
+        rows = self._select_all(
+            "wbr_campaign_exclusions",
+            "id, campaign_name",
+            [
+                ("eq", "profile_id", profile_id),
+                ("eq", "active", True),
+            ],
         )
-        rows = response.data if isinstance(response.data, list) else []
         return {
             str(row["campaign_name"]): row
             for row in rows
             if isinstance(row, dict) and row.get("campaign_name")
         }
+
+    def _list_known_campaign_names(self, profile_id: str) -> list[str]:
+        facts = self._select_all(
+            "wbr_ads_campaign_daily",
+            "campaign_name",
+            [
+                ("eq", "profile_id", profile_id),
+            ],
+        )
+        exclusions = self._select_all(
+            "wbr_campaign_exclusions",
+            "campaign_name",
+            [
+                ("eq", "profile_id", profile_id),
+                ("eq", "active", True),
+            ],
+        )
+        names = {
+            str(row["campaign_name"]).strip()
+            for row in [*facts, *exclusions]
+            if isinstance(row, dict) and str(row.get("campaign_name") or "").strip()
+        }
+        return sorted(names, key=str.lower)
 
     def _deactivate_exclusion_ids(self, exclusion_ids: list[str], *, user_id: str | None = None) -> None:
         if not exclusion_ids:
@@ -218,3 +243,29 @@ class CampaignExclusionService:
             rows = response.data if isinstance(response.data, list) else []
             if len(rows) != len(chunk):
                 raise WBRValidationError("Failed to save campaign exclusions")
+
+    def _select_all(
+        self,
+        table_name: str,
+        columns: str,
+        filters: list[tuple[str, str, Any]],
+        *,
+        page_size: int = _PAGE_SIZE,
+    ) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        offset = 0
+
+        while True:
+            query = self.db.table(table_name).select(columns)
+            for op, field, value in filters:
+                query = getattr(query, op)(field, value)
+
+            response = query.range(offset, offset + page_size - 1).execute()
+            batch = response.data if isinstance(response.data, list) else []
+            rows.extend(batch)
+
+            if len(batch) < page_size:
+                break
+            offset += page_size
+
+        return rows

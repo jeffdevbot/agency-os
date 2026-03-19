@@ -17,6 +17,7 @@ def _chain_table(response_data: list[dict] | None = None) -> MagicMock:
     table.update.return_value = table
     table.in_.return_value = table
     table.eq.return_value = table
+    table.range.return_value = table
     table.limit.return_value = table
     table.order.return_value = table
     table.execute.return_value = MagicMock(data=response_data if response_data is not None else [])
@@ -59,6 +60,32 @@ def test_list_exclusions_returns_active_items():
 
     assert len(items) == 1
     assert items[0]["campaign_name"] == "Legacy Campaign"
+
+
+def test_export_exclusions_csv_includes_all_known_campaigns_with_blank_default():
+    db = _multi_table_db(
+        {
+            "wbr_profiles": [_chain_table([{"id": "p1"}])],
+            "wbr_campaign_exclusions": [
+                _chain_table([{"id": "e1", "campaign_name": "Legacy Campaign"}]),
+                _chain_table([{"campaign_name": "Legacy Campaign"}]),
+            ],
+            "wbr_ads_campaign_daily": [
+                _chain_table(
+                    [
+                        {"campaign_name": "Legacy Campaign"},
+                        {"campaign_name": "Brand Campaign"},
+                    ]
+                )
+            ],
+        }
+    )
+
+    csv_text = CampaignExclusionService(db).export_exclusions_csv("p1")
+
+    assert csv_text.startswith("campaign_name,scope_status\n")
+    assert "Brand Campaign,\n" in csv_text
+    assert "Legacy Campaign,excluded\n" in csv_text
 
 
 def test_import_exclusions_csv_adds_new_exclusions():

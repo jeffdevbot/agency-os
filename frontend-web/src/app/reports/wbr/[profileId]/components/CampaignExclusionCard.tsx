@@ -75,9 +75,8 @@ export default function CampaignExclusionCard({
           <div>
             <p className="text-sm font-semibold text-[#0f172a]">Bulk CSV Setup</p>
             <p className="mt-1 text-sm text-[#4c576f]">
-              Use `campaign_name`, `scope_status`, and optional `exclusion_reason`. Set
-              `scope_status` to `excluded` to ignore a campaign, or `clear` to remove an existing
-              exclusion.
+              Download all known campaigns for this profile, then set `scope_status` to `excluded`
+              for any out-of-scope campaigns. Leave it blank to keep a campaign included.
             </p>
           </div>
           <button
@@ -115,7 +114,10 @@ export default function CampaignExclusionCard({
         </div>
 
         <div className="mt-3 space-y-1 text-xs text-[#64748b]">
-          <p>CSV only. Use one campaign name per row. Current exclusions are included in the export.</p>
+          <p>
+            CSV only. The export includes all known campaigns for this profile. Change only the
+            rows you want to exclude.
+          </p>
           {selectedCsvFile ? <p>Selected: {selectedCsvFile.name}</p> : null}
         </div>
 
@@ -158,7 +160,6 @@ export default function CampaignExclusionCard({
           <thead className="bg-[#f7faff]">
             <tr className="text-xs font-semibold uppercase tracking-wide text-[#4c576f]">
               <th className="px-3 py-2">Campaign</th>
-              <th className="px-3 py-2">Reason</th>
               <th className="px-3 py-2">Source</th>
               <th className="px-3 py-2">Updated</th>
             </tr>
@@ -166,13 +167,13 @@ export default function CampaignExclusionCard({
           <tbody className="divide-y divide-slate-200 bg-white">
             {loading ? (
               <tr>
-                <td colSpan={4} className="px-3 py-4 text-[#64748b]">
+                <td colSpan={3} className="px-3 py-4 text-[#64748b]">
                   Loading campaign exclusions...
                 </td>
               </tr>
             ) : items.length === 0 ? (
               <tr>
-                <td colSpan={4} className="px-3 py-4 text-[#64748b]">
+                <td colSpan={3} className="px-3 py-4 text-[#64748b]">
                   No campaign exclusions yet.
                 </td>
               </tr>
@@ -180,7 +181,6 @@ export default function CampaignExclusionCard({
               items.map((item) => (
                 <tr key={item.id} className="hover:bg-slate-50">
                   <td className="px-3 py-2 font-semibold text-[#0f172a]">{item.campaign_name}</td>
-                  <td className="px-3 py-2 text-[#4c576f]">{item.exclusion_reason ?? "—"}</td>
                   <td className="px-3 py-2 text-[#4c576f]">{item.exclusion_source ?? "manual"}</td>
                   <td className="px-3 py-2 text-[#4c576f]">
                     {formatTimestamp(item.updated_at ?? item.created_at)}
