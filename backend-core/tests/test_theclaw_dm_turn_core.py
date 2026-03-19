@@ -41,14 +41,16 @@ async def test_run_theclaw_minimal_dm_turn_posts_model_reply(monkeypatch):
 
     assert len(calls) == 2
     assert calls[0]["temperature"] == 0.0
-    assert calls[0]["max_tokens"] == 160
+    assert calls[0]["max_tokens"] == 256
     assert "<available_skills>" in calls[0]["messages"][0]["content"]
     assert calls[1]["temperature"] == 0.2
-    assert calls[1]["max_tokens"] == 1600
+    assert calls[1]["max_tokens"] == 4096
     messages = calls[1]["messages"]
     assert isinstance(messages, list)
-    assert len(messages) == 2
+    # system prompt + user message + no-tools grounding = 3 messages
+    assert len(messages) == 3
     assert messages[1]["content"] == "Help me with amazon ads"
+    assert "no action tools" in messages[2]["content"].lower()
     assert fake_slack.messages == [{"channel": "D1", "text": "Reply from The Claw"}]
     assert fake_slack.closed is True
     assert len(fake_session_service.updated) == 1

@@ -39,7 +39,7 @@ _SKILL_SELECTION_PROMPT = (
     '{"skill_id":"<skill id or none>","confidence":<0.0-1.0>,"reason":"<brief reason>"}. '
     "Do not include markdown, prose, or code fences."
 )
-_REPLY_MAX_TOKENS = 1600
+_REPLY_MAX_TOKENS = 4096
 _MAX_TOOL_TURNS = 6
 _TOOL_BUDGET_EXHAUSTED_REPLY = (
     "I hit a processing limit while working through that. Please retry with a narrower request."
@@ -325,7 +325,7 @@ async def _select_skill_for_turn(
                 {"role": "user", "content": user_text},
             ],
             temperature=0.0,
-            max_tokens=160,
+            max_tokens=256,
             response_format={"type": "json_object"},
         )
     except OpenAIError as exc:

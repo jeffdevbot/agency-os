@@ -16,14 +16,16 @@ CREATE TABLE IF NOT EXISTS public.wbr_email_drafts (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_wbr_email_drafts_client_created
+CREATE INDEX IF NOT EXISTS idx_wbr_email_drafts_client_created
   ON public.wbr_email_drafts(client_id, created_at DESC);
 
-CREATE INDEX idx_wbr_email_drafts_group_key
+CREATE INDEX IF NOT EXISTS idx_wbr_email_drafts_group_key
   ON public.wbr_email_drafts(snapshot_group_key);
 
 -- Admin-only RLS (consistent with other WBR tables).
 ALTER TABLE public.wbr_email_drafts ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "wbr_email_drafts_admin_all" ON public.wbr_email_drafts;
 
 CREATE POLICY "wbr_email_drafts_admin_all" ON public.wbr_email_drafts
   FOR ALL
@@ -31,13 +33,13 @@ CREATE POLICY "wbr_email_drafts_admin_all" ON public.wbr_email_drafts
     EXISTS (
       SELECT 1 FROM public.profiles
       WHERE profiles.id = auth.uid()
-        AND profiles.team_role = 'admin'
+        AND profiles.is_admin = true
     )
   )
   WITH CHECK (
     EXISTS (
       SELECT 1 FROM public.profiles
       WHERE profiles.id = auth.uid()
-        AND profiles.team_role = 'admin'
+        AND profiles.is_admin = true
     )
   );

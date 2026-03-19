@@ -101,6 +101,7 @@ async def test_call_openai_http_uses_max_completion_tokens_for_gpt5(monkeypatch)
     assert captured_payload["max_completion_tokens"] == 321
     assert "max_tokens" not in captured_payload
     assert "temperature" not in captured_payload
+    assert captured_payload["reasoning_effort"] == "low"
 
 
 @pytest.mark.asyncio
@@ -147,6 +148,7 @@ async def test_call_openai_http_uses_max_tokens_for_non_gpt5(monkeypatch):
     assert captured_payload["max_tokens"] == 123
     assert "max_completion_tokens" not in captured_payload
     assert captured_payload["temperature"] == 0.2
+    assert "reasoning_effort" not in captured_payload
 
 
 @pytest.mark.asyncio
@@ -237,3 +239,73 @@ async def test_call_openai_http_error_includes_finish_reason_and_message_keys(mo
             temperature=0.2,
             max_tokens=321,
         )
+
+
+# ---------------------------------------------------------------------------
+# reasoning_effort helper tests
+# ---------------------------------------------------------------------------
+
+
+def test_get_reasoning_effort_gpt5_returns_low():
+    from app.services.theclaw.openai_client import _get_reasoning_effort
+
+    assert _get_reasoning_effort("gpt-5-mini") == "low"
+    assert _get_reasoning_effort("gpt-5") == "low"
+    assert _get_reasoning_effort("gpt-5-0125") == "low"
+    assert _get_reasoning_effort("GPT-5-Mini") == "low"
+
+
+def test_get_reasoning_effort_non_gpt5_returns_none():
+    from app.services.theclaw.openai_client import _get_reasoning_effort
+
+    assert _get_reasoning_effort("gpt-4o") is None
+    assert _get_reasoning_effort("gpt-4o-mini") is None
+    assert _get_reasoning_effort("o1-mini") is None
+    assert _get_reasoning_effort("") is None
+
+
+@pytest.mark.asyncio
+async def test_call_openai_http_gpt5_full_model_sends_reasoning_effort(monkeypatch):
+    """GPT-5 (non-mini) also gets reasoning_effort=low."""
+    captured_payload: dict[str, object] = {}
+
+    class _FakeResponse:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return {
+                "model": "gpt-5-0125",
+                "choices": [{"message": {"content": "ok"}}],
+                "usage": {"prompt_tokens": 11, "completion_tokens": 7, "total_tokens": 18},
+            }
+
+    class _FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            _ = (args, kwargs)
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url, json, headers):
+            _ = (url, headers)
+            captured_payload.update(json)
+            return _FakeResponse()
+
+    monkeypatch.setattr("app.services.theclaw.openai_client._get_api_key", lambda: "test-key")
+    monkeypatch.setattr("app.services.theclaw.openai_client.httpx.AsyncClient", _FakeAsyncClient)
+
+    result = await _call_openai_http(
+        messages=[{"role": "user", "content": "hello"}],
+        model="gpt-5-0125",
+        temperature=0.2,
+        max_tokens=500,
+    )
+
+    assert result["model"] == "gpt-5-0125"
+    assert captured_payload["reasoning_effort"] == "low"
+    assert captured_payload["max_completion_tokens"] == 500
+    assert "temperature" not in captured_payload

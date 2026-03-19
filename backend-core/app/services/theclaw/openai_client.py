@@ -105,6 +105,19 @@ def _supports_temperature(model: str) -> bool:
     return not normalized.startswith("gpt-5")
 
 
+def _get_reasoning_effort(model: str) -> str | None:
+    """Return the reasoning_effort value for GPT-5 family models.
+
+    ``"low"`` minimises hidden chain-of-thought so more of the completion
+    budget is available for visible content and tool calls.  Returns
+    ``None`` for non-GPT-5 models (parameter is not sent).
+    """
+    normalized = (model or "").strip().lower()
+    if normalized.startswith("gpt-5"):
+        return "low"
+    return None
+
+
 async def _call_openai_http(
     *,
     messages: list[ChatMessage],
@@ -121,6 +134,9 @@ async def _call_openai_http(
     }
     if _supports_temperature(model):
         payload["temperature"] = temperature
+    reasoning_effort = _get_reasoning_effort(model)
+    if reasoning_effort is not None:
+        payload["reasoning_effort"] = reasoning_effort
     if max_tokens is not None:
         token_limit_key = "max_completion_tokens" if _uses_max_completion_tokens(model) else "max_tokens"
         payload[token_limit_key] = max_tokens
