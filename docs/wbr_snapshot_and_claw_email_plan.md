@@ -19,7 +19,9 @@ Important current-shape notes:
 1. The shipped email draft path is **client-level across marketplaces**, not one draft per single profile.
 2. Draft generation now fails fast if included marketplace snapshots do not share the same `week_ending`.
 3. Email-draft client resolution only considers clients with active WBR profiles and requires unique partial matches.
-4. Slack remains the MVP operator surface; there is still no browser draft editor or automated sending path.
+4. Email drafts now render as normal Slack text rather than code blocks, making copy/paste into Gmail or Outlook more practical.
+5. Follow-up instructions such as `make it shorter`, `don't mention inventory`, or `include this commentary` are now treated as draft-revision constraints in the skill contract.
+6. Slack remains the MVP operator surface; there is still no browser draft editor or automated sending path.
 
 ## Goal
 
@@ -91,6 +93,11 @@ In Slack:
 
 The Claw should be able to use the same underlying snapshot/digest for these
 follow-ups.
+
+Current implementation note:
+
+1. Follow-up revisions currently rely on normal Claw conversation history plus explicit revision guidance in the `wbr_weekly_email_draft` skill contract.
+2. There is not yet a separate deterministic "edit prior draft" backend mode.
 
 ### What not to do in MVP
 

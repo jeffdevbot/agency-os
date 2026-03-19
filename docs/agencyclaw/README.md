@@ -5,6 +5,8 @@ Use this folder as the top-level navigation for AgencyClaw documentation.
 ## Current note (2026-03-19)
 - The broader `agencyclaw/` docs still describe the target architecture and the larger legacy/agent-loop system.
 - The currently shipped WBR Slack assistant work lives under `backend-core/app/services/theclaw/`.
+- The currently shipped `theclaw/` Slack runtime is DM-only; channel/app-mention behavior is not implemented yet.
+- The live WBR Slack path is now running successfully on `gpt-5-mini` after GPT-5-family adapter fixes in `theclaw/openai_client.py`.
 - For the live WBR path, read:
   - `backend-core/app/services/theclaw/slack_minimal_runtime.py`
   - `backend-core/app/services/theclaw/skills/README.md`
@@ -39,6 +41,14 @@ For canonical live database structure, use `docs/db/schema_master.md`.
 4. `docs/wbr_snapshot_and_claw_email_plan.md` (for the shipped WBR/Slack slice)
 5. `backend-core/app/services/agencyclaw/README.md`
 6. `docs/agencyclaw/current/30_agencyclaw_debug_chat_runbook.md` (if debugging runtime behavior)
+
+## Current WBR Slack Reality
+- Surface: Slack DM only
+- Live skills:
+  - `wbr_summary`
+  - `wbr_weekly_email_draft`
+- Email drafting supports iterative revision instructions in conversation.
+- There is still no browser email editor or automated send flow.
 
 ## Test Naming
 - The canonical name for the terminal E2E debug test suite is `Claw Gauntlet`.

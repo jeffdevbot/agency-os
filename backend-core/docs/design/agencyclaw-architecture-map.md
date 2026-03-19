@@ -20,7 +20,8 @@ Important production reality right now:
 
 1. `theclaw/` is the live path for WBR summary + WBR weekly email drafting in Slack.
 2. It uses a **skill-selection LLM call** followed by a **selected-skill tool loop**, so it is directionally aligned with the agent-loop design but not yet the final unified OpenClaw-style runtime.
-3. The broader `agencyclaw/` package and agent-loop docs remain the architectural target and long-range reference, not the only production path.
+3. The currently shipped Slack event runtime for `theclaw/` is DM-only; it processes `message` events where `channel_type == "im"` and does not yet handle `app_mention` or general channel messages.
+4. The broader `agencyclaw/` package and agent-loop docs remain the architectural target and long-range reference, not the only production path.
 
 ## 1. Purpose
 This document is the current-state map of the AgencyClaw backend architecture.
