@@ -17,6 +17,7 @@ def _chain_table(response_data: list[dict] | None = None) -> MagicMock:
     table.eq.return_value = table
     table.gte.return_value = table
     table.lte.return_value = table
+    table.order.return_value = table
     table.range.return_value = table
     table.limit.return_value = table
     resp = MagicMock()

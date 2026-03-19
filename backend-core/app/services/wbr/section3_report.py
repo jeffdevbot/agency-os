@@ -445,7 +445,9 @@ class Section3ReportService:
             for op, field, value in filters:
                 query = getattr(query, op)(field, value)
 
-            response = query.range(offset, offset + page_size - 1).execute()
+            # Stable ordering is required when paginating large result sets,
+            # otherwise PostgREST can return overlapping windows.
+            response = query.order("id").range(offset, offset + page_size - 1).execute()
             batch = response.data if isinstance(response.data, list) else []
             rows.extend(batch)
 

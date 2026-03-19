@@ -13,6 +13,7 @@ def _chain_table(response_data: list[dict] | None = None) -> MagicMock:
     table.eq.return_value = table
     table.gte.return_value = table
     table.lte.return_value = table
+    table.order.return_value = table
     table.range.return_value = table
     table.limit.return_value = table
     resp = MagicMock()
@@ -255,6 +256,9 @@ def test_build_report_paginates_business_facts(monkeypatch):
         for _ in range(100)
     ]
 
+    facts_page_1 = _chain_table(first_page)
+    facts_page_2 = _chain_table(second_page)
+
     db = _multi_table_db(
         {
             "wbr_profiles": [_chain_table([{"id": "profile-1", "week_start_day": "monday"}])],
@@ -274,7 +278,7 @@ def test_build_report_paginates_business_facts(monkeypatch):
             ],
             "wbr_asin_row_map": [_chain_table([{"child_asin": "ASIN1", "row_id": "leaf-1"}])],
             "wbr_asin_exclusions": [_chain_table([])],
-            "wbr_business_asin_daily": [_chain_table(first_page), _chain_table(second_page)],
+            "wbr_business_asin_daily": [facts_page_1, facts_page_2],
         }
     )
 
@@ -286,3 +290,5 @@ def test_build_report_paginates_business_facts(monkeypatch):
     assert row["weeks"][3]["unit_sales"] == 1000
     assert row["weeks"][3]["sales"] == "2000.00"
     assert report["qa"]["fact_row_count"] == 1100
+    facts_page_1.order.assert_called_once_with("id")
+    facts_page_2.order.assert_called_once_with("id")
