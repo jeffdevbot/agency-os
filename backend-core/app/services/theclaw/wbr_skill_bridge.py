@@ -14,12 +14,19 @@ from typing import Any
 _logger = logging.getLogger(__name__)
 
 
+def _get_supabase_service_role(settings_obj: Any) -> str | None:
+    return (
+        getattr(settings_obj, "supabase_service_role", None)
+        or getattr(settings_obj, "supabase_service_role_key", None)
+    )
+
+
 def list_wbr_profiles() -> dict[str, Any]:
     """Return the configured WBR profiles for LLM-side disambiguation."""
     from supabase import create_client
     from ...config import settings
 
-    db = create_client(settings.supabase_url, settings.supabase_service_role_key)
+    db = create_client(settings.supabase_url, _get_supabase_service_role(settings))
 
     client_resp = db.table("agency_clients").select("id, name").execute()
     clients = client_resp.data if isinstance(client_resp.data, list) else []
@@ -60,7 +67,7 @@ def lookup_wbr_digest(client_name: str, market_scope: str) -> dict[str, Any]:
     from supabase import create_client
     from ...config import settings
 
-    db = create_client(settings.supabase_url, settings.supabase_service_role_key)
+    db = create_client(settings.supabase_url, _get_supabase_service_role(settings))
 
     normalized_market = str(market_scope or "").strip().upper()
     profile = resolve_wbr_profile(db, client_name, normalized_market)

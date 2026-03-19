@@ -32,6 +32,9 @@ class _FakeTable:
         self._limit_n = n
         return self
 
+    def order(self, *args, **kwargs):
+        return self
+
     def execute(self):
         filtered = self._rows
         if self._filters_eq:
@@ -124,7 +127,7 @@ class TestLookupWbrDigest:
 
         monkeypatch.setattr("app.services.wbr.report_snapshots.WBRSnapshotService", _FakeSnapshotSvc)
         monkeypatch.setattr("supabase.create_client", lambda url, key: MagicMock())
-        monkeypatch.setattr("app.config.settings", MagicMock(supabase_url="http://fake", supabase_service_role_key="key"))
+        monkeypatch.setattr("app.config.settings", MagicMock(supabase_url="http://fake", supabase_service_role="key"))
 
         result = wbr_skill_bridge.lookup_wbr_digest("Whoosh", "US")
         assert result["profile"]["client_name"] == "Whoosh"
@@ -135,7 +138,7 @@ class TestLookupWbrDigest:
 
         monkeypatch.setattr("app.services.wbr.wbr_profile_resolver.resolve_wbr_profile", lambda db, c, m: None)
         monkeypatch.setattr("supabase.create_client", lambda url, key: MagicMock())
-        monkeypatch.setattr("app.config.settings", MagicMock(supabase_url="http://fake", supabase_service_role_key="key"))
+        monkeypatch.setattr("app.config.settings", MagicMock(supabase_url="http://fake", supabase_service_role="key"))
 
         result = wbr_skill_bridge.lookup_wbr_digest("NoClient", "US")
         assert result["status"] == "no_profile"
@@ -156,7 +159,7 @@ class TestLookupWbrDigest:
 
         monkeypatch.setattr("app.services.wbr.report_snapshots.WBRSnapshotService", _EmptySnapshotSvc)
         monkeypatch.setattr("supabase.create_client", lambda url, key: MagicMock())
-        monkeypatch.setattr("app.config.settings", MagicMock(supabase_url="http://fake", supabase_service_role_key="key"))
+        monkeypatch.setattr("app.config.settings", MagicMock(supabase_url="http://fake", supabase_service_role="key"))
 
         result = wbr_skill_bridge.lookup_wbr_digest("Whoosh", "US")
         assert result["status"] == "no_data"
@@ -194,11 +197,28 @@ class TestLookupWbrDigest:
                 return _FakeTable([])
 
         monkeypatch.setattr("supabase.create_client", lambda url, key: _FakeDB())
-        monkeypatch.setattr("app.config.settings", MagicMock(supabase_url="http://fake", supabase_service_role_key="key"))
+        monkeypatch.setattr("app.config.settings", MagicMock(supabase_url="http://fake", supabase_service_role="key"))
 
         result = wbr_skill_bridge.list_wbr_profiles()
         assert "profiles" in result
         assert {"profile_id": "p1", "client_name": "Basari World", "display_name": "Basari World", "marketplace_code": "MX"} in result["profiles"]
+
+    def test_bridge_uses_real_config_service_role_field(self, monkeypatch):
+        from app.services.theclaw import wbr_skill_bridge
+
+        captured: dict[str, str | None] = {}
+
+        def _fake_create_client(url, key):
+            captured["url"] = url
+            captured["key"] = key
+            return _FakeDB()
+
+        monkeypatch.setattr("supabase.create_client", _fake_create_client)
+        monkeypatch.setattr("app.config.settings", MagicMock(supabase_url="http://fake", supabase_service_role="real-key"))
+
+        wbr_skill_bridge.list_wbr_profiles()
+
+        assert captured == {"url": "http://fake", "key": "real-key"}
 
 
 # ---------------------------------------------------------------------------
