@@ -7,9 +7,11 @@ import time
 from typing import Any, TypedDict
 
 import httpx
+import logging
 
 _OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
 _DEFAULT_MODEL = "gpt-4o-mini"
+_logger = logging.getLogger(__name__)
 
 
 class OpenAIError(Exception):
@@ -138,11 +140,17 @@ async def call_chat_completion(
             tools=tools,
             response_format=response_format,
         )
-    except OpenAIError:
+    except OpenAIError as exc:
         if model:
             raise
         fallback_model = _get_fallback_model()
         if fallback_model and fallback_model != primary_model:
+            _logger.warning(
+                "The Claw OpenAI primary model failed; retrying fallback | primary_model=%s fallback_model=%s error=%s",
+                primary_model,
+                fallback_model,
+                exc,
+            )
             return await _call_openai_http(
                 messages=messages,
                 model=fallback_model,
