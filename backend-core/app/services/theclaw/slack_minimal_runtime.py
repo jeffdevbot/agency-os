@@ -13,6 +13,7 @@ from .pending_confirmation_runtime import (
     build_pending_confirmation_reply as _build_pending_confirmation_reply,
     enrich_pending_destination_if_present as _enrich_pending_destination_if_present,
 )
+from ..ai_token_usage_logger import log_ai_token_usage
 from ..playbook_session import get_playbook_session_service
 from ..slack import get_slack_service
 from .openai_client import OpenAIConfigurationError, OpenAIError, call_chat_completion
@@ -43,6 +44,46 @@ _MAX_TOOL_TURNS = 6
 _TOOL_BUDGET_EXHAUSTED_REPLY = (
     "I hit a processing limit while working through that. Please retry with a narrower request."
 )
+
+
+def _resolve_usage_user_id(*, session: Any) -> str | None:
+    profile_id = getattr(session, "profile_id", None)
+    if profile_id is None:
+        return None
+    value = str(profile_id).strip()
+    return value or None
+
+
+async def _log_theclaw_usage(
+    *,
+    user_id: str | None,
+    slack_user_id: str,
+    channel: str,
+    response: dict[str, Any],
+    phase: str,
+    skill_id: str | None = None,
+    tool_round: int | None = None,
+) -> None:
+    try:
+        await log_ai_token_usage(
+            tool="theclaw",
+            user_id=user_id,
+            prompt_tokens=int(response.get("tokens_in") or 0),
+            completion_tokens=int(response.get("tokens_out") or 0),
+            total_tokens=int(response.get("tokens_total") or 0),
+            model=str(response.get("model") or ""),
+            meta={
+                "phase": phase,
+                "skill_id": skill_id or "none",
+                "slack_user_id": slack_user_id,
+                "channel": channel,
+                "tool_round": tool_round,
+                "used_tools": bool(response.get("tool_calls")),
+                "tool_call_count": len(response.get("tool_calls") or []),
+            },
+        )
+    except Exception as exc:  # noqa: BLE001
+        _logger.warning("The Claw usage logging failed: %s", exc)
 
 
 def _build_system_prompt(
@@ -267,6 +308,9 @@ async def _select_skill_for_turn(
     *,
     user_text: str,
     history_messages: list[dict[str, str]],
+    usage_user_id: str | None = None,
+    slack_user_id: str = "",
+    channel: str = "",
 ) -> TheClawSkill | None:
     skills = load_skills()
     if not skills:
@@ -289,6 +333,15 @@ async def _select_skill_for_turn(
         return None
 
     selected_skill_id, confidence, reason = _parse_skill_selection(selection_response["content"])
+    await _log_theclaw_usage(
+        user_id=usage_user_id,
+        slack_user_id=slack_user_id,
+        channel=channel,
+        response=selection_response,
+        phase="skill_selection",
+        skill_id=selected_skill_id,
+    )
+
     if not selected_skill_id:
         _logger.info(f"The Claw skill selection decided no skill is needed | confidence={confidence} reason='{reason}'")
         return None
@@ -362,6 +415,8 @@ async def run_theclaw_minimal_dm_turn(*, slack_user_id: str, channel: str, text:
             pending_confirmation = None
             _logger.info("The Claw active session not found or unavailable")
 
+    usage_user_id = _resolve_usage_user_id(session=session)
+
     if pending_confirmation is not None:
         reply_text, state_updates = await _build_pending_confirmation_reply(
             user_text=user_text,
@@ -399,6 +454,9 @@ async def run_theclaw_minimal_dm_turn(*, slack_user_id: str, channel: str, text:
     selected_skill = await _select_skill_for_turn(
         user_text=user_text,
         history_messages=history_messages,
+        usage_user_id=usage_user_id,
+        slack_user_id=slack_user_id,
+        channel=channel,
     )
     required_context_keys = set(selected_skill.needs_context) if selected_skill is not None else set()
     context_blobs = await fetch_context_blobs(
@@ -452,6 +510,15 @@ async def run_theclaw_minimal_dm_turn(*, slack_user_id: str, channel: str, text:
                     temperature=0.2,
                     max_tokens=_REPLY_MAX_TOKENS,
                     tools=skill_tool_defs,
+                )
+                await _log_theclaw_usage(
+                    user_id=usage_user_id,
+                    slack_user_id=slack_user_id,
+                    channel=channel,
+                    response=response,
+                    phase="skill_execution",
+                    skill_id=selected_skill.skill_id if selected_skill is not None else None,
+                    tool_round=_tool_turn + 1,
                 )
 
                 if not response.get("tool_calls"):

@@ -431,11 +431,12 @@ async def test_runtime_tool_use_full_flow(monkeypatch, caplog):
     caplog.set_level(logging.INFO, logger="app.services.theclaw")
     """LLM selects skill → calls lookup_wbr tool → gets digest → formats summary."""
     from app.services.theclaw.slack_minimal_runtime import run_theclaw_minimal_dm_turn
-    from tests.theclaw_runtime_test_fakes import FakeSessionService, FakeSlackService
+    from tests.theclaw_runtime_test_fakes import FakeSession, FakeSessionService, FakeSlackService
 
     fake_slack = FakeSlackService()
-    fake_session_service = FakeSessionService()
+    fake_session_service = FakeSessionService(session=FakeSession(profile_id="user-123"))
     calls: list[dict[str, object]] = []
+    usage_calls: list[dict[str, object]] = []
 
     async def _fake_call_chat_completion(**kwargs):
         calls.append(kwargs)
@@ -456,6 +457,9 @@ async def test_runtime_tool_use_full_flow(monkeypatch, caplog):
 
     fake_digest = {"digest_version": "wbr_digest_v1", "profile": {"client_name": "Whoosh"}}
     monkeypatch.setattr("app.services.theclaw.wbr_skill_bridge.lookup_wbr_digest", lambda c, m: fake_digest)
+    async def _fake_log_usage(**kwargs):
+        usage_calls.append(kwargs)
+    monkeypatch.setattr("app.services.theclaw.slack_minimal_runtime.log_ai_token_usage", _fake_log_usage)
     monkeypatch.setattr("app.services.theclaw.slack_minimal_runtime.get_slack_service", lambda: fake_slack)
     monkeypatch.setattr("app.services.theclaw.slack_minimal_runtime.call_chat_completion", _fake_call_chat_completion)
     monkeypatch.setattr("app.services.theclaw.slack_minimal_runtime._get_session_service", lambda: fake_session_service)
@@ -480,6 +484,28 @@ async def test_runtime_tool_use_full_flow(monkeypatch, caplog):
     assert "no external systems were modified" in grounding_msgs[0]["content"].lower()
     # Third call should still have tools available (multi-step loop)
     assert calls[2].get("tools") is not None
+    # Usage logs include both skill selection and skill execution
+    assert len(usage_calls) == 3
+    assert usage_calls[0]["tool"] == "theclaw"
+    assert usage_calls[0]["user_id"] == "user-123"
+    assert usage_calls[0]["meta"]["phase"] == "skill_selection"
+    assert usage_calls[0]["meta"]["skill_id"] == "wbr_summary"
+    assert usage_calls[0]["meta"]["slack_user_id"] == "U20"
+    assert usage_calls[0]["meta"]["channel"] == "D20"
+    assert usage_calls[0]["meta"]["tool_round"] is None
+    assert usage_calls[0]["meta"]["used_tools"] is False
+    assert usage_calls[0]["meta"]["tool_call_count"] == 0
+    assert usage_calls[1]["meta"]["phase"] == "skill_execution"
+    assert usage_calls[1]["meta"]["tool_round"] == 1
+    assert usage_calls[1]["meta"]["used_tools"] is True
+    assert usage_calls[1]["meta"]["tool_call_count"] == 1
+    assert usage_calls[2]["meta"]["phase"] == "skill_execution"
+    assert usage_calls[2]["meta"]["tool_round"] == 2
+    assert usage_calls[2]["meta"]["used_tools"] is False
+    assert usage_calls[2]["meta"]["tool_call_count"] == 0
+    # Meta is concise and does not include raw prompt text
+    assert "text" not in usage_calls[0]["meta"]
+    assert "messages" not in usage_calls[0]["meta"]
     # Slack got the formatted reply
     assert len(fake_slack.messages) == 1
     assert "*WBR Summary — Whoosh US*" in fake_slack.messages[0]["text"]
@@ -661,11 +687,12 @@ async def test_runtime_tool_execution_failure_handled(monkeypatch):
 async def test_runtime_multi_round_tool_calls(monkeypatch):
     """LLM calls a tool, sees result, calls another tool, then replies."""
     from app.services.theclaw.slack_minimal_runtime import run_theclaw_minimal_dm_turn
-    from tests.theclaw_runtime_test_fakes import FakeSessionService, FakeSlackService
+    from tests.theclaw_runtime_test_fakes import FakeSession, FakeSessionService, FakeSlackService
 
     fake_slack = FakeSlackService()
-    fake_session_service = FakeSessionService()
+    fake_session_service = FakeSessionService(session=FakeSession(profile_id="user-compare"))
     calls: list[dict[str, object]] = []
+    usage_calls: list[dict[str, object]] = []
 
     async def _fake_call_chat_completion(**kwargs):
         calls.append(kwargs)
@@ -696,6 +723,9 @@ async def test_runtime_multi_round_tool_calls(monkeypatch):
         return {"digest_version": "wbr_digest_v1", "profile": {"client_name": client}, "marketplace": market}
 
     monkeypatch.setattr("app.services.theclaw.wbr_skill_bridge.lookup_wbr_digest", _fake_lookup)
+    async def _fake_log_usage(**kwargs):
+        usage_calls.append(kwargs)
+    monkeypatch.setattr("app.services.theclaw.slack_minimal_runtime.log_ai_token_usage", _fake_log_usage)
     monkeypatch.setattr("app.services.theclaw.slack_minimal_runtime.get_slack_service", lambda: fake_slack)
     monkeypatch.setattr("app.services.theclaw.slack_minimal_runtime.call_chat_completion", _fake_call_chat_completion)
     monkeypatch.setattr("app.services.theclaw.slack_minimal_runtime._get_session_service", lambda: fake_session_service)
@@ -714,9 +744,48 @@ async def test_runtime_multi_round_tool_calls(monkeypatch):
     # Final messages include both tool results
     tool_msgs = [m for m in calls[3]["messages"] if m.get("role") == "tool"]
     assert len(tool_msgs) == 2
+    assert len(usage_calls) == 4
+    assert [call["meta"]["phase"] for call in usage_calls] == [
+        "skill_selection",
+        "skill_execution",
+        "skill_execution",
+        "skill_execution",
+    ]
+    assert [call["meta"]["tool_round"] for call in usage_calls[1:]] == [1, 2, 3]
+    assert [call["meta"]["used_tools"] for call in usage_calls[1:]] == [True, True, False]
     # Slack got the comparison
     assert len(fake_slack.messages) == 1
     assert "Comparison" in fake_slack.messages[0]["text"]
+
+
+@pytest.mark.asyncio
+async def test_runtime_usage_logging_failure_does_not_break_reply(monkeypatch):
+    from app.services.theclaw.slack_minimal_runtime import run_theclaw_minimal_dm_turn
+    from tests.theclaw_runtime_test_fakes import FakeSession, FakeSessionService, FakeSlackService
+
+    fake_slack = FakeSlackService()
+    fake_session_service = FakeSessionService(session=FakeSession(profile_id="user-usage-fail"))
+    calls: list[dict[str, object]] = []
+
+    async def _fake_call_chat_completion(**kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            return _make_fake_llm_response('{"skill_id":"none","confidence":0.9,"reason":"general"}')
+        return _make_fake_llm_response("Hello! How can I help?")
+
+    async def _broken_log_usage(**kwargs):
+        _ = kwargs
+        raise RuntimeError("usage logger unavailable")
+
+    monkeypatch.setattr("app.services.theclaw.slack_minimal_runtime.log_ai_token_usage", _broken_log_usage)
+    monkeypatch.setattr("app.services.theclaw.slack_minimal_runtime.get_slack_service", lambda: fake_slack)
+    monkeypatch.setattr("app.services.theclaw.slack_minimal_runtime.call_chat_completion", _fake_call_chat_completion)
+    monkeypatch.setattr("app.services.theclaw.slack_minimal_runtime._get_session_service", lambda: fake_session_service)
+
+    await run_theclaw_minimal_dm_turn(slack_user_id="U99", channel="D99", text="hello")
+
+    assert len(fake_slack.messages) == 1
+    assert fake_slack.messages[0]["text"] == "Hello! How can I help?"
 
 
 @pytest.mark.asyncio
