@@ -147,3 +147,93 @@ async def test_call_openai_http_uses_max_tokens_for_non_gpt5(monkeypatch):
     assert captured_payload["max_tokens"] == 123
     assert "max_completion_tokens" not in captured_payload
     assert captured_payload["temperature"] == 0.2
+
+
+@pytest.mark.asyncio
+async def test_call_openai_http_extracts_text_from_content_parts(monkeypatch):
+    class _FakeResponse:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return {
+                "model": "gpt-5-mini",
+                "choices": [{
+                    "message": {
+                        "content": [
+                            {"type": "text", "text": "Hello "},
+                            {"type": "text", "text": {"value": "world"}},
+                        ]
+                    },
+                    "finish_reason": "stop",
+                }],
+                "usage": {"prompt_tokens": 11, "completion_tokens": 7, "total_tokens": 18},
+            }
+
+    class _FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            _ = (args, kwargs)
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url, json, headers):
+            _ = (url, json, headers)
+            return _FakeResponse()
+
+    monkeypatch.setattr("app.services.theclaw.openai_client._get_api_key", lambda: "test-key")
+    monkeypatch.setattr("app.services.theclaw.openai_client.httpx.AsyncClient", _FakeAsyncClient)
+
+    result = await _call_openai_http(
+        messages=[{"role": "user", "content": "hello"}],
+        model="gpt-5-mini",
+        temperature=0.2,
+        max_tokens=321,
+    )
+
+    assert result["content"] == "Hello world"
+
+
+@pytest.mark.asyncio
+async def test_call_openai_http_error_includes_finish_reason_and_message_keys(monkeypatch):
+    class _FakeResponse:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return {
+                "model": "gpt-5-mini",
+                "choices": [{
+                    "message": {"role": "assistant"},
+                    "finish_reason": "stop",
+                }],
+                "usage": {"prompt_tokens": 11, "completion_tokens": 7, "total_tokens": 18},
+            }
+
+    class _FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            _ = (args, kwargs)
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url, json, headers):
+            _ = (url, json, headers)
+            return _FakeResponse()
+
+    monkeypatch.setattr("app.services.theclaw.openai_client._get_api_key", lambda: "test-key")
+    monkeypatch.setattr("app.services.theclaw.openai_client.httpx.AsyncClient", _FakeAsyncClient)
+
+    with pytest.raises(OpenAIError, match="finish_reason=stop"):
+        await _call_openai_http(
+            messages=[{"role": "user", "content": "hello"}],
+            model="gpt-5-mini",
+            temperature=0.2,
+            max_tokens=321,
+        )

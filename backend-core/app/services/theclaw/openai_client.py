@@ -37,6 +37,48 @@ class ChatCompletionResult(TypedDict):
     tool_calls: list[dict[str, Any]] | None
 
 
+def _extract_message_text(message: dict[str, Any] | None) -> str:
+    """Normalize assistant message text across older/newer chat shapes."""
+    if not isinstance(message, dict):
+        return ""
+
+    content = message.get("content")
+    if isinstance(content, str):
+        return content
+
+    parts: list[str] = []
+    if isinstance(content, list):
+        for part in content:
+            if not isinstance(part, dict):
+                continue
+            part_type = str(part.get("type") or "").strip().lower()
+            if part_type in {"text", "output_text"}:
+                text = part.get("text")
+                if isinstance(text, str) and text:
+                    parts.append(text)
+                elif isinstance(text, dict):
+                    value = text.get("value")
+                    if isinstance(value, str) and value:
+                        parts.append(value)
+    if parts:
+        return "".join(parts)
+
+    refusal = message.get("refusal")
+    if isinstance(refusal, str):
+        return refusal
+    if isinstance(refusal, list):
+        refusal_parts: list[str] = []
+        for part in refusal:
+            if isinstance(part, dict):
+                text = part.get("text")
+                if isinstance(text, str) and text:
+                    refusal_parts.append(text)
+        if refusal_parts:
+            return "".join(refusal_parts)
+
+    return ""
+
+
 def _get_api_key() -> str:
     api_key = os.environ.get("OPENAI_API_KEY", "").strip()
     if not api_key:
@@ -111,11 +153,15 @@ async def _call_openai_http(
         raise OpenAIError("No choices in OpenAI response")
 
     message = choices[0].get("message") if isinstance(choices[0], dict) else {}
-    content = message.get("content") if isinstance(message, dict) else None
+    content = _extract_message_text(message)
     raw_tool_calls = message.get("tool_calls") if isinstance(message, dict) else None
 
     if not content and not raw_tool_calls:
-        raise OpenAIError("No content or tool_calls in OpenAI response")
+        message_keys = sorted(message.keys()) if isinstance(message, dict) else []
+        finish_reason = choices[0].get("finish_reason") if isinstance(choices[0], dict) else None
+        raise OpenAIError(
+            f"No content or tool_calls in OpenAI response (finish_reason={finish_reason}, message_keys={message_keys})"
+        )
 
     usage = data.get("usage") or {}
     tokens_in = int(usage.get("prompt_tokens") or 0)
@@ -123,7 +169,7 @@ async def _call_openai_http(
     tokens_total = int(usage.get("total_tokens") or (tokens_in + tokens_out))
 
     return ChatCompletionResult(
-        content=str(content or ""),
+        content=content,
         tokens_in=tokens_in,
         tokens_out=tokens_out,
         tokens_total=tokens_total,
