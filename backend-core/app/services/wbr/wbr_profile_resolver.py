@@ -23,28 +23,42 @@ def resolve_wbr_profile(
     if not client_name or not marketplace_code:
         return None
 
+    normalized_client_name = str(client_name).strip()
+    normalized_marketplace_code = str(marketplace_code).strip().upper()
+
     # Step 1: find the agency client by name.
-    # The entity resolver outputs the canonical client name, so exact match
-    # (case-insensitive via Supabase/Postgres) is preferred.
-    client_resp = (
-        db.table("agency_clients")
-        .select("id, name")
-        .eq("name", client_name)
-        .limit(1)
-        .execute()
-    )
+    # Prefer exact match first, then fall back to a case-insensitive scan over
+    # the small client list so the runtime is tolerant of capitalization drift.
+    client_resp = db.table("agency_clients").select("id, name").execute()
     clients = client_resp.data if isinstance(client_resp.data, list) else []
     if not clients:
         return None
 
-    client_id = clients[0]["id"]
+    selected_client = next(
+        (row for row in clients if isinstance(row, dict) and row.get("name") == normalized_client_name),
+        None,
+    )
+    if selected_client is None:
+        selected_client = next(
+            (
+                row
+                for row in clients
+                if isinstance(row, dict)
+                and str(row.get("name") or "").strip().casefold() == normalized_client_name.casefold()
+            ),
+            None,
+        )
+    if selected_client is None:
+        return None
+
+    client_id = selected_client["id"]
 
     # Step 2: find the WBR profile for this client + marketplace.
     profile_resp = (
         db.table("wbr_profiles")
         .select("*")
         .eq("client_id", client_id)
-        .eq("marketplace_code", marketplace_code)
+        .eq("marketplace_code", normalized_marketplace_code)
         .limit(1)
         .execute()
     )

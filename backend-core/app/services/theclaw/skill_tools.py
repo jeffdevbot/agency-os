@@ -64,15 +64,38 @@ _WBR_LOOKUP_TOOL: dict[str, Any] = {
     },
 }
 
+_WBR_LIST_PROFILES_TOOL: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": "list_wbr_profiles",
+        "description": (
+            "List the configured WBR client/marketplace profiles so you can "
+            "resolve the best matching client name and marketplace before "
+            "calling lookup_wbr."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
+    },
+}
+
 
 async def _handle_lookup_wbr(arguments: dict[str, Any]) -> dict[str, Any]:
     from .wbr_skill_bridge import lookup_wbr_digest
 
     client = str(arguments.get("client") or "").strip()
-    marketplace = str(arguments.get("marketplace") or "").strip()
+    marketplace = str(arguments.get("marketplace") or "").strip().upper()
     if not client or not marketplace:
         return {"error": "Both client and marketplace are required."}
     return await asyncio.to_thread(lookup_wbr_digest, client, marketplace)
+
+
+async def _handle_list_wbr_profiles(arguments: dict[str, Any]) -> dict[str, Any]:
+    from .wbr_skill_bridge import list_wbr_profiles
+
+    return await asyncio.to_thread(list_wbr_profiles)
 
 
 # ---------------------------------------------------------------------------
@@ -83,9 +106,12 @@ _ToolHandler = Any  # Callable[[dict], Awaitable[dict]]
 
 _SKILL_TOOLS: dict[str, dict[str, Any]] = {
     "wbr_summary": {
-        "definitions": [_WBR_LOOKUP_TOOL],
-        "handlers": {"lookup_wbr": _handle_lookup_wbr},
-        "mutates": {"lookup_wbr": False},
+        "definitions": [_WBR_LOOKUP_TOOL, _WBR_LIST_PROFILES_TOOL],
+        "handlers": {
+            "lookup_wbr": _handle_lookup_wbr,
+            "list_wbr_profiles": _handle_list_wbr_profiles,
+        },
+        "mutates": {"lookup_wbr": False, "list_wbr_profiles": False},
     },
 }
 

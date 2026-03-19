@@ -161,6 +161,45 @@ class TestLookupWbrDigest:
         result = wbr_skill_bridge.lookup_wbr_digest("Whoosh", "US")
         assert result["status"] == "no_data"
 
+    def test_list_wbr_profiles_returns_client_marketplace_pairs(self, monkeypatch):
+        from app.services.theclaw import wbr_skill_bridge
+
+        class _FakeTable:
+            def __init__(self, rows):
+                self._rows = rows
+
+            def select(self, *args, **kwargs):
+                return self
+
+            def order(self, *args, **kwargs):
+                return self
+
+            def execute(self):
+                resp = MagicMock()
+                resp.data = self._rows
+                return resp
+
+        class _FakeDB:
+            def table(self, name):
+                if name == "agency_clients":
+                    return _FakeTable([
+                        {"id": "c1", "name": "Basari World"},
+                        {"id": "c2", "name": "Whoosh"},
+                    ])
+                if name == "wbr_profiles":
+                    return _FakeTable([
+                        {"id": "p1", "client_id": "c1", "display_name": "Basari World", "marketplace_code": "MX"},
+                        {"id": "p2", "client_id": "c2", "display_name": "Whoosh", "marketplace_code": "US"},
+                    ])
+                return _FakeTable([])
+
+        monkeypatch.setattr("supabase.create_client", lambda url, key: _FakeDB())
+        monkeypatch.setattr("app.config.settings", MagicMock(supabase_url="http://fake", supabase_service_role_key="key"))
+
+        result = wbr_skill_bridge.list_wbr_profiles()
+        assert "profiles" in result
+        assert {"profile_id": "p1", "client_name": "Basari World", "display_name": "Basari World", "marketplace_code": "MX"} in result["profiles"]
+
 
 # ---------------------------------------------------------------------------
 # Skill tools registry tests
@@ -173,8 +212,9 @@ class TestSkillToolsRegistry:
 
         defs = get_skill_tool_definitions("wbr_summary")
         assert defs is not None
-        assert len(defs) == 1
-        assert defs[0]["function"]["name"] == "lookup_wbr"
+        assert len(defs) == 2
+        names = {d["function"]["name"] for d in defs}
+        assert names == {"lookup_wbr", "list_wbr_profiles"}
 
     def test_returns_none_for_unknown_skill(self):
         from app.services.theclaw.skill_tools import get_skill_tool_definitions
@@ -198,6 +238,24 @@ class TestSkillToolsRegistry:
         )
         result = json.loads(tool_result["content"])
         assert result["digest_version"] == "wbr_digest_v1"
+        assert tool_result["outcome"] == "read_only_success"
+
+    @pytest.mark.asyncio
+    async def test_execute_list_profiles_calls_handler(self, monkeypatch):
+        from app.services.theclaw.skill_tools import execute_skill_tool_call
+
+        monkeypatch.setattr(
+            "app.services.theclaw.wbr_skill_bridge.list_wbr_profiles",
+            lambda: {"profiles": [{"client_name": "Basari World", "marketplace_code": "MX"}]},
+        )
+
+        tool_result = await execute_skill_tool_call(
+            skill_id="wbr_summary",
+            tool_name="list_wbr_profiles",
+            arguments_json="{}",
+        )
+        result = json.loads(tool_result["content"])
+        assert result["profiles"][0]["client_name"] == "Basari World"
         assert tool_result["outcome"] == "read_only_success"
 
     @pytest.mark.asyncio
@@ -319,6 +377,7 @@ class TestWbrSummarySkillRegistration:
         defs = get_skill_tool_definitions("wbr_summary")
         assert defs is not None
         assert any(d["function"]["name"] == "lookup_wbr" for d in defs)
+        assert any(d["function"]["name"] == "list_wbr_profiles" for d in defs)
 
 
 # ---------------------------------------------------------------------------
@@ -613,6 +672,65 @@ async def test_runtime_multi_round_tool_calls(monkeypatch):
     # Slack got the comparison
     assert len(fake_slack.messages) == 1
     assert "Comparison" in fake_slack.messages[0]["text"]
+
+
+@pytest.mark.asyncio
+async def test_runtime_can_recover_via_list_profiles_then_lookup(monkeypatch):
+    """LLM can inspect available WBR profiles and retry with the canonical name."""
+    from app.services.theclaw.slack_minimal_runtime import run_theclaw_minimal_dm_turn
+    from tests.theclaw_runtime_test_fakes import FakeSessionService, FakeSlackService
+
+    fake_slack = FakeSlackService()
+    fake_session_service = FakeSessionService()
+    calls: list[dict[str, object]] = []
+
+    async def _fake_call_chat_completion(**kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            return _make_fake_llm_response('{"skill_id":"wbr_summary","confidence":0.95,"reason":"wbr"}')
+        if len(calls) == 2:
+            return _make_fake_llm_response(
+                "",
+                tool_calls=[_make_tool_call(call_id="call_1", name="lookup_wbr", arguments={"client": "Basari", "marketplace": "MX"})],
+            )
+        if len(calls) == 3:
+            return _make_fake_llm_response(
+                "",
+                tool_calls=[_make_tool_call(call_id="call_2", name="list_wbr_profiles", arguments={})],
+            )
+        if len(calls) == 4:
+            return _make_fake_llm_response(
+                "",
+                tool_calls=[_make_tool_call(call_id="call_3", name="lookup_wbr", arguments={"client": "Basari World", "marketplace": "MX"})],
+            )
+        return _make_fake_llm_response(
+            "*WBR Summary — Basari World MX*\nWeek ending 2026-03-15\n"
+            "---THECLAW_STATE_JSON---\n{\"context_updates\":{}}\n---END_THECLAW_STATE_JSON---"
+        )
+
+    def _fake_lookup(client, market):
+        if client == "Basari":
+            return {"status": "no_profile", "detail": "No WBR profile found for Basari MX."}
+        return {"digest_version": "wbr_digest_v1", "profile": {"client_name": client}, "marketplace_code": market}
+
+    monkeypatch.setattr("app.services.theclaw.wbr_skill_bridge.lookup_wbr_digest", _fake_lookup)
+    monkeypatch.setattr(
+        "app.services.theclaw.wbr_skill_bridge.list_wbr_profiles",
+        lambda: {"profiles": [{"client_name": "Basari World", "display_name": "Basari World", "marketplace_code": "MX"}]},
+    )
+    monkeypatch.setattr("app.services.theclaw.slack_minimal_runtime.get_slack_service", lambda: fake_slack)
+    monkeypatch.setattr("app.services.theclaw.slack_minimal_runtime.call_chat_completion", _fake_call_chat_completion)
+    monkeypatch.setattr("app.services.theclaw.slack_minimal_runtime._get_session_service", lambda: fake_session_service)
+
+    await run_theclaw_minimal_dm_turn(slack_user_id="U31A", channel="D31A", text="How did Basari MX look this week?")
+
+    assert len(calls) == 5
+    tool_msgs = [m for m in calls[4]["messages"] if m.get("role") == "tool"]
+    assert len(tool_msgs) == 3
+    assert "no_profile" in tool_msgs[0]["content"]
+    assert "Basari World" in tool_msgs[1]["content"]
+    assert "wbr_digest_v1" in tool_msgs[2]["content"]
+    assert "Basari World MX" in fake_slack.messages[0]["text"]
 
 
 @pytest.mark.asyncio
