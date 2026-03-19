@@ -219,7 +219,13 @@ class TestBuildEmailPromptMessages:
         assert "JSON" in system
 
     def test_prompt_version_is_set(self):
-        assert PROMPT_VERSION == "wbr_email_v1"
+        assert PROMPT_VERSION == "wbr_email_v2"
+
+    def test_system_prompt_prefers_bullets_not_code_blocks(self):
+        messages = build_email_prompt_messages(digests=[_make_digest("US")])
+        system = messages[0]["content"]
+        assert "real bullet characters `•`" in system
+        assert "Do not use markdown fences" in system
 
 
 # ---------------------------------------------------------------------------
@@ -661,3 +667,5 @@ class TestSkillMdPresence:
         assert "id: wbr_weekly_email_draft" in content
         assert "draft_wbr_email" in content
         assert "list_wbr_profiles" in content
+        assert "not inside a code block" in content
+        assert "normal Slack mrkdwn text" in content

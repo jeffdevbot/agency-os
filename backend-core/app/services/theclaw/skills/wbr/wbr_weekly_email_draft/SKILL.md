@@ -33,7 +33,13 @@ When the tool returns a draft, present it in Slack using this exact format:
 2. A blank line
 3. `*Subject:* {subject}`
 4. A blank line
-5. The full email body inside a code block (triple backticks) so the user can copy-paste it cleanly
+5. The full email body as normal Slack mrkdwn text, not inside a code block
+
+Formatting rules for the visible output:
+- Do NOT wrap the email body in triple backticks or any code block.
+- Preserve readable line breaks between sections.
+- Keep real bullet characters like `•` and numbered steps like `1.` if they are present in the draft body.
+- Preserve Slack mrkdwn emphasis such as `*bold headings*` when present in the draft body.
 
 When the tool returns an error, relay it naturally. Do not mention technical terms like "profile", "snapshot", or "digest". Just say the data isn't available yet.
 
@@ -43,6 +49,6 @@ After the visible output, append the machine state block:
 ---END_THECLAW_STATE_JSON---
 
 ## Output Contract
-One Slack message with the email draft in a copyable code block.
+One Slack message with the email draft rendered as normal text, not a code block.
 Append an empty-update machine state block after the output.
 No user-facing mutations — draft generation and storage happen as backend side effects.
