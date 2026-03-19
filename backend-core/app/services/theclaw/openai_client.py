@@ -58,6 +58,11 @@ def _uses_max_completion_tokens(model: str) -> bool:
     return normalized.startswith("gpt-5")
 
 
+def _supports_temperature(model: str) -> bool:
+    normalized = (model or "").strip().lower()
+    return not normalized.startswith("gpt-5")
+
+
 async def _call_openai_http(
     *,
     messages: list[ChatMessage],
@@ -71,8 +76,9 @@ async def _call_openai_http(
     payload: dict[str, Any] = {
         "model": model,
         "messages": messages,
-        "temperature": temperature,
     }
+    if _supports_temperature(model):
+        payload["temperature"] = temperature
     if max_tokens is not None:
         token_limit_key = "max_completion_tokens" if _uses_max_completion_tokens(model) else "max_tokens"
         payload[token_limit_key] = max_tokens

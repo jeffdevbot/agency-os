@@ -100,6 +100,7 @@ async def test_call_openai_http_uses_max_completion_tokens_for_gpt5(monkeypatch)
     assert result["model"] == "gpt-5-mini"
     assert captured_payload["max_completion_tokens"] == 321
     assert "max_tokens" not in captured_payload
+    assert "temperature" not in captured_payload
 
 
 @pytest.mark.asyncio
@@ -145,3 +146,4 @@ async def test_call_openai_http_uses_max_tokens_for_non_gpt5(monkeypatch):
     assert result["model"] == "gpt-4o"
     assert captured_payload["max_tokens"] == 123
     assert "max_completion_tokens" not in captured_payload
+    assert captured_payload["temperature"] == 0.2
