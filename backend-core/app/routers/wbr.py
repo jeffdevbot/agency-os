@@ -26,6 +26,7 @@ from ..config import settings
 from ..services.wbr.listing_imports import ListingImportService
 from ..services.wbr.pacvue_imports import PacvueImportService
 from ..services.wbr.profiles import WBRNotFoundError, WBRValidationError, WBRProfileService
+from ..services.wbr.email_drafts import generate_email_draft, list_email_drafts, get_email_draft
 from ..services.wbr.report_snapshots import WBRSnapshotService
 from ..services.wbr.section1_report import Section1ReportService
 from ..services.wbr.section2_report import Section2ReportService
@@ -1092,3 +1093,57 @@ async def get_wbr_snapshot(
         raise HTTPException(status_code=404, detail=str(e))
     except Exception:
         raise HTTPException(status_code=500, detail="Failed to load WBR snapshot")
+
+
+# ------------------------------------------------------------------
+# WBR Email Drafts
+# ------------------------------------------------------------------
+
+
+@router.post("/clients/{client_id}/email-drafts")
+async def create_email_draft(
+    client_id: str,
+    user=Depends(require_admin_user),
+):
+    """Generate a multi-marketplace WBR email draft for a client."""
+    db = _get_supabase()
+    try:
+        draft = await generate_email_draft(db, client_id, created_by=_user_id(user))
+        return {"ok": True, "draft": draft}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to generate email draft")
+
+
+@router.get("/clients/{client_id}/email-drafts")
+async def list_client_email_drafts(
+    client_id: str,
+    limit: int = Query(10, ge=1, le=50),
+    user=Depends(require_admin_user),
+):
+    """List recent email drafts for a client (without full body)."""
+    db = _get_supabase()
+    try:
+        drafts = list_email_drafts(db, client_id, limit=limit)
+        return {"ok": True, "drafts": drafts}
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to list email drafts")
+
+
+@router.get("/email-drafts/{draft_id}")
+async def get_single_email_draft(
+    draft_id: str,
+    user=Depends(require_admin_user),
+):
+    """Return a single email draft with full body."""
+    db = _get_supabase()
+    try:
+        draft = get_email_draft(db, draft_id)
+        if not draft:
+            raise HTTPException(status_code=404, detail="Email draft not found")
+        return {"ok": True, "draft": draft}
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to load email draft")

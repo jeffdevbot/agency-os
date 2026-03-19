@@ -104,6 +104,42 @@ async def _handle_list_wbr_profiles(arguments: dict[str, Any]) -> dict[str, Any]
 
 
 # ---------------------------------------------------------------------------
+# WBR email draft tool
+# ---------------------------------------------------------------------------
+
+_WBR_DRAFT_EMAIL_TOOL: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": "draft_wbr_email",
+        "description": (
+            "Generate a weekly WBR client email draft for a client. "
+            "Automatically includes all active marketplaces for the client. "
+            "Returns the email subject and body, or an error if no data is available."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "client": {
+                    "type": "string",
+                    "description": "The client name (e.g. 'Whoosh', 'Basari World').",
+                },
+            },
+            "required": ["client"],
+        },
+    },
+}
+
+
+async def _handle_draft_wbr_email(arguments: dict[str, Any]) -> dict[str, Any]:
+    from .wbr_skill_bridge import generate_wbr_email_draft
+
+    client = str(arguments.get("client") or "").strip()
+    if not client:
+        return {"error": "Client name is required."}
+    return await generate_wbr_email_draft(client)
+
+
+# ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
 
@@ -117,6 +153,14 @@ _SKILL_TOOLS: dict[str, dict[str, Any]] = {
             "list_wbr_profiles": _handle_list_wbr_profiles,
         },
         "mutates": {"lookup_wbr": False, "list_wbr_profiles": False},
+    },
+    "wbr_weekly_email_draft": {
+        "definitions": [_WBR_DRAFT_EMAIL_TOOL, _WBR_LIST_PROFILES_TOOL],
+        "handlers": {
+            "draft_wbr_email": _handle_draft_wbr_email,
+            "list_wbr_profiles": _handle_list_wbr_profiles,
+        },
+        "mutates": {"draft_wbr_email": True, "list_wbr_profiles": False},
     },
 }
 

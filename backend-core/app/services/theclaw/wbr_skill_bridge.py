@@ -54,6 +54,88 @@ def list_wbr_profiles() -> dict[str, Any]:
     }
 
 
+def resolve_client_id(client_name: str) -> str | None:
+    """Resolve a client name to a client ID for email-draft generation.
+
+    Only considers clients that have at least one active WBR profile,
+    and requires an unambiguous match for partial/substring lookups.
+    """
+    from supabase import create_client
+    from ...config import settings
+
+    db = create_client(settings.supabase_url, _get_supabase_service_role(settings))
+
+    # Load clients that have active WBR profiles.
+    profile_resp = (
+        db.table("wbr_profiles")
+        .select("client_id, status")
+        .eq("status", "active")
+        .execute()
+    )
+    profiles = profile_resp.data if isinstance(profile_resp.data, list) else []
+    wbr_client_ids = {str(row["client_id"]) for row in profiles if isinstance(row, dict) and row.get("client_id")}
+
+    if not wbr_client_ids:
+        return None
+
+    client_resp = db.table("agency_clients").select("id, name").execute()
+    clients = client_resp.data if isinstance(client_resp.data, list) else []
+
+    # Filter to WBR-enabled clients only.
+    wbr_clients = [
+        row for row in clients
+        if isinstance(row, dict) and str(row.get("id")) in wbr_client_ids
+    ]
+
+    name_lower = (client_name or "").strip().lower()
+    if not name_lower:
+        return None
+
+    # Exact match (case-insensitive) — wins immediately.
+    for row in wbr_clients:
+        if (row.get("name") or "").strip().lower() == name_lower:
+            return str(row["id"])
+
+    # Substring fallback — only if exactly one client matches.
+    partial_matches = [
+        row for row in wbr_clients
+        if name_lower in (row.get("name") or "").strip().lower()
+    ]
+    if len(partial_matches) == 1:
+        return str(partial_matches[0]["id"])
+
+    return None
+
+
+async def generate_wbr_email_draft(client_name: str) -> dict[str, Any]:
+    """Generate a multi-marketplace WBR email draft for a client.
+
+    Returns the draft dict on success, or a status dict on failure.
+    """
+    from ..wbr.email_drafts import generate_email_draft
+    from supabase import create_client
+    from ...config import settings
+
+    client_id = resolve_client_id(client_name)
+    if not client_id:
+        return {
+            "status": "no_client",
+            "detail": f"No client found matching '{client_name}'.",
+        }
+
+    db = create_client(settings.supabase_url, _get_supabase_service_role(settings))
+
+    try:
+        draft = await generate_email_draft(db, client_id)
+    except ValueError as exc:
+        return {
+            "status": "no_data",
+            "detail": str(exc),
+        }
+
+    return draft
+
+
 def lookup_wbr_digest(client_name: str, market_scope: str) -> dict[str, Any]:
     """Resolve profile -> get/create snapshot -> return digest or error dict.
 
