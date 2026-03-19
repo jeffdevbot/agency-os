@@ -2,6 +2,25 @@
 
 _Drafted: 2026-03-18 (ET)_
 
+## Implementation status (2026-03-19)
+
+This plan is now **partially implemented**.
+
+What is live:
+
+1. `wbr_digest_v1` is the canonical prompt-friendly WBR summary contract.
+2. `wbr_report_snapshots` exists and The Claw uses a get-or-create snapshot path for WBR summary retrieval.
+3. The Claw skill `wbr_summary` is live and working in Slack.
+4. The Claw skill `wbr_weekly_email_draft` is implemented and drafts one combined weekly email across all active marketplaces for a client.
+5. `wbr_email_drafts` now exists for persisted draft history / traceability.
+
+Important current-shape notes:
+
+1. The shipped email draft path is **client-level across marketplaces**, not one draft per single profile.
+2. Draft generation now fails fast if included marketplace snapshots do not share the same `week_ending`.
+3. Email-draft client resolution only considers clients with active WBR profiles and requires unique partial matches.
+4. Slack remains the MVP operator surface; there is still no browser draft editor or automated sending path.
+
 ## Goal
 
 Use the live WBR data model as the source for weekly client-email drafting,
@@ -38,7 +57,7 @@ This plan must follow the current AgencyClaw direction:
 
 ## Current reality
 
-The WBR report is already machine-readable enough to support this direction.
+The WBR report is already machine-readable enough to support this direction, and the first end-to-end Slack path is now live.
 
 Important clarification:
 
@@ -49,11 +68,11 @@ Important clarification:
    - `wbr_ads_campaign_daily`
    - `wbr_inventory_asin_snapshots`
    - `wbr_returns_asin_daily`
-4. That means the missing layer is not "put WBR into tables."
-5. The missing layer is:
+4. That means the missing layer was never "put WBR into tables."
+5. The layers that were added in this tranche are:
    - stable AI-friendly digest generation
    - snapshot persistence for reproducibility
-   - Claw skills that can retrieve summary + draft output from those snapshots
+   - Claw skills that retrieve summary + email-draft output from those snapshots
 
 ## Product shape
 
@@ -177,7 +196,7 @@ Why snapshots matter:
 
 Generate client-facing draft email text from a stored WBR snapshot digest.
 
-Recommended table:
+Original recommendation:
 
 1. `wbr_email_drafts`
 
@@ -198,7 +217,19 @@ Recommended columns:
 11. `created_by uuid references public.profiles(id)`
 12. `created_at timestamptz not null default now()`
 
-This is not for in-app editing first.
+Current implementation note:
+
+1. The shipped `wbr_email_drafts` table is client-level and stores:
+   - `client_id`
+   - `snapshot_group_key`
+   - `marketplace_scope`
+   - `snapshot_ids`
+   - `subject`
+   - `body`
+   - `model`
+2. This matches the multi-marketplace email shape more closely than the original single-snapshot recommendation.
+
+This is still not for in-app editing first.
 
 Purpose:
 
@@ -252,11 +283,12 @@ Output shape in Slack:
 
 Purpose:
 
-1. resolve target client/profile/market scope
-2. fetch or create a WBR snapshot
-3. use the stored digest plus the house prompt
-4. produce copy/paste-ready client email draft
-5. store generated draft for traceability
+1. resolve target client scope
+2. gather the active WBR marketplaces for that client
+3. fetch or create marketplace snapshots
+4. use the stored digests plus the house prompt
+5. produce one copy/paste-ready client email draft
+6. store generated draft for traceability
 
 Expected user prompts:
 
@@ -267,11 +299,10 @@ Expected user prompts:
 Output shape in Slack:
 
 1. one-line context header
-2. optional short summary bullets
-3. `Subject:` line
-4. email body in a copyable fenced block
-5. optional note such as
-   `Based on WBR snapshot ending 2026-03-15`
+2. `Subject:` line
+3. email body in a copyable fenced block
+4. note such as
+   `Drafted from WBR snapshots ending 2026-03-15 · Marketplaces: US,CA,UK`
 
 ## Entity resolution and ambiguity handling
 

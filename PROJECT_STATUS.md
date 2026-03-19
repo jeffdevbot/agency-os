@@ -1,10 +1,18 @@
 # Changelog — Ecomlabs Tools
 
-_Last updated: 2026-03-18 (ET)_
+_Last updated: 2026-03-19 (ET)_
 
 > Development history for the project. For setup instructions and project overview, see [AGENTS.md](AGENTS.md).
 
 ---
+
+## 2026-03-19 (ET)
+- **The Claw now delivers live WBR summaries in Slack:** The rebooted `backend-core/app/services/theclaw/` runtime can resolve WBR clients semantically, use bounded multi-step tool loops, and return compact Slack-friendly weekly summaries from stored WBR digests instead of deterministic bridge formatting.
+- **The Claw now drafts weekly WBR emails across marketplaces:** Added `wbr_weekly_email_draft` as a Claw skill plus backend `wbr_email_drafts` persistence. Draft generation now gathers all active WBR marketplaces for a client, builds one combined email, stores the draft for traceability, and returns a copy-paste-ready Slack response.
+- **WBR email draft persistence is live in schema and code:** Added migration `20260319000001_add_wbr_email_drafts.sql` with admin-only RLS and idempotent index/policy creation. The production table was created manually after initial migration drift (`team_role` vs `is_admin`) was discovered.
+- **The Claw operational visibility improved materially:** Added structured-but-sanitized turn/tool logs plus shared `ai_token_usage` logging for both skill selection and skill execution calls. This made live debugging of WBR client resolution and model fallback practical.
+- **GPT-5 mini is now working as The Claw primary model:** The Claw OpenAI adapter now handles GPT-5-family request differences (`max_completion_tokens`, no `temperature`, `reasoning_effort=low`) and newer content-part response shapes. Live `ai_token_usage` rows now show `gpt-5-mini-2025-08-07` for both skill-selection and skill-execution phases instead of silent fallback to `gpt-4o`.
+- **The Claw WBR fuzzy-name resolution improved enough for live use:** The current prompt/tool-contract path can now infer canonical WBR client names such as `Basari` → `Basari World` through `list_wbr_profiles` rather than requiring rigid exact-name input.
 
 ## 2026-03-18 (ET)
 - **Shared Reports/API Access shipped as the new auth surface:** Added shared `report_api_connections` storage, launched admin `/reports/api-access`, and moved Amazon Ads connection visibility/launch into that shared reporting surface without removing WBR-owned advertiser profile selection.

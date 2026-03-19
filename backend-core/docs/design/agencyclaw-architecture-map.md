@@ -1,8 +1,26 @@
 # AgencyClaw Architecture Map (Current State)
 
 Status: active  
-Last updated: 2026-02-25  
+Last updated: 2026-03-19  
 Audience: engineers onboarding to AgencyClaw (human or AI)
+
+## Current note (2026-03-19)
+
+This map still describes the broader `app/services/agencyclaw/` architecture and agent-loop direction.
+
+However, the currently shipped WBR Slack operator work is running through the newer
+`backend-core/app/services/theclaw/` path, especially:
+
+- `backend-core/app/services/theclaw/slack_minimal_runtime.py`
+- `backend-core/app/services/theclaw/openai_client.py`
+- `backend-core/app/services/theclaw/skill_tools.py`
+- `backend-core/app/services/theclaw/skills/`
+
+Important production reality right now:
+
+1. `theclaw/` is the live path for WBR summary + WBR weekly email drafting in Slack.
+2. It uses a **skill-selection LLM call** followed by a **selected-skill tool loop**, so it is directionally aligned with the agent-loop design but not yet the final unified OpenClaw-style runtime.
+3. The broader `agencyclaw/` package and agent-loop docs remain the architectural target and long-range reference, not the only production path.
 
 ## 1. Purpose
 This document is the current-state map of the AgencyClaw backend architecture.

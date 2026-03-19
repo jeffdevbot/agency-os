@@ -2,6 +2,16 @@
 
 Use this folder as the top-level navigation for AgencyClaw documentation.
 
+## Current note (2026-03-19)
+- The broader `agencyclaw/` docs still describe the target architecture and the larger legacy/agent-loop system.
+- The currently shipped WBR Slack assistant work lives under `backend-core/app/services/theclaw/`.
+- For the live WBR path, read:
+  - `backend-core/app/services/theclaw/slack_minimal_runtime.py`
+  - `backend-core/app/services/theclaw/skills/README.md`
+  - `backend-core/app/services/theclaw/skills/wbr/wbr_summary/SKILL.md`
+  - `backend-core/app/services/theclaw/skills/wbr/wbr_weekly_email_draft/SKILL.md`
+  - `docs/wbr_snapshot_and_claw_email_plan.md`
+
 ## Current Operational Docs
 - `docs/agencyclaw/current/26_agencyclaw_task_brief_standard.md`
 - `docs/agencyclaw/current/29_catalog_lookup_contract.md`
@@ -25,8 +35,10 @@ For canonical live database structure, use `docs/db/schema_master.md`.
 ## Recommended Reading Order (New Contributor)
 1. `backend-core/docs/design/agencyclaw-architecture-map.md`
 2. `backend-core/docs/design/agencyclaw-agent-loop.md`
-3. `backend-core/app/services/agencyclaw/README.md`
-4. `docs/agencyclaw/current/30_agencyclaw_debug_chat_runbook.md` (if debugging runtime behavior)
+3. `backend-core/app/services/theclaw/skills/README.md`
+4. `docs/wbr_snapshot_and_claw_email_plan.md` (for the shipped WBR/Slack slice)
+5. `backend-core/app/services/agencyclaw/README.md`
+6. `docs/agencyclaw/current/30_agencyclaw_debug_chat_runbook.md` (if debugging runtime behavior)
 
 ## Test Naming
 - The canonical name for the terminal E2E debug test suite is `Claw Gauntlet`.
