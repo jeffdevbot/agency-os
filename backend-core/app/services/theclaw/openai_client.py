@@ -32,6 +32,7 @@ class ChatCompletionResult(TypedDict):
     tokens_total: int
     model: str
     duration_ms: int
+    tool_calls: list[dict[str, Any]] | None
 
 
 def _get_api_key() -> str:
@@ -56,6 +57,8 @@ async def _call_openai_http(
     model: str,
     temperature: float,
     max_tokens: int | None,
+    tools: list[dict[str, Any]] | None = None,
+    response_format: dict[str, Any] | None = None,
 ) -> ChatCompletionResult:
     api_key = _get_api_key()
     payload: dict[str, Any] = {
@@ -65,6 +68,10 @@ async def _call_openai_http(
     }
     if max_tokens is not None:
         payload["max_tokens"] = max_tokens
+    if tools:
+        payload["tools"] = tools
+    if response_format:
+        payload["response_format"] = response_format
 
     started_ms = int(time.time() * 1000)
     async with httpx.AsyncClient(timeout=httpx.Timeout(30.0)) as client:
@@ -91,8 +98,10 @@ async def _call_openai_http(
 
     message = choices[0].get("message") if isinstance(choices[0], dict) else {}
     content = message.get("content") if isinstance(message, dict) else None
-    if not content:
-        raise OpenAIError("No content in OpenAI response")
+    raw_tool_calls = message.get("tool_calls") if isinstance(message, dict) else None
+
+    if not content and not raw_tool_calls:
+        raise OpenAIError("No content or tool_calls in OpenAI response")
 
     usage = data.get("usage") or {}
     tokens_in = int(usage.get("prompt_tokens") or 0)
@@ -100,12 +109,13 @@ async def _call_openai_http(
     tokens_total = int(usage.get("total_tokens") or (tokens_in + tokens_out))
 
     return ChatCompletionResult(
-        content=str(content),
+        content=str(content or ""),
         tokens_in=tokens_in,
         tokens_out=tokens_out,
         tokens_total=tokens_total,
         model=str(data.get("model") or model),
         duration_ms=duration_ms,
+        tool_calls=raw_tool_calls,
     )
 
 
@@ -115,6 +125,8 @@ async def call_chat_completion(
     temperature: float = 0.2,
     max_tokens: int | None = None,
     model: str | None = None,
+    tools: list[dict[str, Any]] | None = None,
+    response_format: dict[str, Any] | None = None,
 ) -> ChatCompletionResult:
     primary_model = model or _get_primary_model()
     try:
@@ -123,6 +135,8 @@ async def call_chat_completion(
             model=primary_model,
             temperature=temperature,
             max_tokens=max_tokens,
+            tools=tools,
+            response_format=response_format,
         )
     except OpenAIError:
         if model:
@@ -134,5 +148,7 @@ async def call_chat_completion(
                 model=fallback_model,
                 temperature=temperature,
                 max_tokens=max_tokens,
+                tools=tools,
+                response_format=response_format,
             )
         raise

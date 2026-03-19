@@ -136,6 +136,22 @@ def _render_pending_confirmation(blob: Any) -> str:
     )
 
 
+async def _fetch_wbr_digest_noop(*, session_context: dict[str, Any], **_: Any) -> None:
+    # WBR digest is populated by the skill bridge, not by the context fetcher.
+    return None
+
+
+def _render_wbr_digest(blob: Any) -> str:
+    if not isinstance(blob, dict):
+        return ""
+    # Status dicts come from the bridge when data isn't available yet.
+    if blob.get("status"):
+        detail = blob.get("detail", "")
+        return f"WBR bridge status: {blob['status']}. {detail}".strip()
+    digest_json = json.dumps(blob, separators=(",", ":"), ensure_ascii=True, default=str)
+    return f"WBR digest data (use this to build the summary): {digest_json}"
+
+
 _CONTEXT_PROVIDERS: dict[str, TheClawContextProvider] = {
     "resolved_context": TheClawContextProvider(
         context_key="resolved_context",
@@ -153,6 +169,12 @@ _CONTEXT_PROVIDERS: dict[str, TheClawContextProvider] = {
         context_key="pending_confirmation",
         fetcher=_fetch_pending_confirmation,
         prompt_renderer=_render_pending_confirmation,
+        always_include=False,
+    ),
+    "wbr_digest": TheClawContextProvider(
+        context_key="wbr_digest",
+        fetcher=_fetch_wbr_digest_noop,
+        prompt_renderer=_render_wbr_digest,
         always_include=False,
     ),
 }

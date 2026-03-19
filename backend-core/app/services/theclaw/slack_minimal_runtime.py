@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -27,18 +28,9 @@ _logger = logging.getLogger(__name__)
 
 _FALLBACK_REPLY = "I ran into a temporary issue generating a reply. Please retry."
 _NEW_SESSION_REPLY = "Started a new session. I cleared prior conversation context."
-_MUTATION_DISCLAIMER = (
-    "I can draft and advise, but I cannot execute actions in ClickUp or other systems yet."
-)
 _NEW_SESSION_RE = re.compile(r"^\s*new session\s*$", re.IGNORECASE)
-_MUTATION_REQUEST_RE = re.compile(
-    r"\b(create|add|update|delete|remove|assign|send|post|publish|launch)\b.*\b(task|clickup|email|campaign|message)\b"
-    r"|\b(task|clickup|email|campaign|message)\b.*\b(create|add|update|delete|remove|assign|send|post|publish|launch)\b",
-    re.IGNORECASE,
-)
 _SESSION_HISTORY_KEY = "theclaw_history_v1"
 _MAX_HISTORY_TURNS = 25
-_SKILL_SELECTION_JSON_RE = re.compile(r"\{.*\}", re.DOTALL)
 _SKILL_SELECTION_PROMPT = (
     "You are the The Claw skill router. Select at most one skill for this user turn. "
     "Use intent and context, not keyword matching. If no skill is needed, choose 'none'. "
@@ -47,6 +39,10 @@ _SKILL_SELECTION_PROMPT = (
     "Do not include markdown, prose, or code fences."
 )
 _REPLY_MAX_TOKENS = 1600
+_MAX_TOOL_TURNS = 6
+_TOOL_BUDGET_EXHAUSTED_REPLY = (
+    "I hit a processing limit while working through that. Please retry with a narrower request."
+)
 
 
 def _build_system_prompt(
@@ -58,9 +54,10 @@ def _build_system_prompt(
     prompt = (
         "You are The Claw, an agency operations copilot for Amazon-focused client work. "
         "Keep answers concise, clear, and action-oriented, and avoid generic marketing fluff. "
-        "In this minimal mode, you can advise and draft text only. "
-        "Do not claim to have created tasks, changed systems, sent messages, or performed external actions. "
-        "If asked to execute an action, explicitly state that you cannot execute system actions yet, then provide the best draft. "
+        "You can look up data, advise, and draft text. "
+        "You cannot create tasks, send messages, update ClickUp, or perform any action in an external system. "
+        "Never claim you performed an action you did not perform. "
+        "If asked to execute an action, state that you cannot execute system actions yet and provide the best draft instead. "
         "For task drafting, if key fields are missing (client/brand, owner, due date, priority), ask up to 2 clarifying questions before finalizing the draft. "
         "When using lists, use plain numbered format like '1.' and do not use bold-number bullets."
     )
@@ -88,21 +85,8 @@ def _get_session_service():
     return get_playbook_session_service()
 
 
-def _is_mutation_request(text: str) -> bool:
-    return bool(_MUTATION_REQUEST_RE.search(text or ""))
-
-
 def _is_new_session_command(text: str) -> bool:
     return bool(_NEW_SESSION_RE.match(text or ""))
-
-
-def _apply_mutation_disclaimer(*, user_text: str, reply_text: str) -> str:
-    if not _is_mutation_request(user_text):
-        return reply_text
-    normalized_reply = (reply_text or "").lower()
-    if "cannot execute" in normalized_reply or "can't create" in normalized_reply:
-        return reply_text
-    return f"{_MUTATION_DISCLAIMER}\n\n{reply_text}"
 
 
 def _normalize_history_messages(history: Any) -> list[dict[str, str]]:
@@ -195,50 +179,64 @@ async def _persist_and_post_reply(
 
 
 def _process_model_reply_for_turn(*, user_text: str, model_reply_text: str) -> tuple[str, dict[str, Any]]:
-    return _process_model_reply_for_turn_with_skill(
-        user_text=user_text,
-        model_reply_text=model_reply_text,
-        selected_skill=None,
-    )
-
-
-def _process_model_reply_for_turn_with_skill(
-    *,
-    user_text: str,
-    model_reply_text: str,
-    selected_skill: TheClawSkill | None,
-) -> tuple[str, dict[str, Any]]:
     visible_reply, state_updates = _extract_reply_and_context_updates(model_reply_text)
     finalized_reply = _finalize_reply_text(visible_reply)
-    # Phase-1 mutation disclaimer is a no-skill safety net. Skill contracts should own wording.
-    if selected_skill is None:
-        finalized_reply = _apply_mutation_disclaimer(user_text=user_text, reply_text=finalized_reply)
     return finalized_reply, state_updates
 
 
+def _build_execution_grounding_note(round_tools: list[tuple[str, str]]) -> str:
+    """Build a grounding note based on the actual outcomes of tools in this round.
+
+    Each entry is ``(tool_name, outcome)`` where *outcome* is one of the
+    ``ToolOutcome`` literals from ``skill_tools``.  Returns an empty string
+    when no tools ran (caller should not inject a message in that case).
+    """
+    if not round_tools:
+        return ""
+
+    outcomes = {outcome for _, outcome in round_tools}
+
+    if "mutation_executed" in outcomes:
+        return (
+            "Some of the tools above modified external systems. "
+            "Report what happened accurately based on the tool outputs."
+        )
+
+    if "mutation_not_executed" in outcomes:
+        return (
+            "A mutation was attempted but did not execute. "
+            "Do not claim the action was performed. "
+            "Report the error or reason from the tool output."
+        )
+
+    if "tool_error" in outcomes:
+        if "read_only_success" in outcomes:
+            prefix = "Some tools retrieved data successfully but others encountered errors."
+        else:
+            prefix = "The tool(s) encountered errors."
+        return (
+            f"{prefix} "
+            "No external systems were modified. "
+            "Do not claim to have performed any external action."
+        )
+
+    # All read_only_success
+    return (
+        "The tools you called only retrieved data. "
+        "No external systems were modified. "
+        "Do not claim to have performed any external action."
+    )
+
+
 def _parse_skill_selection(raw_text: str) -> tuple[str | None, float]:
+    """Parse skill-selection JSON.  response_format=json_object guarantees clean JSON."""
     text = (raw_text or "").strip()
-    if text.startswith("```"):
-        text = text.strip("`").strip()
-        if text.lower().startswith("json"):
-            text = text[4:].strip()
-
-    payload: dict[str, Any] | None = None
     try:
-        decoded = json.loads(text)
-        if isinstance(decoded, dict):
-            payload = decoded
-    except json.JSONDecodeError:
-        match = _SKILL_SELECTION_JSON_RE.search(text)
-        if match:
-            try:
-                decoded = json.loads(match.group(0))
-                if isinstance(decoded, dict):
-                    payload = decoded
-            except json.JSONDecodeError:
-                payload = None
+        payload = json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        return None, 0.0
 
-    if not payload:
+    if not isinstance(payload, dict):
         return None, 0.0
 
     skill_id_value = str(payload.get("skill_id") or "").strip().lower()
@@ -272,6 +270,7 @@ async def _select_skill_for_turn(
             ],
             temperature=0.0,
             max_tokens=160,
+            response_format={"type": "json_object"},
         )
     except OpenAIError as exc:
         _logger.warning("The Claw skill selection failed, falling back to no skill: %s", exc)
@@ -383,37 +382,107 @@ async def run_theclaw_minimal_dm_turn(*, slack_user_id: str, channel: str, text:
         required_context_keys=required_context_keys,
         session_context=session_context,
     )
+
     system_prompt = _build_system_prompt(
         selected_skill=selected_skill,
         context_blobs=context_blobs,
         required_context_keys=required_context_keys,
     )
 
+    # Resolve tools for the selected skill (if any).
+    skill_tool_defs: list[dict[str, Any]] | None = None
+    if selected_skill is not None:
+        from .skill_tools import get_skill_tool_definitions
+
+        skill_tool_defs = get_skill_tool_definitions(selected_skill.skill_id)
+
     slack = get_slack_service()
     try:
         try:
-            response = await call_chat_completion(
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    *history_messages,
-                    {"role": "user", "content": user_text},
-                ],
-                temperature=0.2,
-                max_tokens=_REPLY_MAX_TOKENS,
-            )
-            reply_text, state_updates = _process_model_reply_for_turn_with_skill(
-                user_text=user_text,
-                model_reply_text=response["content"],
-                selected_skill=selected_skill,
-            )
-            state_updates = _finalize_state_updates_for_turn(
-                state_updates=state_updates,
-                session_context=session_context,
-            )
-            state_updates = await _enrich_pending_destination_if_present(
-                state_updates=state_updates,
-                session_context=session_context,
-            )
+            llm_messages: list[dict[str, Any]] = [
+                {"role": "system", "content": system_prompt},
+                *history_messages,
+                {"role": "user", "content": user_text},
+            ]
+
+            # No-tools-available grounding: if the LLM has no tools for
+            # this turn, ground it in that fact before it generates.
+            if not skill_tool_defs:
+                llm_messages.append({
+                    "role": "system",
+                    "content": (
+                        "No action tools are available for this turn. "
+                        "Do not claim to have performed any external action."
+                    ),
+                })
+
+            # Bounded multi-step tool-use loop.
+            # The LLM can call tools, see results, and call more tools
+            # until it produces a final text reply or the budget runs out.
+            tool_budget_exhausted = False
+            for _tool_turn in range(_MAX_TOOL_TURNS):
+                response = await call_chat_completion(
+                    messages=llm_messages,
+                    temperature=0.2,
+                    max_tokens=_REPLY_MAX_TOKENS,
+                    tools=skill_tool_defs,
+                )
+
+                if not response.get("tool_calls"):
+                    break
+
+                # Model wants to call tools — execute and loop.
+                from .skill_tools import execute_skill_tool_call
+
+                llm_messages.append({
+                    "role": "assistant",
+                    "content": response.get("content") or None,
+                    "tool_calls": response["tool_calls"],
+                })
+                round_tools: list[tuple[str, str]] = []
+                for tc in response["tool_calls"]:
+                    func = tc.get("function") or {}
+                    tool_name = func.get("name", "")
+                    tool_result = await execute_skill_tool_call(
+                        skill_id=selected_skill.skill_id,
+                        tool_name=tool_name,
+                        arguments_json=func.get("arguments", "{}"),
+                    )
+                    llm_messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc["id"],
+                        "content": tool_result["content"],
+                    })
+                    round_tools.append((tool_name, tool_result["outcome"]))
+
+                # Execution-state grounding: tell the LLM what actually
+                # happened based on the outcomes of the tools that ran.
+                grounding = _build_execution_grounding_note(round_tools)
+                if grounding:
+                    llm_messages.append({
+                        "role": "system",
+                        "content": grounding,
+                    })
+            else:
+                # Loop completed without break — budget exhausted.
+                tool_budget_exhausted = True
+
+            if tool_budget_exhausted:
+                reply_text = _TOOL_BUDGET_EXHAUSTED_REPLY
+                state_updates: dict[str, Any] = {}
+            else:
+                reply_text, state_updates = _process_model_reply_for_turn(
+                    user_text=user_text,
+                    model_reply_text=response["content"],
+                )
+                state_updates = _finalize_state_updates_for_turn(
+                    state_updates=state_updates,
+                    session_context=session_context,
+                )
+                state_updates = await _enrich_pending_destination_if_present(
+                    state_updates=state_updates,
+                    session_context=session_context,
+                )
         except OpenAIConfigurationError:
             reply_text = "The Claw is not configured yet. Please set OPENAI_API_KEY and try again."
             state_updates = {}

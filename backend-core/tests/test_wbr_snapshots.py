@@ -414,7 +414,7 @@ class TestSnapshotService:
             "wbr_profiles": [real_profile],
             "agency_clients": [{"id": "client-1", "name": "Whoosh"}],
             "wbr_rows": [],
-            "wbr_asin_row_mappings": [],
+            "wbr_asin_row_map": [],
             "wbr_business_asin_daily": [],
             "wbr_ads_campaign_daily": [],
             "wbr_inventory_asin_snapshots": [],
