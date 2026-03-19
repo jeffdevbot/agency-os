@@ -53,6 +53,11 @@ def _get_fallback_model() -> str | None:
     return model or None
 
 
+def _uses_max_completion_tokens(model: str) -> bool:
+    normalized = (model or "").strip().lower()
+    return normalized.startswith("gpt-5")
+
+
 async def _call_openai_http(
     *,
     messages: list[ChatMessage],
@@ -69,7 +74,8 @@ async def _call_openai_http(
         "temperature": temperature,
     }
     if max_tokens is not None:
-        payload["max_tokens"] = max_tokens
+        token_limit_key = "max_completion_tokens" if _uses_max_completion_tokens(model) else "max_tokens"
+        payload[token_limit_key] = max_tokens
     if tools:
         payload["tools"] = tools
     if response_format:

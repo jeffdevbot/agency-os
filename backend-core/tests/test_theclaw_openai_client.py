@@ -4,7 +4,7 @@ import logging
 
 import pytest
 
-from app.services.theclaw.openai_client import OpenAIError, call_chat_completion
+from app.services.theclaw.openai_client import OpenAIError, _call_openai_http, call_chat_completion
 
 
 @pytest.mark.asyncio
@@ -55,3 +55,93 @@ async def test_call_chat_completion_logs_when_falling_back(monkeypatch, caplog):
         "The Claw OpenAI primary model failed; retrying fallback | primary_model=gpt-5-mini fallback_model=gpt-4o error=model_not_found"
         in caplog.text
     )
+
+
+@pytest.mark.asyncio
+async def test_call_openai_http_uses_max_completion_tokens_for_gpt5(monkeypatch):
+    captured_payload: dict[str, object] = {}
+
+    class _FakeResponse:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return {
+                "model": "gpt-5-mini",
+                "choices": [{"message": {"content": "ok"}}],
+                "usage": {"prompt_tokens": 11, "completion_tokens": 7, "total_tokens": 18},
+            }
+
+    class _FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            _ = (args, kwargs)
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url, json, headers):
+            _ = (url, headers)
+            captured_payload.update(json)
+            return _FakeResponse()
+
+    monkeypatch.setattr("app.services.theclaw.openai_client._get_api_key", lambda: "test-key")
+    monkeypatch.setattr("app.services.theclaw.openai_client.httpx.AsyncClient", _FakeAsyncClient)
+
+    result = await _call_openai_http(
+        messages=[{"role": "user", "content": "hello"}],
+        model="gpt-5-mini",
+        temperature=0.2,
+        max_tokens=321,
+    )
+
+    assert result["model"] == "gpt-5-mini"
+    assert captured_payload["max_completion_tokens"] == 321
+    assert "max_tokens" not in captured_payload
+
+
+@pytest.mark.asyncio
+async def test_call_openai_http_uses_max_tokens_for_non_gpt5(monkeypatch):
+    captured_payload: dict[str, object] = {}
+
+    class _FakeResponse:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return {
+                "model": "gpt-4o",
+                "choices": [{"message": {"content": "ok"}}],
+                "usage": {"prompt_tokens": 11, "completion_tokens": 7, "total_tokens": 18},
+            }
+
+    class _FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            _ = (args, kwargs)
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url, json, headers):
+            _ = (url, headers)
+            captured_payload.update(json)
+            return _FakeResponse()
+
+    monkeypatch.setattr("app.services.theclaw.openai_client._get_api_key", lambda: "test-key")
+    monkeypatch.setattr("app.services.theclaw.openai_client.httpx.AsyncClient", _FakeAsyncClient)
+
+    result = await _call_openai_http(
+        messages=[{"role": "user", "content": "hello"}],
+        model="gpt-4o",
+        temperature=0.2,
+        max_tokens=123,
+    )
+
+    assert result["model"] == "gpt-4o"
+    assert captured_payload["max_tokens"] == 123
+    assert "max_completion_tokens" not in captured_payload
