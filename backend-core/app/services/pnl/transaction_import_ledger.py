@@ -12,7 +12,12 @@ def _normalized_match_value(value: str | None) -> str:
     return (value or "").strip().casefold()
 
 
-def _match_rule(rule: MappingRule, raw_type: str | None, raw_description: str | None) -> bool:
+def _match_rule(
+    rule: MappingRule,
+    raw_type: str | None,
+    raw_description: str | None,
+    order_id: str | None = None,
+) -> bool:
     spec = rule.match_spec
     if rule.match_operator == "exact_fields":
         for key, expected_val in spec.items():
@@ -22,6 +27,9 @@ def _match_rule(rule: MappingRule, raw_type: str | None, raw_description: str | 
                     return False
             elif key == "description":
                 if _normalized_match_value(raw_description) != expected:
+                    return False
+            elif key == "order_id":
+                if _normalized_match_value(order_id) != expected:
                     return False
             else:
                 return False
@@ -35,6 +43,9 @@ def _match_rule(rule: MappingRule, raw_type: str | None, raw_description: str | 
             elif key == "description":
                 if expected not in _normalized_match_value(raw_description):
                     return False
+            elif key == "order_id":
+                if expected not in _normalized_match_value(order_id):
+                    return False
         return True
     if rule.match_operator == "starts_with":
         for key, expected_val in spec.items():
@@ -45,6 +56,9 @@ def _match_rule(rule: MappingRule, raw_type: str | None, raw_description: str | 
             elif key == "description":
                 if not _normalized_match_value(raw_description).startswith(expected):
                     return False
+            elif key == "order_id":
+                if not _normalized_match_value(order_id).startswith(expected):
+                    return False
         return True
     return False
 
@@ -54,12 +68,13 @@ def find_matching_rule(
     raw_type: str | None,
     raw_description: str | None,
     profile_id: str | None = None,
+    order_id: str | None = None,
 ) -> MappingRule | None:
     profile_matches: list[MappingRule] = []
     global_matches: list[MappingRule] = []
 
     for rule in rules:
-        if not _match_rule(rule, raw_type, raw_description):
+        if not _match_rule(rule, raw_type, raw_description, order_id=order_id):
             continue
         if rule.profile_id and rule.profile_id == profile_id:
             profile_matches.append(rule)
@@ -85,7 +100,7 @@ def expand_raw_row_to_ledger(
     raw_type = raw_row.raw_type
     raw_description = raw_row.raw_description
     normalized_type = (raw_type or "").strip()
-    rule = find_matching_rule(rules, raw_type, raw_description, profile_id)
+    rule = find_matching_rule(rules, raw_type, raw_description, profile_id, order_id=raw_row.order_id)
     is_type_rule_row = rule is not None and normalized_type not in ("Order", "Refund")
 
     entries: list[LedgerEntry] = []

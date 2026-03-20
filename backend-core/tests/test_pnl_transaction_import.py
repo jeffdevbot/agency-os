@@ -431,6 +431,162 @@ class TestMappingRules:
         assert match is not None
         assert match.target_bucket == "inbound_placement_and_defect_fees"
 
+    def test_starts_with_order_id_matches_fba_shipment_prefix(self):
+        rule = MappingRule(
+            id="r1",
+            profile_id=None,
+            source_type="amazon_transaction_upload",
+            match_spec={"type": "FBA Inventory Fee", "order_id": "FBA"},
+            match_operator="starts_with",
+            target_bucket="inbound_shipping_and_duties",
+            priority=50,
+        )
+        match = find_matching_rule(
+            [rule],
+            "FBA Inventory Fee",
+            None,
+            order_id="FBA194JDNMPM",
+        )
+        assert match is not None
+        assert match.target_bucket == "inbound_shipping_and_duties"
+
+    def test_starts_with_order_id_does_not_match_regular_order_id(self):
+        rule = MappingRule(
+            id="r1",
+            profile_id=None,
+            source_type="amazon_transaction_upload",
+            match_spec={"type": "FBA Inventory Fee", "order_id": "FBA"},
+            match_operator="starts_with",
+            target_bucket="inbound_shipping_and_duties",
+            priority=50,
+        )
+        match = find_matching_rule(
+            [rule],
+            "FBA Inventory Fee",
+            None,
+            order_id="111-AAA-BBB",
+        )
+        assert match is None
+
+    def test_starts_with_order_id_does_not_match_wrong_type(self):
+        rule = MappingRule(
+            id="r1",
+            profile_id=None,
+            source_type="amazon_transaction_upload",
+            match_spec={"type": "FBA Inventory Fee", "order_id": "FBA"},
+            match_operator="starts_with",
+            target_bucket="inbound_shipping_and_duties",
+            priority=50,
+        )
+        match = find_matching_rule(
+            [rule],
+            "Service Fee",
+            "FBA Inbound Placement Service Fee",
+            order_id="FBA194JDNMPM",
+        )
+        assert match is None
+
+    def test_specific_description_rule_beats_order_id_catch_all(self):
+        specific_rule = MappingRule(
+            id="specific",
+            profile_id=None,
+            source_type="amazon_transaction_upload",
+            match_spec={"type": "FBA Inventory Fee", "description": "FBA Removal Order"},
+            match_operator="starts_with",
+            target_bucket="fba_removal_order_fees",
+            priority=10,
+        )
+        catch_all_rule = MappingRule(
+            id="catch-all",
+            profile_id=None,
+            source_type="amazon_transaction_upload",
+            match_spec={"type": "FBA Inventory Fee", "order_id": "FBA"},
+            match_operator="starts_with",
+            target_bucket="inbound_shipping_and_duties",
+            priority=50,
+        )
+        match = find_matching_rule(
+            [catch_all_rule, specific_rule],
+            "FBA Inventory Fee",
+            "FBA Removal Order: Return Fee",
+            order_id="FBA194JDNMPM",
+        )
+        assert match is not None
+        assert match.id == "specific"
+        assert match.target_bucket == "fba_removal_order_fees"
+
+    def test_exact_fields_order_id_match(self):
+        rule = MappingRule(
+            id="r1",
+            profile_id=None,
+            source_type="amazon_transaction_upload",
+            match_spec={"type": "FBA Inventory Fee", "order_id": "FBA194JDNMPM"},
+            match_operator="exact_fields",
+            target_bucket="inbound_shipping_and_duties",
+            priority=10,
+        )
+        match = find_matching_rule(
+            [rule],
+            "FBA Inventory Fee",
+            None,
+            order_id="FBA194JDNMPM",
+        )
+        assert match is not None
+
+    def test_exact_fields_order_id_rejects_partial(self):
+        rule = MappingRule(
+            id="r1",
+            profile_id=None,
+            source_type="amazon_transaction_upload",
+            match_spec={"type": "FBA Inventory Fee", "order_id": "FBA194JDNMPM"},
+            match_operator="exact_fields",
+            target_bucket="inbound_shipping_and_duties",
+            priority=10,
+        )
+        match = find_matching_rule(
+            [rule],
+            "FBA Inventory Fee",
+            None,
+            order_id="FBA194OTHER",
+        )
+        assert match is None
+
+    def test_contains_order_id_match(self):
+        rule = MappingRule(
+            id="r1",
+            profile_id=None,
+            source_type="amazon_transaction_upload",
+            match_spec={"type": "FBA Inventory Fee", "order_id": "194JD"},
+            match_operator="contains",
+            target_bucket="inbound_shipping_and_duties",
+            priority=10,
+        )
+        match = find_matching_rule(
+            [rule],
+            "FBA Inventory Fee",
+            None,
+            order_id="FBA194JDNMPM",
+        )
+        assert match is not None
+
+    def test_order_id_null_does_not_match_starts_with(self):
+        rule = MappingRule(
+            id="r1",
+            profile_id=None,
+            source_type="amazon_transaction_upload",
+            match_spec={"type": "FBA Inventory Fee", "order_id": "FBA"},
+            match_operator="starts_with",
+            target_bucket="inbound_shipping_and_duties",
+            priority=50,
+        )
+        match = find_matching_rule(
+            [rule],
+            "FBA Inventory Fee",
+            None,
+            order_id=None,
+        )
+        assert match is None
+
 
 # ── Ledger expansion tests ───────────────────────────────────────────
 
@@ -517,6 +673,110 @@ class TestLedgerExpansion:
         assert buckets["promotional_rebate_refunds"] == Decimal("0.50")
         assert buckets["referral_fees"] == Decimal("0.75")
         assert buckets["fba_fees"] == Decimal("1.50")
+
+    def test_fba_inbound_carrier_charge_maps_to_inbound_shipping(self):
+        """Blank-description FBA Inventory Fee with FBA-prefixed order_id
+        should map to inbound_shipping_and_duties via the catch-all rule."""
+        rules = _make_rules() + [
+            MappingRule(
+                id="rule-fba-carrier",
+                profile_id=None,
+                source_type="amazon_transaction_upload",
+                match_spec={"type": "FBA Inventory Fee", "order_id": "FBA"},
+                match_operator="starts_with",
+                target_bucket="inbound_shipping_and_duties",
+                priority=50,
+            ),
+        ]
+        raw_row = ParsedRawRow(
+            row_index=99,
+            posted_at=datetime(2025, 12, 15, tzinfo=UTC),
+            release_at=datetime(2025, 12, 20, tzinfo=UTC),
+            order_id="FBA194JDNMPM",
+            sku=None,
+            raw_type="FBA Inventory Fee",
+            raw_description=None,
+            entry_month=date(2025, 12, 1),
+            amounts={"other": Decimal("-29.47")},
+            raw_payload={},
+        )
+        entries = expand_raw_row_to_ledger(raw_row, rules, "some-profile")
+        assert len(entries) == 1
+        assert entries[0].ledger_bucket == "inbound_shipping_and_duties"
+        assert entries[0].amount == Decimal("-29.47")
+        assert entries[0].is_mapped is True
+        assert entries[0].mapping_rule_id == "rule-fba-carrier"
+
+    def test_fba_inventory_fee_with_description_uses_specific_rule_over_order_id(self):
+        """A described FBA Inventory Fee (e.g. FBA Amazon-Partnered Carrier Shipment Fee)
+        with a specific priority-10 rule should use that rule, not the order_id catch-all."""
+        rules = _make_rules() + [
+            MappingRule(
+                id="rule-specific-desc",
+                profile_id=None,
+                source_type="amazon_transaction_upload",
+                match_spec={"type": "FBA Inventory Fee", "description": "FBA Amazon-Partnered Carrier Shipment Fee"},
+                match_operator="exact_fields",
+                target_bucket="inbound_shipping_and_duties",
+                priority=10,
+            ),
+            MappingRule(
+                id="rule-fba-carrier",
+                profile_id=None,
+                source_type="amazon_transaction_upload",
+                match_spec={"type": "FBA Inventory Fee", "order_id": "FBA"},
+                match_operator="starts_with",
+                target_bucket="inbound_shipping_and_duties",
+                priority=50,
+            ),
+        ]
+        raw_row = ParsedRawRow(
+            row_index=100,
+            posted_at=datetime(2025, 12, 15, tzinfo=UTC),
+            release_at=datetime(2025, 12, 20, tzinfo=UTC),
+            order_id="FBA194JDNMPM",
+            sku=None,
+            raw_type="FBA Inventory Fee",
+            raw_description="FBA Amazon-Partnered Carrier Shipment Fee",
+            entry_month=date(2025, 12, 1),
+            amounts={"other": Decimal("-15.00")},
+            raw_payload={},
+        )
+        entries = expand_raw_row_to_ledger(raw_row, rules, "some-profile")
+        assert len(entries) == 1
+        assert entries[0].ledger_bucket == "inbound_shipping_and_duties"
+        assert entries[0].mapping_rule_id == "rule-specific-desc"
+
+    def test_fba_inventory_fee_non_fba_order_id_stays_unmapped(self):
+        """FBA Inventory Fee with a regular (non-FBA) order_id should NOT match
+        the order_id catch-all and should remain unmapped."""
+        rules = _make_rules() + [
+            MappingRule(
+                id="rule-fba-carrier",
+                profile_id=None,
+                source_type="amazon_transaction_upload",
+                match_spec={"type": "FBA Inventory Fee", "order_id": "FBA"},
+                match_operator="starts_with",
+                target_bucket="inbound_shipping_and_duties",
+                priority=50,
+            ),
+        ]
+        raw_row = ParsedRawRow(
+            row_index=101,
+            posted_at=datetime(2025, 12, 15, tzinfo=UTC),
+            release_at=datetime(2025, 12, 20, tzinfo=UTC),
+            order_id="111-2223334-5556667",
+            sku="SOME-SKU",
+            raw_type="FBA Inventory Fee",
+            raw_description=None,
+            entry_month=date(2025, 12, 1),
+            amounts={"other": Decimal("-5.00")},
+            raw_payload={},
+        )
+        entries = expand_raw_row_to_ledger(raw_row, rules, "some-profile")
+        assert len(entries) == 1
+        assert entries[0].ledger_bucket == "unmapped"
+        assert entries[0].is_mapped is False
 
 
 class TestSkuUnitAggregation:
