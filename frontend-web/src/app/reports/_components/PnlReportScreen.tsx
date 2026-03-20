@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { getBrowserSupabaseClient } from "@/lib/supabaseClient";
 import { usePnlActiveImports } from "../pnl/_lib/usePnlActiveImports";
 import {
+  formatMonth,
   formatMonthList,
   lastCompletedMonthISO,
   monthsBeforeISO,
@@ -34,6 +35,8 @@ import PnlReportTable from "./PnlReportTable";
 import PnlUploadCard from "./PnlUploadCard";
 import PnlWarningBanner from "./PnlWarningBanner";
 import PnlWindsorCompareCard from "./PnlWindsorCompareCard";
+import WbrTrendChart from "./WbrTrendChart";
+import { usePnlChartState } from "./usePnlChartState";
 
 type Props = {
   clientSlug: string;
@@ -100,6 +103,56 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
     () => buildPnlImportProgressLines(processingImport),
     [processingImport],
   );
+
+  const pnlChart = usePnlChartState();
+  const CHART_COLORS = ["#0a6fd6", "#f97316", "#14b8a6", "#6366f1", "#f43f5e", "#65a30d"];
+  const chartSeries = useMemo(() => {
+    const selected = presentedReport.lineItems.filter((item) =>
+      pnlChart.selectedRowKeys.has(item.key),
+    );
+    if (selected.length === 0) return [];
+
+    const series = selected.slice(0, CHART_COLORS.length).map((item, index) => ({
+      key: item.key,
+      label: item.label,
+      data: months.map((month) => {
+        const parsed = parseFloat(item.months[month] ?? "0");
+        return Number.isFinite(parsed) ? parsed : 0;
+      }),
+      color: CHART_COLORS[index],
+    }));
+
+    if (pnlChart.showTotal && selected.length > 1) {
+      const totalData = months.map((_, monthIndex) =>
+        series.reduce((sum, s) => sum + s.data[monthIndex], 0),
+      );
+      series.unshift({
+        key: "total",
+        label: "Total",
+        data: totalData,
+        color: "#1e293b",
+      });
+    }
+
+    return series;
+  }, [months, presentedReport.lineItems, pnlChart.selectedRowKeys, pnlChart.showTotal]);
+
+  const chartFormatValue = useMemo(() => {
+    const selectedItems = presentedReport.lineItems.filter((item) =>
+      pnlChart.selectedRowKeys.has(item.key),
+    );
+    const allPercent = selectedItems.length > 0 && selectedItems.every((item) => item.display_format === "percent");
+    if (allPercent) {
+      return (value: number) => `${value.toFixed(1)}%`;
+    }
+    return (value: number) =>
+      new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency: "USD",
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0,
+      }).format(value);
+  }, [presentedReport.lineItems, pnlChart.selectedRowKeys]);
 
   useEffect(() => {
     setUploadError(null);
@@ -483,11 +536,25 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
       ) : null}
 
       {months.length > 0 && presentedReport.lineItems.length > 0 ? (
-        <PnlReportTable
-          months={months}
-          lineItems={presentedReport.lineItems}
-          showTotals={showTotals}
-        />
+        <>
+          {chartSeries.length > 0 ? (
+            <WbrTrendChart
+              title="P&L Trend"
+              weeks={months.map((month) => ({ label: formatMonth(month) }))}
+              series={chartSeries}
+              formatValue={chartFormatValue}
+              showTotal={pnlChart.showTotal}
+              onToggleTotal={pnlChart.toggleTotal}
+            />
+          ) : null}
+          <PnlReportTable
+            months={months}
+            lineItems={presentedReport.lineItems}
+            showTotals={showTotals}
+            selectedRowKeys={pnlChart.selectedRowKeys}
+            onRowToggle={pnlChart.toggleRow}
+          />
+        </>
       ) : null}
 
       {profile && months.length === 0 && !reportState.errorMessage ? (

@@ -15,9 +15,11 @@ type Props = {
   months: string[];
   lineItems: PnlPresentedLineItem[];
   showTotals: boolean;
+  selectedRowKeys?: Set<string>;
+  onRowToggle?: (key: string) => void;
 };
 
-export default function PnlReportTable({ months, lineItems, showTotals }: Props) {
+export default function PnlReportTable({ months, lineItems, showTotals, selectedRowKeys, onRowToggle }: Props) {
   return (
     <div className="rounded-3xl bg-white/95 p-3 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur md:p-3.5">
       <div className="overflow-x-auto">
@@ -44,12 +46,16 @@ export default function PnlReportTable({ months, lineItems, showTotals }: Props)
           </thead>
           <tbody>
             {lineItems.map((item) => {
-              const stickyCellClass =
+              const isSelected = selectedRowKeys?.has(item.key) ?? false;
+              const stickyCellBase =
                 item.key === "net_earnings"
                   ? "bg-[#0f172a] text-white"
                   : SUMMARY_KEYS.has(item.key)
                     ? "bg-[#f1f5f9]"
                     : "bg-white";
+              const stickyCellClass = isSelected && item.key !== "net_earnings"
+                ? "bg-[#eff6ff]"
+                : stickyCellBase;
               const totalCellClass =
                 item.key === "net_earnings"
                   ? "bg-[#0f172a]"
@@ -71,17 +77,34 @@ export default function PnlReportTable({ months, lineItems, showTotals }: Props)
                     <td
                       className={`sticky left-0 z-10 min-w-[196px] border-b border-[#f1f5f9] px-2.5 py-1.5 text-left shadow-[8px_0_14px_-10px_rgba(15,23,42,0.24)] md:min-w-[208px] ${stickyCellClass}`}
                     >
-                      <span
-                        className={
-                          item.key === "net_earnings"
-                            ? ""
-                            : SUMMARY_KEYS.has(item.key)
-                              ? "text-[#0f172a]"
-                              : "text-[#475569]"
-                        }
+                      <button
+                        type="button"
+                        onClick={() => onRowToggle?.(item.key)}
+                        className={`flex w-full items-center gap-1.5 text-left ${
+                          onRowToggle ? "cursor-pointer" : "cursor-default"
+                        }`}
                       >
-                        {item.label}
-                      </span>
+                        {isSelected ? (
+                          <span className="flex h-3.5 w-3.5 flex-shrink-0 items-center justify-center rounded-full bg-[#0a6fd6] text-[8px] text-white">
+                            &#10003;
+                          </span>
+                        ) : onRowToggle ? (
+                          <span className="flex h-3.5 w-3.5 flex-shrink-0 items-center justify-center rounded-full border border-[#cbd5e1] text-[8px] text-transparent group-hover:border-[#0a6fd6]">
+                            &#10003;
+                          </span>
+                        ) : null}
+                        <span
+                          className={
+                            item.key === "net_earnings"
+                              ? ""
+                              : SUMMARY_KEYS.has(item.key)
+                                ? "text-[#0f172a]"
+                                : "text-[#475569]"
+                          }
+                        >
+                          {item.label}
+                        </span>
+                      </button>
                     </td>
                     {months.map((month) => {
                       const value = item.months[month] ?? "0.00";
