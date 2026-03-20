@@ -116,7 +116,7 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
       label: item.label,
       data: months.map((month) => {
         const parsed = parseFloat(item.months[month] ?? "0");
-        return Number.isFinite(parsed) ? parsed : 0;
+        return Number.isFinite(parsed) ? Math.abs(parsed) : 0;
       }),
       color: CHART_COLORS[index],
     }));
