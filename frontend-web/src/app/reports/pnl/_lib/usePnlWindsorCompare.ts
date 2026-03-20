@@ -1,11 +1,10 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
-import { getBrowserSupabaseClient } from "@/lib/supabaseClient";
+import { useCallback, useState } from "react";
+import { getAccessToken } from "@/lib/getAccessToken";
 import { getPnlWindsorCompare, type PnlWindsorCompare } from "./pnlApi";
 
 export function usePnlWindsorCompare(profileId: string | null) {
-  const supabase = useMemo(() => getBrowserSupabaseClient(), []);
   const [comparison, setComparison] = useState<PnlWindsorCompare | null>(null);
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -13,14 +12,6 @@ export function usePnlWindsorCompare(profileId: string | null) {
   const [loadedMarketplaceScope, setLoadedMarketplaceScope] = useState<
     "all" | "amazon_com_only" | "amazon_com_and_ca" | null
   >(null);
-
-  const getAccessToken = useCallback(async (): Promise<string> => {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    if (!session?.access_token) throw new Error("Please sign in again.");
-    return session.access_token;
-  }, [supabase]);
 
   const loadComparison = useCallback(async (
     entryMonth: string,
@@ -51,7 +42,7 @@ export function usePnlWindsorCompare(profileId: string | null) {
     } finally {
       setLoading(false);
     }
-  }, [getAccessToken, profileId]);
+  }, [profileId]);
 
   const resetComparison = useCallback(() => {
     setComparison(null);

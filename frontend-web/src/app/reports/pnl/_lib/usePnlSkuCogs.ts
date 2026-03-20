@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { getBrowserSupabaseClient } from "@/lib/supabaseClient";
+import { useCallback, useEffect, useState } from "react";
+import { getAccessToken } from "@/lib/getAccessToken";
 import {
   listPnlSkuCogs,
   savePnlSkuCogs,
@@ -12,19 +12,10 @@ export function usePnlSkuCogs(
   profileId: string | null,
   enabled: boolean,
 ) {
-  const supabase = useMemo(() => getBrowserSupabaseClient(), []);
   const [skus, setSkus] = useState<PnlSkuCogs[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-
-  const getAccessToken = useCallback(async (): Promise<string> => {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    if (!session?.access_token) throw new Error("Please sign in again.");
-    return session.access_token;
-  }, [supabase]);
 
   const loadSkus = useCallback(async () => {
     if (!profileId || !enabled) {
@@ -44,7 +35,7 @@ export function usePnlSkuCogs(
     } finally {
       setLoading(false);
     }
-  }, [enabled, getAccessToken, profileId]);
+  }, [enabled, profileId]);
 
   const saveSkus = useCallback(
     async (entries: Array<{ sku: string; unit_cost: string | null }>) => {
@@ -64,7 +55,7 @@ export function usePnlSkuCogs(
         setSaving(false);
       }
     },
-    [getAccessToken, loadSkus, profileId],
+    [loadSkus, profileId],
   );
 
   useEffect(() => {

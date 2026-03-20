@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { getBrowserSupabaseClient } from "@/lib/supabaseClient";
+import { useCallback, useEffect, useState } from "react";
+import { getAccessToken } from "@/lib/getAccessToken";
 import { getPnlReport, type PnlFilterMode, type PnlReport } from "./pnlApi";
 
 const TRANSIENT_REPORT_ERRORS = new Set(["Failed to fetch", "Failed to build P&L report"]);
@@ -22,19 +22,10 @@ export function usePnlReport(
   startMonth?: string,
   endMonth?: string,
 ) {
-  const supabase = useMemo(() => getBrowserSupabaseClient(), []);
   const [report, setReport] = useState<PnlReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-
-  const getAccessToken = useCallback(async (): Promise<string> => {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    if (!session?.access_token) throw new Error("Please sign in again.");
-    return session.access_token;
-  }, [supabase]);
 
   const loadReport = useCallback(
     async (isRefresh: boolean) => {
@@ -85,7 +76,7 @@ export function usePnlReport(
         }
       }
     },
-    [getAccessToken, profileId, filterMode, startMonth, endMonth],
+    [profileId, filterMode, startMonth, endMonth],
   );
 
   useEffect(() => {

@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useState } from "react";
 
-import { getBrowserSupabaseClient } from "@/lib/supabaseClient";
+import { getAccessToken } from "@/lib/getAccessToken";
 
 import { exportPnlWorkbook, type PnlFilterMode } from "./pnlApi";
 
@@ -14,21 +14,8 @@ type ExportOptions = {
 };
 
 export function usePnlWorkbookExport(profileId: string | null) {
-  const supabase = useMemo(() => getBrowserSupabaseClient(), []);
   const [exporting, setExporting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-
-  const getAccessToken = useCallback(async (): Promise<string> => {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-
-    if (!session?.access_token) {
-      throw new Error("Please sign in again.");
-    }
-
-    return session.access_token;
-  }, [supabase]);
 
   const downloadWorkbook = useCallback(
     async (options: ExportOptions) => {
@@ -53,7 +40,7 @@ export function usePnlWorkbookExport(profileId: string | null) {
         setExporting(false);
       }
     },
-    [exporting, getAccessToken, profileId],
+    [exporting, profileId],
   );
 
   return {

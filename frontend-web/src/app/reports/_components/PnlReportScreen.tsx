@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { getBrowserSupabaseClient } from "@/lib/supabaseClient";
+import { getAccessToken } from "@/lib/getAccessToken";
 import { usePnlActiveImports } from "../pnl/_lib/usePnlActiveImports";
 import {
   formatMonth,
@@ -44,7 +44,6 @@ type Props = {
 };
 
 export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) {
-  const supabase = useMemo(() => getBrowserSupabaseClient(), []);
   const resolved = useResolvedPnlProfile(clientSlug, marketplaceCode);
   const defaultRangeEnd = useMemo(() => lastCompletedMonthISO(), []);
   const defaultRangeStart = useMemo(() => monthsBeforeISO(defaultRangeEnd, 2), [defaultRangeEnd]);
@@ -180,16 +179,10 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
 
     const pollImport = async () => {
       try {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
-
-        if (!session?.access_token) {
-          throw new Error("Please sign in again.");
-        }
+        const token = await getAccessToken();
 
         const summary = await getPnlImportSummary(
-          session.access_token,
+          token,
           profileId,
           processingImportId,
         );
@@ -259,7 +252,6 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
     provenanceState.loadActiveImports,
     reportState.loadReport,
     showSettings,
-    supabase,
   ]);
 
   const handleFileChange = (file: File | null) => {
@@ -276,13 +268,9 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
     setCreateError(null);
 
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+      const token = await getAccessToken();
 
-      if (!session?.access_token) throw new Error("Please sign in again.");
-
-      await createPnlProfile(session.access_token, {
+      await createPnlProfile(token, {
         clientId: resolvedSummary.client.id,
         marketplaceCode: marketplaceCode.toUpperCase(),
         currencyCode: defaultPnlCurrencyCode(marketplaceCode),
@@ -304,13 +292,9 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
     setUploadSuccess(null);
 
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+      const token = await getAccessToken();
 
-      if (!session?.access_token) throw new Error("Please sign in again.");
-
-      const result = await uploadPnlTransactionReport(session.access_token, profileId, selectedFile);
+      const result = await uploadPnlTransactionReport(token, profileId, selectedFile);
       const monthLabel = formatMonthList(result.months);
       setUploadSuccess(
         result.import.import_status === "pending"

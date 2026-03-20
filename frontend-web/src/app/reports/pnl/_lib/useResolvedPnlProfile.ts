@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { getBrowserSupabaseClient } from "@/lib/supabaseClient";
+import { useCallback, useEffect, useState } from "react";
+import { getAccessToken } from "@/lib/getAccessToken";
 import {
   loadActiveClients,
   findClientBySlug,
@@ -17,7 +17,6 @@ export type PnlClientSummary = {
 };
 
 export function useResolvedPnlProfile(clientSlug: string, marketplaceCode: string) {
-  const supabase = useMemo(() => getBrowserSupabaseClient(), []);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [resolved, setResolved] = useState<PnlClientSummary | null>(null);
@@ -27,17 +26,13 @@ export function useResolvedPnlProfile(clientSlug: string, marketplaceCode: strin
     setErrorMessage(null);
 
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      if (!session?.access_token) throw new Error("Please sign in again.");
+      const token = await getAccessToken();
 
       const clients = await loadActiveClients();
       const client = findClientBySlug(clients, clientSlug);
       if (!client) throw new Error("Client not found.");
 
-      const profiles = await listPnlProfiles(session.access_token, client.id);
+      const profiles = await listPnlProfiles(token, client.id);
       const matched = profiles.find(
         (p) => normalizeMarketplaceCode(p.marketplace_code) === normalizeMarketplaceCode(marketplaceCode),
       );
@@ -49,7 +44,7 @@ export function useResolvedPnlProfile(clientSlug: string, marketplaceCode: strin
     } finally {
       setLoading(false);
     }
-  }, [clientSlug, marketplaceCode, supabase]);
+  }, [clientSlug, marketplaceCode]);
 
   useEffect(() => {
     void loadRoute();

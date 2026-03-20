@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { getBrowserSupabaseClient } from "@/lib/supabaseClient";
+import { useCallback, useEffect, useState } from "react";
+import { getAccessToken } from "@/lib/getAccessToken";
 import {
   listPnlOtherExpenses,
   savePnlOtherExpenses,
@@ -19,19 +19,10 @@ export function usePnlOtherExpenses(
   endMonth: string | null,
   enabled: boolean,
 ) {
-  const supabase = useMemo(() => getBrowserSupabaseClient(), []);
   const [otherExpenses, setOtherExpenses] = useState<PnlOtherExpenses>(EMPTY_OTHER_EXPENSES);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-
-  const getAccessToken = useCallback(async (): Promise<string> => {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    if (!session?.access_token) throw new Error("Please sign in again.");
-    return session.access_token;
-  }, [supabase]);
 
   const loadOtherExpenses = useCallback(async () => {
     if (!profileId || !startMonth || !endMonth || !enabled) {
@@ -51,7 +42,7 @@ export function usePnlOtherExpenses(
     } finally {
       setLoading(false);
     }
-  }, [enabled, endMonth, getAccessToken, profileId, startMonth]);
+  }, [enabled, endMonth, profileId, startMonth]);
 
   const saveOtherExpenses = useCallback(
     async (payload: {
@@ -79,7 +70,7 @@ export function usePnlOtherExpenses(
         setSaving(false);
       }
     },
-    [endMonth, getAccessToken, loadOtherExpenses, profileId, startMonth],
+    [endMonth, loadOtherExpenses, profileId, startMonth],
   );
 
   useEffect(() => {

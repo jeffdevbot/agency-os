@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { getBrowserSupabaseClient } from "@/lib/supabaseClient";
+import { getAccessToken } from "@/lib/getAccessToken";
 import {
   listPnlImportMonths,
   listPnlImports,
@@ -12,7 +12,6 @@ import {
 } from "./pnlActiveImportSummary";
 
 export function usePnlActiveImports(profileId: string | null, monthsInView: string[]) {
-  const supabase = useMemo(() => getBrowserSupabaseClient(), []);
   const [allImports, setAllImports] = useState<Awaited<ReturnType<typeof listPnlImports>>>([]);
   const [allImportMonths, setAllImportMonths] = useState<Awaited<ReturnType<typeof listPnlImportMonths>>>([]);
   const [loading, setLoading] = useState(false);
@@ -36,17 +35,11 @@ export function usePnlActiveImports(profileId: string | null, monthsInView: stri
     setErrorMessage(null);
 
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      if (!session?.access_token) {
-        throw new Error("Please sign in again.");
-      }
+      const token = await getAccessToken();
 
       const [importsResult, importMonthsResult] = await Promise.allSettled([
-        listPnlImports(session.access_token, profileId),
-        listPnlImportMonths(session.access_token, profileId),
+        listPnlImports(token, profileId),
+        listPnlImportMonths(token, profileId),
       ]);
 
       const imports = importsResult.status === "fulfilled" ? importsResult.value : [];
@@ -69,7 +62,7 @@ export function usePnlActiveImports(profileId: string | null, monthsInView: stri
     } finally {
       setLoading(false);
     }
-  }, [profileId, supabase]);
+  }, [profileId]);
 
   useEffect(() => {
     void loadActiveImports();
