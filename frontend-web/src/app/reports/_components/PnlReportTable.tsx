@@ -80,30 +80,19 @@ export default function PnlReportTable({ months, lineItems, showTotals, selected
                       <button
                         type="button"
                         onClick={() => onRowToggle?.(item.key)}
-                        className={`flex w-full items-center gap-1.5 text-left ${
+                        className={`w-full text-left ${
                           onRowToggle ? "cursor-pointer" : "cursor-default"
-                        }`}
-                      >
-                        {isSelected ? (
-                          <span className="flex h-3.5 w-3.5 flex-shrink-0 items-center justify-center rounded-full bg-[#0a6fd6] text-[8px] text-white">
-                            &#10003;
-                          </span>
-                        ) : onRowToggle ? (
-                          <span className="flex h-3.5 w-3.5 flex-shrink-0 items-center justify-center rounded-full border border-[#cbd5e1] text-[8px] text-transparent group-hover:border-[#0a6fd6]">
-                            &#10003;
-                          </span>
-                        ) : null}
-                        <span
-                          className={
-                            item.key === "net_earnings"
+                        } ${
+                          isSelected && item.key !== "net_earnings"
+                            ? "text-[#0a6fd6] font-semibold"
+                            : item.key === "net_earnings"
                               ? ""
                               : SUMMARY_KEYS.has(item.key)
                                 ? "text-[#0f172a]"
                                 : "text-[#475569]"
-                          }
-                        >
-                          {item.label}
-                        </span>
+                        }`}
+                      >
+                        {item.label}
                       </button>
                     </td>
                     {months.map((month) => {
