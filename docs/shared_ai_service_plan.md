@@ -16,6 +16,9 @@ What has changed since the initial draft:
    - content-part response parsing
 3. The frontend/shared OpenAI paths have **not** yet been migrated into one common backend AI service.
 4. The architecture problem described below still stands: provider/model quirks remain too duplicated across the codebase.
+5. This plan should now be read as the **internal Agency OS AI runtime plan**, not the entire long-term AI surface strategy.
+6. The complementary external-surface plan now lives in:
+   - [claude_primary_surface_plan.md](/Users/jeff/code/agency-os/docs/claude_primary_surface_plan.md)
 
 ## Why this document exists
 
@@ -23,7 +26,8 @@ We hit GPT-5 compatibility issues in The Claw because `max_tokens` became `max_c
 
 More broadly: every AI feature in this repo talks to OpenAI through its own copy of the same HTTP call, with its own model defaults, its own parameter handling, and its own token logging wiring. When a provider changes behavior (as GPT-5 did), we play whack-a-mole across multiple files in multiple languages.
 
-This plan proposes a shared AI service that eliminates that duplication.
+This plan proposes a shared AI service that eliminates that duplication for
+Agency OS-owned app surfaces.
 
 ---
 
@@ -105,6 +109,27 @@ Backend defaults to `gpt-4o-mini`. Frontend defaults to `gpt-5.1-nano`. Both rea
 
 A single backend Python module that owns all LLM communication. Frontend features call it through a thin internal API endpoint rather than talking to providers directly.
 
+### Scope clarification
+
+This service should be the shared AI runtime for:
+
+1. The Claw
+2. Scribe
+3. Debrief
+4. AdScope
+5. other Agency OS-owned app surfaces
+
+It should **not** be treated as the only top-level abstraction for the
+company's future AI strategy.
+
+There is now a second complementary layer to plan for:
+
+1. a private `agency-os` MCP / integration layer for Claude.ai first
+2. potentially other LLM-native web surfaces later
+
+That external integration layer should sit beside this internal AI service, not
+replace it.
+
 ### What belongs in the AI service
 
 | Responsibility | Why centralized |
@@ -182,6 +207,10 @@ def _build_payload(request: CompletionRequest, model: str) -> dict:
 
 New providers (Gemini, Claude) get their own file in `providers/` with the same normalization pattern. The `complete()` function dispatches based on which provider owns the resolved model.
 
+Important: this provider abstraction is still valuable even if Claude.ai
+becomes the main analyst-facing surface, because Agency OS will still have
+owned surfaces and internal workflows that need direct model access.
+
 ### Model lanes instead of one global default
 
 The current `OPENAI_MODEL_PRIMARY` / `OPENAI_MODEL_FALLBACK` setup pretends one model fits every workload. It doesn't. Scribe needs a model that writes well. Claw routing needs a model that's fast and cheap. Debrief extraction needs a model that follows JSON schemas reliably. The Claw agent loop needs a model that handles tool calling well.
@@ -257,6 +286,54 @@ The `/internal/ai/complete` endpoint is an internal-only backend route (no publi
 | Should worker-sync use it? | **Yes.** Direct Python import (same venv) or HTTP call | Workers are the most likely place for Gemini/Claude experiments |
 | What about browser/client code? | **Never.** All AI calls are server-side today and should stay that way | API keys must never reach the browser |
 
+## 4.1 Relationship to the LLM-native head plan
+
+Agency OS should now be thought of as having **two complementary AI layers**.
+
+### Layer A: Shared internal AI runtime
+
+This document covers:
+
+1. model/provider/runtime normalization
+2. centralized logging
+3. lane-based model selection
+4. owned application surfaces
+
+Examples:
+
+1. The Claw in Slack
+2. Scribe
+3. Debrief
+4. AdScope
+
+### Layer B: Private `agency-os` integration / MCP layer
+
+This is covered in:
+
+1. [claude_primary_surface_plan.md](/Users/jeff/code/agency-os/docs/claude_primary_surface_plan.md)
+
+This layer covers:
+
+1. tool exposure to Claude.ai first
+2. a future ChatGPT or other compatible "head" later
+3. user-scoped access to Agency OS data and workflows
+4. durable tool/resource descriptions that do not depend on one specific web chat product
+
+### Practical architecture split
+
+The split should be:
+
+1. backend business/data services remain the source of truth
+2. shared AI runtime powers Agency OS-owned AI features
+3. `agency-os` MCP server exposes tools/resources to external LLM-native surfaces
+4. project instructions in Claude/ChatGPT stay thin and portable
+
+This means:
+
+1. do not move all intelligence into Claude-specific project instructions
+2. do not assume the MCP layer removes the need for the internal AI runtime
+3. do make the tool/data layer durable enough that the "head" can change over time
+
 ---
 
 ## 5. Migration plan
@@ -288,6 +365,9 @@ Migrate The Claw first:
 - The Claw's usage logging moves inside `complete()` — remove manual `_log_theclaw_usage()` calls
 
 **Why The Claw first:** it's already backend-side, it already has GPT-5 handling, and it's the most actively developed feature. Low risk because we can run existing tests against the new service.
+
+This phase remains valid even with the Claude-primary-surface direction,
+because The Claw and other owned surfaces still benefit from a shared runtime.
 
 ### Phase 2: Add internal AI endpoint and migrate frontend features
 
@@ -328,6 +408,10 @@ When we want Gemini or Claude:
 - `complete()` dispatches based on model prefix or explicit provider field
 - No feature code changes — callers still say `model_tier="capable"` and get whatever provider is configured
 
+This is separate from exposing Agency OS tools to Claude.ai or ChatGPT via MCP.
+The MCP/tool layer is a surface integration problem; this phase is an internal
+runtime/provider problem.
+
 ---
 
 ## 6. Anti-patterns to stop
@@ -351,6 +435,8 @@ When we want Gemini or Claude:
 - **Image generation.** Not on the roadmap.
 - **Prompt management / versioning.** Prompts stay in feature code. No prompt registry.
 - **LLM evaluation / testing harness.** Out of scope for this plan.
+- **Claude.ai / ChatGPT project setup.** Covered in the external-surface planning doc, not here.
+- **Agency OS MCP server design.** Complementary plan, not part of this document's implementation scope.
 
 ---
 

@@ -1,4 +1,4 @@
-# Claude.ai as a Primary Surface for Agency OS
+# LLM-Native Primary Surface for Agency OS
 
 _Drafted: 2026-03-20 (ET)_
 
@@ -7,15 +7,24 @@ _Drafted: 2026-03-20 (ET)_
 Agency OS should continue to use The Claw in Slack because it already exists,
 works, and fits lightweight operational use cases well.
 
-However, there is now a strong argument for making **Claude.ai on the Team
-plan the primary high-capability surface** for power users and, over time, for
-the broader team.
+However, there is now a strong argument for making an **LLM-native web surface**
+the primary high-capability surface for power users and, over time, for the
+broader team.
+
+**Claude.ai is the best Phase 1 candidate**, but the architecture should not
+hard-code Claude as the only possible "head."
+
+Operationally, the best rollout path is:
+
+1. **pilot on Claude Pro first** for Jeff as the initial super user
+2. prove the private `agency-os` integration and real workflows
+3. then move to **Claude Team** for broader team rollout and admin-managed Projects
 
 The core idea is:
 
 1. keep Agency OS as the source of truth for internal tools, data, auth, and business logic
 2. expose those capabilities through one private `agency-os` integration
-3. let Claude.ai provide the richer working environment:
+3. let the surface model provide the richer working environment:
    - uploaded files
    - spreadsheets
    - screenshots/images
@@ -28,7 +37,13 @@ This is not an argument to replace The Claw immediately.
 It is an argument to treat:
 
 1. **The Claw in Slack** as the operational copilot
-2. **Claude.ai + Agency OS integration** as the analyst / strategist / deep-work surface
+2. **Claude.ai + Agency OS integration** as the first analyst / strategist / deep-work surface
+
+Longer term, the "head" should be replaceable:
+
+1. Claude.ai first
+2. ChatGPT if/when it offers a better team fit
+3. Gemini or another workspace if it reaches similar tool and project maturity
 
 ## Why this idea is compelling now
 
@@ -54,10 +69,11 @@ This is a different class of work than a Slack chatbot is naturally suited for.
 
 Trying to force all of this into Slack would be the wrong product shape.
 
-## Why Claude.ai may be the better primary surface for many high-value workflows
+## Why Claude.ai is the best first head
 
 Claude.ai on the web has important product advantages that Agency OS should
-leverage rather than recreate.
+leverage rather than recreate. It is the strongest current candidate for the
+first LLM-native primary surface.
 
 ### 1. Rich multimodal workspace
 
@@ -175,7 +191,77 @@ Instead:
 This should likely be implemented as an **Agency OS MCP server** or equivalent
 private integration layer that wraps existing backend capabilities.
 
-## How Claude Team would actually work
+The important architectural point is that the MCP/tool layer should outlive any
+single web chat surface. Claude is the first head, not the permanent one.
+
+## Head-swappable architecture
+
+Agency OS should treat the web-chat surface as a swappable "head" on top of a
+stable internal tool and data layer.
+
+### Stable layers
+
+These should remain the same regardless of whether the team prefers Claude,
+ChatGPT, or another compatible surface later:
+
+1. backend business/data services
+2. auth and permissioning
+3. `agency-os` MCP server / integration layer
+4. tool definitions, schemas, and descriptions
+5. durable data resources and lookup capabilities
+
+### Swappable layer
+
+This is the piece that may change over time:
+
+1. Claude.ai Project
+2. ChatGPT workspace + connector setup
+3. future Gemini or another LLM workspace
+
+### What should NOT live only in project instructions
+
+If the team wants the "head" to be replaceable, the most important behavior
+cannot live only in Claude-specific project instructions.
+
+Put durable logic in:
+
+1. tool names and descriptions
+2. tool schemas
+3. backend permissioning
+4. backend business logic
+5. MCP resources and reusable prompt assets where supported
+
+Use project instructions for:
+
+1. workflow guidance
+2. team conventions
+3. tone/style defaults
+4. prioritization hints
+
+This keeps the core system portable even if the preferred chat surface changes.
+
+## How Claude would actually work across Pro and Team
+
+### Pro first: solo pilot
+
+Claude Pro is enough to prove the product shape with one user.
+
+With Pro, Jeff should be able to:
+
+1. connect to the private `agency-os` remote MCP integration personally
+2. authenticate to it as an individual user
+3. test the core tool belt in Claude web
+4. validate whether Claude actually becomes the preferred analyst surface
+
+What Pro does **not** give is the broader managed team model:
+
+1. no org-wide rollout
+2. no owner-managed team availability for the integration
+3. no shared-team governance model as the primary deployment target
+
+So Pro should be treated as the **pilot environment**, not the final operating model.
+
+### Team next: managed rollout
 
 Based on Anthropic's current documentation, the practical operating model is:
 
@@ -192,6 +278,9 @@ The working model is closer to:
 1. **org-level integration availability**
 2. **user-level authentication**
 3. **project-level instructions and knowledge**
+
+This is specifically the **Claude Team rollout** operating model, not
+necessarily the final permanent surface strategy.
 
 ### Relevant Anthropic docs
 
@@ -259,7 +348,448 @@ The closest practical equivalent is:
 
 1. **Project instructions**
 2. **Project knowledge**
-3. **tool descriptions and schemas**
+3. **tool metadata from the `agency-os` integration**
+
+That means the recommended pattern is:
+
+1. admin-owned canonical Agency OS project
+2. most users with `Can use`
+3. only a very small number of trusted editors with `Can edit`
+
+## Current Agency OS skills and tools to expose first
+
+The current The Claw and reporting stack already suggest the first tool belt.
+
+### Current Claw skill inventory
+
+1. `entity_resolver`
+2. `task_confirmation_to_create`
+3. `task_extraction`
+4. `wbr_summary`
+5. `wbr_weekly_email_draft`
+
+### Current live tool inventory
+
+1. `lookup_wbr`
+2. `list_wbr_profiles`
+3. `draft_wbr_email`
+
+### Recommended first-pass `agency-os` integration tools
+
+1. `resolve_client`
+2. `get_wbr_summary`
+3. `list_wbr_profiles`
+4. `draft_wbr_email`
+5. `get_monthly_pnl_report`
+6. `list_child_asins`
+7. `query_adscope_view`
+8. `get_brand_or_client_context`
+
+The first version should expose the existing useful business capabilities, not
+try to mirror every internal implementation detail of The Claw.
+
+### Reuse boundary: services yes, Slack skill runtime no
+
+The `agency-os` MCP server should primarily reuse:
+
+1. backend business/data services
+2. existing report/query services
+3. existing bridge logic where it is clean and stable
+
+It should **not** treat The Claw's current Slack skill runtime as the main
+integration boundary.
+
+Why:
+
+1. The Claw skills are Slack-oriented orchestration contracts
+2. MCP tools need stable JSON schemas and clean tool semantics
+3. Claude web does not need to inherit Slack-specific prompting and formatting rules
+
+So the implementation model should be:
+
+1. reuse the underlying services
+2. wrap them in MCP-facing tool definitions
+3. expose clean tool inputs/outputs to Claude
+
+not:
+
+1. expose `SKILL.md` files directly
+2. port The Claw runtime into Claude
+3. treat current Slack skills as the long-term product boundary
+
+## Relationship to the shared AI runtime plan
+
+This document is a companion to:
+
+1. [shared_ai_service_plan.md](/Users/jeff/code/agency-os/docs/shared_ai_service_plan.md)
+
+That plan still matters, but it solves a different problem.
+
+This document is about:
+
+1. the external high-capability chat surface
+2. the private `agency-os` integration / MCP layer
+3. how the team works inside Claude.ai first, and potentially other surfaces later
+
+The shared AI service plan is about:
+
+1. centralizing model/runtime logic for Agency OS-owned surfaces
+2. The Claw
+3. Scribe
+4. Debrief
+5. AdScope and other internal app features
+
+## Implementation scope for the MCP pilot
+
+This document should be read as the implementation spec for the first
+`agency-os` MCP pilot.
+
+### Phase 0
+
+1. MCP foundation inside `backend-core`
+2. Jeff-only pilot auth
+3. MCP Inspector smoke test
+
+### Phase 1
+
+1. WBR read tools
+2. Claude Pro can resolve clients, inspect profiles, and read WBR summaries
+
+### Phase 2
+
+1. WBR email draft tool
+2. Claude Pro can create and return a persisted WBR draft
+
+### Deferred from this pilot
+
+1. shared internal AI runtime refactor
+2. Scribe / Debrief / AdScope migration
+3. Team rollout auth and admin governance
+4. P&L tools
+5. child-ASIN tools
+6. broad multi-tool standardization
+
+## Concrete insertion points in the repo
+
+The pilot should be implemented against the current backend app and service
+seams that already exist.
+
+### Core app and auth
+
+1. FastAPI app entry:
+   - [main.py](/Users/jeff/code/agency-os/backend-core/app/main.py)
+2. Existing auth helpers:
+   - [auth.py](/Users/jeff/code/agency-os/backend-core/app/auth.py)
+
+### WBR reuse seams
+
+1. WBR bridge logic:
+   - [wbr_skill_bridge.py](/Users/jeff/code/agency-os/backend-core/app/services/theclaw/wbr_skill_bridge.py)
+2. WBR admin router:
+   - [wbr.py](/Users/jeff/code/agency-os/backend-core/app/routers/wbr.py)
+3. WBR email draft service:
+   - [email_drafts.py](/Users/jeff/code/agency-os/backend-core/app/services/wbr/email_drafts.py)
+4. WBR snapshots:
+   - [report_snapshots.py](/Users/jeff/code/agency-os/backend-core/app/services/wbr/report_snapshots.py)
+
+### Later-slice reuse seams
+
+1. Child ASIN mappings:
+   - [asin_mappings.py](/Users/jeff/code/agency-os/backend-core/app/services/wbr/asin_mappings.py)
+2. P&L router:
+   - [pnl.py](/Users/jeff/code/agency-os/backend-core/app/routers/pnl.py)
+3. P&L report service:
+   - [report.py](/Users/jeff/code/agency-os/backend-core/app/services/pnl/report.py)
+
+Implementation rule:
+
+1. Do not expose The Claw Slack runtime or `SKILL.md` files through MCP.
+2. Reuse the underlying backend services instead.
+
+## Code organization and anti-bloat rules
+
+The MCP pilot should be implemented as a small, modular layer rather than one
+large catch-all file.
+
+### Required code-shape rules
+
+1. keep the MCP server bootstrap small
+2. keep auth/session handling separate from tool definitions
+3. keep WBR tool wrappers in their own module or package
+4. keep tool schemas/descriptions separate from underlying business logic where practical
+5. prefer adding new domain modules over expanding one giant MCP file
+
+### What to avoid
+
+1. one `agency_os_mcp.py` file that contains transport, auth, tool schemas, and business logic
+2. duplicating WBR or P&L logic inside the MCP layer
+3. putting unrelated future tools into the first WBR pilot module
+
+### Expected shape
+
+At minimum, implementation should naturally separate:
+
+1. MCP server/bootstrap
+2. auth / user-resolution / allowlist checks
+3. WBR tool definitions and wrappers
+4. later domain modules such as P&L or child-ASIN tools
+
+## Transport and endpoint contract
+
+### Known
+
+1. the pilot should use a Claude-compatible remote MCP server
+2. it should be hosted from `backend-core`
+3. it should expose one MCP base URL, not a custom ad hoc tool API
+
+### Implementation rule
+
+1. use an official Python MCP server/runtime, not a hand-rolled JSON tool endpoint
+2. mount the MCP transport under a dedicated base path such as `/mcp`
+3. if the chosen SDK requires SSE and/or a second message endpoint, follow the SDK exactly
+4. once the runtime is chosen, document the final path shape explicitly in this doc
+
+### Open question
+
+1. the exact route shape depends on the chosen MCP Python server/runtime and should follow that SDK's transport conventions rather than being invented here
+
+## Pilot auth model
+
+The first pilot should use individual auth with a Jeff-only allowlist.
+
+### Required behavior
+
+1. only Jeff may complete auth and use tools during the Pro pilot
+2. all other authenticated users should be rejected cleanly
+3. auth should be built so later Team rollout can move to normal user-scoped access
+
+### Default recommendation
+
+1. gate by both Supabase `sub` and email if available
+2. treat Supabase user id as the primary durable identifier
+
+### Open questions
+
+1. exact OAuth callback/token mechanics depend on the chosen remote MCP auth pattern
+2. the final Jeff allowlist key should be confirmed before coding:
+   - Supabase user id
+   - email
+   - both
+
+## Slice 1 tool contracts
+
+The pilot should expose a WBR-first tool belt.
+
+### Tool: `resolve_client`
+
+Purpose:
+
+1. resolve a free-text client query to canonical Agency OS clients before other tools are called
+
+Input:
+
+```json
+{
+  "query": "string"
+}
+```
+
+Output:
+
+```json
+{
+  "matches": [
+    {
+      "client_id": "uuid",
+      "client_name": "string",
+      "active_wbr_marketplaces": ["US", "CA"]
+    }
+  ]
+}
+```
+
+Rules:
+
+1. return only clients relevant to the WBR-first pilot
+2. include active WBR marketplace coverage in the response
+3. do not silently choose a client inside the tool
+
+### Tool: `list_wbr_profiles`
+
+Purpose:
+
+1. list canonical WBR profiles for a resolved client
+
+Input:
+
+```json
+{
+  "client_id": "uuid"
+}
+```
+
+Output:
+
+```json
+{
+  "profiles": [
+    {
+      "profile_id": "uuid",
+      "client_id": "uuid",
+      "client_name": "string",
+      "display_name": "string",
+      "marketplace_code": "US",
+      "status": "active"
+    }
+  ]
+}
+```
+
+Rules:
+
+1. return active profiles only unless implementation discovers a concrete reason not to
+2. if no profiles exist, return an empty `profiles` array rather than raising
+
+### Tool: `get_wbr_summary`
+
+Purpose:
+
+1. return the current WBR digest for one concrete profile
+
+Input:
+
+```json
+{
+  "profile_id": "uuid"
+}
+```
+
+Output:
+
+```json
+{
+  "profile": {
+    "profile_id": "uuid",
+    "client_id": "uuid",
+    "client_name": "string",
+    "display_name": "string",
+    "marketplace_code": "US"
+  },
+  "snapshot": {
+    "source_run_at": "timestamp or null"
+  },
+  "digest": {
+    "digest_version": "string",
+    "...": "existing WBR digest payload"
+  }
+}
+```
+
+Rules:
+
+1. accept `profile_id`, not client name + marketplace
+2. downstream tools and Claude flows should use canonical identifiers once resolution is complete
+3. reuse the existing snapshot/digest service
+4. if the current implementation creates snapshots on demand, document this tool as read-through rather than strictly read-only
+
+### Tool: `draft_wbr_email`
+
+Purpose:
+
+1. create and return a persisted multi-marketplace WBR client email draft
+
+Input:
+
+```json
+{
+  "client_id": "uuid"
+}
+```
+
+Output:
+
+```json
+{
+  "draft_id": "uuid",
+  "client_id": "uuid",
+  "snapshot_group_key": "string",
+  "draft_kind": "weekly_client_email",
+  "prompt_version": "string",
+  "marketplace_scope": "string",
+  "snapshot_ids": ["uuid"],
+  "subject": "string",
+  "body": "string",
+  "model": "string or null",
+  "created_at": "timestamp"
+}
+```
+
+Rules:
+
+1. reuse the existing WBR draft persistence/service path
+2. mark this tool as mutating
+3. errors such as `no client` or `no data` should be returned as structured tool errors, not buried in free text
+
+## Non-goals for the pilot
+
+1. no attempt to port The Claw runtime into Claude
+2. no generic shared AI runtime refactor in this phase
+3. no Team rollout or admin project automation in this phase
+4. no broad multi-tool surface yet
+5. no attempt to standardize every Agency OS capability before the pilot works
+
+## Logging and audit expectations
+
+Minimum pilot behavior:
+
+1. every MCP tool invocation should be logged server-side
+2. each log entry should include:
+   - tool name
+   - Agency OS user id
+   - success or error outcome
+   - timestamp
+3. `draft_wbr_email` should be logged as a mutating tool invocation
+4. do not invent a new analytics warehouse in slice 1; reuse existing backend logging patterns where practical
+
+Open question:
+
+1. whether MCP tool usage should live in `ai_token_usage`, a separate `mcp_tool_usage` table, or application logs should be decided before coding
+
+## Acceptance criteria by slice
+
+### Slice 0 complete when
+
+1. the MCP server mounts successfully in `backend-core`
+2. MCP Inspector can connect
+3. Jeff can authenticate
+4. a non-allowlisted user cannot authenticate or use tools
+
+### Slice 1 complete when
+
+1. Claude Pro can call:
+   - `resolve_client`
+   - `list_wbr_profiles`
+   - `get_wbr_summary`
+2. Claude can answer a real WBR question using Agency OS data only
+
+### Slice 2 complete when
+
+1. Claude Pro can call `draft_wbr_email`
+2. a draft is persisted in `wbr_email_drafts`
+3. Claude can present and revise the returned draft in normal chat
+
+## Pre-coding open questions
+
+These should remain explicit until they are confirmed from code or official MCP docs.
+
+1. Which exact Python MCP server/runtime will be used inside `backend-core`?
+2. What exact remote-MCP auth flow is required by the chosen Claude-compatible server transport?
+3. What is the final allowlist key for the Jeff-only pilot:
+   - Supabase user id
+   - email
+   - both
+4. Where should MCP tool usage logs live in slice 1?
+5. Should `get_wbr_summary` expose the full existing digest object unchanged, or a smaller curated envelope around it?
 
 So the expected setup is:
 
@@ -389,11 +919,24 @@ That matches the actual nature of the capabilities:
 3. proprietary logic
 4. private operational context
 
-## Team rollout model
+## Rollout model
 
 Recommended rollout:
 
-### Phase 1: super users
+### Phase 0: Pro pilot
+
+Start with:
+
+1. Jeff on Claude Pro
+
+Goal:
+
+1. prove the private `agency-os` integration works end to end
+2. confirm the real value of Claude web + Agency OS tools
+3. identify the first tool set worth exposing
+4. validate whether this should become the primary high-capability surface
+
+### Phase 1: super users on Team
 
 Start with:
 
@@ -698,3 +1241,22 @@ The key insight is:
 1. The Claw proved the value of Agency OS tools and internal data access
 2. Claude web may be the better surface for higher-value analytical work
 3. the right long-term move may be to connect Claude to Agency OS, not to make Slack do everything
+
+## Pilot test plan
+
+1. unit tests for each MCP tool wrapper
+2. auth allowlist tests
+3. error-shape tests for no-match and no-data cases
+4. MCP Inspector connectivity smoke test
+5. Claude Pro manual smoke tests:
+   - `How did Basari do last week in MX?`
+   - `What WBR marketplaces exist for Whoosh?`
+   - `Draft the weekly email for Whoosh`
+
+## Pilot assumptions
+
+1. `backend-core` is the correct first host for the MCP pilot
+2. the first slice is WBR-first
+3. the first pilot includes `draft_wbr_email`
+4. Claude Pro is sufficient for Jeff's solo pilot
+5. anything not explicitly confirmed from repo or official MCP docs should remain listed as an open question rather than being guessed
