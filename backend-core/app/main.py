@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from typing import Optional, Tuple
 
 from fastapi import FastAPI, Request
@@ -9,12 +10,26 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from .config import settings
 from .routers import ngram, npat, root, adscope, clickup, admin, wbr, amazon_ads_oauth, amazon_spapi_oauth, pnl, report_api_access
 from .api.routes import slack
+from .mcp.server import (
+    create_mcp_asgi_app,
+    get_mcp_protected_resource_metadata_path,
+    handle_mcp_protected_resource_metadata,
+    mcp_lifespan,
+)
 from .auth import verify_supabase_jwt
 from .error_logging import error_logger
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    async with mcp_lifespan():
+        yield
+
 
 app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -37,6 +52,13 @@ app.include_router(report_api_access.router)
 app.include_router(amazon_ads_oauth.router)
 app.include_router(amazon_spapi_oauth.router)
 app.include_router(pnl.router)
+app.mount("/mcp", create_mcp_asgi_app())
+app.add_api_route(
+    get_mcp_protected_resource_metadata_path(),
+    handle_mcp_protected_resource_metadata,
+    methods=["GET", "OPTIONS"],
+    include_in_schema=False,
+)
 
 
 def _infer_tool_from_path(path: str) -> Optional[str]:

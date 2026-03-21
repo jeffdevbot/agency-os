@@ -422,6 +422,7 @@ not:
 This document is a companion to:
 
 1. [shared_ai_service_plan.md](/Users/jeff/code/agency-os/docs/shared_ai_service_plan.md)
+2. [agency_os_mcp_implementation_plan.md](/Users/jeff/code/agency-os/docs/agency_os_mcp_implementation_plan.md)
 
 That plan still matters, but it solves a different problem.
 
