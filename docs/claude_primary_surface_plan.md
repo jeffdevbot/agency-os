@@ -2,6 +2,32 @@
 
 _Drafted: 2026-03-20 (ET)_
 
+## Status update — 2026-03-21 (ET)
+
+The Jeff-only Claude Pro pilot described in this document is now live.
+
+Current confirmed state:
+
+1. the private `Agency OS` remote MCP connector is connected in Claude Pro
+2. Supabase OAuth is working for the Claude auth flow
+3. the first WBR tool belt is live:
+   - `resolve_client`
+   - `list_wbr_profiles`
+   - `get_wbr_summary`
+   - `draft_wbr_email`
+4. live smoke tests succeeded for:
+   - client resolution
+   - marketplace lookup
+   - WBR summary retrieval
+   - persisted WBR email draft creation
+5. a compact Claude Project setup bundle now exists at `docs/claude_project/`
+
+So this document should now be read as:
+
+1. the strategic rationale for the surface
+2. the operating model for the next rollout phase
+3. context for moving from Jeff-only Pro usage toward a broader Claude Team setup later
+
 ## Summary
 
 Agency OS should continue to use The Claw in Slack because it already exists,

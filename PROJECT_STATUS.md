@@ -1,10 +1,19 @@
 # Changelog — Ecomlabs Tools
 
-_Last updated: 2026-03-19 (ET)_
+_Last updated: 2026-03-21 (ET)_
 
 > Development history for the project. For setup instructions and project overview, see [AGENTS.md](AGENTS.md).
 
 ---
+
+## 2026-03-21 (ET)
+- **Claude Pro remote MCP pilot is now live end to end for Jeff:** The private `Agency OS` connector can now authenticate through Supabase OAuth, connect from Claude web, and successfully run the first WBR tool belt (`resolve_client`, `list_wbr_profiles`, `get_wbr_summary`, `draft_wbr_email`) against live Agency OS data.
+- **Agency OS now has its first LLM-native primary surface in production-like use:** Claude Project setup was narrowed to a compact WBR-focused knowledge bundle under `docs/claude_project/`, giving the pilot a durable instruction layer without uploading large product strategy docs into Claude.
+- **Supabase OAuth server setup was completed for Claude remote MCP:** Added the custom consent page at `frontend-web/src/app/oauth/consent/`, enabled dynamic OAuth app registration, and verified the real auth flow through Claude and Supabase.
+- **MCP auth hardening landed before JWT key rotation:** `backend-core/app/auth.py` now supports asymmetric Supabase JWT verification via cached JWKS with legacy `HS256` fallback, so normal backend-protected routes remain compatible while Supabase signs new OAuth/OIDC tokens with ECC keys.
+- **Supabase JWT signing was rotated safely to asymmetric keys:** The project now uses an ECC (`P-256`) current signing key while the legacy `HS256` key remains in the previous-key set for verification of non-expired older tokens.
+- **OAuth state signing was decoupled from Supabase JWT mode:** Amazon Ads and SP-API state signing now prefer `OAUTH_STATE_SIGNING_SECRET` with fallback to `SUPABASE_JWT_SECRET`, reducing accidental coupling between internal OAuth state protection and Supabase JWT signing strategy.
+- **Claude pilot smoke tests succeeded on real workflows:** Jeff validated client resolution, WBR marketplace lookup, MX WBR summary retrieval for Basari, and persisted WBR email draft creation for Whoosh from inside Claude web.
 
 ## 2026-03-19 (ET)
 - **The Claw now delivers live WBR summaries in Slack:** The rebooted `backend-core/app/services/theclaw/` runtime can resolve WBR clients semantically, use bounded multi-step tool loops, and return compact Slack-friendly weekly summaries from stored WBR digests instead of deterministic bridge formatting.

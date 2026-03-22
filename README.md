@@ -2,6 +2,23 @@
 
 Ecomlabs Tools is the internal platform that consolidates our ad analytics, SOP ops, content creation, and creative briefing into a single authenticated dashboard at `tools.ecomlabs.ca`. The `docs/` folder captures the architecture, PRDs, and migration plans that guide the implementation. “Agency OS” was the internal codename; use “Ecomlabs Tools” in user-facing copy.
 
+## Current milestone
+
+The Jeff-only Claude Pro remote MCP pilot is now live.
+
+Current live outcome:
+- Claude web can authenticate to the private `Agency OS` connector through Supabase OAuth.
+- Claude can call the first WBR tool belt against live Agency OS data:
+  - `resolve_client`
+  - `list_wbr_profiles`
+  - `get_wbr_summary`
+  - `draft_wbr_email`
+- A compact Claude Project bundle now lives in `docs/claude_project/` so the pilot can use durable project instructions and narrow reference files instead of large planning docs.
+
+This does **not** replace The Claw in Slack. The current surface split is:
+- **The Claw in Slack** for quick operational requests.
+- **Claude.ai + Agency OS integration** for higher-capability WBR and analyst-style workflows.
+
 ## Documentation map
 
 ### Core Architecture
@@ -21,6 +38,7 @@ Ecomlabs Tools is the internal platform that consolidates our ad analytics, SOP 
 
 ### Shipped Services (Internal / No UI)
 - **ClickUp Service (backend-core)** — shared backend integration layer for ClickUp API calls (task creation + future sync). Routes live under `backend-core/app/routers/clickup.py`. Spec: `docs/archive/non_agencyclaw/08_clickup_service_prd.md`.
+- **Agency OS MCP (Jeff-only pilot)** — private remote MCP server mounted from `backend-core` and currently exposed to Claude Pro for WBR workflows. Current live tool belt: `resolve_client`, `list_wbr_profiles`, `get_wbr_summary`, `draft_wbr_email`. Primary docs: `docs/claude_primary_surface_plan.md`, `docs/agency_os_mcp_implementation_plan.md`, and the compact Claude Project bundle in `docs/claude_project/`.
 
 ### In Flight / Upcoming
 - **The Claw** — Slack assistant reboot for agency operations. Current plan/docs: `docs/theclaw/current/01_theclaw_reboot_implementation_plan.md`, `docs/theclaw/current/02_theclaw_architecture.md`.
@@ -33,6 +51,7 @@ Ecomlabs Tools is the internal platform that consolidates our ad analytics, SOP 
 
 ### Dev Operations
 - `docs/mcp_setup.md` — MCP workspace setup and verification (Supabase MCP server config, read-only connectivity checks, and `401 Unauthorized` re-auth recovery).
+- `docs/claude_project/` — compact Claude Project setup bundle for the live WBR MCP pilot, including project instructions and a narrow WBR playbook for upload into Claude Projects.
 - `docs/windsor_wbr_ingestion_runbook.md` — Windsor Section 1 ingestion operations for WBR (account scoping, date windows, sync behavior, and batching strategy).
 - `docs/wbr_v2_handoff.md` — Current WBR shipped state, routes, migrations, queued Amazon Ads sync behavior, and restart context.
 - `docs/wbr_v2_schema_plan.md` — WBR schema plan annotated with current implementation status, live migrations, and the current sync-run/job-state notes.
