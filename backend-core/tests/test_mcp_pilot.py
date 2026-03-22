@@ -139,6 +139,26 @@ def test_mcp_protected_resource_metadata_route(monkeypatch):
     }
 
 
+def test_mcp_protected_resource_metadata_route_allows_claude_origin():
+    with TestClient(app) as client:
+        preflight = client.options(
+            get_mcp_protected_resource_metadata_path(),
+            headers={
+                "Origin": "https://claude.ai",
+                "Access-Control-Request-Method": "GET",
+            },
+        )
+        response = client.get(
+            get_mcp_protected_resource_metadata_path(),
+            headers={"Origin": "https://claude.ai"},
+        )
+
+    assert preflight.status_code == 200
+    assert preflight.headers["access-control-allow-origin"] == "https://claude.ai"
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "https://claude.ai"
+
+
 def test_resolve_client_matches_filters_to_active_wbr_clients(monkeypatch):
     fake_db = _FakeDB(
         clients=[

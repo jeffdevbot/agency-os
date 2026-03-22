@@ -79,6 +79,12 @@ class Settings:
     explicit_mcp_origins = os.getenv("MCP_ALLOWED_ORIGINS")
     self.mcp_allowed_origins = _dedupe_csv_values(default_mcp_origins, explicit_mcp_origins)
 
+    # The parent FastAPI app serves the RFC 9728 protected-resource metadata
+    # endpoint, so its CORS policy must also admit the MCP browser origins.
+    for origin in self.mcp_allowed_origins:
+      if origin not in self.allowed_origins:
+        self.allowed_origins.append(origin)
+
 
 def _dedupe_csv_values(defaults: List[str], raw_csv: str | None) -> List[str]:
   extra = [value.strip() for value in raw_csv.split(",") if value.strip()] if raw_csv else []
