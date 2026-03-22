@@ -110,12 +110,6 @@ export function OAuthConsentClient() {
         return;
       }
 
-      if (data.redirect_uri) {
-        setStatus("redirecting");
-        window.location.assign(data.redirect_uri);
-        return;
-      }
-
       setDetails(data as AuthorizationDetails);
       setStatus("ready");
     };

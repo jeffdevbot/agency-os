@@ -1,6 +1,9 @@
 import { Suspense } from "react";
 import { OAuthConsentClient } from "./OAuthConsentClient";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 function LoadingFallback() {
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,#f4f7ff,transparent_35%),linear-gradient(180deg,#f7f9fc_0%,#edf2fb_100%)] px-4 py-10 text-slate-900">
