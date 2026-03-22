@@ -13,6 +13,8 @@ class Settings:
   supabase_jwt_secret: str
   supabase_jwt_audience: str
   supabase_issuer: str
+  supabase_jwks_url: str
+  supabase_jwks_cache_ttl_seconds: int
 
   supabase_url: str | None
   supabase_service_role: str | None
@@ -34,6 +36,16 @@ class Settings:
         "https://iqkmygvncovwdxagewal.supabase.co/auth/v1",
     )
     self.supabase_issuer = default_issuer
+    self.supabase_jwks_url = os.getenv(
+      "SUPABASE_JWKS_URL",
+      f"{self.supabase_issuer.rstrip('/')}/.well-known/jwks.json",
+    )
+    try:
+      self.supabase_jwks_cache_ttl_seconds = int(
+        os.getenv("SUPABASE_JWKS_CACHE_TTL_SECONDS", "300")
+      )
+    except ValueError:
+      self.supabase_jwks_cache_ttl_seconds = 300
 
     self.supabase_url = os.getenv("SUPABASE_URL")
     self.supabase_service_role = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv(

@@ -67,10 +67,15 @@ def _spapi_app_id() -> str:
 
 
 def _signing_key() -> bytes:
-    """Use the Supabase JWT secret as the HMAC key for state tokens."""
-    key = os.getenv("SUPABASE_JWT_SECRET", "").strip()
+    """Use a dedicated state-signing secret, with JWT secret as fallback."""
+    key = (
+        os.getenv("OAUTH_STATE_SIGNING_SECRET", "").strip()
+        or os.getenv("SUPABASE_JWT_SECRET", "").strip()
+    )
     if not key:
-        raise WBRValidationError("SUPABASE_JWT_SECRET is not configured")
+        raise WBRValidationError(
+            "OAUTH_STATE_SIGNING_SECRET or SUPABASE_JWT_SECRET must be configured"
+        )
     return key.encode()
 
 
