@@ -3,6 +3,52 @@
 Use this folder for the Claude Project setup instead of uploading large planning
 docs.
 
+## Status Checklist
+
+### Backend / Auth
+
+- [x] MCP server mounted in `backend-core`
+- [x] Claude remote connector can authenticate through Supabase OAuth
+- [x] Supabase JWT signing rotated to asymmetric ECC key
+- [x] Backend auth supports JWKS verification with legacy `HS256` fallback
+- [x] Jeff-only MCP allowlist is configured and working
+- [ ] Add `OAUTH_STATE_SIGNING_SECRET` to Render to fully decouple OAuth state signing from `SUPABASE_JWT_SECRET`
+- [ ] Decide when to remove the legacy `HS256` fallback after enough time has passed for old tokens to expire
+
+### Claude Connector
+
+- [x] Private `Agency OS` connector added in Claude Pro
+- [x] Connector can connect successfully
+- [x] Tool permissions configured
+- [ ] Set read-only tools to `Always allow` if you want less friction:
+  - `resolve_client`
+  - `list_wbr_profiles`
+  - `get_wbr_summary`
+- [ ] Keep `draft_wbr_email` on approval unless/until you want mutating actions to run without confirmation
+
+### Claude Project
+
+- [x] Personal Claude Project created
+- [x] `project_instructions.md` added to Project Instructions
+- [x] `wbr_mcp_playbook.md` uploaded to Project Files
+- [ ] Re-paste the latest `project_instructions.md` if the local file changes
+- [ ] Re-upload the latest `wbr_mcp_playbook.md` if the local file changes
+
+### WBR Pilot Tools
+
+- [x] `resolve_client` smoke-tested
+- [x] `list_wbr_profiles` smoke-tested
+- [x] `get_wbr_summary` smoke-tested
+- [x] `draft_wbr_email` smoke-tested
+- [x] Real persisted WBR draft created from Claude
+
+### Next Expansion Options
+
+- [ ] tighten tool descriptions / output formatting based on pilot usage
+- [ ] reduce approval friction for read-only tools
+- [ ] add additional narrow Claude Project files only when a workflow is stable
+- [ ] decide when to move from Jeff-only Claude Pro usage to a broader Claude Team rollout
+
 ## What To Add To Claude
 
 ### Instructions
