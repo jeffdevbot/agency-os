@@ -1,10 +1,18 @@
 # Changelog — Ecomlabs Tools
 
-_Last updated: 2026-03-21 (ET)_
+_Last updated: 2026-03-23 (ET)_
 
 > Development history for the project. For setup instructions and project overview, see [AGENTS.md](AGENTS.md).
 
 ---
+
+## 2026-03-23 (ET)
+- **WBR snapshot freshness is now hardened end to end for the Claude/The Claw path:** `worker-sync` now refreshes snapshots as part of the WBR sync lifecycle, Windsor refreshes defer snapshot creation when Amazon Ads data is still pending, and successful Amazon Ads finalize runs now create the fresh snapshot automatically.
+- **Amazon Ads WBR refreshes are more resilient under real throttling/duplicate conditions:** The Amazon Ads sync path now persists report-job state incrementally, treats `429 Throttled` as retryable, reuses Amazon's existing report id on `425 duplicate`, and keeps polling instead of losing partial progress and forcing manual reruns.
+- **WBR snapshot reads now self-heal if sync freshness gets ahead of snapshot creation:** `WBRSnapshotService.get_or_create_snapshot(...)` now rebuilds a stale snapshot when a newer successful Windsor or Amazon Ads sync has already finished, so Claude does not stay pinned to an old digest if the background snapshot write is missed.
+- **Live validation confirmed the repaired Distex CA WBR sync path:** A fresh Distex CA overnight cycle now shows Windsor `daily_refresh` success, Amazon Ads `daily_refresh` success, `ads_snapshot_refresh.status = success`, and a new latest snapshot with `week_ending = 2026-03-21`.
+- **The Claude WBR hardening pass is effectively complete for now:** Real pilot usage showed the main remaining issues are response restraint and sequencing polish rather than hallucinated metrics or broken tool flows, so WBR is now stable enough to treat as the completed first Claude slice.
+- **The next planned Claude/Agency OS expansion is Monthly P&L:** Current review of the P&L codepath confirms that `PNLReportService` already builds from persisted active month slices (`monthly_pnl_import_months.is_active = true`) and precomputed month totals, so the first Claude P&L slice should likely reuse the existing report service directly without adding a separate P&L snapshot layer.
 
 ## 2026-03-21 (ET)
 - **Claude Pro remote MCP pilot is now live end to end for Jeff:** The private `Agency OS` connector can now authenticate through Supabase OAuth, connect from Claude web, and successfully run the first WBR tool belt (`resolve_client`, `list_wbr_profiles`, `get_wbr_summary`, `draft_wbr_email`) against live Agency OS data.

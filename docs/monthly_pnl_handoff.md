@@ -1,6 +1,6 @@
 # Monthly P&L Handoff
 
-_Last updated: 2026-03-18 (ET)_
+_Last updated: 2026-03-23 (ET)_
 
 ## New session note
 
@@ -19,13 +19,30 @@ Current strategic direction:
 1. Monthly P&L remains live and validated from CSV uploads.
 2. Windsor compare work is now best understood as a reconciliation/debug path,
    not the long-term source-of-truth path for Amazon financial data.
-3. The next serious architecture direction is:
+3. The longer-term architecture direction is still:
    - shared `Reports / API Access`
    - move Amazon Ads connection management there
    - add Amazon Seller API auth there
    - use that shared Seller API connection for a P&L-first direct-SP-API path
 4. `non_pnl_transfer` remains the clearest reason to validate direct Amazon
    payment/disbursement access.
+5. The immediate next product direction has become narrower:
+   - WBR Claude MCP pilot is now working and hardened enough to stop expanding
+     WBR for the moment
+   - the next Claude/Agency OS session should focus on Monthly P&L as the next
+     tool domain
+   - start with a read-only P&L summary/analysis slice before any mutating
+     P&L email drafting or write workflows
+6. Current code review indicates Monthly P&L likely does **not** need a
+   separate snapshot layer for that first Claude slice, because the report is
+   already built from persisted active month slices and precomputed month
+   totals:
+   - `monthly_pnl_import_months.is_active = true`
+   - `monthly_pnl_import_month_bucket_totals`
+   - `monthly_pnl_import_month_sku_units`
+   - `monthly_pnl_sku_cogs`
+   The current report path already behaves like a curated month-level
+   snapshot set.
 
 Current implementation state on that direction:
 
@@ -472,28 +489,40 @@ These Monthly P&L migrations are currently visible in Supabase:
 
 ## Recommended next-session plan
 
-1. Review the remaining unchecked items in
-   `docs/monthly_pnl_implementation_plan.md` with the user before picking the
-   next build target.
-2. Preserve the validated Whoosh US and currently active CA import state unless
+1. Treat the next session as a Claude MCP capability-design session for Monthly
+   P&L, not as a generic P&L cleanup session.
+2. Reuse the existing persisted report model first:
+   - `backend-core/app/services/pnl/report.py`
+   - `backend-core/app/routers/pnl.py`
+3. Start with a read-only P&L tool contract such as:
+   - resolve client + marketplace/profile
+   - get current P&L summary/report window
+   - answer profitability / margin / expense questions
+4. Do **not** introduce a separate P&L snapshot layer unless a concrete product
+   need appears (for example, frozen client-facing monthly digests or
+   “what did we send last month?” auditability).
+5. Preserve the validated Whoosh US and currently active CA import state unless
    the user explicitly wants to replace it.
-3. If a future upload exposes unmapped rows, inspect the real source labels and
-   add the narrowest possible rule or parser change.
-4. Prefer focused report/mapping follow-ups over broad importer refactors.
-5. Keep Monthly P&L UX/product polish separate from WBR concerns.
-6. Treat the next session as a product-priority discussion first, centered on
-   the remaining implementation-plan items rather than assumed emergency work.
+6. Keep direct Amazon SP-API financial ingestion as a separate longer-term
+   track, not the blocker for the first Claude P&L slice.
 
 ## Next-session prompt
 
-Use this prompt to restart the next Monthly P&L session:
+Use this prompt to restart the next Monthly P&L / Claude expansion session:
 
-> Continue Monthly P&L work in `/Users/jeff/code/agency-os`.
+> Continue Agency OS Monthly P&L work in `/Users/jeff/code/agency-os`.
+>
+> The WBR Claude MCP pilot is now working and hardened enough to treat WBR as
+> the completed first slice for now. The next likely session goal is to design
+> and implement the first Claude-accessible Monthly P&L capability.
 >
 > Read first, in this order:
 > 1. `docs/monthly_pnl_handoff.md`
-> 2. `docs/monthly_pnl_implementation_plan.md`
-> 3. `AGENTS.md`
+> 2. `docs/monthly_pnl_resume_prompt.md`
+> 3. `docs/monthly_pnl_implementation_plan.md`
+> 4. `docs/agency_os_mcp_implementation_plan.md`
+> 5. `docs/claude_primary_surface_plan.md`
+> 6. `AGENTS.md`
 >
 > Current reality:
 > - US Amazon P&L is live and validated for Whoosh US across Jan-Dec 2025 on
@@ -501,41 +530,38 @@ Use this prompt to restart the next Monthly P&L session:
 > - Preserve the validated November import
 >   `0626222a-dc9c-4be5-a2ba-9de27b093494` and December import
 >   `c84cade9-6633-427f-b4b0-2371d0aca344`.
-> - SKU-based COGS is live; do not revert to month-lump COGS entry.
-> - WBR is a separate shipped product and not Monthly P&L scope.
 > - CA transaction upload support is live and validated on real profiles:
 >   Whoosh CA (`2026-01` through `2026-02`) and Distex CA (`2024-01` through
 >   `2026-02`).
-> - Active CA month slices currently have `unmapped_amount = 0`.
-> - CA mapping follow-up migrations are already live:
->   `20260317150607_seed_monthly_pnl_ca_mapping_rules.sql`,
->   `20260317154748_add_monthly_pnl_fulfilment_removal_prefix_rule.sql`, and
->   `20260317161435_add_monthly_pnl_ca_label_variants.sql`.
-> - Async import progress/heartbeat UX is live, SKU-based COGS supports CSV
->   export/import, and `Other expenses` now supports manual monthly `FBM
->   Fulfillment Fees` / `Agency Fees` with toggles plus CSV export/import.
-> - Excel export is live, payout rows are live at the bottom of the report, and
->   the current P&L UI/workbook uses accounting-style negative formatting.
+> - SKU-based COGS is live; do not revert to month-lump COGS entry.
+> - `Other expenses`, Excel export, payout rows, and async import progress are
+>   already live.
+> - Direct Amazon SP-API finance access is still a longer-term path pending
+>   Amazon-side approval/configuration; do not assume it is available for the
+>   next slice.
+> - Current code review suggests Monthly P&L already behaves like a curated
+>   monthly snapshot set because the report reads persisted active month slices
+>   and precomputed month totals, not live upstream calls.
 >
 > Primary goal:
-> - Work on Monthly P&L and explore the remaining implementation-plan items
->   with the user to decide what should come next.
+> - Decide and prepare the first Claude-accessible Monthly P&L slice, starting
+>   with a read-only capability rather than a write workflow.
 >
 > Focus:
-> 1. Review the current shipped Monthly P&L state first.
-> 2. Review the remaining items in the implementation plan and decide with the
->    user what the next highest-value Monthly P&L work should be before
->    changing code or data.
-> 3. Preserve validated Whoosh US and the currently active CA imports unless
->    explicitly asked to replace them.
-> 4. Prefer focused, low-risk follow-up work over broad refactors.
-> 5. Keep Windsor settlement work out of scope unless it becomes the explicit
->    next product goal.
+> 1. Review the shipped Monthly P&L state first.
+> 2. Inspect the current report path and existing data model before inventing
+>    new persistence.
+> 3. Define the smallest useful P&L MCP tool contract.
+> 4. Prefer reusing `PNLReportService` over building a separate P&L snapshot
+>    layer unless a concrete product need appears.
+> 5. Preserve validated Whoosh US and active CA imports unless explicitly asked
+>    to replace them.
 >
 > Constraints:
 > - Do not disturb the validated Whoosh US 2025 state unless explicitly asked.
 > - Leave unrelated dirty files alone.
-> - Prefer focused parser/mapping changes over broad refactors.
+> - Prefer focused, low-risk follow-up work over broad importer refactors.
+> - Treat WBR as stable reference context, not as the next build target.
 
 ## Where the code lives
 
