@@ -257,6 +257,128 @@ def test_run_daily_refresh_uses_profile_rewrite_window(monkeypatch):
     assert observed["job_type"] == "daily_refresh"
 
 
+def test_enqueue_chunk_persists_partial_report_jobs_when_create_is_throttled(monkeypatch):
+    svc = AmazonAdsSyncService(MagicMock())
+    state: dict[str, object] = {}
+
+    async def fake_refresh_access_token(refresh_token):
+        assert refresh_token == "refresh-token"
+        return "access-token"
+
+    attempts = iter(
+        [
+            sync_module.AmazonAdsReportCreateAttempt(outcome="success", report_id="rep-1"),
+            sync_module.AmazonAdsReportCreateAttempt(outcome="throttled", detail='{"code":"429","detail":"Throttled"}'),
+        ]
+    )
+
+    def fake_create_sync_run(**kwargs):
+        state["run"] = {
+            "id": "run-1",
+            "status": "running",
+            "request_meta": dict(kwargs["request_meta"]),
+        }
+        return state["run"]
+
+    def fake_update_request_meta(*, run_id, request_meta):
+        state["run"]["request_meta"].update(request_meta)  # type: ignore[index]
+
+    async def fake_create_campaign_report(**kwargs):
+        return next(attempts)
+
+    monkeypatch.setattr(sync_module, "refresh_access_token", fake_refresh_access_token)
+    monkeypatch.setattr(svc, "_create_sync_run", fake_create_sync_run)
+    monkeypatch.setattr(svc, "_update_sync_run_request_meta", fake_update_request_meta)
+    monkeypatch.setattr(svc, "_get_sync_run", lambda run_id: state["run"])
+    monkeypatch.setattr(svc, "_finalize_sync_run", lambda **kwargs: {"id": kwargs["run_id"], "status": kwargs["status"]})
+    monkeypatch.setattr(svc, "_create_campaign_report", fake_create_campaign_report)
+
+    result = asyncio.run(
+        svc._enqueue_chunk(
+            profile_id="profile-1",
+            amazon_ads_profile_id="ads-prof-1",
+            refresh_token="refresh-token",
+            marketplace_code="CA",
+            date_from=date(2026, 3, 10),
+            date_to=date(2026, 3, 23),
+            job_type="daily_refresh",
+            user_id="user-1",
+        )
+    )
+
+    report_jobs = result["run"]["request_meta"]["report_jobs"]
+    assert result["run"]["status"] == "running"
+    assert report_jobs[0]["report_id"] == "rep-1"
+    assert report_jobs[0]["status"] == "pending"
+    assert report_jobs[1]["status"] == "create_pending"
+    assert report_jobs[1]["status_detail"] == "throttled"
+    assert report_jobs[2]["status"] == "create_pending"
+
+
+def test_process_pending_run_reuses_duplicate_report_id(monkeypatch):
+    svc = AmazonAdsSyncService(MagicMock())
+    now = datetime(2026, 3, 14, 14, 0, tzinfo=UTC)
+    run = {
+        "id": "run-1",
+        "profile_id": "profile-1",
+        "date_from": "2026-03-10",
+        "date_to": "2026-03-23",
+        "status": "running",
+        "rows_fetched": 0,
+        "rows_loaded": 0,
+        "request_meta": {
+            "async_reports_v1": True,
+            "amazon_ads_profile_id": "ads-prof-1",
+            "report_jobs": [
+                {
+                    "report_id": None,
+                    "status": "create_pending",
+                    "create_attempts": 0,
+                    "poll_attempts": 0,
+                    "next_poll_at": now.isoformat(),
+                    "location": None,
+                    "status_detail": "queued_for_create",
+                    "campaign_type": "sponsored_products",
+                    "ad_product": "SPONSORED_PRODUCTS",
+                    "report_type_id": "spCampaigns",
+                    "columns": ["date"],
+                }
+            ],
+        },
+    }
+
+    updates: list[dict[str, object]] = []
+
+    async def fake_refresh_access_token(refresh_token):
+        return "access-token"
+
+    async def fake_create_campaign_report(**kwargs):
+        return sync_module.AmazonAdsReportCreateAttempt(
+            outcome="duplicate",
+            report_id="5f4c89f4-afb6-4d7c-a301-276429e8d90c",
+            detail='{"code":"425","detail":"The Request is a duplicate of : 5f4c89f4-afb6-4d7c-a301-276429e8d90c"}',
+        )
+
+    monkeypatch.setattr(sync_module, "datetime", type("_FakeDateTime", (datetime,), {"now": classmethod(lambda cls, tz=None: now)}))
+    monkeypatch.setattr(sync_module, "refresh_access_token", fake_refresh_access_token)
+    monkeypatch.setattr(svc, "_require_refresh_token", lambda profile_id, **kwargs: "refresh-token")
+    monkeypatch.setattr(svc, "_create_campaign_report", fake_create_campaign_report)
+    monkeypatch.setattr(
+        svc,
+        "_update_sync_run_request_meta",
+        lambda *, run_id, request_meta: updates.append({"run_id": run_id, "request_meta": request_meta}),
+    )
+
+    result = asyncio.run(svc._process_pending_run(run))
+
+    assert result == {"run_id": "run-1", "status": "running"}
+    assert updates
+    updated_jobs = updates[-1]["request_meta"]["report_jobs"]
+    assert updated_jobs[0]["report_id"] == "5f4c89f4-afb6-4d7c-a301-276429e8d90c"
+    assert updated_jobs[0]["status"] == "pending"
+    assert updated_jobs[0]["status_detail"] == "duplicate_reused"
+
+
 def test_run_backfill_requires_selected_ads_profile(monkeypatch):
     svc = AmazonAdsSyncService(MagicMock())
     monkeypatch.setattr(svc, "_get_profile", lambda profile_id: {"id": profile_id, "amazon_ads_profile_id": None})
