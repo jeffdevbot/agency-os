@@ -16,16 +16,24 @@ Current confirmed state:
    - `list_wbr_profiles`
    - `get_wbr_summary`
    - `draft_wbr_email`
-4. the first read-only Monthly P&L tools are now also implemented:
+4. the Monthly P&L MCP surface is now live beyond read-only analysis:
    - `list_monthly_pnl_profiles`
    - `get_monthly_pnl_report`
+   - `get_monthly_pnl_email_brief`
+   - `draft_monthly_pnl_email`
 5. `resolve_client` is no longer best understood as WBR-scoped:
    - it now resolves against Command Center client data
    - it includes WBR coverage, Monthly P&L coverage, brand/ClickUp hints,
      team assignments, and client context fields
 6. shared client discovery now lives in:
    - `backend-core/app/mcp/tools/clients.py`
-7. this document should now be read mainly as historical implementation
+7. live Claude smoke tests are green for:
+   - shared client resolution
+   - WBR analysis and drafting
+   - Monthly P&L analysis
+   - Monthly P&L brief generation
+   - Monthly P&L draft generation
+8. this document should now be read mainly as historical implementation
    rationale for slice sequencing, not as the exact current live tool
    inventory
 

@@ -58,6 +58,14 @@ docs.
 
 - [x] `draft_monthly_pnl_email` smoke-tested
 
+### Monthly P&L Current State
+
+- [x] Monthly P&L Claude surface is live
+- [x] Shared `resolve_client` returns team / brand / marketplace / report metadata
+- [x] WBR and Monthly P&L both work in the same Agency OS Claude Project
+- [x] Monthly P&L YoY is live in the web app
+- [x] Claude can still reason about YoY using the existing P&L tools
+
 ### Next Expansion Options
 
 - [ ] tighten tool descriptions / output formatting based on pilot usage
@@ -101,10 +109,10 @@ too large and too broad for a day-to-day Claude Project.
 This bundle now supports a small shared reporting surface:
 
 1. Agency OS WBR MCP workflows
-2. Agency OS Monthly P&L read-only MCP workflows
-3. the live WBR tools plus the first read-only P&L tools
+2. Agency OS Monthly P&L MCP workflows
+3. live WBR tools plus live Monthly P&L analysis / brief / draft tools
 4. the expected usage pattern for client resolution, profile resolution,
-   summary retrieval, and draft creation where supported
+   summary retrieval, brief generation, and draft creation where supported
 
 Expand this folder only when a workflow is stable enough to deserve durable
 Claude Project knowledge.

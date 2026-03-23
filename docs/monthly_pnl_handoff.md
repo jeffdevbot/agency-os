@@ -4,9 +4,8 @@ _Last updated: 2026-03-23 (ET)_
 
 ## New session note
 
-This handoff still contains accurate shipped-state history for Monthly P&L, but
-the current strategic direction has changed since the original 2026-03-17
-write-up.
+This handoff should now be read as a shipped-state reference, not an active
+"still building the first slice" plan.
 
 For a fresh session, read this document for shipped-state context, then also
 read:
@@ -27,18 +26,14 @@ Current strategic direction:
    - use that shared Seller API connection for a P&L-first direct-SP-API path
 4. `non_pnl_transfer` remains the clearest reason to validate direct Amazon
    payment/disbursement access.
-5. The immediate next product direction has become narrower:
-   - WBR Claude MCP pilot is now working and hardened enough to stop expanding
-     WBR for the moment
-   - Monthly P&L is the next Claude tool domain
-   - the first slice should be a read-only P&L summary/analysis slice before
-     any mutating P&L email drafting or write workflows
-   - the likely target state is still one shared Agency OS Claude Project that
-     can use multiple tool domains, not one separate Claude Project per report
-     type
-   - extend the shared Claude Project guidance with clearly separated
-     P&L-specific instructions/files rather than creating a fragmented set of
-     separate Claude Projects
+5. The reviewed direction for Claude/P&L is now implemented rather than
+   speculative:
+   - one shared Agency OS Claude Project
+   - shared `resolve_client`
+   - read-only P&L analysis
+   - structured P&L brief generation
+   - persisted P&L email drafting
+   - no separate Claude Project per report type
 6. Current code review indicates Monthly P&L likely does **not** need a
    separate snapshot layer for that first Claude slice, because the report is
    already built from persisted active month slices and precomputed month
@@ -105,10 +100,9 @@ Current implementation state on that direction:
       Monthly P&L
     - `docs/claude_project/wbr_mcp_playbook.md` now assumes the shared
       `resolve_client` contract
-    - `docs/claude_project/monthly_pnl_mcp_playbook.md` now exists for the
-      read-only P&L slice
-    - remaining Claude-side work is to refresh those files in the live Claude
-      Project and run smoke tests
+    - `docs/claude_project/monthly_pnl_mcp_playbook.md` now covers live P&L
+      analysis, brief, and draft workflows
+    - live Claude smoke tests for WBR and Monthly P&L are green
 12. Targeted regression coverage after those MCP changes is green:
     - `backend-core/tests/test_mcp_pilot.py`
     - `backend-core/tests/test_pnl_report.py`
@@ -120,18 +114,18 @@ Current implementation state on that direction:
     - a proposed Claude-facing preview/persisted email tool contract
     - the exact data requirements for reliable drafting, including conditional
       YoY / MoM fallback rules
-14. The first structured Monthly P&L email-brief layer is now implemented:
+14. The structured Monthly P&L email-brief layer is now implemented and live:
     - backend service:
       `backend-core/app/services/pnl/email_brief.py`
     - MCP wrapper/tool:
       `backend-core/app/mcp/tools/pnl.py`
       `get_monthly_pnl_email_brief`
     - current role:
-      - read-only bridge between `get_monthly_pnl_report` and a future
-        persisted P&L draft tool
+      - read-only bridge between `get_monthly_pnl_report` and
+        `draft_monthly_pnl_email`
       - deterministic marketplace-level snapshot metrics, driver candidates,
         verdicts, and data-quality notes for a selected client/month
-15. The first persisted Monthly P&L draft layer is now implemented:
+15. The persisted Monthly P&L draft layer is now implemented and live:
     - services:
       - `backend-core/app/services/pnl/email_prompt.py`
       - `backend-core/app/services/pnl/email_drafts.py`
@@ -141,9 +135,26 @@ Current implementation state on that direction:
       - `draft_monthly_pnl_email`
     - shape:
       - the draft tool uses the structured brief internally
-      - normal user-facing workflow can stay simple:
+      - normal user-facing workflow stays simple:
         inspect with `get_monthly_pnl_report` or draft directly with
         `draft_monthly_pnl_email`
+16. Monthly P&L YoY is now shipped in the web product:
+    - shared comparison layer:
+      `backend-core/app/services/pnl/comparison.py`
+    - YoY adapter:
+      `backend-core/app/services/pnl/yoy_report.py`
+    - frontend YoY mode:
+      - `Standard` / `YoY` toggle
+      - year selector
+      - `% of Revenue` support in YoY
+      - dashed prior-year chart series
+      - YoY Excel export
+17. Claude does not have a dedicated YoY MCP tool, and that is currently the
+    intended state:
+    - the web app has a true YoY route/view
+    - Claude can still do YoY reasoning with existing P&L tools
+    - if a dedicated YoY tool is ever needed, it should sit on the shared
+      comparison layer instead of duplicating rules again
 
 Docs currently known to be partially outdated for the new direction:
 
@@ -171,10 +182,10 @@ The current recommended direction is:
    window are actually available
 3. fall back cleanly to MoM or omit unsupported comparisons when YoY is not
    available
-4. build a structured Monthly P&L email brief layer before adding a mutating
-   persisted draft tool
-5. use the current structured brief as the canonical drafting-prep layer rather
-   than jumping straight from raw `get_monthly_pnl_report` output to a draft
+4. keep the structured Monthly P&L email brief layer as the canonical
+   drafting-prep layer
+5. keep `draft_monthly_pnl_email` thin on top of that brief instead of jumping
+   straight from raw `get_monthly_pnl_report` output to a draft
 
 See `docs/monthly_pnl_email_drafting_spec.md` for the concrete writing pattern,
 tool contract, and data requirements.

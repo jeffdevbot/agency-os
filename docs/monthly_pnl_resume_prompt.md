@@ -1,5 +1,12 @@
 # Monthly P&L Resume Prompt
 
+_Last updated: 2026-03-23 (ET)_
+
+This prompt is no longer the default "active build" entrypoint. Monthly P&L,
+Claude P&L, and the YoY web surface are now shipped. Use this prompt only when
+returning to Monthly P&L for refinement, debugging, or the next adjacent
+capability.
+
 Continue Monthly P&L work in `/Users/jeff/code/agency-os`.
 
 Read first, in this order:
@@ -110,10 +117,12 @@ Current reality:
     - `docs/claude_project/project_instructions.md`
     - `docs/claude_project/wbr_mcp_playbook.md`
     - `docs/claude_project/monthly_pnl_mcp_playbook.md`
-25. Remaining Claude-side work is live smoke testing and iteration:
-    - re-paste / re-upload the updated Project files in Claude
-    - verify WBR flows still work unchanged
-    - verify the first read-only Monthly P&L flow works end to end
+25. Claude-side smoke testing is complete and currently green:
+    - shared `resolve_client` works
+    - WBR flows still work
+    - P&L analysis works
+    - P&L brief generation works
+    - P&L draft generation works
 26. Targeted regression coverage after the MCP/P&L changes is currently green:
     - `backend-core/tests/test_mcp_pilot.py`
     - `backend-core/tests/test_pnl_report.py`
@@ -143,18 +152,36 @@ Current reality:
     - persistence migration:
       - `supabase/migrations/20260323170000_add_monthly_pnl_email_drafts.sql`
 
-Primary goal:
+30. Monthly P&L YoY is now shipped as a real web product surface:
+    - shared backend comparison layer:
+      `backend-core/app/services/pnl/comparison.py`
+    - thin YoY adapter:
+      `backend-core/app/services/pnl/yoy_report.py`
+    - YoY route:
+      `GET /admin/pnl/profiles/{profile_id}/yoy-report`
+    - frontend YoY mode:
+      - `Standard` / `YoY` toggle
+      - year selector
+      - `% of Revenue` support in YoY
+      - dashed prior-year chart series
+      - YoY Excel export
+31. Claude does not yet have a dedicated YoY MCP tool, and that is currently
+    intentional:
+    - Claude can already reason about YoY using existing P&L tools
+    - the shared comparison layer is the future base if a thin YoY MCP tool is
+      ever justified
 
-1. Validate and refine the first useful Claude-accessible Monthly P&L
-   capability, which now starts with a read-only P&L slice rather than broad
-   importer or SP-API work.
+Primary goal for a future return:
+
+1. Treat Monthly P&L as shipped and start from refinement/debugging or the
+   next adjacent capability, not from "build the first Claude/P&L slice."
 
 Focus:
 
 1. Review the current shipped Monthly P&L state first.
-2. Review the remaining items in `docs/monthly_pnl_implementation_plan.md`, but
-   frame the conversation around the next Claude/PnL product slice rather than
-   generic backlog cleanup.
+2. Review the remaining items in `docs/monthly_pnl_implementation_plan.md`,
+   but frame the conversation around post-ship refinement or the next adjacent
+   capability rather than first-slice build work.
 3. Inspect the existing report path before adding persistence or wrappers:
    - `backend-core/app/services/pnl/report.py`
    - `backend-core/app/routers/pnl.py`
@@ -179,8 +206,8 @@ Constraints:
 1. Do not disturb the validated Whoosh US 2025 state unless explicitly asked.
 2. Leave unrelated dirty files alone.
 3. Prefer focused parser/mapping changes over broad refactors.
-4. Prefer a read-only Claude/PnL slice before any mutating P&L email or write
-   workflow.
+4. Do not re-open architecture already validated in production unless real
+   usage justifies it.
 
 Current direct-Amazon notes:
 

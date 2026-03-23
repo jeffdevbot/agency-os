@@ -1,5 +1,10 @@
 # PnL Year-over-Year Implementation Plan
 
+_Status: implemented and shipped on 2026-03-23 (ET)_
+
+This document now serves as the implementation record for the shipped YoY
+architecture.
+
 ## Recommendation
 
 Keep the frontend product idea exactly as proposed:
@@ -58,11 +63,14 @@ So the goal is:
 - refactor Claude P&L brief/draft path to use it
 - backend/frontend support for a YoY page mode built on that shared layer
 
-### Out of scope for the first shared-layer pass
+### Originally out of scope for the first shared-layer pass
 
-- Excel export for YoY mode
 - persisting YoY view state in URL params
 - a brand-new Claude/MCP YoY tool unless real usage demands it
+
+What ultimately shipped in addition to the original narrow scope:
+
+- YoY Excel export support
 
 ---
 
@@ -158,6 +166,38 @@ Important:
 ---
 
 ## Implementation Phases
+
+## Shipped implementation
+
+Implemented backend pieces:
+
+- shared comparison layer:
+  `backend-core/app/services/pnl/comparison.py`
+- YoY adapter:
+  `backend-core/app/services/pnl/yoy_report.py`
+- frontend route consumption through:
+  `GET /admin/pnl/profiles/{profile_id}/yoy-report`
+- workbook export support in:
+  `backend-core/app/services/pnl/workbook.py`
+
+Implemented frontend pieces:
+
+- `PnlReportHeader.tsx`
+- `PnlReportScreen.tsx`
+- `PnlYoYTable.tsx`
+- `usePnlYoYReport.ts`
+- `pnlYoYPresentation.ts`
+- dashed prior-year chart support in `WbrTrendChart.tsx`
+
+Claude / downstream state:
+
+- no dedicated YoY MCP tool was added
+- Claude continues to use existing P&L tools
+- the shared comparison layer now benefits:
+  - `get_monthly_pnl_email_brief`
+  - `draft_monthly_pnl_email`
+- if a dedicated YoY MCP tool is ever added later, it should remain a thin
+  wrapper over this shared layer
 
 ## Phase 1 — Shared backend extraction
 

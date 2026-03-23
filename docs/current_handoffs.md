@@ -7,14 +7,15 @@ historical reference.
 
 ## Active next-session entrypoints
 
-1. [Monthly P&L handoff](/Users/jeff/code/agency-os/docs/monthly_pnl_handoff.md)
-   - Current active handoff for the next major Agency OS workstream.
-2. [Monthly P&L resume prompt](/Users/jeff/code/agency-os/docs/monthly_pnl_resume_prompt.md)
-   - Current restart prompt for the next major session.
-3. [Claude primary surface plan](/Users/jeff/code/agency-os/docs/claude_primary_surface_plan.md)
+1. [Claude primary surface plan](/Users/jeff/code/agency-os/docs/claude_primary_surface_plan.md)
    - Current strategy doc for Claude vs The Claw and future MCP expansion.
-4. [Agency OS MCP implementation plan](/Users/jeff/code/agency-os/docs/agency_os_mcp_implementation_plan.md)
-   - Current implementation-planning reference for MCP tool-surface expansion.
+2. [Agency OS MCP implementation plan](/Users/jeff/code/agency-os/docs/agency_os_mcp_implementation_plan.md)
+   - Current implementation-planning reference for the shared Claude/MCP tool
+     surface after WBR + Monthly P&L shipped.
+3. [Reports API access and SP-API plan](/Users/jeff/code/agency-os/docs/reports_api_access_and_spapi_plan.md)
+   - Current shared reporting auth/source-of-truth planning reference.
+4. [PROJECT_STATUS.md](/Users/jeff/code/agency-os/PROJECT_STATUS.md)
+   - Fastest high-level snapshot of what is already shipped.
 
 ## Current operational/reference docs
 
@@ -25,17 +26,22 @@ historical reference.
 3. [Claude Project bundle](/Users/jeff/code/agency-os/docs/claude_project/README.md)
    - Current project instructions/files bundle for the live shared WBR +
      Monthly P&L Claude surface.
-4. [PROJECT_STATUS.md](/Users/jeff/code/agency-os/PROJECT_STATUS.md)
-   - Concise project history and shipped milestone log.
+4. [Monthly P&L handoff](/Users/jeff/code/agency-os/docs/monthly_pnl_handoff.md)
+   - Current shipped-state reference for Monthly P&L, Claude P&L, and YoY.
+5. [Monthly P&L resume prompt](/Users/jeff/code/agency-os/docs/monthly_pnl_resume_prompt.md)
+   - Current restart prompt if a future session returns specifically to
+     Monthly P&L.
 
 ## Historical/reference docs
 
 1. [WBR v2 handoff](/Users/jeff/code/agency-os/docs/wbr_v2_handoff.md)
    - Historical shipped-state/debug reference for WBR.
    - WBR is stable for now; this is no longer the primary restart doc.
-2. [Archived session prompts](/Users/jeff/code/agency-os/docs/archive/session_prompts)
+2. [PnL YoY implementation plan](/Users/jeff/code/agency-os/docs/pnl_yoy_implementation_plan.md)
+   - Historical implementation record for the now-shipped YoY architecture.
+3. [Archived session prompts](/Users/jeff/code/agency-os/docs/archive/session_prompts)
    - Historical prompts from active build/debug phases.
-3. [Older archived non-The-Claw docs](/Users/jeff/code/agency-os/docs/archive/non_agencyclaw/README.md)
+4. [Older archived non-The-Claw docs](/Users/jeff/code/agency-os/docs/archive/non_agencyclaw/README.md)
    - Historical product/build docs no longer meant to be the active entrypoint.
 
 ## Rule of thumb

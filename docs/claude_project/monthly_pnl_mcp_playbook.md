@@ -1,12 +1,11 @@
 # Agency OS Monthly P&L MCP Playbook
 
-This file is the compact reference Claude should use for the first Monthly P&L
-tool slice.
+This file is the compact reference Claude should use for the live Monthly P&L
+tool surface.
 
 ## Goal
 
-Use Agency OS as the source of truth for read-only Monthly P&L workflows inside
-Claude.
+Use Agency OS as the source of truth for Monthly P&L workflows inside Claude.
 
 Current scope:
 
@@ -164,6 +163,17 @@ Returns:
 
 This is a mutating tool.
 
+## Important note about YoY
+
+There is not currently a dedicated Monthly P&L YoY MCP tool.
+
+That is expected.
+
+1. The web app has a true YoY mode backed by shared backend comparison logic.
+2. Claude currently does YoY reasoning by using existing P&L tool output.
+3. If a dedicated YoY MCP tool is added later, it should be a thin wrapper over
+   the same shared comparison layer rather than a separate logic path.
+
 ## Canonical Workflow
 
 ### 1. Client name given
@@ -243,9 +253,9 @@ If the user explicitly wants the client-facing Monthly P&L email:
 3. Use canonical IDs after resolution is complete.
 4. If no client, no profile, or no reportable data is found, say so explicitly.
 5. Treat warnings as decision-relevant context, not footnotes to ignore.
-6. This tool slice is read-only. Do not imply Claude can edit P&L settings,
-   upload imports, or trigger write workflows unless new tools are added later.
-   Exception: `draft_monthly_pnl_email` is now a supported mutating draft tool.
+6. Do not imply Claude can edit P&L settings, upload imports, or trigger other
+   write workflows unless new tools are added later. Exception:
+   `draft_monthly_pnl_email` is a supported mutating draft tool.
 7. If the user asks for last month, a specific month, or a recent month window,
    treat that as a normal analysis request, not an email-drafting request.
 8. When summarizing P&L, prioritize:
@@ -258,6 +268,7 @@ If the user explicitly wants the client-facing Monthly P&L email:
 
 1. "Show me Whoosh US Monthly P&L for last month."
 2. "Summarize Whoosh Canada P&L for Jan-Feb 2026."
+3. "Draft the Monthly P&L highlights email for Whoosh for February 2026."
 3. "What were the main profitability drivers for Distex CA over the last 6 months?"
 4. "Do we have Monthly P&L coverage for Whoosh in the UK?"
 5. "Build a structured Monthly P&L email brief for Whoosh for February 2026."
