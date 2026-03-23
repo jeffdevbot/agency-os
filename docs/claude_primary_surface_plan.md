@@ -28,14 +28,79 @@ So this document should now be read as:
 2. the operating model for the next rollout phase
 3. context for moving from Jeff-only Pro usage toward a broader Claude Team setup later
 
+## Pilot outcome — 2026-03-21 (ET)
+
+The live pilot materially strengthens the case for Claude as the primary
+high-capability surface.
+
+Observed result:
+
+1. for real WBR questions, Claude is already producing a better user
+   experience than The Claw with little or no prompt tuning
+2. Claude answers with lower interaction cost, better prioritization, and
+   better business-language synthesis
+3. The Claw remains more explicit and rigid about disambiguation, which can be
+   useful for bounded operational workflows but is noticeably worse for
+   high-capability analyst-style usage
+
+Practical implication:
+
+1. Claude should now be treated as the leading candidate for the primary
+   analyst surface, not just a speculative option
+2. The Claw should continue to be tested, but it should not receive major
+   optimization priority while Claude continues to outperform it on real
+   analyst workflows
+3. Slack still matters, but primarily for lightweight operational requests and
+   chat-native usage rather than as the main high-capability surface
+
+## Why Claude is outperforming The Claw so far
+
+The current gap should not be explained as "Claude is just magic" or "The
+Claw is bad."
+
+The better explanation is that Claude currently has a stronger full stack for
+this class of work:
+
+1. a stronger general-purpose model and response composer
+2. a richer web working environment with files, screenshots, long context, and
+   iterative revision
+3. a narrower and cleaner MCP tool surface for WBR work
+4. tighter project instructions focused on answer-first analyst behavior
+5. less visible orchestration overhead than the current Slack skill-routing
+   path
+
+The Claw is not simply "the same thing in Slack."
+
+In its current shape, The Claw still carries product choices that are helpful
+for bounded operational workflows but harmful for analyst-style usage:
+
+1. it uses an explicit skill-routing runtime before the real answer path
+2. it tends to expose clarification and resolution scaffolding to the user
+3. it is optimized to avoid wrong answers under ambiguity, even when the user
+   mainly wants the most likely correct business answer quickly
+4. it lives in a chat surface that is materially worse for file-heavy and
+   synthesis-heavy work
+
+So the pilot result should be interpreted as:
+
+1. model quality matters
+2. runtime and surface design matter at least as much
+3. even a stronger model inside The Claw would likely not fully close the gap
+   unless the Slack runtime became less rigid and less clarification-heavy
+
+This is why the current recommendation is to keep testing The Claw, but not to
+prioritize major optimization work on it unless evidence shows that a narrower
+Slack-native role has a stronger product fit than Claude for a specific
+workflow.
+
 ## Summary
 
-Agency OS should continue to use The Claw in Slack because it already exists,
-works, and fits lightweight operational use cases well.
+Agency OS should continue to keep The Claw in Slack available for lightweight
+operational use cases.
 
-However, there is now a strong argument for making an **LLM-native web surface**
-the primary high-capability surface for power users and, over time, for the
-broader team.
+However, the live pilot now shows that an **LLM-native web surface** should be
+treated as the primary high-capability surface for power users and, over time,
+for the broader team.
 
 **Claude.ai is the best Phase 1 candidate**, but the architecture should not
 hard-code Claude as the only possible "head."
@@ -58,12 +123,15 @@ The core idea is:
    - artifact generation
    - stronger writing / analytical workflows
 
-This is not an argument to replace The Claw immediately.
+This is not an argument to delete The Claw immediately.
 
 It is an argument to treat:
 
-1. **The Claw in Slack** as the operational copilot
-2. **Claude.ai + Agency OS integration** as the first analyst / strategist / deep-work surface
+1. **Claude.ai + Agency OS integration** as the first analyst / strategist /
+   deep-work surface
+2. **The Claw in Slack** as the lightweight operational copilot that remains in
+   test mode unless it proves a stronger product fit than Claude for a given
+   workflow
 
 Longer term, the "head" should be replaceable:
 
@@ -158,7 +226,8 @@ Claude web is better for:
 
 ## Why keep The Claw in Slack anyway
 
-There is still value in keeping The Claw alive in Slack.
+There is still value in keeping The Claw alive in Slack, but the pilot changes
+how aggressively it should be optimized.
 
 Slack remains useful for:
 
@@ -170,9 +239,11 @@ Slack remains useful for:
 
 So the practical position is:
 
-1. do not throw away The Claw
+1. do not throw away The Claw yet
 2. do not make Slack the only serious AI surface
-3. add Claude.ai as the higher-capability primary surface for super users
+3. treat Claude.ai as the default higher-capability primary surface
+4. continue testing The Claw, but do not prioritize major optimization work on
+   it while Claude continues to perform better on real analyst workflows
 
 ## Recommended surface split
 
@@ -180,11 +251,11 @@ So the practical position is:
 
 Best for:
 
-1. `How did Basari do?`
-2. `Draft the weekly email for Whoosh`
-3. quick follow-up revisions
-4. short operational lookups
-5. team chat-native usage
+1. quick operational lookups
+2. bounded requests where explicit clarification is preferable to inference
+3. short chat-native usage inside team communication
+4. lightweight follow-up requests when Slack is the right place to work
+5. continued product testing, not primary optimization focus
 
 ### Claude.ai web + Agency OS integration
 
@@ -195,6 +266,7 @@ Best for:
 3. planning decks / email narratives / strategy memos
 4. spreadsheet-heavy investigation
 5. mixed internal + uploaded external context
+6. WBR questions where the user wants the answer, not a long clarification flow
 
 ## What the integration should look like
 
