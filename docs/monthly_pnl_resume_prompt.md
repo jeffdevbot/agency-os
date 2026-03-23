@@ -89,6 +89,14 @@ Current reality:
 22. For the first Claude P&L slice, do not assume a new dedicated P&L snapshot
     layer is required. Start by evaluating a read-only MCP tool that reuses the
     existing report service directly.
+23. Current Claude Project files in `docs/claude_project/` are WBR-specific:
+    - `project_instructions.md`
+    - `wbr_mcp_playbook.md`
+    They are useful as a pattern, but they are not the current instructions or
+    project-file bundle for Monthly P&L.
+24. Part of the next P&L/Claude session should be deciding whether to create a
+    separate narrow P&L Claude Project bundle once the first P&L MCP tool
+    contract is clear.
 
 Primary goal:
 
@@ -112,6 +120,9 @@ Focus:
 7. If the user pivots to direct Amazon SP-API financial integration, treat
    that as a separate P&L-first follow-up path rather than the assumed next
    step for Claude.
+8. Do not blindly reuse the WBR Claude Project instructions/files for P&L.
+   First decide the P&L MCP tool shape, then decide whether a separate P&L
+   Claude Project bundle is warranted.
 
 Constraints:
 
