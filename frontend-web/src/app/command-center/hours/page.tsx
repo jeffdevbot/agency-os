@@ -100,6 +100,52 @@ type SummaryCardProps = {
   tone?: "default" | "warn";
 };
 
+function ClientNameLink({
+  clientId,
+  clientName,
+  className = "",
+}: {
+  clientId: string | null;
+  clientName: string;
+  className?: string;
+}) {
+  if (!clientId) {
+    return <span className={className}>{clientName}</span>;
+  }
+
+  return (
+    <Link
+      href={`/command-center/clients/${clientId}`}
+      className={`${className} text-[#0a6fd6] underline decoration-[#0a6fd6]/30 underline-offset-4 transition hover:text-[#0859ad] hover:decoration-[#0859ad]`}
+    >
+      {clientName}
+    </Link>
+  );
+}
+
+function TeamMemberNameLink({
+  teamMemberProfileId,
+  teamMemberName,
+  className = "",
+}: {
+  teamMemberProfileId: string | null;
+  teamMemberName: string;
+  className?: string;
+}) {
+  if (!teamMemberProfileId) {
+    return <span className={className}>{teamMemberName}</span>;
+  }
+
+  return (
+    <Link
+      href={`/command-center/team/${teamMemberProfileId}`}
+      className={`${className} text-[#0a6fd6] underline decoration-[#0a6fd6]/30 underline-offset-4 transition hover:text-[#0859ad] hover:decoration-[#0859ad]`}
+    >
+      {teamMemberName}
+    </Link>
+  );
+}
+
 function SummaryCard({ label, value, tone = "default" }: SummaryCardProps) {
   const toneClass =
     tone === "warn"
@@ -147,7 +193,13 @@ function TeamMemberTable({ members }: { members: TeamHoursMember[] }) {
             {members.map((member) => (
               <tr key={`${member.team_member_profile_id ?? "clickup"}:${member.clickup_user_id ?? "unknown"}`}>
                 <td className="px-6 py-4 align-top">
-                  <div className="font-semibold text-slate-900">{member.team_member_name}</div>
+                  <div className="font-semibold text-slate-900">
+                    <TeamMemberNameLink
+                      teamMemberProfileId={member.team_member_profile_id}
+                      teamMemberName={member.team_member_name}
+                      className="font-semibold text-slate-900"
+                    />
+                  </div>
                   <div className="text-xs text-slate-500">{member.team_member_email ?? member.clickup_user_id ?? "No email"}</div>
                 </td>
                 <td className="px-4 py-4 align-top">
@@ -170,7 +222,11 @@ function TeamMemberTable({ members }: { members: TeamHoursMember[] }) {
                         className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2"
                       >
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-semibold text-slate-900">{client.client_name}</span>
+                          <ClientNameLink
+                            clientId={client.client_id}
+                            clientName={client.client_name}
+                            className="font-semibold text-slate-900"
+                          />
                           {client.brand_name ? (
                             <span className="text-slate-600">{client.brand_name}</span>
                           ) : null}
@@ -229,7 +285,13 @@ function ClientSummaryTable({ rows }: { rows: TeamHoursClientSummary[] }) {
           <tbody className="divide-y divide-slate-100">
             {rows.map((row) => (
               <tr key={`${row.client_id ?? "unmapped"}:${row.brand_id ?? "brand"}`}>
-                <td className="px-6 py-4 font-semibold text-slate-900">{row.client_name}</td>
+                <td className="px-6 py-4 font-semibold text-slate-900">
+                  <ClientNameLink
+                    clientId={row.client_id}
+                    clientName={row.client_name}
+                    className="font-semibold text-slate-900"
+                  />
+                </td>
                 <td className="px-4 py-4 text-slate-600">{row.brand_name ?? "—"}</td>
                 <td className="px-4 py-4">
                   <span
@@ -287,7 +349,11 @@ function SpaceSummaryTable({ rows }: { rows: TeamHoursSpaceSummary[] }) {
                 <td className="px-6 py-4 font-semibold text-slate-900">{row.space_name}</td>
                 <td className="px-4 py-4 text-slate-600">{row.list_name ?? row.list_id ?? "—"}</td>
                 <td className="px-4 py-4 text-slate-600">
-                  {row.client_name}
+                  <ClientNameLink
+                    clientId={row.client_id}
+                    clientName={row.client_name}
+                    className="font-medium text-slate-700"
+                  />
                   {row.brand_name ? ` / ${row.brand_name}` : ""}
                 </td>
                 <td className="px-4 py-4">
