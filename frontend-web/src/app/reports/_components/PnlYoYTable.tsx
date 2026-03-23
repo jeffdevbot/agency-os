@@ -9,6 +9,12 @@ import {
   SUMMARY_KEYS,
 } from "../pnl/_lib/pnlDisplay";
 import type { PnlYoYLineItem } from "../pnl/_lib/pnlApi";
+import type { PnlDisplayMode } from "../pnl/_lib/pnlPresentation";
+import {
+  getPnlYoYDisplayFormat,
+  getPnlYoYMonthDisplayValue,
+  getPnlYoYTotalDisplayValue,
+} from "../pnl/_lib/pnlYoYPresentation";
 
 type Props = {
   months: string[];
@@ -18,29 +24,30 @@ type Props = {
   priorYear: number;
   lineItems: PnlYoYLineItem[];
   currencyCode?: string | null;
+  displayMode: PnlDisplayMode;
   showTotals: boolean;
   selectedRowKeys?: Set<string>;
   onRowToggle?: (key: string) => void;
 };
 
-function deltaPercent(currentVal: string, priorVal: string): string {
-  const current = parseFloat(currentVal);
-  const prior = parseFloat(priorVal);
+function percentDelta(current: number, prior: number): string {
   if (!Number.isFinite(current) || !Number.isFinite(prior) || prior === 0) return "—";
   const pct = ((current - prior) / Math.abs(prior)) * 100;
   return `${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%`;
 }
 
-function deltaValue(currentVal: string, priorVal: string): string {
-  const current = parseFloat(currentVal);
-  const prior = parseFloat(priorVal);
+function pointDelta(current: number, prior: number): string {
+  if (!Number.isFinite(current) || !Number.isFinite(prior)) return "—";
+  const diff = current - prior;
+  return `${diff >= 0 ? "+" : ""}${diff.toFixed(1)} p.p.`;
+}
+
+function deltaValue(current: number, prior: number): string {
   if (!Number.isFinite(current) || !Number.isFinite(prior)) return "0";
   return String(current - prior);
 }
 
-function deltaClass(item: PnlYoYLineItem, currentVal: string, priorVal: string): string {
-  const current = parseFloat(currentVal);
-  const prior = parseFloat(priorVal);
+function deltaClass(item: PnlYoYLineItem, current: number, prior: number): string {
   if (!Number.isFinite(current) || !Number.isFinite(prior)) return "text-[#94a3b8]";
 
   const lowerIsBetter = item.category === "expenses" || item.category === "refunds" || item.key === "total_refunds";
@@ -56,11 +63,13 @@ export default function PnlYoYTable({
   priorYear,
   lineItems,
   currencyCode,
+  displayMode,
   showTotals,
   selectedRowKeys,
   onRowToggle,
 }: Props) {
   const safeCurrencyCode = currencyCode || "USD";
+  const lineItemIndex = Object.fromEntries(lineItems.map((item) => [item.key, item]));
 
   return (
     <div className="rounded-3xl bg-white/95 p-3 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur md:p-3.5">
@@ -89,6 +98,7 @@ export default function PnlYoYTable({
           <tbody>
             {lineItems.map((item) => {
               const isSelected = selectedRowKeys?.has(item.key) ?? false;
+              const displayFormat = getPnlYoYDisplayFormat(item, displayMode);
               const stickyCellBase =
                 item.key === "net_earnings"
                   ? "bg-[#0f172a] text-white"
@@ -98,13 +108,19 @@ export default function PnlYoYTable({
               const stickyCellClass = isSelected && item.key !== "net_earnings"
                 ? "bg-[#eff6ff]"
                 : stickyCellBase;
-              const currentTotal = currentMonthKeys.reduce(
-                (sum, month) => sum + (parseFloat(item.current[month] ?? "0") || 0),
-                0,
+              const currentTotal = getPnlYoYTotalDisplayValue(
+                item,
+                currentMonthKeys,
+                "current",
+                displayMode,
+                lineItemIndex,
               );
-              const priorTotal = priorMonthKeys.reduce(
-                (sum, month) => sum + (parseFloat(item.prior[month] ?? "0") || 0),
-                0,
+              const priorTotal = getPnlYoYTotalDisplayValue(
+                item,
+                priorMonthKeys,
+                "prior",
+                displayMode,
+                lineItemIndex,
               );
 
               return (
@@ -129,7 +145,7 @@ export default function PnlYoYTable({
                           onRowToggle ? "cursor-pointer" : "cursor-default"
                         } ${
                           isSelected && item.key !== "net_earnings"
-                            ? "text-[#0a6fd6] font-semibold"
+                            ? "font-semibold text-[#0a6fd6]"
                             : item.key === "net_earnings"
                               ? ""
                               : SUMMARY_KEYS.has(item.key)
@@ -138,23 +154,29 @@ export default function PnlYoYTable({
                         }`}
                       >
                         {item.label}
-                        <span className="ml-2 text-[10px] font-normal text-[#94a3b8]">{currentYear}</span>
                       </button>
+                      <div className="mt-0.5 text-[10px] font-normal text-[#94a3b8]">{currentYear}</div>
                     </td>
                     {currentMonthKeys.map((month) => {
-                      const value = item.current[month] ?? "0.00";
+                      const value = getPnlYoYMonthDisplayValue(
+                        item,
+                        month,
+                        "current",
+                        displayMode,
+                        lineItemIndex,
+                      );
                       return (
                         <td
                           key={month}
-                          className={`whitespace-nowrap border-b border-[#f1f5f9] px-1.5 py-1.5 text-right tabular-nums md:px-2 ${amountClass(value, item as any)}`}
+                          className={`whitespace-nowrap border-b border-[#f1f5f9] px-1.5 py-1.5 text-right tabular-nums md:px-2 ${amountClass(String(value), item as any)}`}
                         >
-                          {formatAmount(value, "currency", safeCurrencyCode)}
+                          {formatAmount(String(value), displayFormat, safeCurrencyCode)}
                         </td>
                       );
                     })}
                     {showTotals ? (
                       <td className={`whitespace-nowrap border-b border-[#f1f5f9] bg-[#f8fafc] px-1.5 py-1.5 text-right font-semibold tabular-nums md:px-2 ${amountClass(String(currentTotal), item as any)}`}>
-                        {formatAmount(String(currentTotal), "currency", safeCurrencyCode)}
+                        {formatAmount(String(currentTotal), displayFormat, safeCurrencyCode)}
                       </td>
                     ) : null}
                   </tr>
@@ -164,44 +186,70 @@ export default function PnlYoYTable({
                       <span className="pl-4">{priorYear}</span>
                     </td>
                     {priorMonthKeys.map((month) => {
-                      const value = item.prior[month] ?? "0.00";
+                      const value = getPnlYoYMonthDisplayValue(
+                        item,
+                        month,
+                        "prior",
+                        displayMode,
+                        lineItemIndex,
+                      );
                       return (
                         <td
                           key={month}
-                          className={`whitespace-nowrap border-b border-[#f8fafc] bg-[#fcfdff] px-1.5 py-1 text-right tabular-nums md:px-2 ${amountClass(value, item as any)}`}
+                          className={`whitespace-nowrap border-b border-[#f8fafc] bg-[#fcfdff] px-1.5 py-1 text-right tabular-nums md:px-2 ${amountClass(String(value), item as any)}`}
                         >
-                          {formatAmount(value, "currency", safeCurrencyCode)}
+                          {formatAmount(String(value), displayFormat, safeCurrencyCode)}
                         </td>
                       );
                     })}
                     {showTotals ? (
                       <td className={`whitespace-nowrap border-b border-[#f8fafc] bg-[#fcfdff] px-1.5 py-1 text-right font-semibold tabular-nums md:px-2 ${amountClass(String(priorTotal), item as any)}`}>
-                        {formatAmount(String(priorTotal), "currency", safeCurrencyCode)}
+                        {formatAmount(String(priorTotal), displayFormat, safeCurrencyCode)}
                       </td>
                     ) : null}
                   </tr>
 
                   <tr className="border-b border-[#e2e8f0]">
                     <td className="sticky left-0 z-10 min-w-[196px] border-b border-[#e2e8f0] bg-[#f8fafc] px-2.5 py-1 text-left text-[#64748b] shadow-[8px_0_14px_-10px_rgba(15,23,42,0.12)] md:min-w-[208px]">
-                      <span className="pl-4">Delta</span>
+                      <span className="pl-4">Δ</span>
                     </td>
                     {currentMonthKeys.map((currentMonth, index) => {
                       const priorMonth = priorMonthKeys[index];
-                      const currentValue = item.current[currentMonth] ?? "0.00";
-                      const priorValue = priorMonth ? (item.prior[priorMonth] ?? "0.00") : "0.00";
+                      const currentValue = getPnlYoYMonthDisplayValue(
+                        item,
+                        currentMonth,
+                        "current",
+                        displayMode,
+                        lineItemIndex,
+                      );
+                      const priorValue = priorMonth
+                        ? getPnlYoYMonthDisplayValue(
+                            item,
+                            priorMonth,
+                            "prior",
+                            displayMode,
+                            lineItemIndex,
+                          )
+                        : 0;
                       return (
                         <td
                           key={`${currentMonth}-delta`}
                           className={`whitespace-nowrap border-b border-[#e2e8f0] bg-[#f8fafc] px-1.5 py-1 text-right tabular-nums md:px-2 ${deltaClass(item, currentValue, priorValue)}`}
-                          title={`Value delta: ${formatAmount(deltaValue(currentValue, priorValue), "currency", safeCurrencyCode)}`}
+                          title={displayFormat === "percent"
+                            ? `Share delta: ${pointDelta(currentValue, priorValue)}`
+                            : `Value delta: ${formatAmount(deltaValue(currentValue, priorValue), "currency", safeCurrencyCode)}`}
                         >
-                          {deltaPercent(currentValue, priorValue)}
+                          {displayFormat === "percent"
+                            ? pointDelta(currentValue, priorValue)
+                            : percentDelta(currentValue, priorValue)}
                         </td>
                       );
                     })}
                     {showTotals ? (
-                      <td className={`whitespace-nowrap border-b border-[#e2e8f0] bg-[#f8fafc] px-1.5 py-1 text-right font-semibold tabular-nums md:px-2 ${deltaClass(item, String(currentTotal), String(priorTotal))}`}>
-                        {deltaPercent(String(currentTotal), String(priorTotal))}
+                      <td className={`whitespace-nowrap border-b border-[#e2e8f0] bg-[#f8fafc] px-1.5 py-1 text-right font-semibold tabular-nums md:px-2 ${deltaClass(item, currentTotal, priorTotal)}`}>
+                        {displayFormat === "percent"
+                          ? pointDelta(currentTotal, priorTotal)
+                          : percentDelta(currentTotal, priorTotal)}
                       </td>
                     ) : null}
                   </tr>

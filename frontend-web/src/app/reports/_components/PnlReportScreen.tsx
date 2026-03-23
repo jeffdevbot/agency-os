@@ -26,6 +26,10 @@ import { usePnlSkuCogs } from "../pnl/_lib/usePnlSkuCogs";
 import { usePnlWindsorCompare } from "../pnl/_lib/usePnlWindsorCompare";
 import { defaultPnlCurrencyCode } from "../pnl/_lib/pnlProfileDefaults";
 import type { PnlDisplayMode } from "../pnl/_lib/pnlPresentation";
+import {
+  getPnlYoYDisplayFormat,
+  getPnlYoYMonthDisplayValue,
+} from "../pnl/_lib/pnlYoYPresentation";
 import { usePnlWorkbookExport } from "../pnl/_lib/usePnlWorkbookExport";
 import PnlCogsCard from "./PnlCogsCard";
 import PnlOtherExpensesCard from "./PnlOtherExpensesCard";
@@ -119,6 +123,10 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
     const currentYear = new Date().getFullYear();
     return Array.from({ length: 5 }, (_, index) => currentYear - index);
   }, []);
+  const yoyLineItemIndex = useMemo(
+    () => Object.fromEntries((yoyReport?.line_items ?? []).map((item) => [item.key, item])),
+    [yoyReport?.line_items],
+  );
   const CHART_COLORS = ["#0a6fd6", "#f97316", "#14b8a6", "#6366f1", "#f43f5e", "#65a30d"];
   const chartSeries = useMemo(() => {
     if (viewMode === "yoy") {
@@ -132,8 +140,14 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
           key: `${item.key}_current`,
           label: `${item.label} ${yoyReport?.current_year ?? selectedYear}`,
           data: (yoyReport?.current_month_keys ?? []).map((month) => {
-            const parsed = parseFloat(item.current[month] ?? "0");
-            return Number.isFinite(parsed) ? Math.abs(parsed) : 0;
+            const value = getPnlYoYMonthDisplayValue(
+              item,
+              month,
+              "current",
+              displayMode,
+              yoyLineItemIndex,
+            );
+            return Number.isFinite(value) ? Math.abs(value) : 0;
           }),
           color: CHART_COLORS[index],
         },
@@ -141,8 +155,14 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
           key: `${item.key}_prior`,
           label: `${item.label} ${yoyReport?.prior_year ?? selectedYear - 1}`,
           data: (yoyReport?.prior_month_keys ?? []).map((month) => {
-            const parsed = parseFloat(item.prior[month] ?? "0");
-            return Number.isFinite(parsed) ? Math.abs(parsed) : 0;
+            const value = getPnlYoYMonthDisplayValue(
+              item,
+              month,
+              "prior",
+              displayMode,
+              yoyLineItemIndex,
+            );
+            return Number.isFinite(value) ? Math.abs(value) : 0;
           }),
           color: CHART_COLORS[index],
           dashed: true,
@@ -150,20 +170,18 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
       ]));
 
       if (pnlChart.showTotal && selected.length > 1) {
-        const totalCurrent = (yoyReport?.current_month_keys ?? []).map((_, monthIndex) =>
-          selected.reduce((sum, item) => {
-            const month = yoyReport?.current_month_keys?.[monthIndex];
-            const parsed = parseFloat(item.current[month ?? ""] ?? "0");
-            return sum + (Number.isFinite(parsed) ? Math.abs(parsed) : 0);
-          }, 0),
-        );
-        const totalPrior = (yoyReport?.prior_month_keys ?? []).map((_, monthIndex) =>
-          selected.reduce((sum, item) => {
-            const month = yoyReport?.prior_month_keys?.[monthIndex];
-            const parsed = parseFloat(item.prior[month ?? ""] ?? "0");
-            return sum + (Number.isFinite(parsed) ? Math.abs(parsed) : 0);
-          }, 0),
-        );
+        const totalCurrent = (yoyReport?.current_month_keys ?? []).map((month) => selected.reduce(
+          (sum, item) => sum + Math.abs(
+            getPnlYoYMonthDisplayValue(item, month, "current", displayMode, yoyLineItemIndex),
+          ),
+          0,
+        ));
+        const totalPrior = (yoyReport?.prior_month_keys ?? []).map((month) => selected.reduce(
+          (sum, item) => sum + Math.abs(
+            getPnlYoYMonthDisplayValue(item, month, "prior", displayMode, yoyLineItemIndex),
+          ),
+          0,
+        ));
         baseSeries.unshift(
           {
             key: "total_current",
@@ -214,16 +232,27 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
     return series;
   }, [
     months,
+    displayMode,
     presentedReport.lineItems,
     pnlChart.selectedRowKeys,
     pnlChart.showTotal,
     selectedYear,
     viewMode,
     yoyReport,
+    yoyLineItemIndex,
   ]);
 
   const chartFormatValue = useMemo(() => {
     if (viewMode === "yoy") {
+      const selectedItems = (yoyReport?.line_items ?? []).filter((item) =>
+        pnlChart.selectedRowKeys.has(item.key),
+      );
+      const allPercent = selectedItems.length > 0 && selectedItems.every((item) =>
+        getPnlYoYDisplayFormat(item, displayMode) === "percent",
+      );
+      if (allPercent) {
+        return (value: number) => `${value.toFixed(1)}%`;
+      }
       return (value: number) =>
         new Intl.NumberFormat("en-US", {
           style: "currency",
@@ -246,7 +275,7 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
         minimumFractionDigits: 0,
         maximumFractionDigits: 0,
       }).format(value);
-  }, [presentedReport.lineItems, pnlChart.selectedRowKeys, selectedCurrencyCode, viewMode]);
+  }, [displayMode, presentedReport.lineItems, pnlChart.selectedRowKeys, selectedCurrencyCode, viewMode, yoyReport?.line_items]);
 
   useEffect(() => {
     setUploadError(null);
@@ -664,6 +693,7 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
               priorYear={yoyReport?.prior_year ?? selectedYear - 1}
               lineItems={yoyReport?.line_items ?? []}
               currencyCode={selectedCurrencyCode}
+              displayMode={displayMode}
               showTotals={showTotals}
               selectedRowKeys={pnlChart.selectedRowKeys}
               onRowToggle={pnlChart.toggleRow}

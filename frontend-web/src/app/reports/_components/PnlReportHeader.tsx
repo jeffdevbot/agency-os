@@ -150,32 +150,32 @@ export default function PnlReportHeader({
               )}
             </div>
             <div className="flex flex-wrap items-center gap-1.5 xl:justify-end">
+              <div className="flex items-center rounded-full border border-[#dbe4f0] bg-[#f8fafc] p-1">
+                <button
+                  type="button"
+                  onClick={() => onDisplayModeChange("dollars")}
+                  className={`rounded-full px-2 py-1.5 text-sm font-semibold transition ${
+                    displayMode === "dollars"
+                      ? "bg-[#0f172a] text-white"
+                      : "text-[#475569] hover:text-[#0f172a]"
+                  }`}
+                >
+                  Dollars
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onDisplayModeChange("percent")}
+                  className={`rounded-full px-2 py-1.5 text-sm font-semibold transition ${
+                    displayMode === "percent"
+                      ? "bg-[#0f172a] text-white"
+                      : "text-[#475569] hover:text-[#0f172a]"
+                  }`}
+                >
+                  % of Revenue
+                </button>
+              </div>
               {viewMode === "standard" ? (
                 <>
-                  <div className="flex items-center rounded-full border border-[#dbe4f0] bg-[#f8fafc] p-1">
-                    <button
-                      type="button"
-                      onClick={() => onDisplayModeChange("dollars")}
-                      className={`rounded-full px-2 py-1.5 text-sm font-semibold transition ${
-                        displayMode === "dollars"
-                          ? "bg-[#0f172a] text-white"
-                          : "text-[#475569] hover:text-[#0f172a]"
-                      }`}
-                    >
-                      Dollars
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onDisplayModeChange("percent")}
-                      className={`rounded-full px-2 py-1.5 text-sm font-semibold transition ${
-                        displayMode === "percent"
-                          ? "bg-[#0f172a] text-white"
-                          : "text-[#475569] hover:text-[#0f172a]"
-                      }`}
-                    >
-                      % of Revenue
-                    </button>
-                  </div>
                   <button
                     type="button"
                     onClick={onExport}
