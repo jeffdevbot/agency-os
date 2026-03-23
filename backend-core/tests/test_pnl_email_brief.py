@@ -173,7 +173,7 @@ def test_build_client_brief_prefers_yoy_when_available(monkeypatch):
     )
 
     monkeypatch.setattr("app.services.pnl.email_brief.PNLProfileService", _FakePNLProfileService)
-    monkeypatch.setattr("app.services.pnl.email_brief.PNLReportService", _FakePNLReportService)
+    monkeypatch.setattr("app.services.pnl.comparison.PNLReportService", _FakePNLReportService)
 
     svc = PNLEmailBriefService(fake_db)
     result = asyncio.run(
@@ -217,7 +217,7 @@ def test_build_client_brief_falls_back_to_mom_when_yoy_unavailable(monkeypatch):
     )
 
     monkeypatch.setattr("app.services.pnl.email_brief.PNLProfileService", _FakePNLProfileServiceNoYoy)
-    monkeypatch.setattr("app.services.pnl.email_brief.PNLReportService", _FakePNLReportService)
+    monkeypatch.setattr("app.services.pnl.comparison.PNLReportService", _FakePNLReportService)
 
     svc = PNLEmailBriefService(fake_db)
     result = asyncio.run(

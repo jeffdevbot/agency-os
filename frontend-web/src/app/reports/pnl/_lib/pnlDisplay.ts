@@ -33,7 +33,11 @@ export function formatMonth(iso: string): string {
   return d.toLocaleDateString("en-US", { month: "short", year: "numeric" });
 }
 
-export function formatAmount(value: string, format: PnlValueFormat = "currency"): string {
+export function formatAmount(
+  value: string,
+  format: PnlValueFormat = "currency",
+  currencyCode = "USD",
+): string {
   const n = parseFloat(value);
   if (Number.isNaN(n)) return value;
   const absolute = Math.abs(n);
@@ -46,7 +50,7 @@ export function formatAmount(value: string, format: PnlValueFormat = "currency")
   }
   const formatted = absolute.toLocaleString("en-US", {
     style: "currency",
-    currency: "USD",
+    currency: currencyCode,
     minimumFractionDigits: 0,
     maximumFractionDigits: 0,
   });

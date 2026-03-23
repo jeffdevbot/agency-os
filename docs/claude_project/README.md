@@ -52,11 +52,11 @@ docs.
 - [x] `resolve_client` smoke-tested for Monthly P&L routing metadata
 - [x] `list_monthly_pnl_profiles` smoke-tested
 - [x] `get_monthly_pnl_report` smoke-tested
-- [ ] `get_monthly_pnl_email_brief` smoke-tested
+- [x] `get_monthly_pnl_email_brief` smoke-tested
 
 ### Monthly P&L Draft Tool
 
-- [ ] `draft_monthly_pnl_email` smoke-tested
+- [x] `draft_monthly_pnl_email` smoke-tested
 
 ### Next Expansion Options
 

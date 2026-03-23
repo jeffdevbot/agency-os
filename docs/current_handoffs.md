@@ -23,7 +23,8 @@ historical reference.
 2. [Windsor WBR ingestion runbook](/Users/jeff/code/agency-os/docs/windsor_wbr_ingestion_runbook.md)
    - Narrow operational runbook for Windsor Section 1 ingestion.
 3. [Claude Project bundle](/Users/jeff/code/agency-os/docs/claude_project/README.md)
-   - Current project instructions/files bundle for the live WBR Claude pilot.
+   - Current project instructions/files bundle for the live shared WBR +
+     Monthly P&L Claude surface.
 4. [PROJECT_STATUS.md](/Users/jeff/code/agency-os/PROJECT_STATUS.md)
    - Concise project history and shipped milestone log.
 

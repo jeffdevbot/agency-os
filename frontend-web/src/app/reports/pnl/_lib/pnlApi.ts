@@ -105,6 +105,27 @@ export type PnlReport = {
   warnings: PnlWarning[];
 };
 
+export type PnlYoYLineItem = {
+  key: string;
+  label: string;
+  category: string;
+  is_derived: boolean;
+  current: Record<string, string>;
+  prior: Record<string, string>;
+};
+
+export type PnlYoYReport = {
+  profile: PnlProfile;
+  current_year: number;
+  prior_year: number;
+  months: string[];
+  current_month_keys: string[];
+  prior_month_keys: string[];
+  line_items: PnlYoYLineItem[];
+  warnings: (PnlWarning & { year?: number })[];
+  periods?: Record<string, string | null>;
+};
+
 export type PnlFilterMode = "ytd" | "last_3" | "last_6" | "last_12" | "last_year" | "range";
 
 export type ExportPnlWorkbookResult = {
@@ -372,6 +393,34 @@ export async function getPnlReport(
     months: (data.months ?? []) as string[],
     line_items: (data.line_items ?? []) as PnlLineItem[],
     warnings: (data.warnings ?? []) as PnlWarning[],
+  };
+}
+
+export async function getPnlYoYReport(
+  token: string,
+  profileId: string,
+  year: number,
+): Promise<PnlYoYReport> {
+  const params = new URLSearchParams({ year: String(year) });
+  const response = await fetch(
+    `${getBackendUrl()}/admin/pnl/profiles/${profileId}/yoy-report?${params.toString()}`,
+    { method: "GET", headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (!response.ok) {
+    const detail = await parseErrorDetail(response);
+    throw new Error(detail);
+  }
+  const data = await response.json();
+  return {
+    profile: data.profile as PnlProfile,
+    current_year: Number(data.current_year),
+    prior_year: Number(data.prior_year),
+    months: (data.months ?? []) as string[],
+    current_month_keys: (data.current_month_keys ?? []) as string[],
+    prior_month_keys: (data.prior_month_keys ?? []) as string[],
+    line_items: (data.line_items ?? []) as PnlYoYLineItem[],
+    warnings: (data.warnings ?? []) as (PnlWarning & { year?: number })[],
+    periods: (data.periods ?? {}) as Record<string, string | null>,
   };
 }
 

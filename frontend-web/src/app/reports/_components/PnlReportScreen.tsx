@@ -12,6 +12,7 @@ import {
 import { buildPresentedPnlReport } from "../pnl/_lib/pnlPresentation";
 import { useResolvedPnlProfile } from "../pnl/_lib/useResolvedPnlProfile";
 import { usePnlReport } from "../pnl/_lib/usePnlReport";
+import { usePnlYoYReport } from "../pnl/_lib/usePnlYoYReport";
 import {
   createPnlProfile,
   getPnlImportSummary,
@@ -32,6 +33,7 @@ import PnlProfileSetupCard from "./PnlProfileSetupCard";
 import PnlProvenanceCard from "./PnlProvenanceCard";
 import PnlReportHeader from "./PnlReportHeader";
 import PnlReportTable from "./PnlReportTable";
+import PnlYoYTable from "./PnlYoYTable";
 import PnlUploadCard from "./PnlUploadCard";
 import PnlWarningBanner from "./PnlWarningBanner";
 import PnlWindsorCompareCard from "./PnlWindsorCompareCard";
@@ -51,6 +53,8 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
   const [rangeStart, setRangeStart] = useState<string>(defaultRangeStart);
   const [rangeEnd, setRangeEnd] = useState<string>(defaultRangeEnd);
   const [showSettings, setShowSettings] = useState(false);
+  const [viewMode, setViewMode] = useState<"standard" | "yoy">("standard");
+  const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
   const [displayMode, setDisplayMode] = useState<PnlDisplayMode>("dollars");
   const [showTotals, setShowTotals] = useState(true);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -76,6 +80,8 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
     filterMode === "range" ? rangeEnd : undefined,
   );
   const report = reportState.report;
+  const yoyReportState = usePnlYoYReport(viewMode === "yoy" ? profileId : null, selectedYear);
+  const yoyReport = yoyReportState.report;
   const months = report?.months ?? [];
   const lineItems = report?.line_items ?? [];
   const warnings = report?.warnings ?? [];
@@ -104,8 +110,80 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
   );
 
   const pnlChart = usePnlChartState();
+  const selectedCurrencyCode = profileId
+    ? (viewMode === "yoy"
+      ? (yoyReport?.profile.currency_code ?? resolved.resolved?.profile?.currency_code ?? "USD")
+      : (report?.profile.currency_code ?? resolved.resolved?.profile?.currency_code ?? "USD"))
+    : "USD";
+  const availableYears = useMemo(() => {
+    const currentYear = new Date().getFullYear();
+    return Array.from({ length: 5 }, (_, index) => currentYear - index);
+  }, []);
   const CHART_COLORS = ["#0a6fd6", "#f97316", "#14b8a6", "#6366f1", "#f43f5e", "#65a30d"];
   const chartSeries = useMemo(() => {
+    if (viewMode === "yoy") {
+      const selected = (yoyReport?.line_items ?? []).filter((item) =>
+        pnlChart.selectedRowKeys.has(item.key),
+      );
+      if (selected.length === 0) return [];
+
+      const baseSeries = selected.slice(0, CHART_COLORS.length).flatMap((item, index) => ([
+        {
+          key: `${item.key}_current`,
+          label: `${item.label} ${yoyReport?.current_year ?? selectedYear}`,
+          data: (yoyReport?.current_month_keys ?? []).map((month) => {
+            const parsed = parseFloat(item.current[month] ?? "0");
+            return Number.isFinite(parsed) ? Math.abs(parsed) : 0;
+          }),
+          color: CHART_COLORS[index],
+        },
+        {
+          key: `${item.key}_prior`,
+          label: `${item.label} ${yoyReport?.prior_year ?? selectedYear - 1}`,
+          data: (yoyReport?.prior_month_keys ?? []).map((month) => {
+            const parsed = parseFloat(item.prior[month] ?? "0");
+            return Number.isFinite(parsed) ? Math.abs(parsed) : 0;
+          }),
+          color: CHART_COLORS[index],
+          dashed: true,
+        },
+      ]));
+
+      if (pnlChart.showTotal && selected.length > 1) {
+        const totalCurrent = (yoyReport?.current_month_keys ?? []).map((_, monthIndex) =>
+          selected.reduce((sum, item) => {
+            const month = yoyReport?.current_month_keys?.[monthIndex];
+            const parsed = parseFloat(item.current[month ?? ""] ?? "0");
+            return sum + (Number.isFinite(parsed) ? Math.abs(parsed) : 0);
+          }, 0),
+        );
+        const totalPrior = (yoyReport?.prior_month_keys ?? []).map((_, monthIndex) =>
+          selected.reduce((sum, item) => {
+            const month = yoyReport?.prior_month_keys?.[monthIndex];
+            const parsed = parseFloat(item.prior[month ?? ""] ?? "0");
+            return sum + (Number.isFinite(parsed) ? Math.abs(parsed) : 0);
+          }, 0),
+        );
+        baseSeries.unshift(
+          {
+            key: "total_current",
+            label: `Total ${yoyReport?.current_year ?? selectedYear}`,
+            data: totalCurrent,
+            color: "#1e293b",
+          },
+          {
+            key: "total_prior",
+            label: `Total ${yoyReport?.prior_year ?? selectedYear - 1}`,
+            data: totalPrior,
+            color: "#1e293b",
+            dashed: true,
+          },
+        );
+      }
+
+      return baseSeries;
+    }
+
     const selected = presentedReport.lineItems.filter((item) =>
       pnlChart.selectedRowKeys.has(item.key),
     );
@@ -134,9 +212,26 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
     }
 
     return series;
-  }, [months, presentedReport.lineItems, pnlChart.selectedRowKeys, pnlChart.showTotal]);
+  }, [
+    months,
+    presentedReport.lineItems,
+    pnlChart.selectedRowKeys,
+    pnlChart.showTotal,
+    selectedYear,
+    viewMode,
+    yoyReport,
+  ]);
 
   const chartFormatValue = useMemo(() => {
+    if (viewMode === "yoy") {
+      return (value: number) =>
+        new Intl.NumberFormat("en-US", {
+          style: "currency",
+          currency: selectedCurrencyCode,
+          minimumFractionDigits: 0,
+          maximumFractionDigits: 0,
+        }).format(value);
+    }
     const selectedItems = presentedReport.lineItems.filter((item) =>
       pnlChart.selectedRowKeys.has(item.key),
     );
@@ -147,15 +242,19 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
     return (value: number) =>
       new Intl.NumberFormat("en-US", {
         style: "currency",
-        currency: "USD",
+        currency: selectedCurrencyCode,
         minimumFractionDigits: 0,
         maximumFractionDigits: 0,
       }).format(value);
-  }, [presentedReport.lineItems, pnlChart.selectedRowKeys]);
+  }, [presentedReport.lineItems, pnlChart.selectedRowKeys, selectedCurrencyCode, viewMode]);
 
   useEffect(() => {
     setUploadError(null);
   }, [filterMode, rangeEnd, rangeStart]);
+
+  useEffect(() => {
+    pnlChart.clearSelection();
+  }, [pnlChart.clearSelection, selectedYear, viewMode]);
 
   useEffect(() => {
     if (months.length > 0 && windsorCompareState.loadedMonth === null) {
@@ -212,7 +311,10 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
         } else {
           setUploadError(summary.import.error_message ?? "Amazon P&L import failed.");
         }
-        await reportState.loadReport(true);
+        await Promise.all([
+          reportState.loadReport(true),
+          yoyReportState.loadReport(true),
+        ]);
         if (showSettings) {
           await Promise.all([
             provenanceState.loadActiveImports(),
@@ -252,6 +354,7 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
     provenanceState.loadActiveImports,
     reportState.loadReport,
     showSettings,
+    yoyReportState.loadReport,
   ]);
 
   const handleFileChange = (file: File | null) => {
@@ -311,7 +414,10 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
       } else {
         setProcessingImportId(null);
         setProcessingImportStatus(null);
-        await reportState.loadReport(true);
+        await Promise.all([
+          reportState.loadReport(true),
+          yoyReportState.loadReport(true),
+        ]);
         if (showSettings) {
           await Promise.all([
             provenanceState.loadActiveImports(),
@@ -331,7 +437,10 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
     entries: Array<{ sku: string; unit_cost: string | null }>,
   ) => {
     await cogsState.saveSkus(entries);
-    await reportState.loadReport(true);
+    await Promise.all([
+      reportState.loadReport(true),
+      yoyReportState.loadReport(true),
+    ]);
   };
 
   const handleSaveOtherExpenses = async (payload: {
@@ -339,7 +448,10 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
     months: Array<{ entry_month: string; values: Record<string, string | null> }>;
   }) => {
     await otherExpensesState.saveOtherExpenses(payload);
-    await reportState.loadReport(true);
+    await Promise.all([
+      reportState.loadReport(true),
+      yoyReportState.loadReport(true),
+    ]);
   };
 
   const handleExportWorkbook = async () => {
@@ -361,7 +473,11 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
     }
   };
 
-  if (resolved.loading || (profileId !== null && reportState.loading)) {
+  if (
+    resolved.loading
+    || (profileId !== null && viewMode === "standard" && reportState.loading)
+    || (profileId !== null && viewMode === "yoy" && yoyReportState.loading)
+  ) {
     return (
       <main className="space-y-3">
         <div className="rounded-3xl bg-white/95 p-6 text-sm text-[#64748b] shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur">
@@ -392,16 +508,21 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
         clientName={client.name}
         marketplaceCode={marketplaceCode}
         profile={profile}
+        viewMode={viewMode}
         filterMode={filterMode}
         rangeStart={rangeStart}
         rangeEnd={rangeEnd}
+        selectedYear={selectedYear}
+        availableYears={availableYears}
         settingsOpen={showSettings}
         displayMode={displayMode}
         showTotals={showTotals}
         exportPending={workbookExport.exporting}
+        onViewModeChange={setViewMode}
         onFilterModeChange={setFilterMode}
         onRangeStartChange={setRangeStart}
         onRangeEndChange={setRangeEnd}
+        onYearChange={setSelectedYear}
         onToggleSettings={() => setShowSettings((value) => !value)}
         onDisplayModeChange={setDisplayMode}
         onToggleTotals={() => setShowTotals((value) => !value)}
@@ -501,51 +622,73 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
         </div>
       ) : null}
 
-      {presentedReport.warnings.length > 0 ? (
+      {(viewMode === "standard" ? presentedReport.warnings : (yoyReport?.warnings ?? [])).length > 0 ? (
         <div className="rounded-3xl bg-white/95 p-5 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur md:p-6">
           <div className="space-y-2">
-            {presentedReport.warnings.map((warning, index) => (
+            {(viewMode === "standard" ? presentedReport.warnings : (yoyReport?.warnings ?? [])).map((warning, index) => (
               <PnlWarningBanner key={index} warning={warning} />
             ))}
           </div>
         </div>
       ) : null}
 
-      {reportState.errorMessage ? (
+      {(viewMode === "standard" ? reportState.errorMessage : yoyReportState.errorMessage) ? (
         <div className="rounded-3xl bg-white/95 p-5 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur">
           <p className="rounded-xl border border-[#f87171]/40 bg-[#fee2e2] px-4 py-3 text-sm text-[#991b1b]">
-            {reportState.errorMessage}
+            {viewMode === "standard" ? reportState.errorMessage : yoyReportState.errorMessage}
           </p>
         </div>
       ) : null}
 
-      {months.length > 0 && presentedReport.lineItems.length > 0 ? (
+      {((viewMode === "standard" && months.length > 0 && presentedReport.lineItems.length > 0)
+        || (viewMode === "yoy" && (yoyReport?.months.length ?? 0) > 0 && (yoyReport?.line_items.length ?? 0) > 0)) ? (
         <>
           {chartSeries.length > 0 ? (
             <WbrTrendChart
-              title="P&L Trend"
-              weeks={months.map((month) => ({ label: formatMonth(month) }))}
+              title={viewMode === "yoy" ? "P&L YoY Trend" : "P&L Trend"}
+              weeks={(viewMode === "yoy"
+                ? (yoyReport?.months ?? []).map((month) => ({ label: month }))
+                : months.map((month) => ({ label: formatMonth(month) })))}
               series={chartSeries}
               formatValue={chartFormatValue}
               showTotal={pnlChart.showTotal}
               onToggleTotal={pnlChart.toggleTotal}
             />
           ) : null}
-          <PnlReportTable
-            months={months}
-            lineItems={presentedReport.lineItems}
-            showTotals={showTotals}
-            selectedRowKeys={pnlChart.selectedRowKeys}
-            onRowToggle={pnlChart.toggleRow}
-          />
+          {viewMode === "yoy" ? (
+            <PnlYoYTable
+              months={yoyReport?.months ?? []}
+              currentMonthKeys={yoyReport?.current_month_keys ?? []}
+              priorMonthKeys={yoyReport?.prior_month_keys ?? []}
+              currentYear={yoyReport?.current_year ?? selectedYear}
+              priorYear={yoyReport?.prior_year ?? selectedYear - 1}
+              lineItems={yoyReport?.line_items ?? []}
+              currencyCode={selectedCurrencyCode}
+              showTotals={showTotals}
+              selectedRowKeys={pnlChart.selectedRowKeys}
+              onRowToggle={pnlChart.toggleRow}
+            />
+          ) : (
+            <PnlReportTable
+              months={months}
+              lineItems={presentedReport.lineItems}
+              currencyCode={selectedCurrencyCode}
+              showTotals={showTotals}
+              selectedRowKeys={pnlChart.selectedRowKeys}
+              onRowToggle={pnlChart.toggleRow}
+            />
+          )}
         </>
       ) : null}
 
-      {profile && months.length === 0 && !reportState.errorMessage ? (
+      {profile
+      && ((viewMode === "standard" && months.length === 0 && !reportState.errorMessage)
+        || (viewMode === "yoy" && (yoyReport?.months.length ?? 0) === 0 && !yoyReportState.errorMessage)) ? (
         <div className="rounded-3xl bg-white/95 p-5 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur md:p-6">
           <p className="text-sm text-[#64748b]">
-            No Amazon P&amp;L data available for the selected period yet. Upload a transaction report to
-            backfill this marketplace.
+            {viewMode === "yoy"
+              ? "No Amazon P&L YoY data available for the selected year yet."
+              : "No Amazon P&L data available for the selected period yet. Upload a transaction report to backfill this marketplace."}
           </p>
         </div>
       ) : null}

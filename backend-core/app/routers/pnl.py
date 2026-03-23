@@ -20,6 +20,7 @@ from ..services.pnl.report import PNLReportService
 from ..services.pnl.transaction_import import TransactionImportService
 from ..services.pnl.workbook import PNLWorkbookExportService
 from ..services.pnl.windsor_compare import WindsorSettlementCompareService
+from ..services.pnl.yoy_report import PNLYoYReportService
 
 router = APIRouter(prefix="/admin/pnl", tags=["pnl-admin"])
 
@@ -44,6 +45,10 @@ def _get_workbook_export_service() -> PNLWorkbookExportService:
 
 def _get_windsor_compare_service() -> WindsorSettlementCompareService:
     return WindsorSettlementCompareService(_get_supabase_admin_client())
+
+
+def _get_yoy_report_service() -> PNLYoYReportService:
+    return PNLYoYReportService(_get_supabase_admin_client())
 
 
 # ── Request / response models ────────────────────────────────────────
@@ -347,6 +352,24 @@ async def get_pnl_report(
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception:
         raise HTTPException(status_code=500, detail="Failed to build P&L report")
+
+
+@router.get("/profiles/{profile_id}/yoy-report")
+async def get_pnl_yoy_report(
+    profile_id: str,
+    year: int = Query(..., ge=2020),
+    user=Depends(require_admin_user),
+):
+    svc = _get_yoy_report_service()
+    try:
+        report = await svc.build_yoy_report_async(profile_id, year=year)
+        return {"ok": True, **report}
+    except PNLNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except PNLValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to build P&L YoY report")
 
 
 @router.get("/profiles/{profile_id}/windsor-compare")

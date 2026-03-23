@@ -14,12 +14,21 @@ import {
 type Props = {
   months: string[];
   lineItems: PnlPresentedLineItem[];
+  currencyCode?: string | null;
   showTotals: boolean;
   selectedRowKeys?: Set<string>;
   onRowToggle?: (key: string) => void;
 };
 
-export default function PnlReportTable({ months, lineItems, showTotals, selectedRowKeys, onRowToggle }: Props) {
+export default function PnlReportTable({
+  months,
+  lineItems,
+  currencyCode,
+  showTotals,
+  selectedRowKeys,
+  onRowToggle,
+}: Props) {
+  const safeCurrencyCode = currencyCode || "USD";
   return (
     <div className="rounded-3xl bg-white/95 p-3 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur md:p-3.5">
       <div className="overflow-x-auto">
@@ -102,7 +111,7 @@ export default function PnlReportTable({ months, lineItems, showTotals, selected
                           key={month}
                           className={`whitespace-nowrap border-b border-[#f1f5f9] px-1.5 py-1.5 text-right tabular-nums md:px-2 ${amountClass(value, item)}`}
                         >
-                          {formatAmount(value, item.display_format)}
+                          {formatAmount(value, item.display_format, safeCurrencyCode)}
                         </td>
                       );
                     })}
@@ -110,7 +119,7 @@ export default function PnlReportTable({ months, lineItems, showTotals, selected
                       <td
                         className={`whitespace-nowrap border-b border-[#f1f5f9] px-1.5 py-1.5 text-right font-semibold tabular-nums md:px-2 ${totalCellClass} ${amountClass(item.total_value ?? "0.00", item)}`}
                       >
-                        {formatAmount(item.total_value ?? "0.00", item.display_format)}
+                        {formatAmount(item.total_value ?? "0.00", item.display_format, safeCurrencyCode)}
                       </td>
                     ) : null}
                   </tr>

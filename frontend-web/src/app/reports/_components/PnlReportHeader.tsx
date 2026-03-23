@@ -8,16 +8,21 @@ type Props = {
   clientName: string;
   marketplaceCode: string;
   profile: PnlProfile | null;
+  viewMode: "standard" | "yoy";
   filterMode: PnlFilterMode;
   rangeStart: string;
   rangeEnd: string;
+  selectedYear: number;
+  availableYears: number[];
   settingsOpen: boolean;
   displayMode: PnlDisplayMode;
   showTotals: boolean;
   exportPending: boolean;
+  onViewModeChange: (value: "standard" | "yoy") => void;
   onFilterModeChange: (value: PnlFilterMode) => void;
   onRangeStartChange: (value: string) => void;
   onRangeEndChange: (value: string) => void;
+  onYearChange: (value: number) => void;
   onToggleSettings: () => void;
   onDisplayModeChange: (value: PnlDisplayMode) => void;
   onToggleTotals: () => void;
@@ -28,21 +33,30 @@ export default function PnlReportHeader({
   clientName,
   marketplaceCode,
   profile,
+  viewMode,
   filterMode,
   rangeStart,
   rangeEnd,
+  selectedYear,
+  availableYears,
   settingsOpen,
   displayMode,
   showTotals,
   exportPending,
+  onViewModeChange,
   onFilterModeChange,
   onRangeStartChange,
   onRangeEndChange,
+  onYearChange,
   onToggleSettings,
   onDisplayModeChange,
   onToggleTotals,
   onExport,
 }: Props) {
+  const currentYearIndex = availableYears.indexOf(selectedYear);
+  const previousYear = currentYearIndex >= 0 ? availableYears[currentYearIndex + 1] : undefined;
+  const nextYear = currentYearIndex > 0 ? availableYears[currentYearIndex - 1] : undefined;
+
   return (
     <div className="relative z-20 rounded-3xl bg-white/95 p-3.5 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur md:p-4">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
@@ -76,47 +90,102 @@ export default function PnlReportHeader({
 
         {profile ? (
           <div className="flex shrink-0 flex-col items-start gap-2 xl:items-end">
-            <PnlMonthRangePicker
-              filterMode={filterMode}
-              rangeStart={rangeStart}
-              rangeEnd={rangeEnd}
-              onFilterModeChange={onFilterModeChange}
-              onRangeStartChange={onRangeStartChange}
-              onRangeEndChange={onRangeEndChange}
-            />
-            <div className="flex flex-wrap items-center gap-1.5 xl:justify-end">
+            <div className="flex flex-wrap items-center gap-2 xl:justify-end">
               <div className="flex items-center rounded-full border border-[#dbe4f0] bg-[#f8fafc] p-1">
                 <button
                   type="button"
-                  onClick={() => onDisplayModeChange("dollars")}
-                  className={`rounded-full px-2 py-1.5 text-sm font-semibold transition ${
-                    displayMode === "dollars"
+                  onClick={() => onViewModeChange("standard")}
+                  className={`rounded-full px-2.5 py-1.5 text-sm font-semibold transition ${
+                    viewMode === "standard"
                       ? "bg-[#0f172a] text-white"
                       : "text-[#475569] hover:text-[#0f172a]"
                   }`}
                 >
-                  Dollars
+                  Standard
                 </button>
                 <button
                   type="button"
-                  onClick={() => onDisplayModeChange("percent")}
-                  className={`rounded-full px-2 py-1.5 text-sm font-semibold transition ${
-                    displayMode === "percent"
+                  onClick={() => onViewModeChange("yoy")}
+                  className={`rounded-full px-2.5 py-1.5 text-sm font-semibold transition ${
+                    viewMode === "yoy"
                       ? "bg-[#0f172a] text-white"
                       : "text-[#475569] hover:text-[#0f172a]"
                   }`}
                 >
-                  % of Revenue
+                  YoY
                 </button>
               </div>
-              <button
-                type="button"
-                onClick={onExport}
-                disabled={exportPending}
-                className="rounded-full border border-[#dbe4f0] bg-white px-2 py-1.5 text-sm font-semibold text-[#0a6fd6] transition hover:border-[#94a3b8] hover:text-[#0f172a] disabled:cursor-not-allowed disabled:text-[#94a3b8]"
-              >
-                {exportPending ? "Exporting..." : "Export to Excel"}
-              </button>
+
+              {viewMode === "standard" ? (
+                <PnlMonthRangePicker
+                  filterMode={filterMode}
+                  rangeStart={rangeStart}
+                  rangeEnd={rangeEnd}
+                  onFilterModeChange={onFilterModeChange}
+                  onRangeStartChange={onRangeStartChange}
+                  onRangeEndChange={onRangeEndChange}
+                />
+              ) : (
+                <div className="flex items-center gap-2 rounded-full border border-[#dbe4f0] bg-white px-2 py-1.5">
+                  <button
+                    type="button"
+                    onClick={() => previousYear && onYearChange(previousYear)}
+                    disabled={previousYear === undefined}
+                    className="rounded-full px-2 py-1 text-sm font-semibold text-[#475569] transition hover:text-[#0f172a] disabled:cursor-not-allowed disabled:text-[#cbd5e1]"
+                  >
+                    ←
+                  </button>
+                  <span className="min-w-[4.5rem] text-center text-sm font-semibold text-[#0f172a]">
+                    {selectedYear}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => nextYear && onYearChange(nextYear)}
+                    disabled={nextYear === undefined}
+                    className="rounded-full px-2 py-1 text-sm font-semibold text-[#475569] transition hover:text-[#0f172a] disabled:cursor-not-allowed disabled:text-[#cbd5e1]"
+                  >
+                    →
+                  </button>
+                </div>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5 xl:justify-end">
+              {viewMode === "standard" ? (
+                <>
+                  <div className="flex items-center rounded-full border border-[#dbe4f0] bg-[#f8fafc] p-1">
+                    <button
+                      type="button"
+                      onClick={() => onDisplayModeChange("dollars")}
+                      className={`rounded-full px-2 py-1.5 text-sm font-semibold transition ${
+                        displayMode === "dollars"
+                          ? "bg-[#0f172a] text-white"
+                          : "text-[#475569] hover:text-[#0f172a]"
+                      }`}
+                    >
+                      Dollars
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onDisplayModeChange("percent")}
+                      className={`rounded-full px-2 py-1.5 text-sm font-semibold transition ${
+                        displayMode === "percent"
+                          ? "bg-[#0f172a] text-white"
+                          : "text-[#475569] hover:text-[#0f172a]"
+                      }`}
+                    >
+                      % of Revenue
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={onExport}
+                    disabled={exportPending}
+                    className="rounded-full border border-[#dbe4f0] bg-white px-2 py-1.5 text-sm font-semibold text-[#0a6fd6] transition hover:border-[#94a3b8] hover:text-[#0f172a] disabled:cursor-not-allowed disabled:text-[#94a3b8]"
+                  >
+                    {exportPending ? "Exporting..." : "Export to Excel"}
+                  </button>
+                </>
+              ) : null}
               <button
                 type="button"
                 onClick={onToggleTotals}

@@ -13,8 +13,9 @@ from typing import Any
 
 from supabase import Client
 
+from .comparison import PNLComparisonService
 from .profiles import PNLNotFoundError, PNLProfileService, PNLValidationError
-from .report import EXPENSE_BUCKETS, REFUND_BUCKETS, REVENUE_BUCKETS, PNLReportService, _month_range
+from .report import EXPENSE_BUCKETS, REFUND_BUCKETS, REVENUE_BUCKETS
 
 ZERO = Decimal("0")
 HUNDRED = Decimal("100")
@@ -62,16 +63,6 @@ def _month_label(month_iso: str | None) -> str | None:
         return None
     parsed = date.fromisoformat(month_iso)
     return parsed.strftime("%b %Y")
-
-
-def _previous_month(month_start: date) -> date:
-    if month_start.month == 1:
-        return date(month_start.year - 1, 12, 1)
-    return date(month_start.year, month_start.month - 1, 1)
-
-
-def _prior_year_month(month_start: date) -> date:
-    return date(month_start.year - 1, month_start.month, 1)
 
 
 def _marketplace_sort_key(code: str) -> tuple[int, str]:
@@ -125,50 +116,11 @@ def _pp_change(current: Decimal | None, prior: Decimal | None) -> Decimal | None
     return current - prior
 
 
-def _comparison_mode_used(
-    requested: str,
-    *,
-    latest_month_has_yoy: bool,
-    ytd_has_yoy: bool,
-    has_previous_month: bool,
-) -> str:
-    if requested == "yoy_only":
-        if latest_month_has_yoy or ytd_has_yoy:
-            return "yoy_only"
-        return "descriptive"
-    if requested == "mom_only":
-        return "mom_only" if has_previous_month else "descriptive"
-    if latest_month_has_yoy or ytd_has_yoy:
-        return "yoy_preferred"
-    if has_previous_month:
-        return "mom_fallback"
-    return "descriptive"
-
-
-def _dedupe_warnings(*warning_groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    seen: set[tuple[Any, ...]] = set()
-    merged: list[dict[str, Any]] = []
-    for warnings in warning_groups:
-        for warning in warnings:
-            if not isinstance(warning, dict):
-                continue
-            key = (
-                warning.get("type"),
-                tuple(str(month) for month in warning.get("months") or []),
-                warning.get("message"),
-            )
-            if key in seen:
-                continue
-            seen.add(key)
-            merged.append(warning)
-    return merged
-
-
 class PNLEmailBriefService:
     def __init__(self, db: Client) -> None:
         self.db = db
         self.profile_service = PNLProfileService(db)
-        self.report_service = PNLReportService(db)
+        self.comparison_service = PNLComparisonService(db)
 
     async def build_client_brief_async(
         self,
@@ -311,84 +263,31 @@ class PNLEmailBriefService:
     ) -> dict[str, Any]:
         profile_id = str(profile.get("id") or "").strip()
         report_month_iso = report_month_date.isoformat()
-        current_ytd_start = date(report_month_date.year, 1, 1)
-        previous_month_date = _previous_month(report_month_date)
-        prior_year_month_date = _prior_year_month(report_month_date)
-
-        current_ytd_months = _month_range(current_ytd_start, report_month_date)
-        prior_ytd_start = date(prior_year_month_date.year, 1, 1)
-        prior_ytd_months = _month_range(prior_ytd_start, prior_year_month_date)
-
-        latest_month_has_yoy = prior_year_month_date.isoformat() in active_months
-        has_previous_month = previous_month_date.isoformat() in active_months
-        current_ytd_complete = all(month in active_months for month in current_ytd_months)
-        ytd_has_yoy = current_ytd_complete and all(month in active_months for month in prior_ytd_months)
-
-        report_tasks: dict[str, Any] = {
-            "latest": self.report_service.build_report_async(
-                profile_id,
-                filter_mode="range",
-                start_month=report_month_iso,
-                end_month=report_month_iso,
-            ),
-            "ytd": self.report_service.build_report_async(
-                profile_id,
-                filter_mode="range",
-                start_month=current_ytd_start.isoformat(),
-                end_month=report_month_iso,
-            ),
-        }
-        if has_previous_month:
-            previous_month_iso = previous_month_date.isoformat()
-            report_tasks["previous"] = self.report_service.build_report_async(
-                profile_id,
-                filter_mode="range",
-                start_month=previous_month_iso,
-                end_month=previous_month_iso,
-            )
-        if latest_month_has_yoy:
-            prior_year_month_iso = prior_year_month_date.isoformat()
-            report_tasks["latest_prior_year"] = self.report_service.build_report_async(
-                profile_id,
-                filter_mode="range",
-                start_month=prior_year_month_iso,
-                end_month=prior_year_month_iso,
-            )
-        if ytd_has_yoy:
-            report_tasks["ytd_prior_year"] = self.report_service.build_report_async(
-                profile_id,
-                filter_mode="range",
-                start_month=prior_ytd_start.isoformat(),
-                end_month=prior_year_month_date.isoformat(),
-            )
-
-        reports: dict[str, Any] = {}
-        for name, task in report_tasks.items():
-            reports[name] = await task
-
+        comparison = await self.comparison_service.build_month_comparison_async(
+            profile_id,
+            report_month_date=report_month_date,
+            active_months=active_months,
+            comparison_mode=comparison_mode,
+        )
+        periods = comparison["periods"]
+        reports = comparison["reports"]
+        indexes = comparison["indexes"]
         latest_report = reports["latest"]
         ytd_report = reports["ytd"]
-        previous_report = reports.get("previous")
-        latest_prior_year_report = reports.get("latest_prior_year")
-        ytd_prior_year_report = reports.get("ytd_prior_year")
-
-        latest_index = self._index_report(latest_report)
-        ytd_index = self._index_report(ytd_report)
-        previous_index = self._index_report(previous_report)
-        latest_prior_year_index = self._index_report(latest_prior_year_report)
-        ytd_prior_year_index = self._index_report(ytd_prior_year_report)
-
-        comparison_mode_used = _comparison_mode_used(
-            comparison_mode,
-            latest_month_has_yoy=latest_month_has_yoy,
-            ytd_has_yoy=ytd_has_yoy,
-            has_previous_month=has_previous_month,
-        )
-
-        warnings = _dedupe_warnings(
-            list(latest_report.get("warnings") or []),
-            list(ytd_report.get("warnings") or []),
-        )
+        previous_report = reports["previous"]
+        latest_prior_year_report = reports["latest_prior_year"]
+        ytd_prior_year_report = reports["ytd_prior_year"]
+        latest_index = indexes["latest"]
+        ytd_index = indexes["ytd"]
+        previous_index = indexes["previous"]
+        latest_prior_year_index = indexes["latest_prior_year"]
+        ytd_prior_year_index = indexes["ytd_prior_year"]
+        comparison_mode_used = str(comparison["comparison_mode_used"])
+        latest_month_has_yoy = bool(comparison["latest_month_has_yoy"])
+        ytd_has_yoy = bool(comparison["ytd_has_yoy"])
+        has_previous_month = bool(comparison["has_previous_month"])
+        current_ytd_complete = bool(comparison["current_ytd_complete"])
+        warnings = list(comparison["warnings"])
         data_quality_notes = self._build_data_quality_notes(
             report_month_iso=report_month_iso,
             latest_month_has_yoy=latest_month_has_yoy,
@@ -402,9 +301,9 @@ class PNLEmailBriefService:
             latest_index=latest_index,
             latest_month=report_month_iso,
             latest_prior_year_index=latest_prior_year_index,
-            latest_prior_year_month=prior_year_month_date.isoformat() if latest_month_has_yoy else None,
+            latest_prior_year_month=periods["latest_month_prior_year"],
             previous_index=previous_index,
-            previous_month=previous_month_date.isoformat() if has_previous_month else None,
+            previous_month=periods["previous_month"],
             ytd_index=ytd_index,
             ytd_months=list(ytd_report.get("months") or []),
             ytd_prior_year_index=ytd_prior_year_index,
@@ -419,8 +318,8 @@ class PNLEmailBriefService:
             component_metrics=component_metrics,
             comparison_mode_used=comparison_mode_used,
             report_month_label=_month_label(report_month_iso) or report_month_iso,
-            prior_year_month_label=_month_label(prior_year_month_date.isoformat()),
-            previous_month_label=_month_label(previous_month_date.isoformat()) if has_previous_month else None,
+            prior_year_month_label=_month_label(periods["latest_month_prior_year"]),
+            previous_month_label=_month_label(periods["previous_month"]),
         )
         financial_health = self._build_financial_health(component_metrics, warnings)
 
@@ -437,16 +336,16 @@ class PNLEmailBriefService:
             "periods": {
                 "latest_month": report_month_iso,
                 "latest_month_label": _month_label(report_month_iso),
-                "previous_month": previous_month_date.isoformat() if has_previous_month else None,
-                "previous_month_label": _month_label(previous_month_date.isoformat()) if has_previous_month else None,
-                "latest_month_prior_year": prior_year_month_date.isoformat() if latest_month_has_yoy else None,
+                "previous_month": periods["previous_month"],
+                "previous_month_label": _month_label(periods["previous_month"]),
+                "latest_month_prior_year": periods["latest_month_prior_year"],
                 "latest_month_prior_year_label": (
-                    _month_label(prior_year_month_date.isoformat()) if latest_month_has_yoy else None
+                    _month_label(periods["latest_month_prior_year"])
                 ),
-                "ytd_start": current_ytd_start.isoformat(),
+                "ytd_start": periods["ytd_start"],
                 "ytd_end": report_month_iso,
-                "ytd_prior_year_start": prior_ytd_start.isoformat() if ytd_has_yoy else None,
-                "ytd_prior_year_end": prior_year_month_date.isoformat() if ytd_has_yoy else None,
+                "ytd_prior_year_start": periods["ytd_prior_year_start"],
+                "ytd_prior_year_end": periods["ytd_prior_year_end"],
             },
             "snapshot_metrics": snapshot_metrics,
             "component_metrics": component_metrics,
@@ -468,18 +367,6 @@ class PNLEmailBriefService:
                 },
             ],
         }
-
-    def _index_report(self, report: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
-        if not isinstance(report, dict):
-            return {}
-        indexed: dict[str, dict[str, Any]] = {}
-        for row in report.get("line_items") or []:
-            if not isinstance(row, dict):
-                continue
-            key = str(row.get("key") or "").strip()
-            if key:
-                indexed[key] = row
-        return indexed
 
     def _build_component_metrics(
         self,

@@ -20,6 +20,7 @@ type ChartSeries = {
   label: string;
   data: number[];
   color: string;
+  dashed?: boolean;
 };
 
 type Props = {
@@ -130,6 +131,7 @@ export default function WbrTrendChart({ title, weeks, series, formatValue, showT
                   name={item.label}
                   stroke={item.color}
                   strokeWidth={item.key === "total" ? 3 : 2}
+                  strokeDasharray={item.dashed ? "6 3" : undefined}
                   dot={{ r: item.key === "total" ? 4 : 3 }}
                   activeDot={{ r: item.key === "total" ? 6 : 5 }}
                   animationDuration={300}

@@ -1,12 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 
 export function usePnlChartState() {
   const [selectedRowKeys, setSelectedRowKeys] = useState<Set<string>>(new Set());
   const [showTotal, setShowTotal] = useState(false);
 
-  const toggleRow = (key: string) => {
+  const toggleRow = useCallback((key: string) => {
     setSelectedRowKeys((current) => {
       const next = new Set(current);
       if (next.has(key)) {
@@ -16,16 +16,22 @@ export function usePnlChartState() {
       }
       return next;
     });
-  };
+  }, []);
 
-  const toggleTotal = () => {
+  const toggleTotal = useCallback(() => {
     setShowTotal((current) => !current);
-  };
+  }, []);
+
+  const clearSelection = useCallback(() => {
+    setSelectedRowKeys(new Set());
+    setShowTotal(false);
+  }, []);
 
   return {
     selectedRowKeys,
     showTotal,
     toggleRow,
     toggleTotal,
+    clearSelection,
   };
 }
