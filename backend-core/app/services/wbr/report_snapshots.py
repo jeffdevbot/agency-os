@@ -25,6 +25,19 @@ class WBRSnapshotService:
     def __init__(self, db: Client) -> None:
         self.db = db
 
+    @staticmethod
+    def _parse_timestamp(value: Any) -> datetime | None:
+        text = str(value or "").strip()
+        if not text:
+            return None
+        try:
+            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=UTC)
+        return parsed.astimezone(UTC)
+
     def _lookup_client_name(self, client_id: str | None) -> str | None:
         """Look up the agency client name for a wbr_profiles.client_id."""
         if not client_id:
@@ -38,6 +51,41 @@ class WBRSnapshotService:
         )
         rows = resp.data if isinstance(resp.data, list) else []
         return rows[0]["name"] if rows else None
+
+    def _latest_successful_sync_finished_at(self, profile_id: str) -> datetime | None:
+        latest_finished_at: datetime | None = None
+        for source_type in ("windsor_business", "amazon_ads"):
+            response = (
+                self.db.table("wbr_sync_runs")
+                .select("finished_at")
+                .eq("profile_id", profile_id)
+                .eq("source_type", source_type)
+                .eq("status", "success")
+                .order("finished_at", desc=True)
+                .limit(1)
+                .execute()
+            )
+            rows = response.data if isinstance(response.data, list) else []
+            if not rows:
+                continue
+            finished_at = self._parse_timestamp(rows[0].get("finished_at"))
+            if finished_at and (latest_finished_at is None or finished_at > latest_finished_at):
+                latest_finished_at = finished_at
+        return latest_finished_at
+
+    def _snapshot_is_stale(self, profile_id: str, snapshot: dict[str, Any]) -> bool:
+        latest_sync_finished_at = self._latest_successful_sync_finished_at(profile_id)
+        if latest_sync_finished_at is None:
+            return False
+
+        snapshot_reference_time = (
+            self._parse_timestamp(snapshot.get("source_run_at"))
+            or self._parse_timestamp(snapshot.get("created_at"))
+        )
+        if snapshot_reference_time is None:
+            return True
+
+        return snapshot_reference_time < latest_sync_finished_at
 
     def create_snapshot(
         self,
@@ -171,9 +219,15 @@ class WBRSnapshotService:
         weeks: int = 4,
         created_by: str | None = None,
     ) -> dict[str, Any]:
-        """Return the latest snapshot if one exists, otherwise create a fresh one."""
+        """Return the latest snapshot if one exists, otherwise create a fresh one.
+
+        As a safety net, rebuild when the latest successful sync run finished
+        after the latest snapshot was created. The nightly/worker refresh path
+        remains the primary snapshot producer; this avoids serving stale
+        snapshots when a post-sync snapshot write is missed.
+        """
         latest = self.get_latest_snapshot(profile_id)
-        if latest and latest.get("digest"):
+        if latest and latest.get("digest") and not self._snapshot_is_stale(profile_id, latest):
             return latest
         result = self.create_snapshot(
             profile_id,

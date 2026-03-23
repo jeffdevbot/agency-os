@@ -307,6 +307,53 @@ class TestGetOrCreateSnapshot:
         assert result["id"] == "snap-1"
         assert len(fake_db.inserts) == 0  # no new snapshot created
 
+    def test_rebuilds_when_newer_successful_sync_exists(self):
+        from app.services.wbr.report_snapshots import WBRSnapshotService
+
+        existing = {
+            "id": "snap-1",
+            "profile_id": "profile-1",
+            "created_at": "2026-03-18T12:00:00Z",
+            "source_run_at": "2026-03-18T12:00:00Z",
+            "digest": {"digest_version": DIGEST_VERSION, "profile": {"client_name": "Whoosh"}},
+        }
+        profile = {
+            "id": "profile-1",
+            "client_id": "client-1",
+            "display_name": "Whoosh US",
+            "marketplace_code": "US",
+            "week_start_day": "sunday",
+        }
+        fake_db = _FakeSupabase(
+            tables={
+                "wbr_report_snapshots": [existing],
+                "wbr_sync_runs": [
+                    {
+                        "id": "run-1",
+                        "profile_id": "profile-1",
+                        "source_type": "amazon_ads",
+                        "status": "success",
+                        "finished_at": "2026-03-22T23:31:16Z",
+                    }
+                ],
+                "wbr_profiles": [profile],
+                "agency_clients": [{"id": "client-1", "name": "Whoosh"}],
+                "wbr_rows": [],
+                "wbr_asin_row_map": [],
+                "wbr_business_asin_daily": [],
+                "wbr_ads_campaign_daily": [],
+                "wbr_inventory_asin_snapshots": [],
+                "wbr_returns_asin_daily": [],
+            }
+        )
+        svc = WBRSnapshotService(fake_db)
+
+        result = svc.get_or_create_snapshot("profile-1")
+
+        assert result["id"] == "snap-new-1"
+        assert result["snapshot_kind"] == "claw_request"
+        assert len(fake_db.inserts) == 1
+
     def test_creates_when_none_exists(self):
         from app.services.wbr.report_snapshots import WBRSnapshotService
 
