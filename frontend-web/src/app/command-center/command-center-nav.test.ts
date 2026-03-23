@@ -24,6 +24,17 @@ describe("Command Center navigation", () => {
         expect(content).toContain('ClickUp Spaces');
     });
 
+    it("home page contains Team Hours link to /command-center/hours", () => {
+        const pagePath = path.resolve(
+            __dirname,
+            "page.tsx",
+        );
+        const content = fs.readFileSync(pagePath, "utf-8");
+
+        expect(content).toContain("/command-center/hours");
+        expect(content).toContain("Team Hours");
+    });
+
     it('ClickUp Spaces link uses the same styling as other nav links', () => {
         const pagePath = path.resolve(
             __dirname,
@@ -35,7 +46,7 @@ describe("Command Center navigation", () => {
         const navCardClass = 'rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-[#0a6fd6] shadow transition hover:-translate-y-0.5 hover:shadow-lg';
         const matches = content.split(navCardClass).length - 1;
 
-        // Should have 5 nav cards: Clients, Team, Tokens, Admin, ClickUp Spaces
-        expect(matches).toBe(5);
+        // Should have 6 nav cards: Clients, Team, Tokens, Admin, Team Hours, ClickUp Spaces
+        expect(matches).toBe(6);
     });
 });

@@ -145,6 +145,81 @@ class ClickUpService:
             for s in data.get("spaces", [])
         ]
 
+    async def get_authorized_workspaces(self) -> list[dict[str, Any]]:
+        """GET /team — list workspaces visible to the authenticated user."""
+        data = await self._request("GET", "/team")
+        teams = data.get("teams")
+        if not isinstance(teams, list):
+            return []
+        return [team for team in teams if isinstance(team, dict)]
+
+    async def get_time_entries(
+        self,
+        *,
+        start_date: int | None = None,
+        end_date: int | None = None,
+        assignee_ids: list[str | int] | None = None,
+        include_task_tags: bool = False,
+        include_location_names: bool = False,
+        include_approval_history: bool = False,
+        include_approval_details: bool = False,
+        space_id: str | int | None = None,
+        folder_id: str | int | None = None,
+        list_id: str | int | None = None,
+        task_id: str | None = None,
+        is_billable: bool | None = None,
+    ) -> list[dict[str, Any]]:
+        """GET /team/{team_id}/time_entries — fetch time entries within a date range."""
+        location_filters = [
+            value
+            for value in (space_id, folder_id, list_id, task_id)
+            if value not in (None, "")
+        ]
+        if len(location_filters) > 1:
+            raise ClickUpValidationError(
+                "Only one of space_id, folder_id, list_id, or task_id may be provided"
+            )
+
+        params: dict[str, str] = {
+            "include_task_tags": str(include_task_tags).lower(),
+            "include_location_names": str(include_location_names).lower(),
+            "include_approval_history": str(include_approval_history).lower(),
+            "include_approval_details": str(include_approval_details).lower(),
+        }
+        if start_date is not None:
+            params["start_date"] = str(int(start_date))
+        if end_date is not None:
+            params["end_date"] = str(int(end_date))
+
+        normalized_assignees: list[str] = []
+        for raw in assignee_ids or []:
+            raw_str = str(raw).strip()
+            if not raw_str:
+                continue
+            try:
+                normalized_assignees.append(str(int(raw_str)))
+            except ValueError:
+                continue
+        if normalized_assignees:
+            params["assignee"] = ",".join(normalized_assignees)
+
+        if space_id not in (None, ""):
+            params["space_id"] = str(space_id)
+        if folder_id not in (None, ""):
+            params["folder_id"] = str(folder_id)
+        if list_id not in (None, ""):
+            params["list_id"] = str(list_id)
+        if task_id:
+            params["task_id"] = str(task_id)
+        if is_billable is not None:
+            params["is_billable"] = str(is_billable).lower()
+
+        data = await self._request("GET", f"/team/{self.team_id}/time_entries", params=params)
+        rows = data.get("data")
+        if not isinstance(rows, list):
+            return []
+        return [row for row in rows if isinstance(row, dict)]
+
     async def get_space_lists(self, space_id: str) -> list[dict[str, Any]]:
         data = await self._request("GET", f"/space/{space_id}/list")
         lists = data.get("lists")

@@ -6,6 +6,7 @@ from supabase import create_client, Client
 
 from ..auth import require_admin_user
 from ..config import settings
+from ..services.clickup import ClickUpConfigurationError, get_clickup_service
 from ..services.sop_sync import SOPSyncService
 from ..services.clickup_space_registry import (
     classify_clickup_space,
@@ -13,7 +14,7 @@ from ..services.clickup_space_registry import (
     map_clickup_space_to_brand,
     sync_clickup_spaces,
 )
-from ..services.clickup import get_clickup_service
+from ..services.clickup_team_hours import ClickUpTeamHoursService
 from pydantic import BaseModel, Field
 from typing import Optional
 
@@ -166,6 +167,37 @@ async def map_brand_endpoint(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Brand mapping failed: {e}")
+
+
+@router.get("/team-hours")
+async def get_team_hours_endpoint(
+    start_date_ms: int = Query(..., gt=0),
+    end_date_ms: int = Query(..., gt=0),
+    user=Depends(require_admin_user),
+):
+    """Build an admin-only ClickUp Team Hours report for a date range."""
+    db = _get_supabase()
+    try:
+        clickup = get_clickup_service()
+    except ClickUpConfigurationError as e:
+        raise HTTPException(status_code=500, detail=f"ClickUp not configured: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to initialize ClickUp: {e}")
+
+    service = ClickUpTeamHoursService(db, clickup)
+    try:
+        return await service.build_report_async(
+            start_date_ms=start_date_ms,
+            end_date_ms=end_date_ms,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except ClickUpConfigurationError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to build Team Hours report: {e}")
+    finally:
+        await clickup.aclose()
 
 
 @router.post("/wbr/section1/ingest-range")
