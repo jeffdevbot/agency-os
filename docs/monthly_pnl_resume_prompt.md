@@ -94,9 +94,12 @@ Current reality:
     - `wbr_mcp_playbook.md`
     They are useful as a pattern, but they are not the current instructions or
     project-file bundle for Monthly P&L.
-24. Part of the next P&L/Claude session should be deciding whether to create a
-    separate narrow P&L Claude Project bundle once the first P&L MCP tool
-    contract is clear.
+24. The intended product shape is still one shared Agency OS Claude Project
+    that can use multiple Agency OS tool domains. Do not assume one separate
+    Claude Project per report type.
+25. Part of the next P&L/Claude session should be deciding how to extend that
+    shared Claude Project bundle with P&L-specific instructions/files once the
+    first P&L MCP tool contract is clear.
 
 Primary goal:
 
@@ -121,8 +124,8 @@ Focus:
    that as a separate P&L-first follow-up path rather than the assumed next
    step for Claude.
 8. Do not blindly reuse the WBR Claude Project instructions/files for P&L.
-   First decide the P&L MCP tool shape, then decide whether a separate P&L
-   Claude Project bundle is warranted.
+   First decide the P&L MCP tool shape, then decide how to extend the shared
+   Agency OS Claude Project guidance cleanly.
 
 Constraints:
 

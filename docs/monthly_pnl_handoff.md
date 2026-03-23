@@ -37,9 +37,12 @@ Current strategic direction:
    - the current Claude Project bundle under `docs/claude_project/` is
      intentionally WBR-specific and should not be treated as the default P&L
      project setup
-   - if the first P&L Claude slice lands cleanly, create a separate narrow P&L
-     Claude Project bundle or extend the Claude bundle with clearly separated
-     P&L-specific files, rather than mixing WBR and P&L guidance loosely
+   - the likely target state is still one shared Agency OS Claude Project that
+     can use multiple tool domains, not one separate Claude Project per report
+     type
+   - if the first P&L Claude slice lands cleanly, extend the shared Claude
+     Project guidance with clearly separated P&L-specific instructions/files
+     rather than creating a fragmented set of separate Claude Projects
 6. Current code review indicates Monthly P&L likely does **not** need a
    separate snapshot layer for that first Claude slice, because the report is
    already built from persisted active month slices and precomputed month
@@ -87,11 +90,11 @@ Current implementation state on that direction:
 10. Current Claude Project state:
     - `docs/claude_project/project_instructions.md` and
       `docs/claude_project/wbr_mcp_playbook.md` are for the live WBR pilot only
-    - there is not yet a P&L-specific Claude Project bundle
-    - the next P&L session should decide whether to:
-      - add a new P&L-specific Claude bundle, or
-      - wait until the first P&L MCP tool contract is stable before creating
-        durable Claude files
+    - there is not yet any P&L-specific Claude guidance in that shared project
+      bundle
+    - the next P&L session should decide when to extend the shared Agency OS
+      Claude Project bundle with P&L-specific instructions/files, after the
+      first P&L MCP tool contract is stable
 
 Docs currently known to be partially outdated for the new direction:
 
