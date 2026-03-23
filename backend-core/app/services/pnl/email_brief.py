@@ -231,17 +231,16 @@ class PNLEmailBriefService:
             key=lambda row: _marketplace_sort_key(str(row.get("marketplace_code") or ""))
         )
 
-        sections = await asyncio.gather(
-            *[
-                self._build_profile_section_async(
+        sections: list[dict[str, Any]] = []
+        for profile in selected_profiles:
+            sections.append(
+                await self._build_profile_section_async(
                     profile,
                     report_month_date=report_month_date,
                     active_months=active_months_by_profile.get(str(profile.get("id") or "").strip(), set()),
                     comparison_mode=comparison_mode,
                 )
-                for profile in selected_profiles
-            ]
-        )
+            )
 
         overall_summary_points = self._build_overall_summary_points(sections)
         top_level_notes = list(overall_summary_points)
@@ -363,9 +362,9 @@ class PNLEmailBriefService:
                 end_month=prior_year_month_date.isoformat(),
             )
 
-        report_names = list(report_tasks.keys())
-        report_values = await asyncio.gather(*(report_tasks[name] for name in report_names))
-        reports = dict(zip(report_names, report_values, strict=False))
+        reports: dict[str, Any] = {}
+        for name, task in report_tasks.items():
+            reports[name] = await task
 
         latest_report = reports["latest"]
         ytd_report = reports["ytd"]
