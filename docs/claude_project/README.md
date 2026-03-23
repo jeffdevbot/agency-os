@@ -24,6 +24,8 @@ docs.
   - `resolve_client`
   - `list_wbr_profiles`
   - `get_wbr_summary`
+  - `list_monthly_pnl_profiles`
+  - `get_monthly_pnl_report`
 - [ ] Keep `draft_wbr_email` on approval unless/until you want mutating actions to run without confirmation
 
 ### Claude Project
@@ -31,8 +33,10 @@ docs.
 - [x] Personal Claude Project created
 - [x] `project_instructions.md` added to Project Instructions
 - [x] `wbr_mcp_playbook.md` uploaded to Project Files
+- [ ] `monthly_pnl_mcp_playbook.md` uploaded to Project Files once you want Monthly P&L available in Claude
 - [ ] Re-paste the latest `project_instructions.md` if the local file changes
 - [ ] Re-upload the latest `wbr_mcp_playbook.md` if the local file changes
+- [ ] Re-upload the latest `monthly_pnl_mcp_playbook.md` if the local file changes
 
 ### WBR Pilot Tools
 
@@ -41,6 +45,12 @@ docs.
 - [x] `get_wbr_summary` smoke-tested
 - [x] `draft_wbr_email` smoke-tested
 - [x] Real persisted WBR draft created from Claude
+
+### Monthly P&L Read-Only Tools
+
+- [ ] `resolve_client` smoke-tested for Monthly P&L routing metadata
+- [ ] `list_monthly_pnl_profiles` smoke-tested
+- [ ] `get_monthly_pnl_report` smoke-tested
 
 ### Next Expansion Options
 
@@ -61,6 +71,7 @@ Instructions panel.
 Upload only the files Claude needs for durable reference:
 
 1. `wbr_mcp_playbook.md`
+2. `monthly_pnl_mcp_playbook.md`
 
 Optional later:
 
@@ -81,12 +92,13 @@ too large and too broad for a day-to-day Claude Project.
 
 ## Current Scope
 
-This bundle is intentionally narrow:
+This bundle now supports a small shared reporting surface:
 
 1. Agency OS WBR MCP workflows
-2. the four live pilot tools
-3. the expected usage pattern for client resolution, profile resolution,
-   summary retrieval, and draft creation
+2. Agency OS Monthly P&L read-only MCP workflows
+3. the live WBR tools plus the first read-only P&L tools
+4. the expected usage pattern for client resolution, profile resolution,
+   summary retrieval, and draft creation where supported
 
 Expand this folder only when a workflow is stable enough to deserve durable
 Claude Project knowledge.

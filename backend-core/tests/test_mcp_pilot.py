@@ -8,11 +8,15 @@ from fastapi.testclient import TestClient
 from app.config import settings
 from app.main import app
 from app.mcp.server import create_mcp_server, get_mcp_protected_resource_metadata_path
+from app.mcp.tools.clients import resolve_client_matches
+from app.mcp.tools.pnl import (
+    get_monthly_pnl_report_for_profile,
+    list_monthly_pnl_profiles_for_client,
+)
 from app.mcp.tools.wbr import (
     draft_wbr_email_for_client,
     get_wbr_summary_for_profile,
     list_wbr_profiles_for_client,
-    resolve_client_matches,
 )
 
 
@@ -54,15 +58,43 @@ class _FakeQuery:
 
 
 class _FakeDB:
-    def __init__(self, clients, profiles):
+    def __init__(
+        self,
+        clients,
+        profiles,
+        pnl_profiles=None,
+        pnl_import_months=None,
+        brands=None,
+        assignments=None,
+        roles=None,
+        team_members=None,
+    ):
         self._clients = clients
         self._profiles = profiles
+        self._pnl_profiles = pnl_profiles or []
+        self._pnl_import_months = pnl_import_months or []
+        self._brands = brands or []
+        self._assignments = assignments or []
+        self._roles = roles or []
+        self._team_members = team_members or []
 
     def table(self, name):
         if name == "agency_clients":
             return _FakeQuery(self._clients)
+        if name == "brands":
+            return _FakeQuery(self._brands)
         if name == "wbr_profiles":
             return _FakeQuery(self._profiles)
+        if name == "monthly_pnl_profiles":
+            return _FakeQuery(self._pnl_profiles)
+        if name == "monthly_pnl_import_months":
+            return _FakeQuery(self._pnl_import_months)
+        if name == "client_assignments":
+            return _FakeQuery(self._assignments)
+        if name == "agency_roles":
+            return _FakeQuery(self._roles)
+        if name == "profiles":
+            return _FakeQuery(self._team_members)
         raise AssertionError(f"unexpected table {name}")
 
 
@@ -159,12 +191,23 @@ def test_mcp_protected_resource_metadata_route_allows_claude_origin():
     assert response.headers["access-control-allow-origin"] == "https://claude.ai"
 
 
-def test_resolve_client_matches_filters_to_active_wbr_clients(monkeypatch):
+def test_resolve_client_matches_returns_shared_reporting_metadata(monkeypatch):
     fake_db = _FakeDB(
         clients=[
-            {"id": "c1", "name": "Whoosh"},
-            {"id": "c2", "name": "Whoosh Canada"},
-            {"id": "c3", "name": "Dormant"},
+            {
+                "id": "c1",
+                "name": "Whoosh",
+                "status": "active",
+                "company_name": "Whoosh Inc.",
+                "email": "hello@whoosh.test",
+                "phone": "555-1111",
+                "notes": "Priority client",
+                "context_summary": "Premium cleaning brand.",
+                "target_audience": "Parents with young kids",
+                "positioning_notes": "Lead with convenience and safety.",
+            },
+            {"id": "c2", "name": "Whoosh Canada", "status": "active"},
+            {"id": "c3", "name": "Dormant", "status": "inactive"},
         ],
         profiles=[
             {"client_id": "c1", "marketplace_code": "US", "status": "active"},
@@ -172,8 +215,49 @@ def test_resolve_client_matches_filters_to_active_wbr_clients(monkeypatch):
             {"client_id": "c2", "marketplace_code": "CA", "status": "active"},
             {"client_id": "c3", "marketplace_code": "US", "status": "draft"},
         ],
+        pnl_profiles=[
+            {"id": "pp1", "client_id": "c1", "marketplace_code": "US"},
+            {"id": "pp2", "client_id": "c2", "marketplace_code": "CA"},
+        ],
+        pnl_import_months=[
+            {"profile_id": "pp1", "is_active": True},
+            {"profile_id": "pp2", "is_active": True},
+        ],
+        brands=[
+            {
+                "id": "b1",
+                "client_id": "c1",
+                "name": "Whoosh Core",
+                "product_keywords": ["spray", "cleaner"],
+                "amazon_marketplaces": ["US", "CA"],
+                "clickup_space_id": "space-1",
+                "clickup_list_id": "list-1",
+            }
+        ],
+        assignments=[
+            {
+                "id": "a1",
+                "client_id": "c1",
+                "brand_id": "b1",
+                "team_member_id": "tm1",
+                "role_id": "r1",
+            }
+        ],
+        roles=[{"id": "r1", "slug": "brand_manager", "name": "Brand Manager"}],
+        team_members=[
+            {
+                "id": "tm1",
+                "email": "owner@agency.test",
+                "display_name": "Alex",
+                "full_name": "Alex Owner",
+                "employment_status": "active",
+                "bench_status": "assigned",
+                "clickup_user_id": "cu-1",
+                "slack_user_id": "su-1",
+            }
+        ],
     )
-    monkeypatch.setattr("app.mcp.tools.wbr._get_supabase_admin_client", lambda: fake_db)
+    monkeypatch.setattr("app.mcp.tools.clients._get_supabase_admin_client", lambda: fake_db)
 
     result = resolve_client_matches("whoosh")
     assert result == {
@@ -181,12 +265,79 @@ def test_resolve_client_matches_filters_to_active_wbr_clients(monkeypatch):
             {
                 "client_id": "c1",
                 "client_name": "Whoosh",
+                "client_status": "active",
+                "company_name": "Whoosh Inc.",
+                "primary_email": "hello@whoosh.test",
+                "phone": "555-1111",
                 "active_wbr_marketplaces": ["CA", "US"],
+                "active_monthly_pnl_marketplaces": ["US"],
+                "brands": [
+                    {
+                        "brand_id": "b1",
+                        "brand_name": "Whoosh Core",
+                        "product_keywords": ["spray", "cleaner"],
+                        "amazon_marketplaces": ["US", "CA"],
+                        "clickup_space_id": "space-1",
+                        "clickup_list_id": "list-1",
+                        "has_clickup_space": True,
+                        "has_clickup_list": True,
+                    }
+                ],
+                "team_assignments": [
+                    {
+                        "assignment_id": "a1",
+                        "team_member_id": "tm1",
+                        "team_member_name": "Alex",
+                        "team_member_email": "owner@agency.test",
+                        "employment_status": "active",
+                        "bench_status": "assigned",
+                        "clickup_user_id": "cu-1",
+                        "slack_user_id": "su-1",
+                        "role_slug": "brand_manager",
+                        "role_name": "Brand Manager",
+                        "scope": "brand",
+                        "brand_id": "b1",
+                        "brand_name": "Whoosh Core",
+                    }
+                ],
+                "context": {
+                    "notes": "Priority client",
+                    "context_summary": "Premium cleaning brand.",
+                    "target_audience": "Parents with young kids",
+                    "positioning_notes": "Lead with convenience and safety.",
+                },
+                "capabilities": {
+                    "has_wbr": True,
+                    "has_monthly_pnl": True,
+                    "has_brands": True,
+                    "has_clickup_destinations": True,
+                    "has_team_assignments": True,
+                },
             },
             {
                 "client_id": "c2",
                 "client_name": "Whoosh Canada",
+                "client_status": "active",
+                "company_name": None,
+                "primary_email": None,
+                "phone": None,
                 "active_wbr_marketplaces": ["CA"],
+                "active_monthly_pnl_marketplaces": ["CA"],
+                "brands": [],
+                "team_assignments": [],
+                "context": {
+                    "notes": None,
+                    "context_summary": None,
+                    "target_audience": None,
+                    "positioning_notes": None,
+                },
+                "capabilities": {
+                    "has_wbr": True,
+                    "has_monthly_pnl": True,
+                    "has_brands": False,
+                    "has_clickup_destinations": False,
+                    "has_team_assignments": False,
+                },
             },
         ]
     }
@@ -194,10 +345,10 @@ def test_resolve_client_matches_filters_to_active_wbr_clients(monkeypatch):
 
 def test_resolve_client_tool_is_registered_and_returns_structured_output(monkeypatch):
     fake_db = _FakeDB(
-        clients=[{"id": "c1", "name": "Basari World"}],
+        clients=[{"id": "c1", "name": "Basari World", "status": "active"}],
         profiles=[{"client_id": "c1", "marketplace_code": "MX", "status": "active"}],
     )
-    monkeypatch.setattr("app.mcp.tools.wbr._get_supabase_admin_client", lambda: fake_db)
+    monkeypatch.setattr("app.mcp.tools.clients._get_supabase_admin_client", lambda: fake_db)
 
     server = create_mcp_server()
     _content, payload = asyncio.run(server.call_tool("resolve_client", {"query": "Basari"}))
@@ -206,9 +357,200 @@ def test_resolve_client_tool_is_registered_and_returns_structured_output(monkeyp
             {
                 "client_id": "c1",
                 "client_name": "Basari World",
+                "client_status": "active",
+                "company_name": None,
+                "primary_email": None,
+                "phone": None,
                 "active_wbr_marketplaces": ["MX"],
+                "active_monthly_pnl_marketplaces": [],
+                "brands": [],
+                "team_assignments": [],
+                "context": {
+                    "notes": None,
+                    "context_summary": None,
+                    "target_audience": None,
+                    "positioning_notes": None,
+                },
+                "capabilities": {
+                    "has_wbr": True,
+                    "has_monthly_pnl": False,
+                    "has_brands": False,
+                    "has_clickup_destinations": False,
+                    "has_team_assignments": False,
+                },
             }
         ]
+    }
+
+
+def test_resolve_client_matches_can_return_clients_without_report_coverage(monkeypatch):
+    fake_db = _FakeDB(
+        clients=[
+            {"id": "c1", "name": "Whoosh", "status": "active"},
+            {"id": "c3", "name": "Dormant", "status": "inactive"},
+        ],
+        profiles=[],
+    )
+    monkeypatch.setattr("app.mcp.tools.clients._get_supabase_admin_client", lambda: fake_db)
+
+    result = resolve_client_matches("Dormant")
+    assert result == {
+        "matches": [
+            {
+                "client_id": "c3",
+                "client_name": "Dormant",
+                "client_status": "inactive",
+                "company_name": None,
+                "primary_email": None,
+                "phone": None,
+                "active_wbr_marketplaces": [],
+                "active_monthly_pnl_marketplaces": [],
+                "brands": [],
+                "team_assignments": [],
+                "context": {
+                    "notes": None,
+                    "context_summary": None,
+                    "target_audience": None,
+                    "positioning_notes": None,
+                },
+                "capabilities": {
+                    "has_wbr": False,
+                    "has_monthly_pnl": False,
+                    "has_brands": False,
+                    "has_clickup_destinations": False,
+                    "has_team_assignments": False,
+                },
+            },
+        ]
+    }
+
+
+def test_list_monthly_pnl_profiles_for_client_returns_active_profiles(monkeypatch):
+    fake_db = _FakeDB(
+        clients=[{"id": "c1", "name": "Whoosh"}],
+        profiles=[],
+        pnl_profiles=[
+            {
+                "id": "pp2",
+                "client_id": "c1",
+                "marketplace_code": "CA",
+                "currency_code": "CAD",
+                "status": "active",
+            },
+            {
+                "id": "pp1",
+                "client_id": "c1",
+                "marketplace_code": "US",
+                "currency_code": "USD",
+                "status": "active",
+            },
+            {
+                "id": "pp3",
+                "client_id": "c1",
+                "marketplace_code": "MX",
+                "currency_code": "USD",
+                "status": "draft",
+            },
+        ],
+        pnl_import_months=[
+            {"profile_id": "pp1", "entry_month": "2025-11-01", "is_active": True},
+            {"profile_id": "pp1", "entry_month": "2025-12-01", "is_active": True},
+            {"profile_id": "pp2", "entry_month": "2026-01-01", "is_active": True},
+            {"profile_id": "pp3", "entry_month": "2026-02-01", "is_active": False},
+        ],
+    )
+    monkeypatch.setattr("app.mcp.tools.pnl._get_supabase_admin_client", lambda: fake_db)
+
+    result = list_monthly_pnl_profiles_for_client("c1")
+    assert result == {
+        "profiles": [
+            {
+                "profile_id": "pp2",
+                "client_id": "c1",
+                "client_name": "Whoosh",
+                "marketplace_code": "CA",
+                "currency_code": "CAD",
+                "status": "active",
+                "first_active_month": "2026-01-01",
+                "last_active_month": "2026-01-01",
+                "active_month_count": 1,
+            },
+            {
+                "profile_id": "pp1",
+                "client_id": "c1",
+                "client_name": "Whoosh",
+                "marketplace_code": "US",
+                "currency_code": "USD",
+                "status": "active",
+                "first_active_month": "2025-11-01",
+                "last_active_month": "2025-12-01",
+                "active_month_count": 2,
+            },
+        ]
+    }
+
+
+def test_get_monthly_pnl_report_for_profile_wraps_report(monkeypatch):
+    fake_db = _FakeDB(
+        clients=[{"id": "c1", "name": "Whoosh"}],
+        profiles=[],
+    )
+
+    class _FakePNLProfileService:
+        def __init__(self, _db):
+            pass
+
+        def get_profile(self, profile_id):
+            assert profile_id == "pp1"
+            return {
+                "id": "pp1",
+                "client_id": "c1",
+                "marketplace_code": "US",
+                "currency_code": "USD",
+                "status": "active",
+            }
+
+    class _FakePNLReportService:
+        def __init__(self, _db):
+            pass
+
+        async def build_report_async(self, profile_id, *, filter_mode, start_month, end_month):
+            assert profile_id == "pp1"
+            assert filter_mode == "range"
+            assert start_month == "2025-11-01"
+            assert end_month == "2025-12-01"
+            return {
+                "profile": {"id": "pp1"},
+                "months": ["2025-11-01", "2025-12-01"],
+                "line_items": [{"key": "net_earnings", "months": {"2025-11-01": "100.00"}}],
+                "warnings": [{"type": "missing_cogs"}],
+            }
+
+    monkeypatch.setattr("app.mcp.tools.pnl._get_supabase_admin_client", lambda: fake_db)
+    monkeypatch.setattr("app.mcp.tools.pnl.PNLProfileService", _FakePNLProfileService)
+    monkeypatch.setattr("app.mcp.tools.pnl.PNLReportService", _FakePNLReportService)
+
+    result = asyncio.run(
+        get_monthly_pnl_report_for_profile(
+            "pp1",
+            filter_mode="range",
+            start_month="2025-11-01",
+            end_month="2025-12-01",
+        )
+    )
+    assert result == {
+        "profile": {
+            "id": "pp1",
+            "profile_id": "pp1",
+            "client_id": "c1",
+            "client_name": "Whoosh",
+            "marketplace_code": "US",
+            "currency_code": "USD",
+            "status": "active",
+        },
+        "months": ["2025-11-01", "2025-12-01"],
+        "line_items": [{"key": "net_earnings", "months": {"2025-11-01": "100.00"}}],
+        "warnings": [{"type": "missing_cogs"}],
     }
 
 
@@ -302,6 +644,7 @@ def test_get_wbr_summary_for_profile_wraps_snapshot(monkeypatch):
             }
 
     monkeypatch.setattr("app.mcp.tools.wbr._get_supabase_admin_client", lambda: fake_db)
+    monkeypatch.setattr("app.mcp.tools.clients._get_supabase_admin_client", lambda: fake_db)
     monkeypatch.setattr("app.mcp.tools.wbr.WBRProfileService", _FakeProfileService)
     monkeypatch.setattr("app.mcp.tools.wbr.WBRSnapshotService", _FakeSnapshotService)
 
@@ -367,6 +710,22 @@ def test_wbr_tools_are_registered(monkeypatch):
     fake_db = _FakeDB(
         clients=[{"id": "c1", "name": "Whoosh"}],
         profiles=[{"client_id": "c1", "marketplace_code": "US", "status": "active"}],
+        pnl_profiles=[
+            {
+                "id": "pp1",
+                "client_id": "c1",
+                "marketplace_code": "US",
+                "currency_code": "USD",
+                "status": "active",
+            }
+        ],
+        pnl_import_months=[
+            {
+                "profile_id": "pp1",
+                "entry_month": "2025-12-01",
+                "is_active": True,
+            }
+        ],
     )
 
     class _FakeProfileService:
@@ -419,9 +778,53 @@ def test_wbr_tools_are_registered(monkeypatch):
         }
 
     monkeypatch.setattr("app.mcp.tools.wbr._get_supabase_admin_client", lambda: fake_db)
+    monkeypatch.setattr("app.mcp.tools.clients._get_supabase_admin_client", lambda: fake_db)
     monkeypatch.setattr("app.mcp.tools.wbr.WBRProfileService", _FakeProfileService)
     monkeypatch.setattr("app.mcp.tools.wbr.WBRSnapshotService", _FakeSnapshotService)
     monkeypatch.setattr("app.mcp.tools.wbr.generate_email_draft", _fake_generate_email_draft)
+    monkeypatch.setattr("app.mcp.tools.pnl._get_supabase_admin_client", lambda: fake_db)
+
+    class _FakePNLProfileService:
+        def __init__(self, _db):
+            pass
+
+        def list_profiles(self, _client_id):
+            return [
+                {
+                    "id": "pp1",
+                    "client_id": "c1",
+                    "marketplace_code": "US",
+                    "currency_code": "USD",
+                    "status": "active",
+                }
+            ]
+
+        def get_profile(self, _profile_id):
+            return {
+                "id": "pp1",
+                "client_id": "c1",
+                "marketplace_code": "US",
+                "currency_code": "USD",
+                "status": "active",
+            }
+
+    class _FakePNLReportService:
+        def __init__(self, _db):
+            pass
+
+        async def build_report_async(self, _profile_id, *, filter_mode, start_month, end_month):
+            assert filter_mode == "last_3"
+            assert start_month is None
+            assert end_month is None
+            return {
+                "profile": {"id": "pp1"},
+                "months": ["2025-12-01"],
+                "line_items": [{"key": "net_earnings", "months": {"2025-12-01": "50.00"}}],
+                "warnings": [],
+            }
+
+    monkeypatch.setattr("app.mcp.tools.pnl.PNLProfileService", _FakePNLProfileService)
+    monkeypatch.setattr("app.mcp.tools.pnl.PNLReportService", _FakePNLReportService)
 
     server = create_mcp_server()
     tools = asyncio.run(server.list_tools())
@@ -429,7 +832,9 @@ def test_wbr_tools_are_registered(monkeypatch):
     assert names == {
         "draft_wbr_email",
         "get_wbr_summary",
+        "get_monthly_pnl_report",
         "list_wbr_profiles",
+        "list_monthly_pnl_profiles",
         "resolve_client",
     }
 
@@ -452,3 +857,54 @@ def test_wbr_tools_are_registered(monkeypatch):
 
     _content, payload = asyncio.run(server.call_tool("draft_wbr_email", {"client_id": "c1"}))
     assert payload["draft_id"] == "d1"
+
+    _content, payload = asyncio.run(server.call_tool("resolve_client", {"query": "Whoosh"}))
+    assert payload == {
+        "matches": [
+            {
+                "client_id": "c1",
+                "client_name": "Whoosh",
+                "client_status": None,
+                "company_name": None,
+                "primary_email": None,
+                "phone": None,
+                "active_wbr_marketplaces": ["US"],
+                "active_monthly_pnl_marketplaces": ["US"],
+                "brands": [],
+                "team_assignments": [],
+                "context": {
+                    "notes": None,
+                    "context_summary": None,
+                    "target_audience": None,
+                    "positioning_notes": None,
+                },
+                "capabilities": {
+                    "has_wbr": True,
+                    "has_monthly_pnl": True,
+                    "has_brands": False,
+                    "has_clickup_destinations": False,
+                    "has_team_assignments": False,
+                },
+            }
+        ]
+    }
+
+    _content, payload = asyncio.run(server.call_tool("list_monthly_pnl_profiles", {"client_id": "c1"}))
+    assert payload == {
+        "profiles": [
+            {
+                "profile_id": "pp1",
+                "client_id": "c1",
+                "client_name": "Whoosh",
+                "marketplace_code": "US",
+                "currency_code": "USD",
+                "status": "active",
+                "first_active_month": "2025-12-01",
+                "last_active_month": "2025-12-01",
+                "active_month_count": 1,
+            }
+        ]
+    }
+
+    _content, payload = asyncio.run(server.call_tool("get_monthly_pnl_report", {"profile_id": "pp1"}))
+    assert payload["profile"]["profile_id"] == "pp1"

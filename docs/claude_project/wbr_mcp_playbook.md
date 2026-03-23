@@ -25,7 +25,11 @@ Returns:
 
 1. canonical `client_id`
 2. canonical client name
-3. active WBR marketplaces for matching clients
+3. active WBR marketplaces
+4. active Monthly P&L marketplaces
+5. brand / ClickUp setup hints
+6. team assignment metadata
+7. client context fields
 
 ### `list_wbr_profiles`
 
@@ -101,6 +105,8 @@ then:
 1. call `resolve_client`
 2. if multiple matches are returned, ask the user to choose the right client
 3. if one match is returned, continue using the canonical `client_id`
+4. use the returned WBR and Monthly P&L coverage metadata when it helps route
+   follow-up questions
 
 ### 2. Client resolved, marketplace not yet resolved
 

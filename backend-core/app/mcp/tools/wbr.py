@@ -6,11 +6,12 @@ from collections.abc import Sequence
 import logging
 from typing import Any
 
-from ...auth import _get_supabase_admin_client
 from ...services.wbr.email_drafts import generate_email_draft
 from ...services.wbr.email_prompt import PROMPT_VERSION
 from ...services.wbr.profiles import WBRNotFoundError, WBRProfileService
 from ...services.wbr.report_snapshots import WBRSnapshotService
+from .clients import resolve_client_name
+from ...auth import _get_supabase_admin_client
 from ..auth import get_current_pilot_user
 
 _logger = logging.getLogger(__name__)
@@ -30,24 +31,6 @@ def _log_tool_outcome(tool_name: str, outcome: str, **extra: Any) -> None:
     )
 
 
-def _resolve_client_name(db: Any, client_id: str) -> str | None:
-    resp = (
-        db.table("agency_clients")
-        .select("name")
-        .eq("id", client_id)
-        .limit(1)
-        .execute()
-    )
-    rows = resp.data if isinstance(resp.data, list) else []
-    if not rows:
-        return None
-    row = rows[0]
-    if not isinstance(row, dict):
-        return None
-    name = str(row.get("name") or "").strip()
-    return name or None
-
-
 def _list_active_profiles(db: Any, client_id: str | None = None) -> list[dict[str, Any]]:
     svc = WBRProfileService(db)
     profiles: list[dict[str, Any]]
@@ -60,65 +43,6 @@ def _list_active_profiles(db: Any, client_id: str | None = None) -> list[dict[st
         row for row in profiles
         if isinstance(row, dict) and str(row.get("status") or "").strip().lower() == "active"
     ]
-
-
-def resolve_client_matches(query: str) -> dict[str, list[dict[str, Any]]]:
-    """Resolve canonical clients that have active WBR coverage."""
-    needle = (query or "").strip().casefold()
-    if not needle:
-        return {"matches": []}
-
-    db = _get_supabase_admin_client()
-
-    profiles_resp = (
-        db.table("wbr_profiles")
-        .select("client_id, marketplace_code, status")
-        .eq("status", "active")
-        .execute()
-    )
-    profiles = profiles_resp.data if isinstance(profiles_resp.data, list) else []
-
-    market_by_client: dict[str, set[str]] = {}
-    for row in profiles:
-        if not isinstance(row, dict):
-            continue
-        client_id = str(row.get("client_id") or "").strip()
-        market = str(row.get("marketplace_code") or "").strip().upper()
-        if not client_id or not market:
-            continue
-        market_by_client.setdefault(client_id, set()).add(market)
-
-    if not market_by_client:
-        return {"matches": []}
-
-    clients_resp = db.table("agency_clients").select("id, name").execute()
-    clients = clients_resp.data if isinstance(clients_resp.data, list) else []
-
-    matches: list[dict[str, Any]] = []
-    for row in clients:
-        if not isinstance(row, dict):
-            continue
-        client_id = str(row.get("id") or "").strip()
-        client_name = str(row.get("name") or "").strip()
-        if not client_id or not client_name:
-            continue
-        markets = market_by_client.get(client_id)
-        if not markets:
-            continue
-        if needle not in client_name.casefold():
-            continue
-        matches.append(
-            {
-                "client_id": client_id,
-                "client_name": client_name,
-                "active_wbr_marketplaces": sorted(markets),
-            }
-        )
-
-    matches.sort(key=lambda item: (item["client_name"].casefold(), item["client_id"]))
-    return {"matches": matches}
-
-
 def list_wbr_profiles_for_client(client_id: str) -> dict[str, list[dict[str, Any]]]:
     """List active WBR profiles for a canonical client."""
     normalized_client_id = str(client_id or "").strip()
@@ -126,7 +50,7 @@ def list_wbr_profiles_for_client(client_id: str) -> dict[str, list[dict[str, Any
         return {"profiles": []}
 
     db = _get_supabase_admin_client()
-    client_name = _resolve_client_name(db, normalized_client_id)
+    client_name = resolve_client_name(db, normalized_client_id)
     profiles = _list_active_profiles(db, normalized_client_id)
     profiles.sort(
         key=lambda row: (
@@ -168,7 +92,7 @@ def get_wbr_summary_for_profile(profile_id: str) -> dict[str, Any]:
         raise ValueError(str(exc)) from exc
 
     client_id = str(profile.get("client_id") or "").strip()
-    client_name = _resolve_client_name(db, client_id) or str(profile.get("display_name") or "").strip()
+    client_name = resolve_client_name(db, client_id) or str(profile.get("display_name") or "").strip()
     snapshot = snapshot_svc.get_or_create_snapshot(normalized_profile_id)
     digest = snapshot.get("digest")
     if not isinstance(digest, dict) or not digest:
@@ -223,22 +147,6 @@ async def draft_wbr_email_for_client(client_id: str) -> dict[str, Any]:
 
 
 def register_wbr_tools(mcp: Any) -> None:
-    @mcp.tool(
-        name="resolve_client",
-        description=(
-            "Resolve a free-text client query to canonical Agency OS clients "
-            "that currently have active WBR coverage. Returns candidate "
-            "matches with active WBR marketplace codes. Does not silently "
-            "choose a winner."
-        ),
-        structured_output=True,
-    )
-    def resolve_client(query: str) -> dict[str, list[dict[str, Any]]]:
-        _log_tool_outcome("resolve_client", "started")
-        result = resolve_client_matches(query)
-        _log_tool_outcome("resolve_client", "success", matches=len(result.get("matches", [])))
-        return result
-
     @mcp.tool(
         name="list_wbr_profiles",
         description=(

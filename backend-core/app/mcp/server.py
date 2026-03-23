@@ -17,6 +17,8 @@ from typing import Any
 
 from ..config import settings
 from .auth import SupabasePilotTokenVerifier
+from .tools.clients import register_client_tools
+from .tools.pnl import register_pnl_tools
 from .tools.wbr import register_wbr_tools
 
 
@@ -47,7 +49,9 @@ def create_mcp_server() -> FastMCP:
             allowed_origins=settings.mcp_allowed_origins,
         ),
     )
+    register_client_tools(mcp)
     register_wbr_tools(mcp)
+    register_pnl_tools(mcp)
     return mcp
 
 
