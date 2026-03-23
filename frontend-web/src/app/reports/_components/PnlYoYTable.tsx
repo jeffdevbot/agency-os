@@ -155,7 +155,21 @@ export default function PnlYoYTable({
                       >
                         {item.label}
                       </button>
-                      <div className="mt-0.5 text-[10px] font-normal text-[#94a3b8]">{currentYear}</div>
+                    </td>
+                    {months.map((month) => (
+                      <td
+                        key={`${month}-label-spacer`}
+                        className="border-b border-[#f1f5f9] bg-white px-1.5 py-1.5 md:px-2"
+                      />
+                    ))}
+                    {showTotals ? (
+                      <td className="border-b border-[#f1f5f9] bg-[#f8fafc] px-1.5 py-1.5 md:px-2" />
+                    ) : null}
+                  </tr>
+
+                  <tr className="border-b border-[#f8fafc]">
+                    <td className="sticky left-0 z-10 min-w-[196px] border-b border-[#f8fafc] bg-[#fcfdff] px-2.5 py-1 text-left text-[#64748b] shadow-[8px_0_14px_-10px_rgba(15,23,42,0.12)] md:min-w-[208px]">
+                      <span className="pl-4">{currentYear}</span>
                     </td>
                     {currentMonthKeys.map((month) => {
                       const value = getPnlYoYMonthDisplayValue(
@@ -168,14 +182,14 @@ export default function PnlYoYTable({
                       return (
                         <td
                           key={month}
-                          className={`whitespace-nowrap border-b border-[#f1f5f9] px-1.5 py-1.5 text-right tabular-nums md:px-2 ${amountClass(String(value), item as any)}`}
+                          className={`whitespace-nowrap border-b border-[#f8fafc] bg-[#fcfdff] px-1.5 py-1 text-right tabular-nums md:px-2 ${amountClass(String(value), item as any)}`}
                         >
                           {formatAmount(String(value), displayFormat, safeCurrencyCode)}
                         </td>
                       );
                     })}
                     {showTotals ? (
-                      <td className={`whitespace-nowrap border-b border-[#f1f5f9] bg-[#f8fafc] px-1.5 py-1.5 text-right font-semibold tabular-nums md:px-2 ${amountClass(String(currentTotal), item as any)}`}>
+                      <td className={`whitespace-nowrap border-b border-[#f8fafc] bg-[#fcfdff] px-1.5 py-1 text-right font-semibold tabular-nums md:px-2 ${amountClass(String(currentTotal), item as any)}`}>
                         {formatAmount(String(currentTotal), displayFormat, safeCurrencyCode)}
                       </td>
                     ) : null}
