@@ -30,19 +30,15 @@ Current strategic direction:
 5. The immediate next product direction has become narrower:
    - WBR Claude MCP pilot is now working and hardened enough to stop expanding
      WBR for the moment
-   - the next Claude/Agency OS session should focus on Monthly P&L as the next
-     tool domain
-   - start with a read-only P&L summary/analysis slice before any mutating
-     P&L email drafting or write workflows
-   - the current Claude Project bundle under `docs/claude_project/` is
-     intentionally WBR-specific and should not be treated as the default P&L
-     project setup
+   - Monthly P&L is the next Claude tool domain
+   - the first slice should be a read-only P&L summary/analysis slice before
+     any mutating P&L email drafting or write workflows
    - the likely target state is still one shared Agency OS Claude Project that
      can use multiple tool domains, not one separate Claude Project per report
      type
-   - if the first P&L Claude slice lands cleanly, extend the shared Claude
-     Project guidance with clearly separated P&L-specific instructions/files
-     rather than creating a fragmented set of separate Claude Projects
+   - extend the shared Claude Project guidance with clearly separated
+     P&L-specific instructions/files rather than creating a fragmented set of
+     separate Claude Projects
 6. Current code review indicates Monthly P&L likely does **not** need a
    separate snapshot layer for that first Claude slice, because the report is
    already built from persisted active month slices and precomputed month
@@ -87,14 +83,40 @@ Current implementation state on that direction:
      `https://backend-core-re6d.onrender.com/api/amazon-spapi/callback`
 9. During this work, the frontend Render service hit a broken default Node
    image on `22.16.0`; the repo now pins frontend Node to `20.19.0`.
-10. Current Claude Project state:
-    - `docs/claude_project/project_instructions.md` and
-      `docs/claude_project/wbr_mcp_playbook.md` are for the live WBR pilot only
-    - there is not yet any P&L-specific Claude guidance in that shared project
-      bundle
-    - the next P&L session should decide when to extend the shared Agency OS
-      Claude Project bundle with P&L-specific instructions/files, after the
-      first P&L MCP tool contract is stable
+10. The first read-only Monthly P&L MCP slice is now implemented in code:
+    - shared client discovery now lives in
+      `backend-core/app/mcp/tools/clients.py`
+    - `resolve_client` is now a shared Command Center resolver rather than a
+      WBR-owned resolver
+    - `resolve_client` now includes:
+      - WBR marketplace coverage
+      - Monthly P&L marketplace coverage
+      - brands / ClickUp destination hints
+      - team assignments
+      - client context fields
+    - P&L read-only MCP tools now include:
+      - `list_monthly_pnl_profiles`
+      - `get_monthly_pnl_report`
+11. Current Claude Project state:
+    - `docs/claude_project/project_instructions.md` now covers both WBR and
+      Monthly P&L
+    - `docs/claude_project/wbr_mcp_playbook.md` now assumes the shared
+      `resolve_client` contract
+    - `docs/claude_project/monthly_pnl_mcp_playbook.md` now exists for the
+      read-only P&L slice
+    - remaining Claude-side work is to refresh those files in the live Claude
+      Project and run smoke tests
+12. Targeted regression coverage after those MCP changes is green:
+    - `backend-core/tests/test_mcp_pilot.py`
+    - `backend-core/tests/test_pnl_report.py`
+    - `backend-core/tests/test_pnl_workbook.py`
+13. The first clean Monthly P&L email-drafting spec now exists in
+    `docs/monthly_pnl_email_drafting_spec.md`.
+    It captures:
+    - the extracted writing pattern from real manual P&L emails
+    - a proposed Claude-facing preview/persisted email tool contract
+    - the exact data requirements for reliable drafting, including conditional
+      YoY / MoM fallback rules
 
 Docs currently known to be partially outdated for the new direction:
 
@@ -109,6 +131,24 @@ This is the current restart point for Monthly P&L after the US v1 validation
 push, the Jan-Dec 2025 Whoosh US backfill, the SKU-based COGS rollout, the CA
 parser/mapping rollout, the first live CA validations, the Excel export/payout
 follow-up work, and the latest import/UI hardening work.
+
+## P&L email drafting direction
+
+The older screenshot/OCR-based prompt is no longer the right product model for
+Agency OS.
+
+The current recommended direction is:
+
+1. draft Monthly P&L emails from canonical Agency OS report data
+2. use YoY only when a same-month prior-year comparison and YTD prior-year
+   window are actually available
+3. fall back cleanly to MoM or omit unsupported comparisons when YoY is not
+   available
+4. build a structured Monthly P&L email brief layer before adding a mutating
+   persisted draft tool
+
+See `docs/monthly_pnl_email_drafting_spec.md` for the concrete writing pattern,
+tool contract, and data requirements.
 
 ## Current reality
 

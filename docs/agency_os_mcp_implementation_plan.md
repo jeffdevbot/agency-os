@@ -2,6 +2,33 @@
 
 _Drafted: 2026-03-21 (ET)_
 
+## Status update — 2026-03-23 (ET)
+
+This document started as the focused plan for the Jeff-only WBR-first MCP
+pilot. The MCP pilot is now beyond that initial slice.
+
+Current confirmed state:
+
+1. the MCP server is mounted in `backend-core`
+2. Claude Pro can authenticate through the private `Agency OS` connector
+3. WBR tools are live:
+   - `resolve_client`
+   - `list_wbr_profiles`
+   - `get_wbr_summary`
+   - `draft_wbr_email`
+4. the first read-only Monthly P&L tools are now also implemented:
+   - `list_monthly_pnl_profiles`
+   - `get_monthly_pnl_report`
+5. `resolve_client` is no longer best understood as WBR-scoped:
+   - it now resolves against Command Center client data
+   - it includes WBR coverage, Monthly P&L coverage, brand/ClickUp hints,
+     team assignments, and client context fields
+6. shared client discovery now lives in:
+   - `backend-core/app/mcp/tools/clients.py`
+7. this document should now be read mainly as historical implementation
+   rationale for slice sequencing, not as the exact current live tool
+   inventory
+
 ## Summary
 
 This document is the focused implementation plan for the first `agency-os` MCP
@@ -17,7 +44,7 @@ This plan is intentionally narrow:
 1. official MCP Python SDK
 2. hosted inside `backend-core`
 3. Jeff-only Claude Pro pilot
-4. WBR-first tool surface
+4. WBR-first pilot, later expanded into a shared reporting tool surface
 
 ## Slice 0
 
@@ -40,7 +67,7 @@ real tool end to end.
 2. shared internal AI runtime refactor
 3. Scribe / Debrief / AdScope integration
 4. WBR draft tool
-5. P&L tools
+5. broad P&L workflows beyond the first read-only slice
 6. child-ASIN tools
 
 ## Runtime and hosting
@@ -79,9 +106,13 @@ The MCP layer must stay thin and modular.
    - MCP server/bootstrap only
 2. `backend-core/app/mcp/auth.py`
    - auth, allowlist, user resolution
-3. `backend-core/app/mcp/tools/wbr.py`
-   - WBR/client-domain tool definitions and wrappers
-4. optional small helper modules only if needed
+3. `backend-core/app/mcp/tools/clients.py`
+   - shared client discovery / cross-domain resolver
+4. `backend-core/app/mcp/tools/wbr.py`
+   - WBR-domain tool definitions and wrappers
+5. `backend-core/app/mcp/tools/pnl.py`
+   - Monthly P&L read-only tool definitions and wrappers
+6. optional small helper modules only if needed
 
 ### Avoid
 
@@ -154,14 +185,19 @@ Output:
 
 Rules:
 
-1. return only clients relevant to the WBR-first pilot
-2. include active WBR marketplace coverage in the response
-3. do not silently choose a match
-4. return `{ "matches": [] }` on no match
+1. do not silently choose a match
+2. return `{ "matches": [] }` on no match
+3. include shared Agency OS routing metadata in the response when available:
+   - active WBR marketplaces
+   - active Monthly P&L marketplaces
+   - brand / ClickUp setup hints
+   - team assignment hints
+   - client context fields
 
 ### Reuse seam
 
-Implement against current WBR/client lookup data, not Slack skill prompts.
+Implement against Command Center / shared reporting client data, not Slack
+skill prompts.
 
 ## Logging expectations
 
@@ -215,7 +251,7 @@ Do not create a new DB logging table in slice 0.
 
 ### Later
 
-1. `get_monthly_pnl_report`
+1. richer Monthly P&L workflows beyond the first read-only slice
 2. `list_child_asins`
 3. `query_adscope_view`
 
@@ -223,4 +259,5 @@ Do not create a new DB logging table in slice 0.
 
 1. What exact path shape will the official MCP SDK require once mounted in FastAPI?
 2. What exact remote-MCP auth flow is required by Claude for this runtime?
-3. Should `resolve_client` stay WBR-scoped in slice 0 or eventually become a shared client resolver across multiple tool domains?
+3. What additional shared client metadata should stay in `resolve_client`
+   versus move into a later dedicated `get_client_context` tool?

@@ -6,12 +6,13 @@ Read first, in this order:
 
 1. `docs/current_handoffs.md`
 2. `docs/monthly_pnl_handoff.md`
-3. `docs/monthly_pnl_implementation_plan.md`
-4. `docs/agency_os_mcp_implementation_plan.md`
-5. `docs/claude_primary_surface_plan.md`
-6. `docs/reports_api_access_and_spapi_plan.md`
-7. `docs/monthly_pnl_windsor_reconciliation.md`
-8. `AGENTS.md`
+3. `docs/monthly_pnl_email_drafting_spec.md`
+4. `docs/monthly_pnl_implementation_plan.md`
+5. `docs/agency_os_mcp_implementation_plan.md`
+6. `docs/claude_primary_surface_plan.md`
+7. `docs/reports_api_access_and_spapi_plan.md`
+8. `docs/monthly_pnl_windsor_reconciliation.md`
+9. `AGENTS.md`
 
 Current reality:
 
@@ -86,25 +87,46 @@ Current reality:
     - report totals are rebuilt at query time from persisted
       `monthly_pnl_import_month_bucket_totals`, SKU unit summaries, SKU COGS,
       and manual expense rows
-22. For the first Claude P&L slice, do not assume a new dedicated P&L snapshot
-    layer is required. Start by evaluating a read-only MCP tool that reuses the
-    existing report service directly.
-23. Current Claude Project files in `docs/claude_project/` are WBR-specific:
-    - `project_instructions.md`
-    - `wbr_mcp_playbook.md`
-    They are useful as a pattern, but they are not the current instructions or
-    project-file bundle for Monthly P&L.
-24. The intended product shape is still one shared Agency OS Claude Project
+22. The first read-only Claude/P&L MCP slice is now implemented in code:
+    - shared client discovery lives in
+      `backend-core/app/mcp/tools/clients.py`
+    - `resolve_client` now resolves against Command Center client data and
+      includes:
+      - WBR marketplace coverage
+      - Monthly P&L marketplace coverage
+      - brands / ClickUp destination hints
+      - team assignments
+      - client context fields
+    - P&L read-only MCP tools now include:
+      - `list_monthly_pnl_profiles`
+      - `get_monthly_pnl_report`
+23. The intended product shape is still one shared Agency OS Claude Project
     that can use multiple Agency OS tool domains. Do not assume one separate
     Claude Project per report type.
-25. Part of the next P&L/Claude session should be deciding how to extend that
-    shared Claude Project bundle with P&L-specific instructions/files once the
-    first P&L MCP tool contract is clear.
+24. The shared Claude Project bundle has now been extended locally for P&L:
+    - `docs/claude_project/project_instructions.md`
+    - `docs/claude_project/wbr_mcp_playbook.md`
+    - `docs/claude_project/monthly_pnl_mcp_playbook.md`
+25. Remaining Claude-side work is live smoke testing and iteration:
+    - re-paste / re-upload the updated Project files in Claude
+    - verify WBR flows still work unchanged
+    - verify the first read-only Monthly P&L flow works end to end
+26. Targeted regression coverage after the MCP/P&L changes is currently green:
+    - `backend-core/tests/test_mcp_pilot.py`
+    - `backend-core/tests/test_pnl_report.py`
+    - `backend-core/tests/test_pnl_workbook.py`
+27. The first P&L email-drafting design pass is now written in:
+    - `docs/monthly_pnl_email_drafting_spec.md`
+    It captures:
+    - the extracted writing pattern from real manual P&L emails
+    - the recommended Claude-facing preview/persisted tool contract
+    - the exact data requirements, including conditional YoY handling
 
 Primary goal:
 
-1. Prepare the first useful Claude-accessible Monthly P&L capability, starting
-   with a read-only P&L slice rather than broad importer or SP-API work.
+1. Validate and refine the first useful Claude-accessible Monthly P&L
+   capability, which now starts with a read-only P&L slice rather than broad
+   importer or SP-API work.
 
 Focus:
 
@@ -123,9 +145,13 @@ Focus:
 7. If the user pivots to direct Amazon SP-API financial integration, treat
    that as a separate P&L-first follow-up path rather than the assumed next
    step for Claude.
-8. Do not blindly reuse the WBR Claude Project instructions/files for P&L.
-   First decide the P&L MCP tool shape, then decide how to extend the shared
-   Agency OS Claude Project guidance cleanly.
+8. Do not fragment the Claude Project into separate per-report bundles unless
+   there is a strong product reason. The current direction is one shared
+   Agency OS Project with WBR and Monthly P&L guidance separated cleanly inside
+   that bundle.
+9. For Monthly P&L email drafting, do not reuse the old screenshot/OCR prompt
+   shape. Use structured Agency OS report data as the source of truth and apply
+   YoY only when prior-year comparables are actually available.
 
 Constraints:
 
