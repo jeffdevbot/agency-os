@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any
 
@@ -23,6 +24,7 @@ from ..services.pnl.windsor_compare import WindsorSettlementCompareService
 from ..services.pnl.yoy_report import PNLYoYReportService
 
 router = APIRouter(prefix="/admin/pnl", tags=["pnl-admin"])
+logger = logging.getLogger(__name__)
 
 MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "40"))
 
@@ -369,6 +371,7 @@ async def get_pnl_yoy_report(
     except PNLValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception:
+        logger.exception("Failed to build P&L YoY report for profile %s year %s", profile_id, year)
         raise HTTPException(status_code=500, detail="Failed to build P&L YoY report")
 
 

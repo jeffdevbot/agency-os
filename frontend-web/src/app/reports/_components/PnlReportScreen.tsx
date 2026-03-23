@@ -84,7 +84,7 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
     filterMode === "range" ? rangeEnd : undefined,
   );
   const report = reportState.report;
-  const yoyReportState = usePnlYoYReport(viewMode === "yoy" ? profileId : null, selectedYear);
+  const yoyReportState = usePnlYoYReport(profileId, selectedYear);
   const yoyReport = yoyReportState.report;
   const months = report?.months ?? [];
   const lineItems = report?.line_items ?? [];
