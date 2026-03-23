@@ -4,18 +4,31 @@ Ecomlabs Tools is the internal platform that consolidates our ad analytics, SOP 
 
 ## Current milestone
 
-The Jeff-only Claude Pro remote MCP pilot is now live and the first WBR slice is hardened.
+The Jeff-only Claude Pro remote MCP pilot is now live as a shared WBR +
+Monthly P&L surface, and Monthly P&L YoY is now shipped in the web app.
 
 Current live outcome:
 - Claude web can authenticate to the private `Agency OS` connector through Supabase OAuth.
-- Claude can call the first WBR tool belt against live Agency OS data:
+- Claude can call the live shared reporting tool belt against Agency OS data:
   - `resolve_client`
   - `list_wbr_profiles`
   - `get_wbr_summary`
   - `draft_wbr_email`
+  - `list_monthly_pnl_profiles`
+  - `get_monthly_pnl_report`
+  - `get_monthly_pnl_email_brief`
+  - `draft_monthly_pnl_email`
 - A compact Claude Project bundle now lives in `docs/claude_project/` so the pilot can use durable project instructions and narrow reference files instead of large planning docs.
 - WBR snapshot freshness is now tied to the sync lifecycle and backed by a stale-snapshot self-heal on read, so the Claude/The Claw path no longer depends on an old stored digest lingering after newer Windsor/Amazon Ads refreshes.
-- The next planned MCP expansion is Monthly P&L, with the current expectation that the first P&L Claude slice will reuse the existing persisted month-slice report builder rather than introducing a separate snapshot layer.
+- Monthly P&L now supports:
+  - read-only analysis in Claude
+  - structured P&L email brief generation in Claude
+  - persisted Monthly P&L email drafting in Claude
+  - a shipped `Standard` / `YoY` web reporting mode with `% of Revenue`,
+    dual-series charting, and YoY Excel export
+- Monthly P&L YoY currently uses the shared backend comparison layer in the web
+  app. Claude does not yet have a dedicated YoY MCP tool, but it can still do
+  YoY reasoning with the existing P&L tool surface.
 
 This does **not** replace The Claw in Slack. The current surface split is:
 - **The Claw in Slack** for quick operational requests.
@@ -34,13 +47,13 @@ This does **not** replace The Claw in Slack. The current surface split is:
 - **Scribe** — `/scribe` (Amazon listing copy generation: project → SKUs → topics → copy). Current specs live under `docs/archive/non_agencyclaw/scribe_lite/`.
 - **Root Keyword Analysis** — `/root-keywords` (4-week hierarchical campaign rollup). Specs: `docs/archive/non_agencyclaw/18_root_keyword_analysis_prd.md`, plan: `docs/archive/non_agencyclaw/19_root_keyword_analysis_plan.md`.
 - **WBR** — `/reports/[clientSlug]/[marketplaceCode]/wbr` (client/marketplace weekly business review workspace with live Section 1 Windsor business reporting, live Section 2 Amazon Ads reporting, live Section 3 inventory + returns reporting, section tabs, inline trend charts for Sections 1 and 2, Excel export, sync QA, nightly refresh controls, and queued/background Ads backfills via `worker-sync`). Current reference docs: `docs/wbr_v2_schema_plan.md` and `docs/windsor_wbr_ingestion_runbook.md`; historical shipped-state context: `docs/wbr_v2_handoff.md`; older WBR planning docs are archived.
-- **Monthly P&L** — `/reports/[clientSlug]/[marketplaceCode]/pnl` finance reporting surface built from uploaded Amazon transaction reports, with a separate import pipeline, normalized ledger model, month-slice activation, active-import provenance, async/background processing, SKU-based COGS management, manual `Other expenses` rows for items such as `FBM Fulfillment Fees` and `Agency Fees`, dual-mode `% of Revenue` reporting, Excel export, and bottom-of-report payout visibility from transfer rows. Current live rollout covers validated Whoosh US 2025 plus live CA transaction-report profiles for Whoosh and Distex. Current state docs: `docs/monthly_pnl_handoff.md`, `docs/monthly_pnl_resume_prompt.md`, `docs/monthly_pnl_implementation_plan.md`; older one-off prompts are archived.
+- **Monthly P&L** — `/reports/[clientSlug]/[marketplaceCode]/pnl` finance reporting surface built from uploaded Amazon transaction reports, with a separate import pipeline, normalized ledger model, month-slice activation, active-import provenance, async/background processing, SKU-based COGS management, manual `Other expenses` rows for items such as `FBM Fulfillment Fees` and `Agency Fees`, dual-mode `% of Revenue` reporting, Excel export, payout visibility from transfer rows, and a shipped `Standard` / `YoY` mode backed by a shared comparison layer. Current live rollout covers validated Whoosh US 2025 plus live CA transaction-report profiles for Whoosh and Distex. Current state docs: `docs/monthly_pnl_handoff.md`, `docs/monthly_pnl_resume_prompt.md`, `docs/monthly_pnl_implementation_plan.md`, `docs/pnl_yoy_implementation_plan.md`; older one-off prompts are archived.
 - **Command Center (MVP)** — `/command-center` (admin-only; clients → brands → role slots; team roster; Ghost Profiles merge-on-login). Specs: `docs/archive/non_agencyclaw/07_command_center_prd.md`, API: `docs/archive/non_agencyclaw/07_command_center_schema_api.md`, live DB schema: `docs/db/schema_master.md`.
 - **Debrief (MVP)** — `/debrief` (admin-only; sync Meet “Notes by Gemini” into Supabase; manually extract tasks; edit/remove; send to ClickUp once IDs are mapped). Specs: `docs/archive/non_agencyclaw/debrief_prd.md`, plan: `docs/archive/non_agencyclaw/debrief_implementation_plan.md`.
 
 ### Shipped Services (Internal / No UI)
 - **ClickUp Service (backend-core)** — shared backend integration layer for ClickUp API calls (task creation + future sync). Routes live under `backend-core/app/routers/clickup.py`. Spec: `docs/archive/non_agencyclaw/08_clickup_service_prd.md`.
-- **Agency OS MCP (Jeff-only pilot)** — private remote MCP server mounted from `backend-core` and currently exposed to Claude Pro for WBR workflows. Current live tool belt: `resolve_client`, `list_wbr_profiles`, `get_wbr_summary`, `draft_wbr_email`. WBR freshness is now sync-backed and self-healing on read. Primary docs: `docs/claude_primary_surface_plan.md`, `docs/agency_os_mcp_implementation_plan.md`, and the compact Claude Project bundle in `docs/claude_project/`.
+- **Agency OS MCP (Jeff-only pilot)** — private remote MCP server mounted from `backend-core` and currently exposed to Claude Pro for shared WBR + Monthly P&L workflows. Current live tool belt: `resolve_client`, `list_wbr_profiles`, `get_wbr_summary`, `draft_wbr_email`, `list_monthly_pnl_profiles`, `get_monthly_pnl_report`, `get_monthly_pnl_email_brief`, and `draft_monthly_pnl_email`. WBR freshness is sync-backed and self-healing on read; Monthly P&L analysis, briefing, and drafting are live. Primary docs: `docs/claude_primary_surface_plan.md`, `docs/agency_os_mcp_implementation_plan.md`, and the compact Claude Project bundle in `docs/claude_project/`.
 
 ### In Flight / Upcoming
 - **The Claw** — Slack assistant reboot for agency operations. Current plan/docs: `docs/theclaw/current/01_theclaw_reboot_implementation_plan.md`, `docs/theclaw/current/02_theclaw_architecture.md`.
@@ -54,13 +67,14 @@ This does **not** replace The Claw in Slack. The current surface split is:
 ### Dev Operations
 - `docs/current_handoffs.md` — single index for which handoff/restart docs are current versus historical/reference.
 - `docs/mcp_setup.md` — MCP workspace setup and verification (Supabase MCP server config, read-only connectivity checks, and `401 Unauthorized` re-auth recovery).
-- `docs/claude_project/` — compact Claude Project setup bundle for the live WBR MCP pilot, including project instructions and a narrow WBR playbook for upload into Claude Projects.
+- `docs/claude_project/` — compact Claude Project setup bundle for the live shared WBR + Monthly P&L Claude surface, including project instructions and narrow playbooks for upload into Claude Projects.
 - `docs/windsor_wbr_ingestion_runbook.md` — Windsor Section 1 ingestion operations for WBR (account scoping, date windows, sync behavior, and batching strategy).
 - `docs/wbr_v2_schema_plan.md` — WBR schema/reference plan annotated with current implementation status, live migrations, and the current sync-run/job-state notes.
 - `docs/wbr_v2_handoff.md` — historical WBR shipped-state/debug reference; no longer the default restart doc now that WBR is stable for the moment.
-- `docs/monthly_pnl_handoff.md` — Current Monthly P&L shipped/debugged state, validated US + CA coverage, live fixes, and restart context.
-- `docs/monthly_pnl_resume_prompt.md` — Current restart prompt for the next Monthly P&L session, focused on exploring the remaining implementation-plan items.
+- `docs/monthly_pnl_handoff.md` — Current Monthly P&L shipped/debugged state, including Claude P&L and YoY shipped status.
+- `docs/monthly_pnl_resume_prompt.md` — Current restart prompt for a future Monthly P&L refinement/debugging session.
 - `docs/monthly_pnl_implementation_plan.md` — Monthly P&L implementation plan and mapping/reconciliation reference, annotated with the currently shipped state.
+- `docs/pnl_yoy_implementation_plan.md` — Implementation record for the shipped YoY comparison architecture.
 - `docs/archive/session_prompts/` — Historical restart prompts that were useful during active build/debug sessions but are no longer the primary docs entrypoint.
 
 ### Other Specs
