@@ -1221,13 +1221,9 @@ A realistic first-pass internal tool belt could include:
 9. `query_adscope_view`
 10. `get_reporting_connections`
 
-Possible later tools:
-
-1. `get_historical_business_report_data`
-2. `get_forecast_seed_dataset`
-3. `export_forecast_workbook_seed`
-4. `get_wbr_snapshot_history`
-5. `compare_monthly_pnl_vs_windsor`
+Defer speculative later-tool candidates to
+[opportunity_backlog.md](/Users/jeff/code/agency-os/docs/opportunity_backlog.md)
+instead of growing this document into a general idea list.
 
 ## How Claude would use Agency OS skills and tools
 

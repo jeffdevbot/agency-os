@@ -31,6 +31,8 @@ historical reference.
 5. [Monthly P&L resume prompt](/Users/jeff/code/agency-os/docs/monthly_pnl_resume_prompt.md)
    - Current restart prompt if a future session returns specifically to
      Monthly P&L.
+6. [Opportunity backlog](/Users/jeff/code/agency-os/docs/opportunity_backlog.md)
+   - Lightweight priority list for next product/platform opportunities.
 
 ## Historical/reference docs
 
