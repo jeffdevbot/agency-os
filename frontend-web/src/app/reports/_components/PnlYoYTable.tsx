@@ -55,6 +55,15 @@ function deltaClass(item: PnlYoYLineItem, current: number, prior: number): strin
   return improved ? "text-[#16a34a] font-semibold" : "text-[#dc2626] font-semibold";
 }
 
+function subRowAmountClass(value: string, item: PnlYoYLineItem): string {
+  if (item.key === "net_earnings") {
+    const n = parseFloat(value);
+    if (Number.isNaN(n) || n === 0) return "text-[#94a3b8]";
+    return "text-[#0f172a]";
+  }
+  return amountClass(value, item as any);
+}
+
 export default function PnlYoYTable({
   months,
   currentMonthKeys,
@@ -182,14 +191,14 @@ export default function PnlYoYTable({
                       return (
                         <td
                           key={month}
-                          className={`whitespace-nowrap border-b border-[#f8fafc] bg-[#fcfdff] px-1.5 py-1 text-right tabular-nums md:px-2 ${amountClass(String(value), item as any)}`}
+                          className={`whitespace-nowrap border-b border-[#f8fafc] bg-[#fcfdff] px-1.5 py-1 text-right tabular-nums md:px-2 ${subRowAmountClass(String(value), item)}`}
                         >
                           {formatAmount(String(value), displayFormat, safeCurrencyCode)}
                         </td>
                       );
                     })}
                     {showTotals ? (
-                      <td className={`whitespace-nowrap border-b border-[#f8fafc] bg-[#fcfdff] px-1.5 py-1 text-right font-semibold tabular-nums md:px-2 ${amountClass(String(currentTotal), item as any)}`}>
+                      <td className={`whitespace-nowrap border-b border-[#f8fafc] bg-[#fcfdff] px-1.5 py-1 text-right font-semibold tabular-nums md:px-2 ${subRowAmountClass(String(currentTotal), item)}`}>
                         {formatAmount(String(currentTotal), displayFormat, safeCurrencyCode)}
                       </td>
                     ) : null}
@@ -210,14 +219,14 @@ export default function PnlYoYTable({
                       return (
                         <td
                           key={month}
-                          className={`whitespace-nowrap border-b border-[#f8fafc] bg-[#fcfdff] px-1.5 py-1 text-right tabular-nums md:px-2 ${amountClass(String(value), item as any)}`}
+                          className={`whitespace-nowrap border-b border-[#f8fafc] bg-[#fcfdff] px-1.5 py-1 text-right tabular-nums md:px-2 ${subRowAmountClass(String(value), item)}`}
                         >
                           {formatAmount(String(value), displayFormat, safeCurrencyCode)}
                         </td>
                       );
                     })}
                     {showTotals ? (
-                      <td className={`whitespace-nowrap border-b border-[#f8fafc] bg-[#fcfdff] px-1.5 py-1 text-right font-semibold tabular-nums md:px-2 ${amountClass(String(priorTotal), item as any)}`}>
+                      <td className={`whitespace-nowrap border-b border-[#f8fafc] bg-[#fcfdff] px-1.5 py-1 text-right font-semibold tabular-nums md:px-2 ${subRowAmountClass(String(priorTotal), item)}`}>
                         {formatAmount(String(priorTotal), displayFormat, safeCurrencyCode)}
                       </td>
                     ) : null}
