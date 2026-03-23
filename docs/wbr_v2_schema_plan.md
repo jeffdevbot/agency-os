@@ -34,8 +34,9 @@ As of March 15, 2026:
    - `(profile_id, report_date, campaign_type, campaign_name)`
 5. The sections below mix live schema notes with retained design rationale from
    the original rollout plan. When rollout-sequencing language conflicts with
-   the current app, treat the applied migrations, `docs/wbr_v2_handoff.md`, and
-   the live codepaths as the source of truth.
+   the current app, treat the applied migrations, `PROJECT_STATUS.md`, and the
+   live codepaths as the source of truth. `docs/wbr_v2_handoff.md` is now a
+   historical/reference doc rather than the default restart entrypoint.
 6. The current main report UI is now tabbed by section, supports server-side
    Excel export, and includes inline trend charts for Sections 1 and 2. Those
    are application-layer features and do not change the core schema, but they
@@ -539,6 +540,6 @@ surface only.
 ## Current follow-on focus
 
 This schema plan no longer has an immediate bootstrap step; the foundation is
-already live. New work should start from `docs/wbr_v2_handoff.md` and focus on
-bug fixes, reporting improvements, or additional WBR sections rather than
-recreating the initial rollout sequence.
+already live. If WBR work resumes, use this schema doc plus the live code and
+`PROJECT_STATUS.md` first. Treat `docs/wbr_v2_handoff.md` as historical/debug
+reference rather than the primary restart doc.

@@ -11,8 +11,9 @@ write-up.
 For a fresh session, read this document for shipped-state context, then also
 read:
 
-1. [reports_api_access_and_spapi_plan.md](/Users/jeff/code/agency-os/docs/reports_api_access_and_spapi_plan.md)
-2. [monthly_pnl_windsor_reconciliation.md](/Users/jeff/code/agency-os/docs/monthly_pnl_windsor_reconciliation.md)
+1. [current_handoffs.md](/Users/jeff/code/agency-os/docs/current_handoffs.md)
+2. [reports_api_access_and_spapi_plan.md](/Users/jeff/code/agency-os/docs/reports_api_access_and_spapi_plan.md)
+3. [monthly_pnl_windsor_reconciliation.md](/Users/jeff/code/agency-os/docs/monthly_pnl_windsor_reconciliation.md)
 
 Current strategic direction:
 
@@ -80,7 +81,7 @@ Current implementation state on that direction:
 
 Docs currently known to be partially outdated for the new direction:
 
-1. `docs/wbr_v2_handoff.md`
+1. `docs/wbr_v2_handoff.md` (historical/reference)
 2. `docs/wbr_v2_schema_plan.md`
 3. `docs/db/schema_master.md`
 

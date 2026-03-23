@@ -4,13 +4,14 @@ Continue Monthly P&L work in `/Users/jeff/code/agency-os`.
 
 Read first, in this order:
 
-1. `docs/monthly_pnl_handoff.md`
-2. `docs/monthly_pnl_implementation_plan.md`
-3. `docs/agency_os_mcp_implementation_plan.md`
-4. `docs/claude_primary_surface_plan.md`
-5. `docs/reports_api_access_and_spapi_plan.md`
-6. `docs/monthly_pnl_windsor_reconciliation.md`
-7. `AGENTS.md`
+1. `docs/current_handoffs.md`
+2. `docs/monthly_pnl_handoff.md`
+3. `docs/monthly_pnl_implementation_plan.md`
+4. `docs/agency_os_mcp_implementation_plan.md`
+5. `docs/claude_primary_surface_plan.md`
+6. `docs/reports_api_access_and_spapi_plan.md`
+7. `docs/monthly_pnl_windsor_reconciliation.md`
+8. `AGENTS.md`
 
 Current reality:
 
@@ -141,7 +142,7 @@ Current direct-Amazon notes:
 
 Docs currently known to be partially outdated for this new direction:
 
-1. `docs/wbr_v2_handoff.md`
+1. `docs/wbr_v2_handoff.md` (historical/reference)
 2. `docs/wbr_v2_schema_plan.md`
 3. `docs/db/schema_master.md`
 

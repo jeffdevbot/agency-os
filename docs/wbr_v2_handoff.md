@@ -1,8 +1,19 @@
 # WBR v2 Handoff
 
-_Last updated: 2026-03-15 (ET)_
+_Last updated: 2026-03-23 (ET)_
 
-This file is the fast restart point for the current WBR v2 build.
+> Status: historical/reference doc.
+>
+> WBR is stable for now and is no longer the default “next session” workstream.
+> Treat code as the canonical current state. Use this file only for shipped
+> history, debugging context, or a compact reminder of how the WBR build
+> landed.
+>
+> Current default restart docs now live elsewhere:
+> - next major workstream: `docs/monthly_pnl_handoff.md`
+> - next major restart prompt: `docs/monthly_pnl_resume_prompt.md`
+> - Claude/MCP strategy: `docs/claude_primary_surface_plan.md`
+> - active-vs-historical handoff index: `docs/current_handoffs.md`
 
 ## Current shipped state
 
@@ -298,14 +309,14 @@ Recent repo-only hardening landed after the initial Section 3 rollout:
 8. `GET /admin/wbr/profiles/{profile_id}/section3-report?weeks=4`
 9. `GET /admin/wbr/profiles/{profile_id}/workbook-export?weeks=4&hide_empty_rows=true&newest_first=true`
 
-## Key files the next session should read first
+## Key files to read if debugging or extending WBR again
 
 ### Product/state docs
 
-1. `docs/wbr_v2_handoff.md`
-2. `docs/wbr_v2_schema_plan.md`
-3. `docs/archive/session_prompts/wbr_v2_prototype_plan.md`
-4. `PROJECT_STATUS.md`
+1. `docs/wbr_v2_schema_plan.md`
+2. `PROJECT_STATUS.md`
+3. `docs/windsor_wbr_ingestion_runbook.md`
+4. `docs/archive/session_prompts/wbr_v2_prototype_plan.md`
 
 ### Backend
 
