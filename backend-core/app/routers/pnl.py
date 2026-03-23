@@ -426,4 +426,14 @@ async def export_pnl_workbook(
     except PNLValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception:
+        logger.exception(
+            "Failed to export P&L workbook for profile %s view_mode=%s filter_mode=%s start_month=%s end_month=%s year=%s show_totals=%s",
+            profile_id,
+            view_mode,
+            filter_mode,
+            start_month,
+            end_month,
+            year,
+            show_totals,
+        )
         raise HTTPException(status_code=500, detail="Failed to export P&L workbook")
