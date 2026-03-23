@@ -368,6 +368,48 @@ def test_process_pending_runs_finalizes_completed_run(monkeypatch):
     assert result["results"][0]["status"] == "success"
 
 
+def test_refresh_snapshot_after_ads_finalize_creates_snapshot_and_records_meta(monkeypatch):
+    svc = AmazonAdsSyncService(MagicMock())
+    updates: list[dict[str, object]] = []
+
+    class _FakeSnapshotService:
+        def __init__(self, db):
+            self.db = db
+
+        def create_snapshot(self, profile_id, *, snapshot_kind, created_by):
+            assert profile_id == "profile-1"
+            assert snapshot_kind == "manual"
+            assert created_by == "user-1"
+            return {"id": "snap-1", "week_ending": "2026-03-15"}
+
+    monkeypatch.setattr(sync_module, "WBRSnapshotService", _FakeSnapshotService)
+    monkeypatch.setattr(
+        svc,
+        "_update_sync_run_request_meta",
+        lambda *, run_id, request_meta: updates.append({"run_id": run_id, "request_meta": request_meta}),
+    )
+
+    result = svc._refresh_snapshot_after_ads_finalize(
+        profile_id="profile-1",
+        run_id="run-1",
+        user_id="user-1",
+    )
+
+    assert result == {"status": "success", "snapshot_id": "snap-1", "week_ending": "2026-03-15"}
+    assert updates == [
+        {
+            "run_id": "run-1",
+            "request_meta": {
+                "snapshot_refresh": {
+                    "status": "success",
+                    "snapshot_id": "snap-1",
+                    "week_ending": "2026-03-15",
+                }
+            },
+        }
+    ]
+
+
 def test_process_pending_runs_marks_single_run_error_and_continues(monkeypatch):
     svc = AmazonAdsSyncService(MagicMock())
     run = {

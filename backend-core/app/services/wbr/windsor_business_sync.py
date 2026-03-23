@@ -12,6 +12,7 @@ import httpx
 from supabase import Client
 
 from .profiles import WBRNotFoundError, WBRValidationError
+from .report_snapshots import WBRSnapshotService
 from .windsor_inventory_sync import WindsorInventorySyncService
 from .windsor_returns_sync import WindsorReturnsSyncService
 
@@ -198,6 +199,11 @@ class WindsorBusinessSyncService:
 
         # Section 3: inventory + returns (best-effort, don't block Section 1)
         section3 = await self._run_section3(profile_id=profile_id, user_id=user_id)
+        snapshot_refresh = self._refresh_snapshot_after_windsor_daily_refresh(
+            profile=profile,
+            run=result.get("run") if isinstance(result, dict) else None,
+            user_id=user_id,
+        )
 
         return {
             "profile_id": profile_id,
@@ -206,6 +212,7 @@ class WindsorBusinessSyncService:
             "date_to": date_to.isoformat(),
             "chunk": result,
             "section3": section3,
+            "snapshot_refresh": snapshot_refresh,
         }
 
     async def _run_section3(
@@ -531,3 +538,55 @@ class WindsorBusinessSyncService:
         if not rows:
             raise WBRValidationError("Failed to finalize WBR sync run")
         return rows[0]
+
+    def _update_sync_run_request_meta(
+        self,
+        *,
+        run_id: str,
+        request_meta: dict[str, Any],
+    ) -> None:
+        response = self.db.table("wbr_sync_runs").select("request_meta").eq("id", run_id).limit(1).execute()
+        rows = response.data if isinstance(response.data, list) else []
+        if not rows:
+            return
+        existing_meta = rows[0].get("request_meta")
+        merged_meta = existing_meta if isinstance(existing_meta, dict) else {}
+        merged_meta = {**merged_meta, **request_meta}
+        self.db.table("wbr_sync_runs").update({"request_meta": merged_meta}).eq("id", run_id).execute()
+
+    def _refresh_snapshot_after_windsor_daily_refresh(
+        self,
+        *,
+        profile: dict[str, Any],
+        run: dict[str, Any] | None,
+        user_id: str | None,
+    ) -> dict[str, Any]:
+        profile_id = str(profile.get("id") or "").strip()
+        run_id = str((run or {}).get("id") or "").strip()
+        if not profile_id or not run_id:
+            return {"status": "skipped", "reason": "missing_ids"}
+
+        has_active_ads_sync = bool(profile.get("ads_api_auto_sync_enabled")) and bool(
+            str(profile.get("amazon_ads_profile_id") or "").strip()
+        )
+        if has_active_ads_sync:
+            result = {"status": "deferred", "reason": "awaiting_amazon_ads_finalize"}
+            self._update_sync_run_request_meta(run_id=run_id, request_meta={"snapshot_refresh": result})
+            return result
+
+        try:
+            snapshot = WBRSnapshotService(self.db).create_snapshot(
+                profile_id,
+                snapshot_kind="manual",
+                created_by=user_id,
+            )
+            result = {
+                "status": "success",
+                "snapshot_id": snapshot.get("id"),
+                "week_ending": snapshot.get("week_ending"),
+            }
+        except Exception as exc:  # noqa: BLE001
+            result = {"status": "error", "error_message": str(exc)}
+
+        self._update_sync_run_request_meta(run_id=run_id, request_meta={"snapshot_refresh": result})
+        return result

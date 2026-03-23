@@ -13,6 +13,7 @@ from supabase import Client
 
 from .amazon_ads_auth import refresh_access_token
 from .profiles import WBRNotFoundError, WBRValidationError
+from .report_snapshots import WBRSnapshotService
 
 DEFAULT_TIMEOUT_SECONDS = 360
 MIN_TIMEOUT_SECONDS = 60
@@ -1210,13 +1211,43 @@ class AmazonAdsSyncService:
             rows_loaded=len(facts),
             error_message=None,
         )
+        snapshot_refresh = self._refresh_snapshot_after_ads_finalize(
+            profile_id=profile_id,
+            run_id=run_id,
+            user_id=str(run.get("initiated_by") or "").strip() or None,
+        )
         return {
             "run_id": run_id,
             "status": "success",
             "rows_fetched": len(raw_rows),
             "rows_loaded": len(facts),
             "run": finished,
+            "snapshot_refresh": snapshot_refresh,
         }
+
+    def _refresh_snapshot_after_ads_finalize(
+        self,
+        *,
+        profile_id: str,
+        run_id: str,
+        user_id: str | None,
+    ) -> dict[str, Any]:
+        try:
+            snapshot = WBRSnapshotService(self.db).create_snapshot(
+                profile_id,
+                snapshot_kind="manual",
+                created_by=user_id,
+            )
+            result = {
+                "status": "success",
+                "snapshot_id": snapshot.get("id"),
+                "week_ending": snapshot.get("week_ending"),
+            }
+        except Exception as exc:  # noqa: BLE001
+            result = {"status": "error", "error_message": str(exc)}
+
+        self._update_sync_run_request_meta(run_id=run_id, request_meta={"snapshot_refresh": result})
+        return result
 
     def _report_headers(self, access_token: str, amazon_ads_profile_id: str) -> dict[str, str]:
         return {

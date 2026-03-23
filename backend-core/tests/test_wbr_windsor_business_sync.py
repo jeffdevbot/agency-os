@@ -150,3 +150,78 @@ def test_run_daily_refresh_uses_profile_rewrite_window(monkeypatch):
     assert observed["date_from"] == date(2026, 2, 28)
     assert observed["date_to"] == date(2026, 3, 13)
     assert observed["job_type"] == "daily_refresh"
+
+
+def test_refresh_snapshot_after_windsor_daily_refresh_defers_when_ads_finalize_is_pending(monkeypatch):
+    svc = WindsorBusinessSyncService(MagicMock())
+    updates: list[dict[str, object]] = []
+
+    monkeypatch.setattr(
+        svc,
+        "_update_sync_run_request_meta",
+        lambda *, run_id, request_meta: updates.append({"run_id": run_id, "request_meta": request_meta}),
+    )
+
+    result = svc._refresh_snapshot_after_windsor_daily_refresh(
+        profile={
+            "id": "profile-1",
+            "ads_api_auto_sync_enabled": True,
+            "amazon_ads_profile_id": "ads-prof-1",
+        },
+        run={"id": "run-1"},
+        user_id="user-1",
+    )
+
+    assert result == {"status": "deferred", "reason": "awaiting_amazon_ads_finalize"}
+    assert updates == [
+        {
+            "run_id": "run-1",
+            "request_meta": {"snapshot_refresh": {"status": "deferred", "reason": "awaiting_amazon_ads_finalize"}},
+        }
+    ]
+
+
+def test_refresh_snapshot_after_windsor_daily_refresh_creates_snapshot_without_ads_sync(monkeypatch):
+    svc = WindsorBusinessSyncService(MagicMock())
+    updates: list[dict[str, object]] = []
+
+    class _FakeSnapshotService:
+        def __init__(self, db):
+            self.db = db
+
+        def create_snapshot(self, profile_id, *, snapshot_kind, created_by):
+            assert profile_id == "profile-1"
+            assert snapshot_kind == "manual"
+            assert created_by == "user-1"
+            return {"id": "snap-1", "week_ending": "2026-03-15"}
+
+    monkeypatch.setattr(sync_module, "WBRSnapshotService", _FakeSnapshotService)
+    monkeypatch.setattr(
+        svc,
+        "_update_sync_run_request_meta",
+        lambda *, run_id, request_meta: updates.append({"run_id": run_id, "request_meta": request_meta}),
+    )
+
+    result = svc._refresh_snapshot_after_windsor_daily_refresh(
+        profile={
+            "id": "profile-1",
+            "ads_api_auto_sync_enabled": False,
+            "amazon_ads_profile_id": None,
+        },
+        run={"id": "run-1"},
+        user_id="user-1",
+    )
+
+    assert result == {"status": "success", "snapshot_id": "snap-1", "week_ending": "2026-03-15"}
+    assert updates == [
+        {
+            "run_id": "run-1",
+            "request_meta": {
+                "snapshot_refresh": {
+                    "status": "success",
+                    "snapshot_id": "snap-1",
+                    "week_ending": "2026-03-15",
+                }
+            },
+        }
+    ]
