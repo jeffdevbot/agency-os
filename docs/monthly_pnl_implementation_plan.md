@@ -1,6 +1,6 @@
 # Monthly P&L Implementation Plan
 
-_Last updated: 2026-03-17 (ET)_
+_Last updated: 2026-03-23 (ET)_
 
 > Status: Monthly P&L v1 is shipped. The backfill-first import pipeline,
 > standalone `/reports/.../pnl` surface, provenance/settings UI, workbook-aligned
@@ -16,8 +16,13 @@ _Last updated: 2026-03-17 (ET)_
 > CA transaction-upload support is now live and validated on real profiles:
 > Whoosh CA is active for Jan-Feb 2026 and Distex CA is active from Jan 2024
 > through Feb 2026, with current active CA month slices at `unmapped_amount =
-> 0`. The next execution focus is no longer CA validation; it is the remaining
-> implementation-plan items that the user chooses to prioritize.
+> 0`. Since the original v1/v2 plan was drafted, additional P&L layers are also
+> shipped: shared `report_api_connections` support for the broader reporting
+> architecture, the structured P&L email-brief flow, persisted
+> `monthly_pnl_email_drafts`, and the web YoY mode backed by the shared
+> comparison layer. For canonical current-state references, use
+> `docs/monthly_pnl_handoff.md`, `docs/pnl_yoy_implementation_plan.md`, and
+> `docs/db/schema_master.md`.
 
 This document defines the recommended implementation plan for a new
 client-facing `Monthly P&L` report in Ecomlabs Tools.
@@ -60,7 +65,8 @@ The plan below assumes a deliberate rollout order:
 5. Bookkeeping-grade GL integration
 
 Historical note: this section reflects the original v1 rollout plan. Live
-shipped state has since expanded to uploaded CA transaction-report support
+shipped state has since expanded to uploaded CA transaction-report support,
+shared reporting/API-access plumbing, persisted P&L drafting, and shipped YoY
 without introducing cross-marketplace currency normalization.
 
 ## Direct SP-API notes
@@ -1177,23 +1183,30 @@ Future follow-up only if the product surface expands:
 2. keep workbook structure aligned to the on-screen P&L rather than inventing a
    second reporting model
 
-### v2-8: Annual / year-over-year comparison — MEDIUM-HIGH difficulty
+### v2-8: Annual / year-over-year comparison — SHIPPED
 
-Requires 12+ months of clean data to be useful. Design TBD.
+Shipped on 2026-03-23.
 
-Initial suggestion: start with a YoY comparison table, not charts.
+Current shipped shape:
 
-1. Columns: metric name, current year YTD, prior year same period, delta (%).
-2. Metrics: Net Revenue, Total Refunds, Gross Profit, Total Expenses, Net
-   Earnings, plus top expense lines.
-3. Handle months with no prior-year data gracefully (show N/A, not zero).
-4. Charts can follow once the useful metrics are identified from table usage.
-5. Comparison basis options: same months last year, trailing 12 vs prior 12,
-   or quarter-over-quarter.
+1. Shared comparison logic lives in
+   `backend-core/app/services/pnl/comparison.py`.
+2. A thin YoY adapter lives in
+   `backend-core/app/services/pnl/yoy_report.py`.
+3. The web product now has a `Standard` / `YoY` mode, year selector, YoY
+   table, dashed prior-year chart series, and YoY Excel export.
+4. The same shared comparison layer also now benefits:
+   - `get_monthly_pnl_email_brief`
+   - `draft_monthly_pnl_email`
+5. There is still no dedicated YoY MCP tool, which remains the intended state
+   unless real usage justifies it later.
+
+See `docs/pnl_yoy_implementation_plan.md` for the implementation record and
+current architecture.
 
 ## Recommended build order (v2)
 
-Recommended execution order from here:
+Historical roadmap order from before the shipped YoY work:
 
 1. `v2-3` Windsor settlement backfill
 2. `v2-4` Windsor weekly auto-refresh
@@ -1210,8 +1223,8 @@ Why this order:
 3. only promote a dedicated disbursements surface if payout rows prove
    insufficient and the transfer bucket is reconciled against the manual
    process
-4. leave YoY analysis last because it depends on a richer, stable dataset and a
-   settled report surface
+4. YoY was eventually shipped after the dataset and report surface stabilized,
+   so this ordering should now be read as historical planning context only
 
 ## Recommendation
 

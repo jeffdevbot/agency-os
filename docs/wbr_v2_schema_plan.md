@@ -4,11 +4,15 @@ This document turns the WBR v2 prototype plan into a concrete database plan.
 It now also serves as a reference for the live WBR schema shape and the design
 choices behind it.
 
+For the canonical live inventory across the whole `public` schema, use
+`docs/db/schema_master.md`. This document is WBR-focused and keeps the design
+rationale plus the WBR-specific live-state notes in one place.
+
 ## Current implementation status
 
-As of March 15, 2026:
+As of March 23, 2026:
 
-1. Migrations 1-8 are implemented and applied live:
+1. The WBR v2 foundation migrations are implemented and applied live:
    - `20260312000001_wbr_profiles_and_rows.sql`
    - `20260312000002_wbr_imports_and_mappings.sql`
    - `20260312000003_wbr_sync_runs_and_fact_tables.sql`
@@ -17,7 +21,12 @@ As of March 15, 2026:
    - `20260313000003_wbr_profile_auto_sync_flags.sql`
    - `20260314000001_wbr_inventory_and_returns_tables.sql`
    - `20260315100000_expand_wbr_sync_run_source_types_for_section3.sql`
-2. The application layer is wired to the full current WBR v2 stack:
+2. Follow-on WBR reporting/support migrations are also live:
+   - `20260318123000_add_report_api_connections.sql`
+   - `20260318160000_add_wbr_report_snapshots.sql`
+   - `20260318203000_add_wbr_scope_exclusions.sql`
+   - `20260319000001_add_wbr_email_drafts.sql`
+3. The application layer is wired to the full current WBR v2 stack:
    - profiles and row tree
    - Pacvue import and campaign mapping
    - listings import and Windsor listings import
@@ -25,19 +34,33 @@ As of March 15, 2026:
    - Windsor business sync + Section 1 report
    - Amazon Ads OAuth/profile selection + sync + Section 2 report
    - Windsor inventory + returns sync + Section 3 report
+   - WBR snapshot persistence and retrieval
+   - WBR email draft persistence
+   - ASIN/campaign exclusion management
+   - shared report-API connection storage
    - nightly worker toggles + `worker-sync` execution
-3. Amazon Ads sync now uses a queued/background report lifecycle:
+4. Amazon Ads sync now uses a queued/background report lifecycle:
    - manual backfills/manual refreshes enqueue report jobs and return quickly
    - queued report state is persisted in `wbr_sync_runs.request_meta`
    - `worker-sync` polls Amazon, downloads completed reports, and finalizes runs
-4. `wbr_ads_campaign_daily` now stores `campaign_type` and uses uniqueness on:
+5. `wbr_ads_campaign_daily` now stores `campaign_type` and uses uniqueness on:
    - `(profile_id, report_date, campaign_type, campaign_name)`
-5. The sections below mix live schema notes with retained design rationale from
+6. WBR now has persisted downstream artifacts and scope-control tables:
+   - `wbr_report_snapshots`
+   - `wbr_asin_exclusions`
+   - `wbr_campaign_exclusions`
+   - `wbr_email_drafts`
+7. Shared external auth for report-level integrations is now centered on:
+   - `report_api_connections`
+   - WBR still retains `wbr_amazon_ads_connections` as a legacy/compatibility
+     table during the transition, but live code already prefers the shared
+     connection store where available
+8. The sections below mix live schema notes with retained design rationale from
    the original rollout plan. When rollout-sequencing language conflicts with
    the current app, treat the applied migrations, `PROJECT_STATUS.md`, and the
    live codepaths as the source of truth. `docs/wbr_v2_handoff.md` is now a
    historical/reference doc rather than the default restart entrypoint.
-6. The current main report UI is now tabbed by section, supports server-side
+9. The current main report UI is now tabbed by section, supports server-side
    Excel export, and includes inline trend charts for Sections 1 and 2. Those
    are application-layer features and do not change the core schema, but they
    are part of the shipped WBR v2 surface.
@@ -420,6 +443,155 @@ Operational rule:
 - Rewrite rolling recent windows to handle attribution and reporting lag.
 - If `sync_run_id` is present, it must belong to the same `profile_id` and have `source_type = 'amazon_ads'`.
 
+### 11. `report_api_connections`
+
+Purpose:
+
+- Shared external connection store keyed by `client_id` for report-level auth.
+- Day-one live use covers Amazon Ads and Amazon SP-API connection state.
+
+Columns:
+
+- `id uuid primary key default gen_random_uuid()`
+- `client_id uuid not null references public.agency_clients(id) on delete restrict`
+- `provider text not null check (provider in ('amazon_ads', 'amazon_spapi'))`
+- `connection_status text not null default 'connected' check (connection_status in ('connected', 'error', 'revoked'))`
+- `external_account_id text`
+- `refresh_token text`
+- `region_code text check (region_code is null or region_code in ('NA', 'EU', 'FE'))`
+- `access_meta jsonb not null default '{}'::jsonb`
+- `connected_at timestamptz`
+- `last_validated_at timestamptz`
+- `last_error text`
+- `created_by uuid references public.profiles(id)`
+- `updated_by uuid references public.profiles(id)`
+- `created_at timestamptz not null default now()`
+- `updated_at timestamptz not null default now()`
+
+Constraints/indexes:
+
+- Unique index on `(client_id, provider)`.
+- Index on `(provider, connection_status)`.
+
+Notes:
+
+- This table is not WBR-exclusive, but it is now part of the live WBR auth path.
+- Live WBR code prefers this shared connection store over the older
+  `wbr_amazon_ads_connections` table when shared credentials are present.
+
+### 12. `wbr_report_snapshots`
+
+Purpose:
+
+- Persist canonical WBR digest snapshots for downstream reuse, auditability,
+  and reproducible drafting/summarization.
+
+Columns:
+
+- `id uuid primary key default gen_random_uuid()`
+- `profile_id uuid not null references public.wbr_profiles(id) on delete restrict`
+- `snapshot_kind text not null check (snapshot_kind in ('weekly_email', 'manual', 'claw_request'))`
+- `week_count integer not null`
+- `week_ending date`
+- `window_start date not null`
+- `window_end date not null`
+- `source_run_at timestamptz not null default now()`
+- `digest_version text not null`
+- `digest jsonb not null`
+- `raw_report jsonb`
+- `created_by uuid references public.profiles(id)`
+- `created_at timestamptz not null default now()`
+
+Constraints/indexes:
+
+- Index on `(profile_id, created_at desc)`.
+- Index on `(profile_id, week_ending desc)`.
+
+Notes:
+
+- This is the canonical persisted output for WBR digest generation.
+- It supports downstream drafting, MCP summaries, and audit/debug workflows
+  without re-deriving the digest every time.
+
+### 13. `wbr_asin_exclusions`
+
+Purpose:
+
+- Explicitly exclude out-of-scope ASINs from WBR totals and unmapped QA noise.
+
+Columns:
+
+- `id uuid primary key default gen_random_uuid()`
+- `profile_id uuid not null references public.wbr_profiles(id) on delete cascade`
+- `child_asin text not null`
+- `exclusion_source text not null default 'manual' check (exclusion_source in ('manual', 'imported'))`
+- `exclusion_reason text`
+- `active boolean not null default true`
+- `created_by uuid references public.profiles(id)`
+- `updated_by uuid references public.profiles(id)`
+- `created_at timestamptz not null default now()`
+- `updated_at timestamptz not null default now()`
+
+Constraints/indexes:
+
+- Partial unique index on `(profile_id, child_asin)` where `active = true`.
+- Index on `(profile_id, created_at desc)`.
+
+### 14. `wbr_campaign_exclusions`
+
+Purpose:
+
+- Explicitly exclude out-of-scope campaigns from WBR totals and unmapped QA noise.
+
+Columns:
+
+- `id uuid primary key default gen_random_uuid()`
+- `profile_id uuid not null references public.wbr_profiles(id) on delete cascade`
+- `campaign_name text not null`
+- `exclusion_source text not null default 'manual' check (exclusion_source in ('manual', 'imported'))`
+- `exclusion_reason text`
+- `active boolean not null default true`
+- `created_by uuid references public.profiles(id)`
+- `updated_by uuid references public.profiles(id)`
+- `created_at timestamptz not null default now()`
+- `updated_at timestamptz not null default now()`
+
+Constraints/indexes:
+
+- Partial unique index on `(profile_id, campaign_name)` where `active = true`.
+- Index on `(profile_id, created_at desc)`.
+
+### 15. `wbr_email_drafts`
+
+Purpose:
+
+- Persist generated client-facing weekly WBR email drafts across marketplaces.
+
+Columns:
+
+- `id uuid primary key default gen_random_uuid()`
+- `client_id uuid not null references public.agency_clients(id) on delete restrict`
+- `snapshot_group_key text not null`
+- `draft_kind text not null check (draft_kind in ('weekly_client_email'))`
+- `prompt_version text not null`
+- `marketplace_scope text not null`
+- `snapshot_ids jsonb not null`
+- `subject text not null`
+- `body text not null`
+- `model text`
+- `created_by uuid references public.profiles(id)`
+- `created_at timestamptz not null default now()`
+
+Constraints/indexes:
+
+- Index on `(client_id, created_at desc)`.
+- Index on `snapshot_group_key`.
+
+Notes:
+
+- This is now the persisted WBR drafting surface used by Agency OS and MCP/Claude flows.
+- It depends on snapshots as stable source inputs rather than ephemeral report state.
+
 ## Derived views
 
 These views are not currently shipped as persistent database views.
@@ -501,6 +673,12 @@ the following live migrations:
 4. `20260313000001_wbr_amazon_ads_connections.sql`
 5. `20260313000002_wbr_ads_campaign_daily_campaign_type_unique.sql`
 6. `20260313000003_wbr_profile_auto_sync_flags.sql`
+7. `20260314000001_wbr_inventory_and_returns_tables.sql`
+8. `20260315100000_expand_wbr_sync_run_source_types_for_section3.sql`
+9. `20260318123000_add_report_api_connections.sql`
+10. `20260318160000_add_wbr_report_snapshots.sql`
+11. `20260318203000_add_wbr_scope_exclusions.sql`
+12. `20260319000001_add_wbr_email_drafts.sql`
 
 Notable differences versus the original phased plan:
 
@@ -512,6 +690,12 @@ Notable differences versus the original phased plan:
    views did not ship as database views.
 4. Amazon Ads report-job state was kept inside `wbr_sync_runs.request_meta`
    rather than introducing a dedicated async job table in this tranche.
+5. Shared connection state ended up moving toward `report_api_connections`
+   instead of staying fully WBR-specific.
+6. Downstream persisted artifacts shipped as first-class tables:
+   snapshots first, then email drafts.
+7. Scope exclusions shipped as real tables rather than staying as a purely
+   service-layer filtering concept.
 
 ## Backend impact
 
@@ -523,10 +707,15 @@ Live code paths targeting the new schema now include:
 - `backend-core/app/services/wbr/pacvue_imports.py`
 - `backend-core/app/services/wbr/listing_imports.py`
 - `backend-core/app/services/wbr/asin_mappings.py`
+- `backend-core/app/services/wbr/campaign_exclusions.py`
 - `backend-core/app/services/wbr/windsor_business_sync.py`
 - `backend-core/app/services/wbr/amazon_ads_sync.py`
 - `backend-core/app/services/wbr/section1_report.py`
 - `backend-core/app/services/wbr/section2_report.py`
+- `backend-core/app/services/wbr/section3_report.py`
+- `backend-core/app/services/wbr/report_snapshots.py`
+- `backend-core/app/services/wbr/email_drafts.py`
+- `backend-core/app/services/reports/api_access.py`
 - `backend-core/app/services/wbr/nightly_sync.py`
 
 Intentional leftovers still tied to the old schema/path:
@@ -541,5 +730,6 @@ surface only.
 
 This schema plan no longer has an immediate bootstrap step; the foundation is
 already live. If WBR work resumes, use this schema doc plus the live code and
-`PROJECT_STATUS.md` first. Treat `docs/wbr_v2_handoff.md` as historical/debug
+`PROJECT_STATUS.md` first. For a full live table inventory, cross-check
+`docs/db/schema_master.md`. Treat `docs/wbr_v2_handoff.md` as historical/debug
 reference rather than the primary restart doc.

@@ -159,11 +159,10 @@ Current implementation state on that direction:
 Docs currently known to be partially outdated for the new direction:
 
 1. `docs/wbr_v2_handoff.md` (historical/reference)
-2. `docs/wbr_v2_schema_plan.md`
-3. `docs/db/schema_master.md`
+2. older archived planning docs outside the current handoff set
 
-Those docs still describe Amazon Ads connection storage as WBR-owned and do not
-yet reflect the shared `Reports / API Access` plan.
+The previously stale `docs/wbr_v2_schema_plan.md` and `docs/db/schema_master.md`
+have now been refreshed and should be treated as current again.
 
 This is the current restart point for Monthly P&L after the US v1 validation
 push, the Jan-Dec 2025 Whoosh US backfill, the SKU-based COGS rollout, the CA
@@ -553,22 +552,27 @@ These match the manual workbook target values to rounding/penny level.
 
 ## Live migrations now applied
 
-These Monthly P&L migrations are currently visible in Supabase:
+Repo migration files currently relevant to the live Monthly P&L state:
 
-1. `20260316140918_add_monthly_pnl_vine_fee_mapping.sql`
-2. `20260316140932_add_monthly_pnl_report_bucket_totals_rpc.sql`
-3. `20260316150635_add_monthly_pnl_manual_model_rules.sql`
-4. `20260316154023_optimize_monthly_pnl_report_rpc_active_months.sql`
-5. `20260316154945_fix_monthly_pnl_removal_and_refund_other_mapping.sql`
-6. `20260316172805_optimize_monthly_pnl_report_rpc_exists.sql`
-7. `20260316182035_add_monthly_pnl_import_month_bucket_totals.sql`
-8. `20260316184040_cleanup_validation_profile_stranded_monthly_pnl_state.sql`
-9. `20260316184041_claim_monthly_pnl_pending_imports.sql`
-10. `20260317023402_add_monthly_pnl_sku_cogs_and_unit_summaries.sql`
-11. `20260317150607_seed_monthly_pnl_ca_mapping_rules.sql`
-12. `20260317154748_add_monthly_pnl_fulfilment_removal_prefix_rule.sql`
-13. `20260317161435_add_monthly_pnl_ca_label_variants.sql`
-14. `20260317165228_add_monthly_pnl_other_expenses.sql`
+1. `20260315200000_monthly_pnl_phase1_foundation.sql`
+2. `20260316173000_allow_monthly_pnl_reimport_same_sha.sql`
+3. `20260316173000_optimize_monthly_pnl_report_rpc_exists.sql`
+4. `20260316190000_add_monthly_pnl_vine_fee_mapping.sql`
+5. `20260316191000_add_monthly_pnl_report_bucket_totals_rpc.sql`
+6. `20260316194500_optimize_monthly_pnl_report_rpc_active_months.sql`
+7. `20260316195500_fix_monthly_pnl_removal_and_refund_other_mapping.sql`
+8. `20260316203000_add_monthly_pnl_manual_model_rules.sql`
+9. `20260316213000_add_monthly_pnl_import_month_bucket_totals.sql`
+10. `20260316224500_claim_monthly_pnl_pending_imports.sql`
+11. `20260316232000_cleanup_validation_profile_stranded_monthly_pnl_state.sql`
+12. `20260317001000_add_monthly_pnl_sku_cogs_and_unit_summaries.sql`
+13. `20260317150607_seed_monthly_pnl_ca_mapping_rules.sql`
+14. `20260317154748_add_monthly_pnl_fulfilment_removal_prefix_rule.sql`
+15. `20260317161435_add_monthly_pnl_ca_label_variants.sql`
+16. `20260317165228_add_monthly_pnl_other_expenses.sql`
+17. `20260318123000_add_report_api_connections.sql`
+18. `20260319120000_add_monthly_pnl_fba_inbound_carrier_rule.sql`
+19. `20260323170000_add_monthly_pnl_email_drafts.sql`
 
 ## Important constraints
 
@@ -587,22 +591,24 @@ These Monthly P&L migrations are currently visible in Supabase:
 
 ## Recommended next-session plan
 
-1. Treat the next session as a Claude MCP capability-design session for Monthly
-   P&L, not as a generic P&L cleanup session.
+1. Treat the next session as a current-state Monthly P&L product/runtime
+   session, not as a first-slice MCP design session.
 2. Reuse the existing persisted report model first:
    - `backend-core/app/services/pnl/report.py`
    - `backend-core/app/routers/pnl.py`
-3. Start with a read-only P&L tool contract such as:
-   - resolve client + marketplace/profile
-   - get current P&L summary/report window
-   - answer profitability / margin / expense questions
+3. Treat the current MCP surface as already live:
+   - `resolve_client`
+   - `list_monthly_pnl_profiles`
+   - `get_monthly_pnl_report`
+   - `get_monthly_pnl_email_brief`
+   - `draft_monthly_pnl_email`
 4. Do **not** introduce a separate P&L snapshot layer unless a concrete product
    need appears (for example, frozen client-facing monthly digests or
    “what did we send last month?” auditability).
 5. Preserve the validated Whoosh US and currently active CA import state unless
    the user explicitly wants to replace it.
 6. Keep direct Amazon SP-API financial ingestion as a separate longer-term
-   track, not the blocker for the first Claude P&L slice.
+   track, not the blocker for the current CSV-backed/MCP-backed product.
 
 ## Next-session prompt
 
@@ -610,9 +616,9 @@ Use this prompt to restart the next Monthly P&L / Claude expansion session:
 
 > Continue Agency OS Monthly P&L work in `/Users/jeff/code/agency-os`.
 >
-> The WBR Claude MCP pilot is now working and hardened enough to treat WBR as
-> the completed first slice for now. The next likely session goal is to design
-> and implement the first Claude-accessible Monthly P&L capability.
+> The WBR and Monthly P&L Claude/MCP surfaces are now both live. The next
+> likely session goal is to extend or refine the current Monthly P&L surface,
+> not to design the first slice from scratch.
 >
 > Read first, in this order:
 > 1. `docs/monthly_pnl_handoff.md`
@@ -634,6 +640,11 @@ Use this prompt to restart the next Monthly P&L / Claude expansion session:
 > - SKU-based COGS is live; do not revert to month-lump COGS entry.
 > - `Other expenses`, Excel export, payout rows, and async import progress are
 >   already live.
+> - Shared `report_api_connections` is live, but direct Amazon SP-API finance
+>   ingestion is still pending Amazon-side approval/configuration.
+> - The structured P&L brief and persisted draft layers are already live
+>   through the MCP surface.
+> - YoY is already live in the web product through the shared comparison layer.
 > - Direct Amazon SP-API finance access is still a longer-term path pending
 >   Amazon-side approval/configuration; do not assume it is available for the
 >   next slice.
@@ -642,14 +653,14 @@ Use this prompt to restart the next Monthly P&L / Claude expansion session:
 >   and precomputed month totals, not live upstream calls.
 >
 > Primary goal:
-> - Decide and prepare the first Claude-accessible Monthly P&L slice, starting
->   with a read-only capability rather than a write workflow.
+> - Improve or extend the current Monthly P&L surface without redoing already
+>   shipped MCP/reporting architecture.
 >
 > Focus:
 > 1. Review the shipped Monthly P&L state first.
 > 2. Inspect the current report path and existing data model before inventing
 >    new persistence.
-> 3. Define the smallest useful P&L MCP tool contract.
+> 3. Reuse the existing P&L MCP/report services before adding any new tool.
 > 4. Prefer reusing `PNLReportService` over building a separate P&L snapshot
 >    layer unless a concrete product need appears.
 > 5. Preserve validated Whoosh US and active CA imports unless explicitly asked

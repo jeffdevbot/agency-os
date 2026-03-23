@@ -18,18 +18,24 @@ data model:
 
 ## Current status
 
-1. This is a design/spec document, not a shipped tool contract.
-2. The current live Monthly P&L MCP slice is still read-only:
+1. This document still contains design rationale, but it is no longer only a
+   speculative pre-shipment spec.
+2. The current live Monthly P&L MCP surface includes:
    - `resolve_client`
    - `list_monthly_pnl_profiles`
    - `get_monthly_pnl_report`
    - `get_monthly_pnl_email_brief`
-3. The structured brief layer is now implemented as a read-only backend/MCP
-   slice.
-4. A persisted Monthly P&L email draft tool is now implemented on top of the
-   brief layer.
-5. The next email-drafting slice should continue building on those foundations,
-   but it should not reuse the legacy screenshot prompt shape.
+   - `draft_monthly_pnl_email`
+3. The structured brief layer is implemented as the read-only preparation layer
+   for drafting.
+4. The persisted draft layer is implemented on top of that brief and is stored
+   in `monthly_pnl_email_drafts`.
+5. There is still no separate preview-only MCP tool. The live path is:
+   inspect with `get_monthly_pnl_report` or `get_monthly_pnl_email_brief`, then
+   persist with `draft_monthly_pnl_email` when the user explicitly wants the
+   draft.
+6. The underlying comparison logic is now shared with the shipped YoY web flow,
+   so this drafting path no longer owns its own isolated comparison rules.
 
 ## Extracted writing pattern
 
@@ -215,13 +221,21 @@ should be implemented on top of the structured brief described above.
 
 ### Recommended rollout
 
+Historical recommendation:
+
 1. Phase A: read-only preview tool
    - `draft_monthly_pnl_email_preview`
 2. Phase B: persisted draft tool
    - `draft_monthly_pnl_email`
 
-This keeps the first release lower-risk and respects the current direction of
-proving the P&L read path before adding write workflows.
+What actually shipped:
+
+1. the read-only prep layer shipped first via `get_monthly_pnl_email_brief`
+2. the persisted draft tool shipped next via `draft_monthly_pnl_email`
+3. a separate preview-only draft tool was not added
+
+That shipped shape is acceptable and remains simpler than adding another tool
+unless a real workflow gap appears.
 
 ### Proposed preview tool
 

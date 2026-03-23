@@ -2,15 +2,15 @@
 
 ## Snapshot
 
-- Last verified (UTC): `2026-03-17 15:15:41Z`
-- Source: live Supabase introspection via MCP (`supabase.list_tables` + `supabase.execute_sql`)
+- Last verified (UTC): `2026-03-23 20:25:08Z`
+- Source: live Supabase introspection via MCP (`supabase.execute_sql` against `information_schema` + `pg_catalog`)
 - Schema: `public`
-- Relations: `70` total (`69` tables, `1` view, `0` materialized views)
-- Columns: `813`
-- Primary key entries: `76`
-- Foreign key entries: `124`
-- Indexes: `282`
-- RLS policies: `123`
+- Relations: `78` total (`77` tables, `1` view, `0` materialized views)
+- Columns: `902`
+- Primary key entries: `84`
+- Foreign key entries: `141`
+- Indexes: `306`
+- RLS policies: `137`
 - Functions: `135`
 
 ## Scope Note
@@ -48,11 +48,14 @@ refreshed directly from live Supabase MCP instead.
 | `public.debrief_extracted_tasks` | `table` | `yes` |
 | `public.debrief_meeting_notes` | `table` | `yes` |
 | `public.monthly_pnl_cogs_monthly` | `table` | `yes` |
+| `public.monthly_pnl_email_drafts` | `table` | `yes` |
 | `public.monthly_pnl_import_month_bucket_totals` | `table` | `yes` |
 | `public.monthly_pnl_import_month_sku_units` | `table` | `yes` |
 | `public.monthly_pnl_import_months` | `table` | `yes` |
 | `public.monthly_pnl_imports` | `table` | `yes` |
 | `public.monthly_pnl_ledger_entries` | `table` | `yes` |
+| `public.monthly_pnl_manual_expense_settings` | `table` | `yes` |
+| `public.monthly_pnl_manual_expenses` | `table` | `yes` |
 | `public.monthly_pnl_mapping_rules` | `table` | `yes` |
 | `public.monthly_pnl_profiles` | `table` | `yes` |
 | `public.monthly_pnl_raw_rows` | `table` | `yes` |
@@ -61,6 +64,7 @@ refreshed directly from live Supabase MCP instead.
 | `public.playbook_slack_sessions` | `table` | `yes` |
 | `public.playbook_sops` | `table` | `yes` |
 | `public.profiles` | `table` | `yes` |
+| `public.report_api_connections` | `table` | `yes` |
 | `public.scribe_customer_questions` | `table` | `yes` |
 | `public.scribe_generated_content` | `table` | `yes` |
 | `public.scribe_generation_jobs` | `table` | `yes` |
@@ -79,9 +83,12 @@ refreshed directly from live Supabase MCP instead.
 | `public.usage_events` | `table` | `yes` |
 | `public.wbr_ads_campaign_daily` | `table` | `yes` |
 | `public.wbr_amazon_ads_connections` | `table` | `yes` |
+| `public.wbr_asin_exclusions` | `table` | `yes` |
 | `public.wbr_asin_group_mapping` | `table` | `yes` |
 | `public.wbr_asin_row_map` | `table` | `yes` |
 | `public.wbr_business_asin_daily` | `table` | `yes` |
+| `public.wbr_campaign_exclusions` | `table` | `yes` |
+| `public.wbr_email_drafts` | `table` | `yes` |
 | `public.wbr_ingest_runs` | `table` | `yes` |
 | `public.wbr_inventory_asin_snapshots` | `table` | `yes` |
 | `public.wbr_listing_import_batches` | `table` | `yes` |
@@ -89,6 +96,7 @@ refreshed directly from live Supabase MCP instead.
 | `public.wbr_pacvue_import_batches` | `table` | `yes` |
 | `public.wbr_profile_child_asins` | `table` | `yes` |
 | `public.wbr_profiles` | `table` | `yes` |
+| `public.wbr_report_snapshots` | `table` | `yes` |
 | `public.wbr_returns_asin_daily` | `table` | `yes` |
 | `public.wbr_rows` | `table` | `yes` |
 | `public.wbr_section1_daily` | `table` | `yes` |
@@ -104,6 +112,7 @@ refreshed directly from live Supabase MCP instead.
 - `agency_roles`
 - `agencyclaw_user_preferences`
 - `profiles`
+- `client_profiles`
 - `client_assignments`
 - `brands`
 - `brand_market_kpi_targets`
@@ -138,6 +147,10 @@ refreshed directly from live Supabase MCP instead.
 - `debrief_meeting_notes`
 - `debrief_extracted_tasks`
 
+### Reporting Integrations
+
+- `report_api_connections`
+
 ### Scribe
 
 - `scribe_projects`
@@ -161,6 +174,8 @@ refreshed directly from live Supabase MCP instead.
 - `wbr_inventory_asin_snapshots`
 - `wbr_returns_asin_daily`
 - `wbr_asin_row_map`
+- `wbr_asin_exclusions`
+- `wbr_campaign_exclusions`
 - `wbr_profile_child_asins`
 - `wbr_listing_import_batches`
 - `wbr_pacvue_import_batches`
@@ -168,6 +183,8 @@ refreshed directly from live Supabase MCP instead.
 - `wbr_amazon_ads_connections`
 - `wbr_ingest_runs`
 - `wbr_asin_group_mapping`
+- `wbr_report_snapshots`
+- `wbr_email_drafts`
 - `wbr_section1_daily`
 - `wbr_windsor_sales_traffic_raw`
 - `wbr_section1_weekly` (view)
@@ -183,6 +200,9 @@ refreshed directly from live Supabase MCP instead.
 - `monthly_pnl_import_month_bucket_totals`
 - `monthly_pnl_import_month_sku_units`
 - `monthly_pnl_sku_cogs`
+- `monthly_pnl_manual_expense_settings`
+- `monthly_pnl_manual_expenses`
+- `monthly_pnl_email_drafts`
 - `monthly_pnl_cogs_monthly` (legacy / empty retained table)
 
 ## Key Reporting Tables
@@ -414,6 +434,85 @@ refreshed directly from live Supabase MCP instead.
   - `created_at timestamptz`
   - `updated_at timestamptz`
 
+### `public.monthly_pnl_manual_expense_settings`
+
+- RLS enabled: `yes`
+- Primary key: `id`
+- Key foreign keys:
+  - `profile_id -> monthly_pnl_profiles.id`
+- Columns:
+  - `id uuid`
+  - `profile_id uuid`
+  - `expense_key text`
+  - `is_enabled bool default false`
+  - `created_at timestamptz`
+  - `updated_at timestamptz`
+
+### `public.monthly_pnl_manual_expenses`
+
+- RLS enabled: `yes`
+- Primary key: `id`
+- Key foreign keys:
+  - `profile_id -> monthly_pnl_profiles.id`
+- Columns:
+  - `id uuid`
+  - `profile_id uuid`
+  - `entry_month date`
+  - `expense_key text`
+  - `amount numeric`
+  - `notes text nullable`
+  - `created_at timestamptz`
+  - `updated_at timestamptz`
+
+### `public.monthly_pnl_email_drafts`
+
+- RLS enabled: `yes`
+- Primary key: `id`
+- Key foreign keys:
+  - `client_id -> agency_clients.id`
+  - `created_by -> profiles.id`
+- Columns:
+  - `id uuid`
+  - `client_id uuid`
+  - `report_month date`
+  - `draft_kind text`
+  - `prompt_version text`
+  - `comparison_mode_requested text`
+  - `comparison_mode_used text`
+  - `marketplace_scope text`
+  - `profile_ids jsonb`
+  - `brief_payload jsonb`
+  - `subject text`
+  - `body text`
+  - `model text nullable`
+  - `created_by uuid nullable`
+  - `created_at timestamptz`
+
+### `public.report_api_connections`
+
+- RLS enabled: `yes`
+- Primary key: `id`
+- Key foreign keys:
+  - `client_id -> agency_clients.id`
+  - `created_by -> profiles.id`
+  - `updated_by -> profiles.id`
+- Columns:
+  - `id uuid`
+  - `client_id uuid`
+  - `provider text`
+  - `connection_status text default 'connected'`
+  - `external_account_id text nullable`
+  - `refresh_token text nullable`
+  - `region_code text nullable`
+  - `access_meta jsonb default '{}'`
+  - `connected_at timestamptz nullable`
+  - `last_validated_at timestamptz nullable`
+  - `last_error text nullable`
+  - `created_by uuid nullable`
+  - `updated_by uuid nullable`
+  - `created_at timestamptz`
+  - `updated_at timestamptz`
+
 ### `public.wbr_profiles`
 
 - RLS enabled: `yes`
@@ -488,6 +587,89 @@ refreshed directly from live Supabase MCP instead.
   - `finished_at timestamptz nullable`
   - `created_at timestamptz`
   - `updated_at timestamptz`
+
+### `public.wbr_report_snapshots`
+
+- RLS enabled: `yes`
+- Primary key: `id`
+- Key foreign keys:
+  - `profile_id -> wbr_profiles.id`
+  - `created_by -> profiles.id`
+- Columns:
+  - `id uuid`
+  - `profile_id uuid`
+  - `snapshot_kind text`
+  - `week_count int4`
+  - `week_ending date nullable`
+  - `window_start date`
+  - `window_end date`
+  - `source_run_at timestamptz default now()`
+  - `digest_version text`
+  - `digest jsonb`
+  - `raw_report jsonb nullable`
+  - `created_by uuid nullable`
+  - `created_at timestamptz`
+
+### `public.wbr_asin_exclusions`
+
+- RLS enabled: `yes`
+- Primary key: `id`
+- Key foreign keys:
+  - `profile_id -> wbr_profiles.id`
+  - `created_by -> profiles.id`
+  - `updated_by -> profiles.id`
+- Columns:
+  - `id uuid`
+  - `profile_id uuid`
+  - `child_asin text`
+  - `exclusion_source text default 'manual'`
+  - `exclusion_reason text nullable`
+  - `active bool default true`
+  - `created_by uuid nullable`
+  - `updated_by uuid nullable`
+  - `created_at timestamptz`
+  - `updated_at timestamptz`
+
+### `public.wbr_campaign_exclusions`
+
+- RLS enabled: `yes`
+- Primary key: `id`
+- Key foreign keys:
+  - `profile_id -> wbr_profiles.id`
+  - `created_by -> profiles.id`
+  - `updated_by -> profiles.id`
+- Columns:
+  - `id uuid`
+  - `profile_id uuid`
+  - `campaign_name text`
+  - `exclusion_source text default 'manual'`
+  - `exclusion_reason text nullable`
+  - `active bool default true`
+  - `created_by uuid nullable`
+  - `updated_by uuid nullable`
+  - `created_at timestamptz`
+  - `updated_at timestamptz`
+
+### `public.wbr_email_drafts`
+
+- RLS enabled: `yes`
+- Primary key: `id`
+- Key foreign keys:
+  - `client_id -> agency_clients.id`
+  - `created_by -> profiles.id`
+- Columns:
+  - `id uuid`
+  - `client_id uuid`
+  - `snapshot_group_key text`
+  - `draft_kind text`
+  - `prompt_version text`
+  - `marketplace_scope text`
+  - `snapshot_ids jsonb`
+  - `subject text`
+  - `body text`
+  - `model text nullable`
+  - `created_by uuid nullable`
+  - `created_at timestamptz`
 
 ### `public.wbr_section1_weekly`
 
