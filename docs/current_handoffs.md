@@ -34,6 +34,16 @@ historical reference.
 6. [Opportunity backlog](/Users/jeff/code/agency-os/docs/opportunity_backlog.md)
    - Lightweight priority list for next product/platform opportunities.
 
+## Current operational notes
+
+1. Supabase MCP auth was re-established locally on 2026-03-23 (ET):
+   - `codex mcp logout supabase`
+   - `codex mcp login supabase`
+   - `codex mcp list` recovered and now shows `supabase` with `Auth = OAuth`
+   - if an existing Codex session still reports `Auth required` when using the
+     Supabase MCP, treat that as stale session state and start a fresh Codex
+     session before concluding the MCP is broken
+
 ## Historical/reference docs
 
 1. [WBR v2 handoff](/Users/jeff/code/agency-os/docs/wbr_v2_handoff.md)
