@@ -101,6 +101,8 @@ Current reality:
       - `list_monthly_pnl_profiles`
       - `get_monthly_pnl_report`
       - `get_monthly_pnl_email_brief`
+    - P&L mutating MCP tool now includes:
+      - `draft_monthly_pnl_email`
 23. The intended product shape is still one shared Agency OS Claude Project
     that can use multiple Agency OS tool domains. Do not assume one separate
     Claude Project per report type.
@@ -131,6 +133,15 @@ Current reality:
       - read-only bridge between raw P&L analysis and future P&L email drafting
       - deterministic monthly brief with YoY/MoM fallback, snapshot metrics,
         driver candidates, verdict, and data-quality notes
+29. The first persisted P&L email draft layer is now implemented on top of the
+    brief:
+    - services:
+      - `backend-core/app/services/pnl/email_prompt.py`
+      - `backend-core/app/services/pnl/email_drafts.py`
+    - MCP tool:
+      - `draft_monthly_pnl_email`
+    - persistence migration:
+      - `supabase/migrations/20260323170000_add_monthly_pnl_email_drafts.sql`
 
 Primary goal:
 

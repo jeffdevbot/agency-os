@@ -27,7 +27,7 @@ docs.
   - `list_monthly_pnl_profiles`
   - `get_monthly_pnl_report`
   - `get_monthly_pnl_email_brief`
-- [ ] Keep `draft_wbr_email` on approval unless/until you want mutating actions to run without confirmation
+- [ ] Keep `draft_wbr_email` and `draft_monthly_pnl_email` on approval unless/until you want mutating actions to run without confirmation
 
 ### Claude Project
 
@@ -53,6 +53,10 @@ docs.
 - [x] `list_monthly_pnl_profiles` smoke-tested
 - [x] `get_monthly_pnl_report` smoke-tested
 - [ ] `get_monthly_pnl_email_brief` smoke-tested
+
+### Monthly P&L Draft Tool
+
+- [ ] `draft_monthly_pnl_email` smoke-tested
 
 ### Next Expansion Options
 

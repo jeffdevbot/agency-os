@@ -14,7 +14,7 @@ Current scope:
 2. summarize profitability and key cost drivers
 3. surface missing-data or quality warnings
 4. build a structured, read-only Monthly P&L email brief for a client/month
-5. do not assume a persisted Monthly P&L email-drafting tool exists yet
+5. generate a persisted Monthly P&L client email draft when explicitly asked
 
 ## Live Tools
 
@@ -129,6 +129,41 @@ Returns:
 
 This is a read-only tool.
 
+### `draft_monthly_pnl_email`
+
+Use when the user explicitly wants a Monthly P&L client email draft for a given
+client and report month.
+
+Input:
+
+```json
+{
+  "client_id": "uuid",
+  "report_month": "2026-02-01",
+  "marketplace_codes": ["US", "CA"],
+  "comparison_mode": "auto",
+  "recipient_name": "Billy"
+}
+```
+
+Optional fields:
+
+1. `marketplace_codes`
+2. `comparison_mode`
+3. `recipient_name`
+4. `sender_name`
+5. `sender_role`
+6. `agency_name`
+
+Returns:
+
+1. `draft_id`
+2. draft metadata
+3. subject
+4. body
+
+This is a mutating tool.
+
 ## Canonical Workflow
 
 ### 1. Client name given
@@ -190,6 +225,17 @@ best data-backed setup for later drafting:
 4. present the structured takeaways cleanly
 5. do not imply a persisted P&L draft was created
 
+### 6. Monthly P&L email draft request
+
+If the user explicitly wants the client-facing Monthly P&L email:
+
+1. resolve the client
+2. confirm the report month
+3. call `draft_monthly_pnl_email`
+4. present the returned draft cleanly
+5. if the user wants revisions, revise in chat while staying faithful to the
+   Agency OS data and the returned draft
+
 ## Working Rules
 
 1. Prefer Agency OS data over memory or guesses for Monthly P&L questions.
@@ -199,6 +245,7 @@ best data-backed setup for later drafting:
 5. Treat warnings as decision-relevant context, not footnotes to ignore.
 6. This tool slice is read-only. Do not imply Claude can edit P&L settings,
    upload imports, or trigger write workflows unless new tools are added later.
+   Exception: `draft_monthly_pnl_email` is now a supported mutating draft tool.
 7. If the user asks for last month, a specific month, or a recent month window,
    treat that as a normal analysis request, not an email-drafting request.
 8. When summarizing P&L, prioritize:
@@ -214,3 +261,4 @@ best data-backed setup for later drafting:
 3. "What were the main profitability drivers for Distex CA over the last 6 months?"
 4. "Do we have Monthly P&L coverage for Whoosh in the UK?"
 5. "Build a structured Monthly P&L email brief for Whoosh for February 2026."
+6. "Draft the Monthly P&L highlights email for Whoosh for February 2026."

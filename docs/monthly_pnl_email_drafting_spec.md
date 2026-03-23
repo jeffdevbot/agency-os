@@ -26,8 +26,9 @@ data model:
    - `get_monthly_pnl_email_brief`
 3. The structured brief layer is now implemented as a read-only backend/MCP
    slice.
-4. A persisted Monthly P&L email draft tool is still not implemented.
-5. The next email-drafting slice should be built on top of those foundations,
+4. A persisted Monthly P&L email draft tool is now implemented on top of the
+   brief layer.
+5. The next email-drafting slice should continue building on those foundations,
    but it should not reuse the legacy screenshot prompt shape.
 
 ## Extracted writing pattern

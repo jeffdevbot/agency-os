@@ -6,6 +6,8 @@ import logging
 from typing import Any
 
 from ...auth import _get_supabase_admin_client
+from ...services.pnl.email_drafts import generate_email_draft
+from ...services.pnl.email_prompt import PROMPT_VERSION
 from ...services.pnl.email_brief import PNLEmailBriefService
 from ...services.pnl.profiles import PNLNotFoundError, PNLProfileService, PNLValidationError
 from ...services.pnl.report import PNLReportService
@@ -177,6 +179,52 @@ async def get_monthly_pnl_email_brief_for_client(
         raise ValueError(str(exc)) from exc
 
 
+async def draft_monthly_pnl_email_for_client(
+    client_id: str,
+    *,
+    report_month: str,
+    marketplace_codes: list[str] | None = None,
+    comparison_mode: str = "auto",
+    recipient_name: str | None = None,
+    sender_name: str | None = None,
+    sender_role: str | None = None,
+    agency_name: str | None = None,
+) -> dict[str, Any]:
+    """Generate and persist a Monthly P&L email draft for one client/month."""
+    normalized_client_id = str(client_id or "").strip()
+    if not normalized_client_id:
+        raise ValueError("client_id is required")
+
+    db = _get_supabase_admin_client()
+    result = await generate_email_draft(
+        db,
+        normalized_client_id,
+        report_month=report_month,
+        marketplace_codes=marketplace_codes,
+        comparison_mode=comparison_mode,
+        recipient_name=recipient_name,
+        sender_name=sender_name,
+        sender_role=sender_role,
+        agency_name=agency_name,
+        created_by=(get_current_pilot_user().user_id if get_current_pilot_user() else None),
+    )
+    return {
+        "draft_id": str(result.get("id") or "").strip(),
+        "client_id": normalized_client_id,
+        "report_month": str(result.get("report_month") or report_month),
+        "draft_kind": "monthly_pnl_highlights_email",
+        "prompt_version": PROMPT_VERSION,
+        "comparison_mode_requested": str(result.get("comparison_mode_requested") or comparison_mode),
+        "comparison_mode_used": str(result.get("comparison_mode_used") or comparison_mode),
+        "marketplace_scope": str(result.get("marketplace_scope") or "").strip(),
+        "profile_ids": [str(item) for item in (result.get("profile_ids") or []) if item],
+        "subject": str(result.get("subject") or "").strip(),
+        "body": str(result.get("body") or "").strip(),
+        "model": str(result.get("model") or "").strip() or None,
+        "created_at": result.get("created_at"),
+    }
+
+
 def register_pnl_tools(mcp: Any) -> None:
     @mcp.tool(
         name="list_monthly_pnl_profiles",
@@ -249,5 +297,42 @@ def register_pnl_tools(mcp: Any) -> None:
             "success",
             client_id=client_id,
             sections=len(result.get("sections", [])),
+        )
+        return result
+
+    @mcp.tool(
+        name="draft_monthly_pnl_email",
+        description=(
+            "Generate and persist a Monthly P&L highlights email draft for one "
+            "client and one report month. This is a mutating tool built on top "
+            "of the structured Monthly P&L brief layer."
+        ),
+        structured_output=True,
+    )
+    async def draft_monthly_pnl_email(
+        client_id: str,
+        report_month: str,
+        marketplace_codes: list[str] | None = None,
+        comparison_mode: str = "auto",
+        recipient_name: str | None = None,
+        sender_name: str | None = None,
+        sender_role: str | None = None,
+        agency_name: str | None = None,
+    ) -> dict[str, Any]:
+        _log_tool_outcome("draft_monthly_pnl_email", "started")
+        result = await draft_monthly_pnl_email_for_client(
+            client_id,
+            report_month=report_month,
+            marketplace_codes=marketplace_codes,
+            comparison_mode=comparison_mode,
+            recipient_name=recipient_name,
+            sender_name=sender_name,
+            sender_role=sender_role,
+            agency_name=agency_name,
+        )
+        _log_tool_outcome(
+            "draft_monthly_pnl_email",
+            "success",
+            draft_id=result.get("draft_id"),
         )
         return result

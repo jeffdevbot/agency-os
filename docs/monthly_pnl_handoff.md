@@ -98,6 +98,8 @@ Current implementation state on that direction:
       - `list_monthly_pnl_profiles`
       - `get_monthly_pnl_report`
       - `get_monthly_pnl_email_brief`
+    - P&L mutating draft tool now includes:
+      - `draft_monthly_pnl_email`
 11. Current Claude Project state:
     - `docs/claude_project/project_instructions.md` now covers both WBR and
       Monthly P&L
@@ -129,6 +131,19 @@ Current implementation state on that direction:
         persisted P&L draft tool
       - deterministic marketplace-level snapshot metrics, driver candidates,
         verdicts, and data-quality notes for a selected client/month
+15. The first persisted Monthly P&L draft layer is now implemented:
+    - services:
+      - `backend-core/app/services/pnl/email_prompt.py`
+      - `backend-core/app/services/pnl/email_drafts.py`
+    - persistence migration:
+      - `supabase/migrations/20260323170000_add_monthly_pnl_email_drafts.sql`
+    - MCP tool:
+      - `draft_monthly_pnl_email`
+    - shape:
+      - the draft tool uses the structured brief internally
+      - normal user-facing workflow can stay simple:
+        inspect with `get_monthly_pnl_report` or draft directly with
+        `draft_monthly_pnl_email`
 
 Docs currently known to be partially outdated for the new direction:
 

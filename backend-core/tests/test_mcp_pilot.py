@@ -10,6 +10,7 @@ from app.main import app
 from app.mcp.server import create_mcp_server, get_mcp_protected_resource_metadata_path
 from app.mcp.tools.clients import resolve_client_matches
 from app.mcp.tools.pnl import (
+    draft_monthly_pnl_email_for_client,
     get_monthly_pnl_email_brief_for_client,
     get_monthly_pnl_report_for_profile,
     list_monthly_pnl_profiles_for_client,
@@ -601,6 +602,72 @@ def test_get_monthly_pnl_email_brief_for_client_wraps_service(monkeypatch):
     }
 
 
+def test_draft_monthly_pnl_email_for_client_normalizes_result(monkeypatch):
+    monkeypatch.setattr("app.mcp.tools.pnl._get_supabase_admin_client", lambda: object())
+
+    async def _fake_generate_email_draft(
+        _db,
+        client_id,
+        *,
+        report_month,
+        marketplace_codes=None,
+        comparison_mode="auto",
+        recipient_name=None,
+        sender_name=None,
+        sender_role=None,
+        agency_name=None,
+        created_by=None,
+    ):
+        assert client_id == "c1"
+        assert report_month == "2026-02-01"
+        assert marketplace_codes == ["US"]
+        assert comparison_mode == "auto"
+        assert recipient_name == "Billy"
+        assert sender_name is None
+        assert created_by is None
+        return {
+            "id": "pd1",
+            "client_id": "c1",
+            "report_month": "2026-02-01",
+            "draft_kind": "monthly_pnl_highlights_email",
+            "prompt_version": "monthly_pnl_email_v1",
+            "comparison_mode_requested": "auto",
+            "comparison_mode_used": "yoy_preferred",
+            "marketplace_scope": "US",
+            "profile_ids": ["pp1"],
+            "subject": "Subject line",
+            "body": "Email body",
+            "model": "gpt-5-mini",
+            "created_at": "2026-03-23T18:00:00+00:00",
+        }
+
+    monkeypatch.setattr("app.mcp.tools.pnl.generate_email_draft", _fake_generate_email_draft)
+
+    result = asyncio.run(
+        draft_monthly_pnl_email_for_client(
+            "c1",
+            report_month="2026-02-01",
+            marketplace_codes=["US"],
+            recipient_name="Billy",
+        )
+    )
+    assert result == {
+        "draft_id": "pd1",
+        "client_id": "c1",
+        "report_month": "2026-02-01",
+        "draft_kind": "monthly_pnl_highlights_email",
+        "prompt_version": "monthly_pnl_email_v1",
+        "comparison_mode_requested": "auto",
+        "comparison_mode_used": "yoy_preferred",
+        "marketplace_scope": "US",
+        "profile_ids": ["pp1"],
+        "subject": "Subject line",
+        "body": "Email body",
+        "model": "gpt-5-mini",
+        "created_at": "2026-03-23T18:00:00+00:00",
+    }
+
+
 def test_list_wbr_profiles_for_client_returns_active_profiles(monkeypatch):
     fake_db = _FakeDB(
         clients=[{"id": "c1", "name": "Whoosh"}],
@@ -893,15 +960,45 @@ def test_wbr_tools_are_registered(monkeypatch):
                 "sections": [{"marketplace_code": "US"}],
             }
 
+    async def _fake_generate_pnl_email_draft(
+        _db,
+        _client_id,
+        *,
+        report_month,
+        marketplace_codes=None,
+        comparison_mode="auto",
+        recipient_name=None,
+        sender_name=None,
+        sender_role=None,
+        agency_name=None,
+        created_by=None,
+    ):
+        assert report_month == "2026-02-01"
+        assert marketplace_codes == ["US"]
+        return {
+            "id": "pd1",
+            "report_month": "2026-02-01",
+            "comparison_mode_requested": "auto",
+            "comparison_mode_used": "yoy_preferred",
+            "marketplace_scope": "US",
+            "profile_ids": ["pp1"],
+            "subject": "Monthly P&L draft",
+            "body": "Hi Team,",
+            "model": "gpt-5-mini",
+            "created_at": "2026-03-23T18:00:00+00:00",
+        }
+
     monkeypatch.setattr("app.mcp.tools.pnl.PNLProfileService", _FakePNLProfileService)
     monkeypatch.setattr("app.mcp.tools.pnl.PNLReportService", _FakePNLReportService)
     monkeypatch.setattr("app.mcp.tools.pnl.PNLEmailBriefService", _FakePNLEmailBriefService)
+    monkeypatch.setattr("app.mcp.tools.pnl.generate_email_draft", _fake_generate_pnl_email_draft)
 
     server = create_mcp_server()
     tools = asyncio.run(server.list_tools())
     names = {tool.name for tool in tools}
     assert names == {
         "draft_wbr_email",
+        "draft_monthly_pnl_email",
         "get_monthly_pnl_email_brief",
         "get_wbr_summary",
         "get_monthly_pnl_report",
@@ -992,3 +1089,15 @@ def test_wbr_tools_are_registered(monkeypatch):
         )
     )
     assert payload["comparison_mode_used"] == "yoy_preferred"
+
+    _content, payload = asyncio.run(
+        server.call_tool(
+            "draft_monthly_pnl_email",
+            {
+                "client_id": "c1",
+                "report_month": "2026-02-01",
+                "marketplace_codes": ["US"],
+            },
+        )
+    )
+    assert payload["draft_id"] == "pd1"
