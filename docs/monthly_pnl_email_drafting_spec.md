@@ -23,7 +23,11 @@ data model:
    - `resolve_client`
    - `list_monthly_pnl_profiles`
    - `get_monthly_pnl_report`
-3. The next email-drafting slice should be built on top of those foundations,
+   - `get_monthly_pnl_email_brief`
+3. The structured brief layer is now implemented as a read-only backend/MCP
+   slice.
+4. A persisted Monthly P&L email draft tool is still not implemented.
+5. The next email-drafting slice should be built on top of those foundations,
    but it should not reuse the legacy screenshot prompt shape.
 
 ## Extracted writing pattern

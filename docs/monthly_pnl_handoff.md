@@ -97,6 +97,7 @@ Current implementation state on that direction:
     - P&L read-only MCP tools now include:
       - `list_monthly_pnl_profiles`
       - `get_monthly_pnl_report`
+      - `get_monthly_pnl_email_brief`
 11. Current Claude Project state:
     - `docs/claude_project/project_instructions.md` now covers both WBR and
       Monthly P&L
@@ -117,6 +118,17 @@ Current implementation state on that direction:
     - a proposed Claude-facing preview/persisted email tool contract
     - the exact data requirements for reliable drafting, including conditional
       YoY / MoM fallback rules
+14. The first structured Monthly P&L email-brief layer is now implemented:
+    - backend service:
+      `backend-core/app/services/pnl/email_brief.py`
+    - MCP wrapper/tool:
+      `backend-core/app/mcp/tools/pnl.py`
+      `get_monthly_pnl_email_brief`
+    - current role:
+      - read-only bridge between `get_monthly_pnl_report` and a future
+        persisted P&L draft tool
+      - deterministic marketplace-level snapshot metrics, driver candidates,
+        verdicts, and data-quality notes for a selected client/month
 
 Docs currently known to be partially outdated for the new direction:
 
@@ -146,6 +158,8 @@ The current recommended direction is:
    available
 4. build a structured Monthly P&L email brief layer before adding a mutating
    persisted draft tool
+5. use the current structured brief as the canonical drafting-prep layer rather
+   than jumping straight from raw `get_monthly_pnl_report` output to a draft
 
 See `docs/monthly_pnl_email_drafting_spec.md` for the concrete writing pattern,
 tool contract, and data requirements.

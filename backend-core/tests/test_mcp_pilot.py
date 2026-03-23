@@ -10,6 +10,7 @@ from app.main import app
 from app.mcp.server import create_mcp_server, get_mcp_protected_resource_metadata_path
 from app.mcp.tools.clients import resolve_client_matches
 from app.mcp.tools.pnl import (
+    get_monthly_pnl_email_brief_for_client,
     get_monthly_pnl_report_for_profile,
     list_monthly_pnl_profiles_for_client,
 )
@@ -554,6 +555,52 @@ def test_get_monthly_pnl_report_for_profile_wraps_report(monkeypatch):
     }
 
 
+def test_get_monthly_pnl_email_brief_for_client_wraps_service(monkeypatch):
+    fake_db = _FakeDB(
+        clients=[{"id": "c1", "name": "Whoosh"}],
+        profiles=[],
+    )
+
+    class _FakeBriefService:
+        def __init__(self, _db):
+            pass
+
+        async def build_client_brief_async(
+            self,
+            client_id,
+            report_month,
+            *,
+            marketplace_codes=None,
+            comparison_mode="auto",
+        ):
+            assert client_id == "c1"
+            assert report_month == "2026-02-01"
+            assert marketplace_codes == ["US", "CA"]
+            assert comparison_mode == "auto"
+            return {
+                "client": {"client_id": "c1", "client_name": "Whoosh"},
+                "report_month": "2026-02-01",
+                "sections": [{"marketplace_code": "US"}, {"marketplace_code": "CA"}],
+            }
+
+    monkeypatch.setattr("app.mcp.tools.pnl._get_supabase_admin_client", lambda: fake_db)
+    monkeypatch.setattr("app.mcp.tools.pnl.PNLEmailBriefService", _FakeBriefService)
+
+    result = asyncio.run(
+        get_monthly_pnl_email_brief_for_client(
+            "c1",
+            report_month="2026-02-01",
+            marketplace_codes=["US", "CA"],
+            comparison_mode="auto",
+        )
+    )
+    assert result == {
+        "client": {"client_id": "c1", "client_name": "Whoosh"},
+        "report_month": "2026-02-01",
+        "sections": [{"marketplace_code": "US"}, {"marketplace_code": "CA"}],
+    }
+
+
 def test_list_wbr_profiles_for_client_returns_active_profiles(monkeypatch):
     fake_db = _FakeDB(
         clients=[{"id": "c1", "name": "Whoosh"}],
@@ -823,14 +870,39 @@ def test_wbr_tools_are_registered(monkeypatch):
                 "warnings": [],
             }
 
+    class _FakePNLEmailBriefService:
+        def __init__(self, _db):
+            pass
+
+        async def build_client_brief_async(
+            self,
+            client_id,
+            report_month,
+            *,
+            marketplace_codes=None,
+            comparison_mode="auto",
+        ):
+            assert client_id == "c1"
+            assert report_month == "2026-02-01"
+            assert marketplace_codes == ["US"]
+            assert comparison_mode == "auto"
+            return {
+                "client": {"client_id": "c1", "client_name": "Whoosh"},
+                "report_month": "2026-02-01",
+                "comparison_mode_used": "yoy_preferred",
+                "sections": [{"marketplace_code": "US"}],
+            }
+
     monkeypatch.setattr("app.mcp.tools.pnl.PNLProfileService", _FakePNLProfileService)
     monkeypatch.setattr("app.mcp.tools.pnl.PNLReportService", _FakePNLReportService)
+    monkeypatch.setattr("app.mcp.tools.pnl.PNLEmailBriefService", _FakePNLEmailBriefService)
 
     server = create_mcp_server()
     tools = asyncio.run(server.list_tools())
     names = {tool.name for tool in tools}
     assert names == {
         "draft_wbr_email",
+        "get_monthly_pnl_email_brief",
         "get_wbr_summary",
         "get_monthly_pnl_report",
         "list_wbr_profiles",
@@ -908,3 +980,15 @@ def test_wbr_tools_are_registered(monkeypatch):
 
     _content, payload = asyncio.run(server.call_tool("get_monthly_pnl_report", {"profile_id": "pp1"}))
     assert payload["profile"]["profile_id"] == "pp1"
+
+    _content, payload = asyncio.run(
+        server.call_tool(
+            "get_monthly_pnl_email_brief",
+            {
+                "client_id": "c1",
+                "report_month": "2026-02-01",
+                "marketplace_codes": ["US"],
+            },
+        )
+    )
+    assert payload["comparison_mode_used"] == "yoy_preferred"

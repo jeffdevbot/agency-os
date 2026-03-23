@@ -6,6 +6,7 @@ import logging
 from typing import Any
 
 from ...auth import _get_supabase_admin_client
+from ...services.pnl.email_brief import PNLEmailBriefService
 from ...services.pnl.profiles import PNLNotFoundError, PNLProfileService, PNLValidationError
 from ...services.pnl.report import PNLReportService
 from .clients import resolve_client_name
@@ -150,6 +151,32 @@ async def get_monthly_pnl_report_for_profile(
     }
 
 
+async def get_monthly_pnl_email_brief_for_client(
+    client_id: str,
+    *,
+    report_month: str,
+    marketplace_codes: list[str] | None = None,
+    comparison_mode: str = "auto",
+) -> dict[str, Any]:
+    """Return a structured Monthly P&L email brief for one client/month."""
+    normalized_client_id = str(client_id or "").strip()
+    if not normalized_client_id:
+        raise ValueError("client_id is required")
+
+    db = _get_supabase_admin_client()
+    brief_service = PNLEmailBriefService(db)
+
+    try:
+        return await brief_service.build_client_brief_async(
+            normalized_client_id,
+            report_month,
+            marketplace_codes=marketplace_codes,
+            comparison_mode=comparison_mode,
+        )
+    except (PNLNotFoundError, PNLValidationError) as exc:
+        raise ValueError(str(exc)) from exc
+
+
 def register_pnl_tools(mcp: Any) -> None:
     @mcp.tool(
         name="list_monthly_pnl_profiles",
@@ -193,4 +220,34 @@ def register_pnl_tools(mcp: Any) -> None:
             end_month=end_month,
         )
         _log_tool_outcome("get_monthly_pnl_report", "success", profile_id=profile_id)
+        return result
+
+    @mcp.tool(
+        name="get_monthly_pnl_email_brief",
+        description=(
+            "Build a structured, read-only Monthly P&L email brief for one "
+            "client and one report month. Use this when preparing a future "
+            "client-facing P&L highlights draft from canonical Agency OS data."
+        ),
+        structured_output=True,
+    )
+    async def get_monthly_pnl_email_brief(
+        client_id: str,
+        report_month: str,
+        marketplace_codes: list[str] | None = None,
+        comparison_mode: str = "auto",
+    ) -> dict[str, Any]:
+        _log_tool_outcome("get_monthly_pnl_email_brief", "started")
+        result = await get_monthly_pnl_email_brief_for_client(
+            client_id,
+            report_month=report_month,
+            marketplace_codes=marketplace_codes,
+            comparison_mode=comparison_mode,
+        )
+        _log_tool_outcome(
+            "get_monthly_pnl_email_brief",
+            "success",
+            client_id=client_id,
+            sections=len(result.get("sections", [])),
+        )
         return result

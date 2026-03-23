@@ -100,6 +100,7 @@ Current reality:
     - P&L read-only MCP tools now include:
       - `list_monthly_pnl_profiles`
       - `get_monthly_pnl_report`
+      - `get_monthly_pnl_email_brief`
 23. The intended product shape is still one shared Agency OS Claude Project
     that can use multiple Agency OS tool domains. Do not assume one separate
     Claude Project per report type.
@@ -121,6 +122,15 @@ Current reality:
     - the extracted writing pattern from real manual P&L emails
     - the recommended Claude-facing preview/persisted tool contract
     - the exact data requirements, including conditional YoY handling
+28. The first structured P&L email-brief layer is now implemented in code:
+    - backend service:
+      `backend-core/app/services/pnl/email_brief.py`
+    - MCP tool:
+      `get_monthly_pnl_email_brief`
+    - current role:
+      - read-only bridge between raw P&L analysis and future P&L email drafting
+      - deterministic monthly brief with YoY/MoM fallback, snapshot metrics,
+        driver candidates, verdict, and data-quality notes
 
 Primary goal:
 

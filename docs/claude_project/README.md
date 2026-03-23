@@ -26,6 +26,7 @@ docs.
   - `get_wbr_summary`
   - `list_monthly_pnl_profiles`
   - `get_monthly_pnl_report`
+  - `get_monthly_pnl_email_brief`
 - [ ] Keep `draft_wbr_email` on approval unless/until you want mutating actions to run without confirmation
 
 ### Claude Project
@@ -33,7 +34,7 @@ docs.
 - [x] Personal Claude Project created
 - [x] `project_instructions.md` added to Project Instructions
 - [x] `wbr_mcp_playbook.md` uploaded to Project Files
-- [ ] `monthly_pnl_mcp_playbook.md` uploaded to Project Files once you want Monthly P&L available in Claude
+- [x] `monthly_pnl_mcp_playbook.md` uploaded to Project Files once you want Monthly P&L available in Claude
 - [ ] Re-paste the latest `project_instructions.md` if the local file changes
 - [ ] Re-upload the latest `wbr_mcp_playbook.md` if the local file changes
 - [ ] Re-upload the latest `monthly_pnl_mcp_playbook.md` if the local file changes
@@ -48,9 +49,10 @@ docs.
 
 ### Monthly P&L Read-Only Tools
 
-- [ ] `resolve_client` smoke-tested for Monthly P&L routing metadata
-- [ ] `list_monthly_pnl_profiles` smoke-tested
-- [ ] `get_monthly_pnl_report` smoke-tested
+- [x] `resolve_client` smoke-tested for Monthly P&L routing metadata
+- [x] `list_monthly_pnl_profiles` smoke-tested
+- [x] `get_monthly_pnl_report` smoke-tested
+- [ ] `get_monthly_pnl_email_brief` smoke-tested
 
 ### Next Expansion Options
 
