@@ -7,9 +7,11 @@ import { getAccessToken } from "@/lib/getAccessToken";
 import { exportPnlWorkbook, type PnlFilterMode } from "./pnlApi";
 
 type ExportOptions = {
+  viewMode?: "standard" | "yoy";
   filterMode: PnlFilterMode;
   startMonth?: string;
   endMonth?: string;
+  year?: number;
   showTotals: boolean;
 };
 

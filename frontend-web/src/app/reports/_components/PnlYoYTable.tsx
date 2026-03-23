@@ -59,9 +59,31 @@ function subRowAmountClass(value: string, item: PnlYoYLineItem): string {
   if (item.key === "net_earnings") {
     const n = parseFloat(value);
     if (Number.isNaN(n) || n === 0) return "text-[#94a3b8]";
-    return "text-[#0f172a]";
+    return "text-white";
   }
   return amountClass(value, item as any);
+}
+
+function rowSurfaceClasses(item: PnlYoYLineItem) {
+  if (item.key === "net_earnings") {
+    return {
+      label: "bg-[#0f172a] border-[#0f172a]",
+      detail: "bg-[#16213a] border-[#1f2a44]",
+      delta: "bg-[#0f172a] border-[#0f172a]",
+    };
+  }
+  if (SUMMARY_KEYS.has(item.key)) {
+    return {
+      label: "bg-[#f1f5f9] border-[#e2e8f0]",
+      detail: "bg-[#f8fafc] border-[#e2e8f0]",
+      delta: "bg-[#f1f5f9] border-[#e2e8f0]",
+    };
+  }
+  return {
+    label: "bg-white border-[#f1f5f9]",
+    detail: "bg-[#fcfdff] border-[#f8fafc]",
+    delta: "bg-[#f8fafc] border-[#e2e8f0]",
+  };
 }
 
 export default function PnlYoYTable({
@@ -108,6 +130,7 @@ export default function PnlYoYTable({
             {lineItems.map((item) => {
               const isSelected = selectedRowKeys?.has(item.key) ?? false;
               const displayFormat = getPnlYoYDisplayFormat(item, displayMode);
+              const surfaces = rowSurfaceClasses(item);
               const stickyCellBase =
                 item.key === "net_earnings"
                   ? "bg-[#0f172a] text-white"
@@ -143,9 +166,9 @@ export default function PnlYoYTable({
                     </tr>
                   ) : null}
 
-                  <tr className={`border-b border-[#f1f5f9] ${lineItemRowClass(item as any)}`}>
+                  <tr className={`border-b ${surfaces.label.split(" ")[1]} ${lineItemRowClass(item as any)}`}>
                     <td
-                      className={`sticky left-0 z-10 min-w-[196px] border-b border-[#f1f5f9] px-2.5 py-1.5 text-left shadow-[8px_0_14px_-10px_rgba(15,23,42,0.24)] md:min-w-[208px] ${stickyCellClass}`}
+                      className={`sticky left-0 z-10 min-w-[196px] border-b px-2.5 py-1.5 text-left shadow-[8px_0_14px_-10px_rgba(15,23,42,0.24)] md:min-w-[208px] ${surfaces.label} ${stickyCellClass}`}
                     >
                       <button
                         type="button"
@@ -168,16 +191,16 @@ export default function PnlYoYTable({
                     {months.map((month) => (
                       <td
                         key={`${month}-label-spacer`}
-                        className="border-b border-[#f1f5f9] bg-white px-1.5 py-1.5 md:px-2"
+                        className={`border-b px-1.5 py-1.5 md:px-2 ${surfaces.label}`}
                       />
                     ))}
                     {showTotals ? (
-                      <td className="border-b border-[#f1f5f9] bg-[#f8fafc] px-1.5 py-1.5 md:px-2" />
+                      <td className={`border-b px-1.5 py-1.5 md:px-2 ${surfaces.label}`} />
                     ) : null}
                   </tr>
 
-                  <tr className="border-b border-[#f8fafc]">
-                    <td className="sticky left-0 z-10 min-w-[196px] border-b border-[#f8fafc] bg-[#fcfdff] px-2.5 py-1 text-left text-[#64748b] shadow-[8px_0_14px_-10px_rgba(15,23,42,0.12)] md:min-w-[208px]">
+                  <tr className={`border-b ${surfaces.detail.split(" ")[1]}`}>
+                    <td className={`sticky left-0 z-10 min-w-[196px] border-b px-2.5 py-1 text-left text-[#64748b] shadow-[8px_0_14px_-10px_rgba(15,23,42,0.12)] md:min-w-[208px] ${surfaces.detail} ${item.key === "net_earnings" ? "text-white" : ""}`}>
                       <span className="pl-4">{currentYear}</span>
                     </td>
                     {currentMonthKeys.map((month) => {
@@ -191,21 +214,21 @@ export default function PnlYoYTable({
                       return (
                         <td
                           key={month}
-                          className={`whitespace-nowrap border-b border-[#f8fafc] bg-[#fcfdff] px-1.5 py-1 text-right tabular-nums md:px-2 ${subRowAmountClass(String(value), item)}`}
+                          className={`whitespace-nowrap border-b px-1.5 py-1 text-right tabular-nums md:px-2 ${surfaces.detail} ${subRowAmountClass(String(value), item)}`}
                         >
                           {formatAmount(String(value), displayFormat, safeCurrencyCode)}
                         </td>
                       );
                     })}
                     {showTotals ? (
-                      <td className={`whitespace-nowrap border-b border-[#f8fafc] bg-[#fcfdff] px-1.5 py-1 text-right font-semibold tabular-nums md:px-2 ${subRowAmountClass(String(currentTotal), item)}`}>
+                      <td className={`whitespace-nowrap border-b px-1.5 py-1 text-right font-semibold tabular-nums md:px-2 ${surfaces.detail} ${subRowAmountClass(String(currentTotal), item)}`}>
                         {formatAmount(String(currentTotal), displayFormat, safeCurrencyCode)}
                       </td>
                     ) : null}
                   </tr>
 
-                  <tr className="border-b border-[#f8fafc]">
-                    <td className="sticky left-0 z-10 min-w-[196px] border-b border-[#f8fafc] bg-[#fcfdff] px-2.5 py-1 text-left text-[#64748b] shadow-[8px_0_14px_-10px_rgba(15,23,42,0.12)] md:min-w-[208px]">
+                  <tr className={`border-b ${surfaces.detail.split(" ")[1]}`}>
+                    <td className={`sticky left-0 z-10 min-w-[196px] border-b px-2.5 py-1 text-left text-[#64748b] shadow-[8px_0_14px_-10px_rgba(15,23,42,0.12)] md:min-w-[208px] ${surfaces.detail} ${item.key === "net_earnings" ? "text-white" : ""}`}>
                       <span className="pl-4">{priorYear}</span>
                     </td>
                     {priorMonthKeys.map((month) => {
@@ -219,21 +242,21 @@ export default function PnlYoYTable({
                       return (
                         <td
                           key={month}
-                          className={`whitespace-nowrap border-b border-[#f8fafc] bg-[#fcfdff] px-1.5 py-1 text-right tabular-nums md:px-2 ${subRowAmountClass(String(value), item)}`}
+                          className={`whitespace-nowrap border-b px-1.5 py-1 text-right tabular-nums md:px-2 ${surfaces.detail} ${subRowAmountClass(String(value), item)}`}
                         >
                           {formatAmount(String(value), displayFormat, safeCurrencyCode)}
                         </td>
                       );
                     })}
                     {showTotals ? (
-                      <td className={`whitespace-nowrap border-b border-[#f8fafc] bg-[#fcfdff] px-1.5 py-1 text-right font-semibold tabular-nums md:px-2 ${subRowAmountClass(String(priorTotal), item)}`}>
+                      <td className={`whitespace-nowrap border-b px-1.5 py-1 text-right font-semibold tabular-nums md:px-2 ${surfaces.detail} ${subRowAmountClass(String(priorTotal), item)}`}>
                         {formatAmount(String(priorTotal), displayFormat, safeCurrencyCode)}
                       </td>
                     ) : null}
                   </tr>
 
-                  <tr className="border-b border-[#e2e8f0]">
-                    <td className="sticky left-0 z-10 min-w-[196px] border-b border-[#e2e8f0] bg-[#f8fafc] px-2.5 py-1 text-left text-[#64748b] shadow-[8px_0_14px_-10px_rgba(15,23,42,0.12)] md:min-w-[208px]">
+                  <tr className={`border-b ${surfaces.delta.split(" ")[1]}`}>
+                    <td className={`sticky left-0 z-10 min-w-[196px] border-b px-2.5 py-1 text-left text-[#64748b] shadow-[8px_0_14px_-10px_rgba(15,23,42,0.12)] md:min-w-[208px] ${surfaces.delta} ${item.key === "net_earnings" ? "text-white" : ""}`}>
                       <span className="pl-4">Δ</span>
                     </td>
                     {currentMonthKeys.map((currentMonth, index) => {
@@ -257,7 +280,7 @@ export default function PnlYoYTable({
                       return (
                         <td
                           key={`${currentMonth}-delta`}
-                          className={`whitespace-nowrap border-b border-[#e2e8f0] bg-[#f8fafc] px-1.5 py-1 text-right tabular-nums md:px-2 ${deltaClass(item, currentValue, priorValue)}`}
+                          className={`whitespace-nowrap border-b px-1.5 py-1 text-right tabular-nums md:px-2 ${surfaces.delta} ${deltaClass(item, currentValue, priorValue)}`}
                           title={displayFormat === "percent"
                             ? `Share delta: ${pointDelta(currentValue, priorValue)}`
                             : `Value delta: ${formatAmount(deltaValue(currentValue, priorValue), "currency", safeCurrencyCode)}`}
@@ -269,7 +292,7 @@ export default function PnlYoYTable({
                       );
                     })}
                     {showTotals ? (
-                      <td className={`whitespace-nowrap border-b border-[#e2e8f0] bg-[#f8fafc] px-1.5 py-1 text-right font-semibold tabular-nums md:px-2 ${deltaClass(item, currentTotal, priorTotal)}`}>
+                      <td className={`whitespace-nowrap border-b px-1.5 py-1 text-right font-semibold tabular-nums md:px-2 ${surfaces.delta} ${deltaClass(item, currentTotal, priorTotal)}`}>
                         {displayFormat === "percent"
                           ? pointDelta(currentTotal, priorTotal)
                           : percentDelta(currentTotal, priorTotal)}

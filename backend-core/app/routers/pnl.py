@@ -397,9 +397,11 @@ async def get_windsor_month_compare(
 @router.get("/profiles/{profile_id}/export.xlsx")
 async def export_pnl_workbook(
     profile_id: str,
+    view_mode: str = Query("standard", pattern="^(standard|yoy)$"),
     filter_mode: str = Query("ytd", pattern="^(ytd|last_3|last_6|last_12|last_year|range)$"),
     start_month: str | None = Query(None),
     end_month: str | None = Query(None),
+    year: int | None = Query(None, ge=2020),
     show_totals: bool = Query(True),
     user=Depends(require_admin_user),
 ):
@@ -407,9 +409,11 @@ async def export_pnl_workbook(
     try:
         workbook_path, filename = await svc.build_export_async(
             profile_id,
+            view_mode=view_mode,
             filter_mode=filter_mode,
             start_month=start_month,
             end_month=end_month,
+            year=year,
             show_totals=show_totals,
         )
         return FileResponse(

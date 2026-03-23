@@ -12,6 +12,8 @@ from typing import Any
 import xlsxwriter
 from supabase import Client
 
+from .profiles import PNLValidationError
+from .yoy_report import PNLYoYReportService
 from .report import PNLReportService
 
 
@@ -62,6 +64,19 @@ class PresentedLineItem:
     months: dict[str, Decimal]
     display_format: str
     total_value: Decimal
+
+
+@dataclass(frozen=True)
+class PresentedYoYLineItem:
+    key: str
+    label: str
+    category: str
+    is_derived: bool
+    current: dict[str, Decimal]
+    prior: dict[str, Decimal]
+    display_format: str
+    current_total: Decimal
+    prior_total: Decimal
 
 
 def _sanitize_filename_part(value: str) -> str:
@@ -328,6 +343,81 @@ def _filename_range_label(months: list[str]) -> str:
     return f"{_month_slug(months[0])}-{_month_slug(months[-1])}"
 
 
+def _yoy_display_format(item_key: str, mode: str) -> str:
+    if mode == "percent" and item_key not in CURRENCY_KEYS_IN_PERCENT_VIEW:
+        return "percent"
+    return "currency"
+
+
+def _yoy_denominator_key(item_key: str) -> str:
+    if item_key in GROSS_REVENUE_PERCENT_KEYS:
+        return "total_gross_revenue"
+    return "total_net_revenue"
+
+
+def _build_presented_yoy_line_items(report: dict[str, Any], mode: str) -> list[PresentedYoYLineItem]:
+    current_month_keys = [str(month) for month in report.get("current_month_keys", [])]
+    prior_month_keys = [str(month) for month in report.get("prior_month_keys", [])]
+    raw_items = list(report.get("line_items", []))
+    raw_index = {
+        str(item.get("key") or ""): item
+        for item in raw_items
+        if isinstance(item, dict) and str(item.get("key") or "").strip()
+    }
+
+    def _months_for(
+        item: dict[str, Any],
+        side: str,
+        month_keys: list[str],
+        *,
+        item_index: dict[str, dict[str, Any]],
+    ) -> dict[str, Decimal]:
+        values = {
+            month: _to_decimal((item.get(side) or {}).get(month))
+            for month in month_keys
+        }
+        if _yoy_display_format(str(item.get("key") or ""), mode) == "currency":
+            return values
+
+        denominator_row = item_index.get(_yoy_denominator_key(str(item.get("key") or "")))
+        denominator_months = {
+            month: _to_decimal(((denominator_row or {}).get(side) or {}).get(month))
+            for month in month_keys
+        }
+        return {
+            month: (
+                Decimal("0")
+                if denominator_months.get(month, Decimal("0")) == 0
+                else ((values.get(month, Decimal("0")) / denominator_months[month]) * Decimal("100"))
+            )
+            for month in month_keys
+        }
+
+    presented: list[PresentedYoYLineItem] = []
+    for item in raw_items:
+        if not isinstance(item, dict):
+            continue
+        key = str(item.get("key") or "").strip()
+        if not key:
+            continue
+        current_values = _months_for(item, "current", current_month_keys, item_index=raw_index)
+        prior_values = _months_for(item, "prior", prior_month_keys, item_index=raw_index)
+        presented.append(
+            PresentedYoYLineItem(
+                key=key,
+                label=str(item.get("label") or key),
+                category=str(item.get("category") or ""),
+                is_derived=bool(item.get("is_derived")),
+                current=current_values,
+                prior=prior_values,
+                display_format=_yoy_display_format(key, mode),
+                current_total=_line_total(current_values, current_month_keys),
+                prior_total=_line_total(prior_values, prior_month_keys),
+            )
+        )
+    return presented
+
+
 def build_pnl_workbook(
     report: dict[str, Any],
     *,
@@ -480,6 +570,217 @@ def build_pnl_workbook(
         raise
 
 
+def build_pnl_yoy_workbook(
+    report: dict[str, Any],
+    *,
+    profile_display_name: str,
+    marketplace_code: str,
+    currency_code: str,
+    show_totals: bool = True,
+) -> tuple[str, str]:
+    month_labels = [str(month) for month in report.get("months", [])]
+    current_month_keys = [str(month) for month in report.get("current_month_keys", [])]
+    prior_month_keys = [str(month) for month in report.get("prior_month_keys", [])]
+    current_year = int(report.get("current_year") or 0)
+    prior_year = int(report.get("prior_year") or 0)
+    dollars_items = _build_presented_yoy_line_items(report, "dollars")
+    percent_items = _build_presented_yoy_line_items(report, "percent")
+    resolved_currency_code = _resolve_currency_code(marketplace_code, currency_code)
+
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
+    tmp_path = tmp.name
+    tmp.close()
+
+    filename = (
+        f"{_sanitize_filename_part(profile_display_name)}-"
+        f"{_sanitize_filename_part(marketplace_code)}-"
+        f"pnl-yoy-{current_year}.xlsx"
+    )
+
+    try:
+        workbook = xlsxwriter.Workbook(tmp_path, {"nan_inf_to_errors": True})
+
+        title_fmt = workbook.add_format(
+            {
+                "bold": True,
+                "align": "center",
+                "valign": "vcenter",
+                "bg_color": "#3a3838",
+                "font_color": "white",
+                "border": 1,
+                "font_size": 14,
+            }
+        )
+        header_fmt = workbook.add_format(
+            {
+                "bold": True,
+                "align": "center",
+                "valign": "vcenter",
+                "bg_color": "#f7faff",
+                "font_color": "#4c576f",
+                "border": 1,
+            }
+        )
+        meta_label_fmt = workbook.add_format(
+            {
+                "bold": True,
+                "align": "left",
+                "valign": "vcenter",
+                "bg_color": "#f7faff",
+                "font_color": "#4c576f",
+                "border": 1,
+            }
+        )
+        meta_value_fmt = workbook.add_format({"align": "left", "valign": "vcenter", "border": 1})
+        label_fmt = workbook.add_format({"align": "left", "valign": "vcenter", "border": 1})
+        summary_label_fmt = workbook.add_format(
+            {"bold": True, "align": "left", "valign": "vcenter", "border": 1, "bg_color": "#f1f5f9"}
+        )
+        net_label_fmt = workbook.add_format(
+            {"bold": True, "align": "left", "valign": "vcenter", "border": 1, "bg_color": "#0f172a", "font_color": "white"}
+        )
+
+        detail_label_fmt = workbook.add_format({"align": "left", "valign": "vcenter", "border": 1, "bg_color": "#fcfdff", "font_color": "#64748b"})
+        summary_detail_label_fmt = workbook.add_format({"bold": True, "align": "left", "valign": "vcenter", "border": 1, "bg_color": "#f8fafc", "font_color": "#475569"})
+        net_detail_label_fmt = workbook.add_format({"bold": True, "align": "left", "valign": "vcenter", "border": 1, "bg_color": "#16213a", "font_color": "white"})
+        delta_label_fmt = workbook.add_format({"align": "left", "valign": "vcenter", "border": 1, "bg_color": "#f8fafc", "font_color": "#64748b"})
+        summary_delta_label_fmt = workbook.add_format({"bold": True, "align": "left", "valign": "vcenter", "border": 1, "bg_color": "#f1f5f9", "font_color": "#475569"})
+        net_delta_label_fmt = workbook.add_format({"bold": True, "align": "left", "valign": "vcenter", "border": 1, "bg_color": "#0f172a", "font_color": "white"})
+
+        currency_num_format = _currency_num_format(resolved_currency_code)
+        currency_fmt = workbook.add_format({"num_format": currency_num_format, "align": "right", "border": 1})
+        summary_currency_fmt = workbook.add_format(
+            {"num_format": currency_num_format, "align": "right", "border": 1, "bold": True, "bg_color": "#f1f5f9"}
+        )
+        net_currency_fmt = workbook.add_format(
+            {
+                "num_format": currency_num_format,
+                "align": "right",
+                "border": 1,
+                "bold": True,
+                "bg_color": "#0f172a",
+                "font_color": "white",
+            }
+        )
+        detail_currency_fmt = workbook.add_format({"num_format": currency_num_format, "align": "right", "border": 1, "bg_color": "#fcfdff"})
+        summary_detail_currency_fmt = workbook.add_format(
+            {"num_format": currency_num_format, "align": "right", "border": 1, "bold": True, "bg_color": "#f8fafc"}
+        )
+        net_detail_currency_fmt = workbook.add_format(
+            {"num_format": currency_num_format, "align": "right", "border": 1, "bold": True, "bg_color": "#16213a", "font_color": "white"}
+        )
+
+        percent_fmt = workbook.add_format({"num_format": "0.0%;(0.0%)", "align": "right", "border": 1})
+        summary_percent_fmt = workbook.add_format(
+            {"num_format": "0.0%;(0.0%)", "align": "right", "border": 1, "bold": True, "bg_color": "#f1f5f9"}
+        )
+        net_percent_fmt = workbook.add_format(
+            {"num_format": "0.0%;(0.0%)", "align": "right", "border": 1, "bold": True, "bg_color": "#0f172a", "font_color": "white"}
+        )
+        detail_percent_fmt = workbook.add_format({"num_format": "0.0%;(0.0%)", "align": "right", "border": 1, "bg_color": "#fcfdff"})
+        summary_detail_percent_fmt = workbook.add_format(
+            {"num_format": "0.0%;(0.0%)", "align": "right", "border": 1, "bold": True, "bg_color": "#f8fafc"}
+        )
+        net_detail_percent_fmt = workbook.add_format(
+            {"num_format": "0.0%;(0.0%)", "align": "right", "border": 1, "bold": True, "bg_color": "#16213a", "font_color": "white"}
+        )
+
+        positive_delta_percent_fmt = workbook.add_format({"num_format": "0.0%;-0.0%", "align": "right", "border": 1, "bold": True, "bg_color": "#f8fafc", "font_color": "#16a34a"})
+        negative_delta_percent_fmt = workbook.add_format({"num_format": "0.0%;-0.0%", "align": "right", "border": 1, "bold": True, "bg_color": "#f8fafc", "font_color": "#dc2626"})
+        summary_positive_delta_percent_fmt = workbook.add_format({"num_format": "0.0%;-0.0%", "align": "right", "border": 1, "bold": True, "bg_color": "#f1f5f9", "font_color": "#16a34a"})
+        summary_negative_delta_percent_fmt = workbook.add_format({"num_format": "0.0%;-0.0%", "align": "right", "border": 1, "bold": True, "bg_color": "#f1f5f9", "font_color": "#dc2626"})
+        net_positive_delta_percent_fmt = workbook.add_format({"num_format": "0.0%;-0.0%", "align": "right", "border": 1, "bold": True, "bg_color": "#0f172a", "font_color": "#4ade80"})
+        net_negative_delta_percent_fmt = workbook.add_format({"num_format": "0.0%;-0.0%", "align": "right", "border": 1, "bold": True, "bg_color": "#0f172a", "font_color": "#f87171"})
+
+        _write_pnl_yoy_sheet(
+            workbook.add_worksheet("YoY Dollars"),
+            sheet_title="Amazon P&L - YoY Dollars",
+            profile_display_name=profile_display_name,
+            marketplace_code=marketplace_code,
+            currency_code=resolved_currency_code,
+            range_label=f"{current_year} vs {prior_year} ({month_labels[0]} - {month_labels[-1]})" if month_labels else f"{current_year} vs {prior_year}",
+            months=month_labels,
+            current_year=current_year,
+            prior_year=prior_year,
+            line_items=dollars_items,
+            show_totals=show_totals,
+            title_fmt=title_fmt,
+            header_fmt=header_fmt,
+            meta_label_fmt=meta_label_fmt,
+            meta_value_fmt=meta_value_fmt,
+            label_fmt=label_fmt,
+            summary_label_fmt=summary_label_fmt,
+            net_label_fmt=net_label_fmt,
+            detail_label_fmt=detail_label_fmt,
+            summary_detail_label_fmt=summary_detail_label_fmt,
+            net_detail_label_fmt=net_detail_label_fmt,
+            delta_label_fmt=delta_label_fmt,
+            summary_delta_label_fmt=summary_delta_label_fmt,
+            net_delta_label_fmt=net_delta_label_fmt,
+            detail_currency_fmt=detail_currency_fmt,
+            summary_detail_currency_fmt=summary_detail_currency_fmt,
+            net_detail_currency_fmt=net_detail_currency_fmt,
+            detail_percent_fmt=detail_percent_fmt,
+            summary_detail_percent_fmt=summary_detail_percent_fmt,
+            net_detail_percent_fmt=net_detail_percent_fmt,
+            positive_delta_percent_fmt=positive_delta_percent_fmt,
+            negative_delta_percent_fmt=negative_delta_percent_fmt,
+            summary_positive_delta_percent_fmt=summary_positive_delta_percent_fmt,
+            summary_negative_delta_percent_fmt=summary_negative_delta_percent_fmt,
+            net_positive_delta_percent_fmt=net_positive_delta_percent_fmt,
+            net_negative_delta_percent_fmt=net_negative_delta_percent_fmt,
+        )
+        _write_pnl_yoy_sheet(
+            workbook.add_worksheet("YoY % of Revenue"),
+            sheet_title="Amazon P&L - YoY % of Revenue",
+            profile_display_name=profile_display_name,
+            marketplace_code=marketplace_code,
+            currency_code=resolved_currency_code,
+            range_label=f"{current_year} vs {prior_year} ({month_labels[0]} - {month_labels[-1]})" if month_labels else f"{current_year} vs {prior_year}",
+            months=month_labels,
+            current_year=current_year,
+            prior_year=prior_year,
+            line_items=percent_items,
+            show_totals=show_totals,
+            title_fmt=title_fmt,
+            header_fmt=header_fmt,
+            meta_label_fmt=meta_label_fmt,
+            meta_value_fmt=meta_value_fmt,
+            label_fmt=label_fmt,
+            summary_label_fmt=summary_label_fmt,
+            net_label_fmt=net_label_fmt,
+            detail_label_fmt=detail_label_fmt,
+            summary_detail_label_fmt=summary_detail_label_fmt,
+            net_detail_label_fmt=net_detail_label_fmt,
+            delta_label_fmt=delta_label_fmt,
+            summary_delta_label_fmt=summary_delta_label_fmt,
+            net_delta_label_fmt=net_delta_label_fmt,
+            detail_currency_fmt=detail_currency_fmt,
+            summary_detail_currency_fmt=summary_detail_currency_fmt,
+            net_detail_currency_fmt=net_detail_currency_fmt,
+            detail_percent_fmt=detail_percent_fmt,
+            summary_detail_percent_fmt=summary_detail_percent_fmt,
+            net_detail_percent_fmt=net_detail_percent_fmt,
+            positive_delta_percent_fmt=positive_delta_percent_fmt,
+            negative_delta_percent_fmt=negative_delta_percent_fmt,
+            summary_positive_delta_percent_fmt=summary_positive_delta_percent_fmt,
+            summary_negative_delta_percent_fmt=summary_negative_delta_percent_fmt,
+            net_positive_delta_percent_fmt=net_positive_delta_percent_fmt,
+            net_negative_delta_percent_fmt=net_negative_delta_percent_fmt,
+        )
+
+        workbook.close()
+        gc.collect()
+        return tmp_path, filename
+    except Exception:
+        if os.path.exists(tmp_path):
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+        raise
+
+
 def _write_pnl_sheet(
     worksheet: Any,
     *,
@@ -566,30 +867,206 @@ def _write_pnl_sheet(
     worksheet.freeze_panes(header_row + 1, 1)
 
 
+def _write_pnl_yoy_sheet(
+    worksheet: Any,
+    *,
+    sheet_title: str,
+    profile_display_name: str,
+    marketplace_code: str,
+    currency_code: str,
+    range_label: str,
+    months: list[str],
+    current_year: int,
+    prior_year: int,
+    line_items: list[PresentedYoYLineItem],
+    show_totals: bool,
+    title_fmt: Any,
+    header_fmt: Any,
+    meta_label_fmt: Any,
+    meta_value_fmt: Any,
+    label_fmt: Any,
+    summary_label_fmt: Any,
+    net_label_fmt: Any,
+    detail_label_fmt: Any,
+    summary_detail_label_fmt: Any,
+    net_detail_label_fmt: Any,
+    delta_label_fmt: Any,
+    summary_delta_label_fmt: Any,
+    net_delta_label_fmt: Any,
+    detail_currency_fmt: Any,
+    summary_detail_currency_fmt: Any,
+    net_detail_currency_fmt: Any,
+    detail_percent_fmt: Any,
+    summary_detail_percent_fmt: Any,
+    net_detail_percent_fmt: Any,
+    positive_delta_percent_fmt: Any,
+    negative_delta_percent_fmt: Any,
+    summary_positive_delta_percent_fmt: Any,
+    summary_negative_delta_percent_fmt: Any,
+    net_positive_delta_percent_fmt: Any,
+    net_negative_delta_percent_fmt: Any,
+) -> None:
+    last_col = len(months) + (1 if show_totals else 0)
+    worksheet.set_column(0, 0, 34)
+    worksheet.set_column(1, last_col, 14)
+
+    worksheet.merge_range(0, 0, 0, last_col, sheet_title, title_fmt)
+    worksheet.write_string(1, 0, "Account", meta_label_fmt)
+    worksheet.write_string(1, 1, profile_display_name, meta_value_fmt)
+    worksheet.write_string(1, 2, "Marketplace", meta_label_fmt)
+    worksheet.write_string(1, 3, marketplace_code.upper(), meta_value_fmt)
+    worksheet.write_string(2, 0, "Visible Range", meta_label_fmt)
+    worksheet.write_string(2, 1, range_label, meta_value_fmt)
+    worksheet.write_string(2, 2, "Currency", meta_label_fmt)
+    worksheet.write_string(2, 3, currency_code.upper(), meta_value_fmt)
+
+    header_row = 4
+    worksheet.write_string(header_row, 0, "Line Item", header_fmt)
+    for index, month in enumerate(months, start=1):
+        worksheet.write_string(header_row, index, month, header_fmt)
+    if show_totals:
+        worksheet.write_string(header_row, len(months) + 1, "Total", header_fmt)
+
+    row_index = header_row + 1
+    if not line_items:
+        worksheet.merge_range(row_index, 0, row_index, last_col, "No data available for the selected year.", meta_value_fmt)
+        worksheet.freeze_panes(header_row + 1, 1)
+        return
+
+    for item in line_items:
+        if item.key == "payout_amount":
+            row_index += 1
+
+        is_net_row = item.key == "net_earnings"
+        is_summary_row = item.key in SUMMARY_KEYS
+
+        current_label_fmt = net_label_fmt if is_net_row else summary_label_fmt if is_summary_row else label_fmt
+        detail_label_row_fmt = net_detail_label_fmt if is_net_row else summary_detail_label_fmt if is_summary_row else detail_label_fmt
+        delta_label_row_fmt = net_delta_label_fmt if is_net_row else summary_delta_label_fmt if is_summary_row else delta_label_fmt
+
+        detail_value_fmt = (
+            net_detail_percent_fmt if is_net_row else summary_detail_percent_fmt if is_summary_row else detail_percent_fmt
+        ) if item.display_format == "percent" else (
+            net_detail_currency_fmt if is_net_row else summary_detail_currency_fmt if is_summary_row else detail_currency_fmt
+        )
+
+        positive_delta_fmt = net_positive_delta_percent_fmt if is_net_row else summary_positive_delta_percent_fmt if is_summary_row else positive_delta_percent_fmt
+        negative_delta_fmt = net_negative_delta_percent_fmt if is_net_row else summary_negative_delta_percent_fmt if is_summary_row else negative_delta_percent_fmt
+
+        worksheet.write_string(row_index, 0, item.label, current_label_fmt)
+        for col_index in range(1, len(months) + 1):
+            worksheet.write_blank(row_index, col_index, None, current_label_fmt)
+        if show_totals:
+            worksheet.write_blank(row_index, len(months) + 1, None, current_label_fmt)
+        row_index += 1
+
+        worksheet.write_number(row_index, 0, current_year, detail_label_row_fmt)
+        for col_index, month in enumerate(item.current.keys(), start=1):
+            raw_value = item.current.get(month, Decimal("0"))
+            cell_value = float(raw_value / Decimal("100")) if item.display_format == "percent" else float(raw_value)
+            worksheet.write_number(row_index, col_index, cell_value, detail_value_fmt)
+        if show_totals:
+            total_value = float(item.current_total / Decimal("100")) if item.display_format == "percent" else float(item.current_total)
+            worksheet.write_number(row_index, len(months) + 1, total_value, detail_value_fmt)
+        row_index += 1
+
+        worksheet.write_number(row_index, 0, prior_year, detail_label_row_fmt)
+        for col_index, month in enumerate(item.prior.keys(), start=1):
+            raw_value = item.prior.get(month, Decimal("0"))
+            cell_value = float(raw_value / Decimal("100")) if item.display_format == "percent" else float(raw_value)
+            worksheet.write_number(row_index, col_index, cell_value, detail_value_fmt)
+        if show_totals:
+            total_value = float(item.prior_total / Decimal("100")) if item.display_format == "percent" else float(item.prior_total)
+            worksheet.write_number(row_index, len(months) + 1, total_value, detail_value_fmt)
+        row_index += 1
+
+        worksheet.write_string(row_index, 0, "Δ", delta_label_row_fmt)
+        current_values = list(item.current.values())
+        prior_values = list(item.prior.values())
+        for offset, _month in enumerate(months, start=1):
+            current_value = current_values[offset - 1] if offset - 1 < len(current_values) else Decimal("0")
+            prior_value = prior_values[offset - 1] if offset - 1 < len(prior_values) else Decimal("0")
+            if item.display_format == "percent":
+                delta_value = (current_value - prior_value) / Decimal("100")
+                worksheet.write_number(
+                    row_index,
+                    offset,
+                    float(delta_value),
+                    positive_delta_fmt if delta_value >= 0 else negative_delta_fmt,
+                )
+            elif abs(prior_value) <= ZERO_TOLERANCE:
+                worksheet.write_blank(row_index, offset, None, delta_label_row_fmt)
+            else:
+                delta_value = (current_value - prior_value) / abs(prior_value)
+                worksheet.write_number(
+                    row_index,
+                    offset,
+                    float(delta_value),
+                    positive_delta_fmt if delta_value >= 0 else negative_delta_fmt,
+                )
+        if show_totals:
+            if item.display_format == "percent":
+                total_delta = (item.current_total - item.prior_total) / Decimal("100")
+                worksheet.write_number(
+                    row_index,
+                    len(months) + 1,
+                    float(total_delta),
+                    positive_delta_fmt if total_delta >= 0 else negative_delta_fmt,
+                )
+            elif abs(item.prior_total) <= ZERO_TOLERANCE:
+                worksheet.write_blank(row_index, len(months) + 1, None, delta_label_row_fmt)
+            else:
+                total_delta = (item.current_total - item.prior_total) / abs(item.prior_total)
+                worksheet.write_number(
+                    row_index,
+                    len(months) + 1,
+                    float(total_delta),
+                    positive_delta_fmt if total_delta >= 0 else negative_delta_fmt,
+                )
+        row_index += 1
+
+    worksheet.freeze_panes(header_row + 1, 1)
+
+
 class PNLWorkbookExportService:
     def __init__(self, db: Client) -> None:
         self.db = db
         self.report_service = PNLReportService(db)
+        self.yoy_report_service = PNLYoYReportService(db)
 
     async def build_export_async(
         self,
         profile_id: str,
         *,
+        view_mode: str = "standard",
         filter_mode: str = "ytd",
         start_month: str | None = None,
         end_month: str | None = None,
+        year: int | None = None,
         show_totals: bool = True,
     ) -> tuple[str, str]:
-        report = await self.report_service.build_report_async(
-            profile_id,
-            filter_mode=filter_mode,
-            start_month=start_month,
-            end_month=end_month,
-        )
-        profile = report["profile"]
+        if view_mode not in {"standard", "yoy"}:
+            raise PNLValidationError("view_mode must be one of standard or yoy")
+
+        if view_mode == "yoy":
+            export_year = int(year or 0)
+            if export_year <= 0:
+                raise PNLValidationError("year is required for YoY workbook export")
+            report = await self.yoy_report_service.build_yoy_report_async(profile_id, year=export_year)
+            profile = report["profile"]
+        else:
+            report = await self.report_service.build_report_async(
+                profile_id,
+                filter_mode=filter_mode,
+                start_month=start_month,
+                end_month=end_month,
+            )
+            profile = report["profile"]
+
         client_name = await asyncio.to_thread(self._get_client_name, str(profile.get("client_id") or ""))
+        build_fn = build_pnl_yoy_workbook if view_mode == "yoy" else build_pnl_workbook
         return await asyncio.to_thread(
-            build_pnl_workbook,
+            build_fn,
             report,
             profile_display_name=client_name or "amazon-pnl",
             marketplace_code=str(profile.get("marketplace_code") or "amazon"),

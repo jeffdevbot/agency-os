@@ -428,18 +428,22 @@ export async function exportPnlWorkbook(
   token: string,
   profileId: string,
   options?: {
+    viewMode?: "standard" | "yoy";
     filterMode?: PnlFilterMode;
     startMonth?: string;
     endMonth?: string;
+    year?: number;
     showTotals?: boolean;
   },
 ): Promise<ExportPnlWorkbookResult> {
   const params = new URLSearchParams({
+    view_mode: options?.viewMode ?? "standard",
     filter_mode: options?.filterMode ?? "ytd",
     show_totals: String(options?.showTotals ?? true),
   });
   if (options?.startMonth) params.set("start_month", options.startMonth);
   if (options?.endMonth) params.set("end_month", options.endMonth);
+  if (options?.year) params.set("year", String(options.year));
 
   const response = await fetch(
     `${getBackendUrl()}/admin/pnl/profiles/${profileId}/export.xlsx?${params.toString()}`,

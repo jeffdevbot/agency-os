@@ -174,18 +174,14 @@ export default function PnlReportHeader({
                   % of Revenue
                 </button>
               </div>
-              {viewMode === "standard" ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={onExport}
-                    disabled={exportPending}
-                    className="rounded-full border border-[#dbe4f0] bg-white px-2 py-1.5 text-sm font-semibold text-[#0a6fd6] transition hover:border-[#94a3b8] hover:text-[#0f172a] disabled:cursor-not-allowed disabled:text-[#94a3b8]"
-                  >
-                    {exportPending ? "Exporting..." : "Export to Excel"}
-                  </button>
-                </>
-              ) : null}
+              <button
+                type="button"
+                onClick={onExport}
+                disabled={exportPending}
+                className="rounded-full border border-[#dbe4f0] bg-white px-2 py-1.5 text-sm font-semibold text-[#0a6fd6] transition hover:border-[#94a3b8] hover:text-[#0f172a] disabled:cursor-not-allowed disabled:text-[#94a3b8]"
+              >
+                {exportPending ? "Exporting..." : "Export to Excel"}
+              </button>
               <button
                 type="button"
                 onClick={onToggleTotals}

@@ -290,6 +290,15 @@ class TestProfileEndpoints:
         )
         assert "whoosh-us-pnl.xlsx" in resp.headers["content-disposition"]
         assert fake_svc.build_export_async.call_count == 1
+        _, kwargs = fake_svc.build_export_async.call_args
+        assert kwargs == {
+            "view_mode": "standard",
+            "filter_mode": "range",
+            "start_month": "2026-01-01",
+            "end_month": "2026-02-01",
+            "year": None,
+            "show_totals": False,
+        }
 
 
 class TestTransactionUpload:

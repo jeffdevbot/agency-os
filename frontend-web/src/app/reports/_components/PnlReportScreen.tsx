@@ -486,9 +486,11 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
   const handleExportWorkbook = async () => {
     if (!profileId) return;
     await workbookExport.downloadWorkbook({
+      viewMode,
       filterMode,
       startMonth: filterMode === "range" ? rangeStart : undefined,
       endMonth: filterMode === "range" ? rangeEnd : undefined,
+      year: viewMode === "yoy" ? selectedYear : undefined,
       showTotals,
     });
   };
