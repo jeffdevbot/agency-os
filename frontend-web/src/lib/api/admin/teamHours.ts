@@ -61,11 +61,13 @@ export type TeamHoursMember = {
   team_member_email: string | null;
   employment_status: string;
   link_status: "linked" | "unlinked" | "ambiguous";
+  timezone_name: string | null;
   total_hours: number;
   mapped_hours: number;
   unmapped_hours: number;
   entry_count: number;
   active_day_count: number;
+  day_range: string[];
   series: TeamHoursSeries[];
   daily: TeamHoursDailyPoint[];
 };
@@ -76,9 +78,11 @@ export type TeamHoursClient = {
   client_name: string;
   status: string;
   brand_count: number;
+  timezone_name: string | null;
   total_hours: number;
   entry_count: number;
   active_day_count: number;
+  day_range: string[];
   series: TeamHoursSeries[];
   daily: TeamHoursDailyPoint[];
 };

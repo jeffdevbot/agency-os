@@ -391,6 +391,12 @@ export default function CommandCenterHoursPage() {
 
   const selectedEntity = viewMode === "team_members" ? selectedMember : selectedClient;
   const chartSeries = selectedEntity?.series ?? [];
+  const timezoneLabel = useMemo(() => {
+    if (!selectedEntity) return null;
+    if (selectedEntity.timezone_name === "mixed") return "Mixed contributor timezones";
+    if (selectedEntity.timezone_name) return selectedEntity.timezone_name;
+    return "UTC fallback";
+  }, [selectedEntity]);
 
   const colorByKey = useMemo(() => {
     return new Map(chartSeries.map((series, index) => [series.key, safeColor(index)]));
@@ -399,7 +405,7 @@ export default function CommandCenterHoursPage() {
   const chartData = useMemo(() => {
     if (!report || !selectedEntity) return [];
     const dailyMap = new Map(selectedEntity.daily.map((day) => [day.date, day]));
-    return report.date_range.days.map((date) => {
+    return selectedEntity.day_range.map((date) => {
       const row: ChartRow = {
         date,
         label: formatShortDate(date),
@@ -679,6 +685,9 @@ export default function CommandCenterHoursPage() {
                             ? selectedMember?.team_member_email ?? selectedMember?.clickup_user_id ?? "No email or ClickUp ID"
                             : `${selectedClient?.brand_count ?? 0} brands tracked under this client`}
                         </p>
+                        {timezoneLabel ? (
+                          <p className="mt-2 text-sm text-slate-500">Grouped by day in: {timezoneLabel}</p>
+                        ) : null}
                       </div>
 
                       <div className="flex flex-wrap items-center gap-2">

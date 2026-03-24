@@ -49,9 +49,9 @@ async def test_build_report_returns_full_roster_and_daily_series():
             {
                 "id": "team-1",
                 "members": [
-                    {"user": {"id": 101, "username": "Alice CU", "email": "alice@clickup.test"}},
-                    {"user": {"id": 202, "username": "Bob CU", "email": "bob@clickup.test"}},
-                    {"user": {"id": 303, "username": "Carol CU", "email": "carol@clickup.test"}},
+                    {"user": {"id": 101, "username": "Alice CU", "email": "alice@clickup.test", "timezone": "Asia/Kolkata"}},
+                    {"user": {"id": 202, "username": "Bob CU", "email": "bob@clickup.test", "timezone": "Asia/Karachi"}},
+                    {"user": {"id": 303, "username": "Carol CU", "email": "carol@clickup.test", "timezone": "Asia/Manila"}},
                 ],
             }
         ],
@@ -219,6 +219,8 @@ async def test_build_report_returns_full_roster_and_daily_series():
 
     alice = result["team_members"][0]
     assert alice["link_status"] == "linked"
+    assert alice["timezone_name"] == "Asia/Kolkata"
+    assert alice["day_range"] == ["2023-11-15", "2023-11-16"]
     assert alice["total_hours"] == 3.0
     assert [series["label"] for series in alice["series"]] == [
         "Alpha Client • Alpha Brand",
@@ -226,7 +228,7 @@ async def test_build_report_returns_full_roster_and_daily_series():
     ]
     assert alice["daily"] == [
         {
-            "date": "2023-11-14",
+            "date": "2023-11-15",
             "total_hours": 2.0,
             "segments": [
                 {
@@ -243,7 +245,7 @@ async def test_build_report_returns_full_roster_and_daily_series():
             ],
         },
         {
-            "date": "2023-11-15",
+            "date": "2023-11-16",
             "total_hours": 1.0,
             "segments": [
                 {
@@ -265,11 +267,16 @@ async def test_build_report_returns_full_roster_and_daily_series():
     assert bob_clickup["team_member_profile_id"] is None
     assert bob_clickup["clickup_user_id"] == "202"
     assert bob_clickup["link_status"] == "unlinked"
+    assert bob_clickup["timezone_name"] == "Asia/Karachi"
+    assert bob_clickup["day_range"] == ["2023-11-15", "2023-11-16"]
     assert bob_clickup["series"][0]["label"] == "Gamma Client"
+    assert bob_clickup["daily"][0]["date"] == "2023-11-15"
 
     zero_member = result["team_members"][-1]
     assert zero_member["team_member_name"] == "Zoe"
     assert zero_member["total_hours"] == 0.0
+    assert zero_member["timezone_name"] is None
+    assert zero_member["day_range"] == ["2023-11-14", "2023-11-15"]
     assert zero_member["daily"] == []
 
     assert [client["client_name"] for client in result["clients"]] == [
@@ -279,6 +286,8 @@ async def test_build_report_returns_full_roster_and_daily_series():
         "Zero Client",
     ]
     gamma = result["clients"][2]
+    assert gamma["timezone_name"] == "Asia/Karachi"
+    assert gamma["day_range"] == ["2023-11-15", "2023-11-16"]
     assert gamma["series"][0]["label"] == "Bob CU"
     assert gamma["daily"][0]["segments"][0]["brand_name"] is None
 

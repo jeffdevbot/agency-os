@@ -162,6 +162,18 @@ class TestParsePacvueWorkbook:
         with pytest.raises(WBRValidationError, match="unsupported goal suffix"):
             parse_pacvue_workbook(file_bytes)
 
+    def test_accepts_category_as_comp_goal_suffix(self):
+        file_bytes = _build_workbook_bytes(
+            [
+                ["Name", "CampaignTagNames"],
+                ["Campaign A", "Screen Shine | Pro / Category"],
+            ]
+        )
+
+        parsed = parse_pacvue_workbook(file_bytes)
+
+        assert parsed.records[0].goal_code == "Comp"
+
     def test_handles_bad_sheet_dimension_metadata(self):
         file_bytes = _build_workbook_bytes(
             [

@@ -23,6 +23,7 @@ PACVUE_GOAL_CODES = {
     "perf": "Perf",
     "rsrch": "Rsrch",
     "comp": "Comp",
+    "category": "Comp",
     "harv": "Harv",
     "def": "Def",
     "rank": "Rank",

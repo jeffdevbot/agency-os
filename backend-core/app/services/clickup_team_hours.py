@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from supabase import Client
 
@@ -31,17 +32,46 @@ def _safe_int(value: Any) -> int | None:
         return None
 
 
-def _day_key_from_ms(value: int | None, *, fallback_ms: int) -> str:
+def _safe_zoneinfo(timezone_name: str | None) -> ZoneInfo | None:
+    if not timezone_name:
+        return None
+    try:
+        return ZoneInfo(timezone_name)
+    except ZoneInfoNotFoundError:
+        return None
+
+
+def _day_key_from_ms(value: int | None, *, fallback_ms: int, timezone_name: str | None = None) -> str:
     candidate_ms = value if value and value > 0 else fallback_ms
-    return datetime.fromtimestamp(candidate_ms / 1000, tz=UTC).strftime("%Y-%m-%d")
+    zone = _safe_zoneinfo(timezone_name) or UTC
+    return datetime.fromtimestamp(candidate_ms / 1000, tz=UTC).astimezone(zone).strftime("%Y-%m-%d")
 
 
-def _day_keys_in_range(start_date_ms: int, end_date_ms: int) -> list[str]:
-    start_day = datetime.fromtimestamp(start_date_ms / 1000, tz=UTC).date()
-    end_day = datetime.fromtimestamp(end_date_ms / 1000, tz=UTC).date()
+def _day_keys_in_range(
+    start_date_ms: int,
+    end_date_ms: int,
+    *,
+    timezone_name: str | None = None,
+) -> list[str]:
+    zone = _safe_zoneinfo(timezone_name) or UTC
+    start_day = datetime.fromtimestamp(start_date_ms / 1000, tz=UTC).astimezone(zone).date()
+    end_day = datetime.fromtimestamp(end_date_ms / 1000, tz=UTC).astimezone(zone).date()
     days: list[str] = []
     current = start_day
     while current <= end_day:
+        days.append(current.isoformat())
+        current += timedelta(days=1)
+    return days
+
+
+def _continuous_day_keys(values: set[str]) -> list[str]:
+    if not values:
+        return []
+    parsed = sorted(date.fromisoformat(value) for value in values)
+    days: list[str] = []
+    current = parsed[0]
+    end = parsed[-1]
+    while current <= end:
         days.append(current.isoformat())
         current += timedelta(days=1)
     return days
@@ -76,7 +106,7 @@ class ClickUpTeamHoursService:
             include_location_names=True,
         )
 
-        mappings = self._load_mappings()
+        mappings = self._load_mappings(workspace)
         normalized = [self._normalize_entry(row, mappings, fallback_day_ms=start_date_ms) for row in entries]
         return self._build_response(
             normalized,
@@ -109,7 +139,21 @@ class ClickUpTeamHoursService:
                 assignee_ids.append(user_id)
         return assignee_ids
 
-    def _load_mappings(self) -> dict[str, Any]:
+    def _workspace_timezones(self, workspace: dict[str, Any]) -> dict[str, str]:
+        timezone_by_clickup_user: dict[str, str] = {}
+        for member in workspace.get("members") or []:
+            if not isinstance(member, dict):
+                continue
+            user = member.get("user")
+            if not isinstance(user, dict):
+                continue
+            user_id = _as_str(user.get("id"))
+            timezone_name = _as_str(user.get("timezone"))
+            if user_id and _safe_zoneinfo(timezone_name):
+                timezone_by_clickup_user[user_id] = timezone_name  # type: ignore[assignment]
+        return timezone_by_clickup_user
+
+    def _load_mappings(self, workspace: dict[str, Any]) -> dict[str, Any]:
         profiles_resp = (
             self.db.table("profiles")
             .select("id, email, display_name, full_name, clickup_user_id, employment_status")
@@ -185,6 +229,7 @@ class ClickUpTeamHoursService:
             "clients": [row for row in clients if isinstance(row, dict)],
             "profiles_by_clickup_user": profiles_by_clickup_user,
             "profile_link_status_by_id": profile_link_status_by_id,
+            "timezone_by_clickup_user": self._workspace_timezones(workspace),
             "scopes_by_list_id": scopes_by_list_id,
             "scopes_by_space_id": scopes_by_space_id,
             "brand_count_by_client_id": brand_count_by_client_id,
@@ -217,6 +262,7 @@ class ClickUpTeamHoursService:
         is_running = raw_duration_ms < 0
         duration_ms = max(raw_duration_ms, 0)
         start_ms = _safe_int(row.get("start"))
+        timezone_name = mappings["timezone_by_clickup_user"].get(clickup_user_id) if clickup_user_id else None
 
         return {
             "time_entry_id": _as_str(row.get("id")),
@@ -235,7 +281,8 @@ class ClickUpTeamHoursService:
             "billable": bool(row.get("billable")) if row.get("billable") is not None else None,
             "start_ms": start_ms,
             "end_ms": _safe_int(row.get("end")),
-            "day_key": _day_key_from_ms(start_ms, fallback_ms=fallback_day_ms),
+            "timezone_name": timezone_name,
+            "day_key": _day_key_from_ms(start_ms, fallback_ms=fallback_day_ms, timezone_name=timezone_name),
             "duration_ms": duration_ms,
             "is_running": is_running,
             "description": _as_str(row.get("description")),
@@ -320,7 +367,12 @@ class ClickUpTeamHoursService:
             or _as_str(profile.get("email"))
         )
 
-    def _build_team_entity(self, profile: dict[str, Any], link_status: str) -> dict[str, Any]:
+    def _build_team_entity(
+        self,
+        profile: dict[str, Any],
+        link_status: str,
+        timezone_name: str | None,
+    ) -> dict[str, Any]:
         profile_id = _as_str(profile.get("id")) or "unknown-profile"
         return {
             "entity_id": f"profile:{profile_id}",
@@ -330,11 +382,13 @@ class ClickUpTeamHoursService:
             "team_member_email": _as_str(profile.get("email")),
             "employment_status": _as_str(profile.get("employment_status")) or "active",
             "link_status": link_status,
+            "timezone_name": timezone_name,
             "total_duration_ms": 0,
             "mapped_duration_ms": 0,
             "unmapped_duration_ms": 0,
             "entry_count": 0,
             "days": set(),
+            "boundary_days": set(),
             "series": {},
             "daily": {},
         }
@@ -349,11 +403,13 @@ class ClickUpTeamHoursService:
             "team_member_email": row["clickup_user_email"],
             "employment_status": "unknown",
             "link_status": "unlinked",
+            "timezone_name": row["timezone_name"],
             "total_duration_ms": 0,
             "mapped_duration_ms": 0,
             "unmapped_duration_ms": 0,
             "entry_count": 0,
             "days": set(),
+            "boundary_days": set(),
             "series": {},
             "daily": {},
         }
@@ -366,6 +422,8 @@ class ClickUpTeamHoursService:
             "client_name": _as_str(client.get("name")) or "Unknown client",
             "status": _as_str(client.get("status")) or "active",
             "brand_count": brand_count,
+            "timezone_name": None,
+            "boundary_days": set(),
             "total_duration_ms": 0,
             "entry_count": 0,
             "days": set(),
@@ -410,6 +468,27 @@ class ClickUpTeamHoursService:
             )
         return rows
 
+    def _entity_day_range(
+        self,
+        *,
+        start_date_ms: int,
+        end_date_ms: int,
+        timezone_name: str | None,
+        observed_days: set[str],
+        boundary_days: set[str],
+    ) -> list[str]:
+        if timezone_name:
+            base_days = set(
+                _day_keys_in_range(
+                    start_date_ms,
+                    end_date_ms,
+                    timezone_name=timezone_name,
+                )
+            )
+        else:
+            base_days = set(_day_keys_in_range(start_date_ms, end_date_ms))
+        return _continuous_day_keys(base_days | observed_days | boundary_days)
+
     def _build_response(
         self,
         rows: list[dict[str, Any]],
@@ -434,9 +513,11 @@ class ClickUpTeamHoursService:
             profile_id = _as_str(profile.get("id"))
             if not profile_id:
                 continue
+            clickup_user_id = _as_str(profile.get("clickup_user_id"))
             team_entities[f"profile:{profile_id}"] = self._build_team_entity(
                 profile,
                 mappings["profile_link_status_by_id"].get(profile_id, "unlinked"),
+                mappings["timezone_by_clickup_user"].get(clickup_user_id) if clickup_user_id else None,
             )
 
         client_entities: dict[str, dict[str, Any]] = {}
@@ -466,10 +547,19 @@ class ClickUpTeamHoursService:
             member["entry_count"] += 1
             if row["duration_ms"] > 0:
                 member["days"].add(row["day_key"])
+            if row["timezone_name"]:
+                member["timezone_name"] = row["timezone_name"]
             if row["client_id"]:
                 member["mapped_duration_ms"] += row["duration_ms"]
             else:
                 member["unmapped_duration_ms"] += row["duration_ms"]
+            member["boundary_days"].update(
+                _day_keys_in_range(
+                    start_date_ms,
+                    end_date_ms,
+                    timezone_name=member["timezone_name"],
+                )
+            )
 
             member_series_key = "|".join(
                 [
@@ -529,6 +619,24 @@ class ClickUpTeamHoursService:
                     client["entry_count"] += 1
                     if row["duration_ms"] > 0:
                         client["days"].add(row["day_key"])
+                    if client["timezone_name"] in (None, row["timezone_name"]):
+                        client["timezone_name"] = row["timezone_name"]
+                    else:
+                        client["timezone_name"] = "mixed"
+                    client["boundary_days"].add(
+                        _day_key_from_ms(
+                            start_date_ms,
+                            fallback_ms=start_date_ms,
+                            timezone_name=row["timezone_name"],
+                        )
+                    )
+                    client["boundary_days"].add(
+                        _day_key_from_ms(
+                            end_date_ms,
+                            fallback_ms=end_date_ms,
+                            timezone_name=row["timezone_name"],
+                        )
+                    )
 
                     client_series_key = "|".join(
                         [
@@ -622,11 +730,19 @@ class ClickUpTeamHoursService:
                     "team_member_email": entity["team_member_email"],
                     "employment_status": entity["employment_status"],
                     "link_status": entity["link_status"],
+                    "timezone_name": entity["timezone_name"],
                     "total_hours": _hours(entity["total_duration_ms"]),
                     "mapped_hours": _hours(entity["mapped_duration_ms"]),
                     "unmapped_hours": _hours(entity["unmapped_duration_ms"]),
                     "entry_count": entity["entry_count"],
                     "active_day_count": len(entity["days"]),
+                    "day_range": self._entity_day_range(
+                        start_date_ms=start_date_ms,
+                        end_date_ms=end_date_ms,
+                        timezone_name=entity["timezone_name"],
+                        observed_days=entity["days"],
+                        boundary_days=entity["boundary_days"],
+                    ),
                     "series": series,
                     "daily": self._finalize_daily(entity["daily"]),
                 }
@@ -649,9 +765,17 @@ class ClickUpTeamHoursService:
                     "client_name": entity["client_name"],
                     "status": entity["status"],
                     "brand_count": entity["brand_count"],
+                    "timezone_name": entity["timezone_name"],
                     "total_hours": _hours(entity["total_duration_ms"]),
                     "entry_count": entity["entry_count"],
                     "active_day_count": len(entity["days"]),
+                    "day_range": self._entity_day_range(
+                        start_date_ms=start_date_ms,
+                        end_date_ms=end_date_ms,
+                        timezone_name=entity["timezone_name"] if entity["timezone_name"] != "mixed" else None,
+                        observed_days=entity["days"],
+                        boundary_days=entity["boundary_days"],
+                    ),
                     "series": series,
                     "daily": self._finalize_daily(entity["daily"]),
                 }
