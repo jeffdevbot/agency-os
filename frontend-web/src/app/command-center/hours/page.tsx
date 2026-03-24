@@ -763,7 +763,7 @@ export default function CommandCenterHoursPage() {
                                 dataKey={series.key}
                                 stackId="hours"
                                 fill={safeColor(index)}
-                                radius={[6, 6, 0, 0]}
+                                radius={0}
                               />
                             ))}
                           </BarChart>
