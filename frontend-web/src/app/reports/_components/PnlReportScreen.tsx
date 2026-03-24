@@ -653,7 +653,7 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
         </div>
       ) : null}
 
-      {(viewMode === "standard" ? presentedReport.warnings : (yoyReport?.warnings ?? [])).length > 0 ? (
+      {showSettings && (viewMode === "standard" ? presentedReport.warnings : (yoyReport?.warnings ?? [])).length > 0 ? (
         <div className="rounded-3xl bg-white/95 p-5 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur md:p-6">
           <div className="space-y-2">
             {(viewMode === "standard" ? presentedReport.warnings : (yoyReport?.warnings ?? [])).map((warning, index) => (
