@@ -127,6 +127,24 @@ def _make_rules() -> list[MappingRule]:
             priority=20,
         ),
         MappingRule(
+            id="rule-safe-t",
+            profile_id=None,
+            source_type="amazon_transaction_upload",
+            match_spec={"type": "SAFE-T reimbursement"},
+            match_operator="exact_fields",
+            target_bucket="fba_inventory_credit",
+            priority=20,
+        ),
+        MappingRule(
+            id="rule-debt",
+            profile_id=None,
+            source_type="amazon_transaction_upload",
+            match_spec={"type": "Debt"},
+            match_operator="exact_fields",
+            target_bucket="fba_inventory_credit",
+            priority=20,
+        ),
+        MappingRule(
             id="rule-removal",
             profile_id=None,
             source_type="amazon_transaction_upload",
@@ -1005,6 +1023,50 @@ class TestSkuUnitAggregation:
         assert entries[0].amount == Decimal("-3.95")
         assert entries[0].mapping_rule_id == "rule-removal"
 
+    def test_safe_t_reimbursement_maps_to_fba_inventory_credit(self):
+        raw_row = ParsedRawRow(
+            row_index=11,
+            posted_at=datetime(2025, 10, 5, tzinfo=UTC),
+            release_at=datetime(2025, 10, 5, tzinfo=UTC),
+            order_id="113-4885376-8377044",
+            sku="676685041500",
+            raw_type="SAFE-T reimbursement",
+            raw_description="SAFE-T Claim ID: 113-4885376-8377044",
+            entry_month=date(2025, 10, 1),
+            amounts={"other": Decimal("25.50")},
+            raw_payload={},
+        )
+
+        entries = expand_raw_row_to_ledger(raw_row, _make_rules(), None)
+
+        assert len(entries) == 1
+        assert entries[0].ledger_bucket == "fba_inventory_credit"
+        assert entries[0].amount == Decimal("25.50")
+        assert entries[0].is_mapped is True
+        assert entries[0].mapping_rule_id == "rule-safe-t"
+
+    def test_debt_maps_to_fba_inventory_credit(self):
+        raw_row = ParsedRawRow(
+            row_index=12,
+            posted_at=datetime(2025, 1, 11, tzinfo=UTC),
+            release_at=datetime(2025, 1, 11, tzinfo=UTC),
+            order_id=None,
+            sku=None,
+            raw_type="Debt",
+            raw_description="amzn1.cam.v1.sgid.22074991421",
+            entry_month=date(2025, 1, 1),
+            amounts={"other": Decimal("52.32")},
+            raw_payload={},
+        )
+
+        entries = expand_raw_row_to_ledger(raw_row, _make_rules(), None)
+
+        assert len(entries) == 1
+        assert entries[0].ledger_bucket == "fba_inventory_credit"
+        assert entries[0].amount == Decimal("52.32")
+        assert entries[0].is_mapped is True
+        assert entries[0].mapping_rule_id == "rule-debt"
+
     def test_liquidations_split_into_proceeds_and_fees(self):
         raw_row = ParsedRawRow(
             row_index=8,
@@ -1028,6 +1090,33 @@ class TestSkuUnitAggregation:
         assert buckets["fba_liquidation_proceeds"] == Decimal("125.00")
         assert buckets["liquidation_fees"] == Decimal("-7.50")
         assert buckets["unmapped"] == Decimal("-1.25")
+
+    def test_liquidations_map_marketplace_withheld_tax_out_of_unmapped(self):
+        raw_row = ParsedRawRow(
+            row_index=81,
+            posted_at=datetime(2025, 1, 2, tzinfo=UTC),
+            release_at=datetime(2025, 5, 3, tzinfo=UTC),
+            order_id="19728972555551",
+            sku="B07Z2WNMZS",
+            raw_type="Liquidations",
+            raw_description="Liquidation sample",
+            entry_month=date(2025, 1, 1),
+            amounts={
+                "product_sales": Decimal("9.46"),
+                "other_transaction_fees": Decimal("-2.02"),
+                "marketplace_withheld_tax": Decimal("-0.78"),
+            },
+            raw_payload={},
+        )
+
+        entries = expand_raw_row_to_ledger(raw_row, _make_rules(), None)
+        buckets = {e.ledger_bucket: e.amount for e in entries}
+
+        assert buckets["fba_liquidation_proceeds"] == Decimal("9.46")
+        assert buckets["liquidation_fees"] == Decimal("-2.02")
+        assert buckets["marketplace_withheld_tax"] == Decimal("-0.78")
+        assert "unmapped" not in buckets
+        assert all(e.is_mapped for e in entries)
 
     def test_refund_other_maps_to_refunds_bucket(self):
         raw_row = ParsedRawRow(

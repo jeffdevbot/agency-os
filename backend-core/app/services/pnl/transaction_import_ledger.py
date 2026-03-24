@@ -105,7 +105,11 @@ def expand_raw_row_to_ledger(
 
     entries: list[LedgerEntry] = []
     if normalized_type == "Liquidations":
-        handled_columns = {"product_sales", "other_transaction_fees"}
+        handled_columns = {
+            "product_sales",
+            "other_transaction_fees",
+            "marketplace_withheld_tax",
+        }
         if raw_row.amounts.get("product_sales", Decimal("0")) != 0:
             entries.append(
                 LedgerEntry(
@@ -133,6 +137,22 @@ def expand_raw_row_to_ledger(
                     raw_description=raw_description,
                     ledger_bucket="liquidation_fees",
                     amount=raw_row.amounts["other_transaction_fees"],
+                    is_mapped=True,
+                    mapping_rule_id=None,
+                    source_row_index=raw_row.row_index,
+                )
+            )
+        if raw_row.amounts.get("marketplace_withheld_tax", Decimal("0")) != 0:
+            entries.append(
+                LedgerEntry(
+                    entry_month=raw_row.entry_month,
+                    posted_at=raw_row.posted_at,
+                    order_id=raw_row.order_id,
+                    sku=raw_row.sku,
+                    raw_type=raw_type,
+                    raw_description=raw_description,
+                    ledger_bucket="marketplace_withheld_tax",
+                    amount=raw_row.amounts["marketplace_withheld_tax"],
                     is_mapped=True,
                     mapping_rule_id=None,
                     source_row_index=raw_row.row_index,
