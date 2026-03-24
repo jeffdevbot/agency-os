@@ -201,6 +201,9 @@ function TeamMemberTable({ members }: { members: TeamHoursMember[] }) {
                     />
                   </div>
                   <div className="text-xs text-slate-500">{member.team_member_email ?? member.clickup_user_id ?? "No email"}</div>
+                  {member.clickup_user_id ? (
+                    <div className="text-xs text-slate-400">ClickUp ID: {member.clickup_user_id}</div>
+                  ) : null}
                 </td>
                 <td className="px-4 py-4 align-top">
                   <span
@@ -427,7 +430,14 @@ const unmappedUserRows = (users: TeamHoursUnmappedUser[]) =>
   users.map((user) => ({
     key: user.clickup_user_id ?? user.clickup_username ?? "unknown-user",
     name: user.clickup_username ?? "Unlinked ClickUp User",
-    detail: user.clickup_user_email ?? user.clickup_user_id ?? "No email or ClickUp user id",
+    detail:
+      user.clickup_user_email && user.clickup_user_id
+        ? `${user.clickup_user_email} | ClickUp ID: ${user.clickup_user_id}`
+        : user.clickup_user_email
+          ? user.clickup_user_email
+          : user.clickup_user_id
+            ? `ClickUp ID: ${user.clickup_user_id}`
+            : "No email or ClickUp user id",
     hours: user.total_hours,
   }));
 
