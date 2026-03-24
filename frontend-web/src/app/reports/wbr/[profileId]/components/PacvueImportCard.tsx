@@ -63,6 +63,7 @@ export default function PacvueImportCard({
       { label: "Rows Read", value: String(latestImport.summary.rows_read) },
       { label: "Rows Loaded", value: String(latestImport.summary.rows_loaded) },
       { label: "Duplicates Skipped", value: String(latestImport.summary.duplicate_rows_skipped) },
+      { label: "Invalid Tags Skipped", value: String(latestImport.summary.invalid_rows_skipped) },
       { label: "Leaf Rows Created", value: String(latestImport.summary.created_leaf_rows) },
       { label: "Leaf Rows Reactivated", value: String(latestImport.summary.reactivated_leaf_rows) },
     ];
@@ -138,6 +139,24 @@ export default function PacvueImportCard({
         </p>
       ) : null}
 
+      {latestImport && latestImport.summary.warnings.length > 0 ? (
+        <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <p className="font-semibold">Upstream Pacvue tags need cleanup</p>
+          <p className="mt-1">
+            Invalid tag rows were skipped. Those campaigns will remain in
+            {" "}
+            <span className="font-semibold">Unmapped / Legacy Campaigns</span>
+            {" "}
+            until fixed upstream.
+          </p>
+          <ul className="mt-2 list-disc space-y-1 pl-5">
+            {latestImport.summary.warnings.slice(0, 5).map((warning) => (
+              <li key={warning}>{warning}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
       {latestSummaryRows.length > 0 ? (
         <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4">
           <p className="text-sm font-semibold text-emerald-900">Latest Import Summary</p>
@@ -163,7 +182,7 @@ export default function PacvueImportCard({
               <th className="px-3 py-2">File</th>
               <th className="px-3 py-2">Rows Read</th>
               <th className="px-3 py-2">Rows Loaded</th>
-              <th className="px-3 py-2">Error</th>
+              <th className="px-3 py-2">Notes</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-200 bg-white">

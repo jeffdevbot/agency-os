@@ -96,7 +96,9 @@ export function usePacvueImport(profileId: string, options?: UsePacvueImportOpti
         const result = await importPacvueWorkbook(token, profileId, file);
         setLatestImport(result);
         setSuccessMessage(
-          `Imported ${result.summary.rows_loaded} campaign mappings from "${file.name}".`
+          result.summary.invalid_rows_skipped > 0
+            ? `Imported ${result.summary.rows_loaded} campaign mappings from "${file.name}". Skipped ${result.summary.invalid_rows_skipped} invalid tag row${result.summary.invalid_rows_skipped === 1 ? "" : "s"}; those campaigns will stay in Unmapped / Legacy until fixed upstream.`
+            : `Imported ${result.summary.rows_loaded} campaign mappings from "${file.name}".`
         );
         await loadBatches(true);
         if (options?.onImportSuccess) {

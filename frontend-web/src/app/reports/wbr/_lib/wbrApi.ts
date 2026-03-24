@@ -53,8 +53,11 @@ export type WbrPacvueImportSummary = {
   rows_read: number;
   rows_loaded: number;
   duplicate_rows_skipped: number;
+  unmapped_rows_skipped: number;
+  invalid_rows_skipped: number;
   created_leaf_rows: number;
   reactivated_leaf_rows: number;
+  warnings: string[];
 };
 
 export type WbrPacvueImportResult = {
@@ -274,8 +277,11 @@ const parsePacvueImportSummary = (value: unknown): WbrPacvueImportSummary => {
     rows_read: asNumber(value.rows_read),
     rows_loaded: asNumber(value.rows_loaded),
     duplicate_rows_skipped: asNumber(value.duplicate_rows_skipped),
+    unmapped_rows_skipped: asNumber(value.unmapped_rows_skipped),
+    invalid_rows_skipped: asNumber(value.invalid_rows_skipped),
     created_leaf_rows: asNumber(value.created_leaf_rows),
     reactivated_leaf_rows: asNumber(value.reactivated_leaf_rows),
+    warnings: Array.isArray(value.warnings) ? value.warnings.map(asString).filter(Boolean) : [],
   };
 };
 

@@ -24,6 +24,7 @@ PACVUE_GOAL_CODES = {
     "rsrch": "Rsrch",
     "comp": "Comp",
     "category": "Comp",
+    "competitor": "Comp",
     "harv": "Harv",
     "def": "Def",
     "rank": "Rank",
@@ -48,6 +49,8 @@ class ParsedPacvueWorkbook:
     rows_read: int
     duplicate_rows_skipped: int
     unmapped_rows_skipped: int
+    invalid_rows_skipped: int
+    warnings: list[str]
     records: list[ParsedPacvueRecord]
 
 
@@ -101,6 +104,8 @@ def parse_pacvue_workbook(file_bytes: bytes) -> ParsedPacvueWorkbook:
     deduped_by_campaign: dict[str, ParsedPacvueRecord] = {}
     duplicate_rows_skipped = 0
     unmapped_rows_skipped = 0
+    invalid_rows_skipped = 0
+    warning_counts: dict[str, int] = {}
 
     for row in rows[header_row_index + 1 :]:
         campaign_name = _as_cell_text(row[header_map["campaign_name"]]) if header_map["campaign_name"] < len(row) else ""
@@ -112,12 +117,21 @@ def parse_pacvue_workbook(file_bytes: bytes) -> ParsedPacvueWorkbook:
         if campaign_name and not raw_tag and _is_footer_row(campaign_name):
             continue
         if not campaign_name or not raw_tag:
-            raise WBRValidationError("Pacvue rows must include both Name and CampaignTagNames values")
+            invalid_rows_skipped += 1
+            warning_counts["Pacvue rows must include both Name and CampaignTagNames values"] = (
+                warning_counts.get("Pacvue rows must include both Name and CampaignTagNames values", 0) + 1
+            )
+            continue
         if _is_empty_tag(raw_tag):
             unmapped_rows_skipped += 1
             continue
 
-        leaf_row_label, goal_code = _parse_tag(raw_tag)
+        try:
+            leaf_row_label, goal_code = _parse_tag(raw_tag)
+        except WBRValidationError as exc:
+            invalid_rows_skipped += 1
+            warning_counts[str(exc)] = warning_counts.get(str(exc), 0) + 1
+            continue
         raw_payload = {
             header_values[idx]: _as_cell_text(row[idx]) if idx < len(row) else ""
             for idx in range(len(header_values))
@@ -143,14 +157,24 @@ def parse_pacvue_workbook(file_bytes: bytes) -> ParsedPacvueWorkbook:
         duplicate_rows_skipped += 1
 
     if not records:
+        if warning_counts:
+            top_message = sorted(warning_counts.items(), key=lambda item: (-item[1], item[0]))[0][0]
+            raise WBRValidationError(top_message)
         raise WBRValidationError("Pacvue workbook contained no campaign/tag rows")
+
+    warnings = [
+        f"{message} ({count} row{'s' if count != 1 else ''})"
+        for message, count in sorted(warning_counts.items(), key=lambda item: (-item[1], item[0]))
+    ]
 
     return ParsedPacvueWorkbook(
         sheet_title=selected_sheet_title or workbook.active.title,
         header_row_index=header_row_index,
-        rows_read=len(records) + duplicate_rows_skipped,
+        rows_read=len(records) + duplicate_rows_skipped + unmapped_rows_skipped + invalid_rows_skipped,
         duplicate_rows_skipped=duplicate_rows_skipped,
         unmapped_rows_skipped=unmapped_rows_skipped,
+        invalid_rows_skipped=invalid_rows_skipped,
+        warnings=warnings,
         records=records,
     )
 
@@ -241,7 +265,7 @@ class PacvueImportService:
                 import_status="success",
                 rows_read=parsed.rows_read,
                 rows_loaded=loaded_count,
-                error_message=None,
+                error_message=self._warning_summary(parsed),
             )
             return {
                 "batch": batch,
@@ -251,8 +275,10 @@ class PacvueImportService:
                     "rows_loaded": loaded_count,
                     "duplicate_rows_skipped": parsed.duplicate_rows_skipped,
                     "unmapped_rows_skipped": parsed.unmapped_rows_skipped,
+                    "invalid_rows_skipped": parsed.invalid_rows_skipped,
                     "created_leaf_rows": row_summary["created_leaf_rows"],
                     "reactivated_leaf_rows": row_summary["reactivated_leaf_rows"],
+                    "warnings": parsed.warnings,
                 },
             }
         except WBRValidationError as exc:
@@ -278,6 +304,17 @@ class PacvueImportService:
         lower_name = (file_name or "").lower()
         if not lower_name.endswith(PACVUE_ALLOWED_EXTENSIONS):
             raise WBRValidationError("Pacvue import currently supports .xlsx and .xlsm files only")
+
+    def _warning_summary(self, parsed: ParsedPacvueWorkbook) -> str | None:
+        if parsed.invalid_rows_skipped <= 0:
+            return None
+        top_warning = parsed.warnings[0] if parsed.warnings else "Invalid Pacvue tags were skipped"
+        return (
+            f"Skipped {parsed.invalid_rows_skipped} invalid Pacvue row"
+            f"{'s' if parsed.invalid_rows_skipped != 1 else ''}. "
+            f"Those campaigns will remain in Unmapped / Legacy Campaigns until fixed upstream. "
+            f"{top_warning}"
+        )
 
     def _get_profile(self, profile_id: str) -> dict[str, Any]:
         response = (

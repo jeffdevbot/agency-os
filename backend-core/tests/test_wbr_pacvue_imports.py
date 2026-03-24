@@ -174,6 +174,37 @@ class TestParsePacvueWorkbook:
 
         assert parsed.records[0].goal_code == "Comp"
 
+    def test_accepts_competitor_as_comp_goal_suffix(self):
+        file_bytes = _build_workbook_bytes(
+            [
+                ["Name", "CampaignTagNames"],
+                ["Campaign A", "Screen Shine | Pro / Competitor"],
+            ]
+        )
+
+        parsed = parse_pacvue_workbook(file_bytes)
+
+        assert parsed.records[0].goal_code == "Comp"
+
+    def test_skips_invalid_tag_rows_and_keeps_valid_rows(self):
+        file_bytes = _build_workbook_bytes(
+            [
+                ["Name", "CampaignTagNames"],
+                ["Valid Campaign", "Screen Shine | Pro / Perf"],
+                ["Invalid Campaign", "Screen Shine | Pro / Weird"],
+                ["Also Invalid", "Screen Shine | Duo / Perf, Screen Shine | Pro / Rank"],
+            ]
+        )
+
+        parsed = parse_pacvue_workbook(file_bytes)
+
+        assert parsed.rows_read == 3
+        assert parsed.invalid_rows_skipped == 2
+        assert len(parsed.records) == 1
+        assert parsed.records[0].campaign_name == "Valid Campaign"
+        assert any("unsupported goal suffix" in warning for warning in parsed.warnings)
+        assert any("must contain exactly one tag value" in warning for warning in parsed.warnings)
+
     def test_handles_bad_sheet_dimension_metadata(self):
         file_bytes = _build_workbook_bytes(
             [
@@ -203,7 +234,7 @@ class TestParsePacvueWorkbook:
 
         parsed = parse_pacvue_workbook(file_bytes)
 
-        assert parsed.rows_read == 1
+        assert parsed.rows_read == 2
         assert parsed.unmapped_rows_skipped == 1
         assert len(parsed.records) == 1
         assert parsed.records[0].campaign_name == "Mapped Campaign"
@@ -271,6 +302,64 @@ class TestPacvueImportService:
         assert result["summary"]["reactivated_leaf_rows"] == 1
         assert result["summary"]["created_leaf_rows"] == 0
         assert result["summary"]["unmapped_rows_skipped"] == 0
+        assert result["summary"]["invalid_rows_skipped"] == 0
+
+    def test_import_skips_invalid_rows_and_returns_warning_summary(self):
+        file_bytes = _build_workbook_bytes(
+            [
+                ["Name", "CampaignTagNames"],
+                ["Campaign A", "Screen Shine | Pro / Perf"],
+                ["Campaign B", "Screen Shine | Pro / Weird"],
+            ]
+        )
+        profile = {"id": "p1"}
+        batch = {"id": "b1", "import_status": "running"}
+        finished_batch = {
+            "id": "b1",
+            "import_status": "success",
+            "rows_read": 2,
+            "rows_loaded": 1,
+            "error_message": "Skipped 1 invalid Pacvue row.",
+        }
+        db = _multi_table_db(
+            {
+                "wbr_profiles": [_chain_table([profile])],
+                "wbr_pacvue_import_batches": [
+                    _chain_table([batch]),
+                    _chain_table([finished_batch]),
+                ],
+                "wbr_rows": [
+                    _chain_table([]),
+                    _chain_table([{"id": "leaf-1", "row_label": "Screen Shine | Pro"}]),
+                    _chain_table([{"id": "leaf-1", "row_label": "Screen Shine | Pro"}]),
+                ],
+                "wbr_pacvue_campaign_map": [
+                    _chain_table([{"id": "m1"}]),
+                    _chain_table([]),
+                    _chain_table([{"id": "m1"}]),
+                ],
+            }
+        )
+
+        svc = PacvueImportService(db)
+        result = svc.import_workbook(
+            profile_id="p1",
+            file_name="pacvue.xlsx",
+            file_bytes=file_bytes,
+            user_id="u1",
+        )
+
+        assert result["batch"]["import_status"] == "success"
+        assert result["summary"]["rows_loaded"] == 1
+        assert result["summary"]["invalid_rows_skipped"] == 1
+        assert result["summary"]["warnings"]
+        assert "unsupported goal suffix" in result["summary"]["warnings"][0]
+        assert (
+            "Unmapped / Legacy Campaigns"
+            in svc._warning_summary(
+                parse_pacvue_workbook(file_bytes)
+            )
+        )
 
     def test_rejects_non_xlsx_files(self):
         svc = PacvueImportService(MagicMock())
