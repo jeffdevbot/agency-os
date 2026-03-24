@@ -174,7 +174,7 @@ function TeamMemberTable({ members }: { members: TeamHoursMember[] }) {
       <div className="border-b border-slate-200 px-6 py-4">
         <h2 className="text-lg font-semibold text-slate-900">By Team Member</h2>
         <p className="mt-1 text-sm text-slate-500">
-          Unlinked users and spaces stay visible so mapping drift is actionable instead of hidden.
+          Profile linking and client attribution are tracked separately, so an unlinked ClickUp user can still have attributed client hours.
         </p>
       </div>
       <div className="overflow-x-auto">
@@ -182,7 +182,7 @@ function TeamMemberTable({ members }: { members: TeamHoursMember[] }) {
           <thead className="bg-slate-50">
             <tr className="text-left text-slate-500">
               <th className="px-6 py-3 font-medium">Team Member</th>
-              <th className="px-4 py-3 font-medium">Status</th>
+              <th className="px-4 py-3 font-medium">Profile</th>
               <th className="px-4 py-3 font-medium">Total</th>
               <th className="px-4 py-3 font-medium">Mapped</th>
               <th className="px-4 py-3 font-medium">Unmapped</th>
@@ -208,7 +208,7 @@ function TeamMemberTable({ members }: { members: TeamHoursMember[] }) {
                       member.mapped ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
                     }`}
                   >
-                    {member.mapped ? "Mapped" : "Unlinked"}
+                    {member.mapped ? "Linked" : "Unlinked"}
                   </span>
                 </td>
                 <td className="px-4 py-4 align-top font-semibold text-slate-900">{formatHours(member.total_hours)}</td>
@@ -531,7 +531,7 @@ export default function CommandCenterHoursPage() {
 
     filteredMembers.push({
       ...member,
-      mapped: visibleClients.some((client) => client.mapped),
+      mapped: member.mapped,
       total_hours: totalHours,
       mapped_hours: mappedHours,
       unmapped_hours: roundHours(totalHours - mappedHours),
@@ -590,7 +590,7 @@ export default function CommandCenterHoursPage() {
       [
         "team_member_name",
         "team_member_email",
-        "mapped",
+        "profile_linked",
         "team_total_hours",
         "client_name",
         "brand_name",
@@ -740,15 +740,15 @@ export default function CommandCenterHoursPage() {
             />
           </label>
           <label className="space-y-2">
-            <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Mapping Filter</span>
+            <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Attribution Filter</span>
             <select
               value={mappingFilter}
               onChange={(event) => setMappingFilter(event.target.value as MappingFilter)}
               className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
             >
-              <option value="all">All Rows</option>
-              <option value="mapped">Mapped Only</option>
-              <option value="unlinked">Unlinked Only</option>
+              <option value="all">All Hours</option>
+              <option value="mapped">Attributed Only</option>
+              <option value="unlinked">Unattributed Only</option>
             </select>
           </label>
           <label className="space-y-2">
