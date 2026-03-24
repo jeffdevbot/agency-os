@@ -12,7 +12,6 @@ type TeamMember = {
   avatarUrl: string | null;
   isAdmin: boolean;
   role: string;
-  allowedTools: string[];
   employmentStatus: string;
   benchStatus: string;
   clickupUserId: string | null;
@@ -22,16 +21,6 @@ type TeamMember = {
 };
 
 type ApiError = { error: { code: string; message: string } };
-
-const TOOL_OPTIONS = [
-  { slug: "ngram", label: "N-Gram" },
-  { slug: "npat", label: "N-PAT" },
-  { slug: "scribe", label: "Scribe" },
-  { slug: "root-analysis", label: "Root Analysis" },
-  { slug: "adscope", label: "AdScope" },
-  { slug: "command-center", label: "Command Center" },
-  { slug: "debrief", label: "Debrief" },
-] as const;
 
 const formatMembership = (member: TeamMember) =>
   member.authUserId ? "Linked" : "Ghost";
@@ -49,10 +38,6 @@ export default function CommandCenterTeamPage() {
   const [createEmail, setCreateEmail] = useState("");
   const [createFullName, setCreateFullName] = useState("");
   const [createIsAdmin, setCreateIsAdmin] = useState(false);
-  const [createAllowedTools, setCreateAllowedTools] = useState<string[]>([
-    "command-center",
-    "debrief",
-  ]);
 
   const [editingId, setEditingId] = useState<string | null>(null);
 
@@ -62,7 +47,6 @@ export default function CommandCenterTeamPage() {
   const [editSlackUserId, setEditSlackUserId] = useState("");
   const [editIsAdmin, setEditIsAdmin] = useState(false);
   const [editEmploymentStatus, setEditEmploymentStatus] = useState("active");
-  const [editAllowedTools, setEditAllowedTools] = useState<string[]>([]);
 
   const loadTeam = useCallback(async () => {
     setRefreshing(true);
@@ -109,11 +93,6 @@ export default function CommandCenterTeamPage() {
       });
   }, []);
 
-  const toggleAllowedTool = useCallback((current: string[], slug: string) => {
-    if (current.includes(slug)) return current.filter((value) => value !== slug);
-    return [...current, slug];
-  }, []);
-
   const beginEdit = useCallback((member: TeamMember) => {
     setEditingId(member.id);
     setEditDisplayName(member.displayName ?? "");
@@ -122,7 +101,6 @@ export default function CommandCenterTeamPage() {
     setEditSlackUserId(member.slackUserId ?? "");
     setEditIsAdmin(member.isAdmin);
     setEditEmploymentStatus(member.employmentStatus);
-    setEditAllowedTools(member.allowedTools ?? []);
   }, []);
 
   const onCreate = useCallback(async () => {
@@ -139,7 +117,6 @@ export default function CommandCenterTeamPage() {
         email,
         fullName,
         isAdmin: createIsAdmin,
-        allowedTools: createAllowedTools,
       }),
     });
 
@@ -153,11 +130,10 @@ export default function CommandCenterTeamPage() {
     setCreateEmail("");
     setCreateFullName("");
     setCreateIsAdmin(false);
-    setCreateAllowedTools(["command-center", "debrief"]);
 
     setSaving(false);
     await loadTeam();
-  }, [createAllowedTools, createEmail, createFullName, createIsAdmin, loadTeam]);
+  }, [createEmail, createFullName, createIsAdmin, loadTeam]);
 
   const onSaveEdit = useCallback(async () => {
     if (!editingId) return;
@@ -174,7 +150,6 @@ export default function CommandCenterTeamPage() {
         slackUserId: editSlackUserId,
         isAdmin: editIsAdmin,
         employmentStatus: editEmploymentStatus,
-        allowedTools: editAllowedTools,
       }),
     });
 
@@ -189,7 +164,6 @@ export default function CommandCenterTeamPage() {
     setEditingId(null);
     await loadTeam();
   }, [
-    editAllowedTools,
     editClickupUserId,
     editDisplayName,
     editEmploymentStatus,
@@ -317,25 +291,6 @@ export default function CommandCenterTeamPage() {
             />
             Admin
           </label>
-        </div>
-
-        <div className="mt-4">
-          <div className="text-sm font-semibold text-[#0f172a]">Allowed Tools</div>
-          <div className="mt-2 flex flex-wrap gap-3">
-            {TOOL_OPTIONS.map((tool) => (
-              <label key={tool.slug} className="flex items-center gap-2 rounded-2xl bg-[#f1f5ff] px-3 py-2 text-sm text-[#0f172a]">
-                <input
-                  type="checkbox"
-                  checked={createAllowedTools.includes(tool.slug)}
-                  onChange={() =>
-                    setCreateAllowedTools((current) => toggleAllowedTool(current, tool.slug))
-                  }
-                  disabled={saving}
-                />
-                {tool.label}
-              </label>
-            ))}
-          </div>
         </div>
 
         <div className="mt-6">
@@ -470,30 +425,6 @@ export default function CommandCenterTeamPage() {
                           <option value="inactive">inactive</option>
                         </select>
                       </label>
-                    </div>
-
-                    <div className="mt-4">
-                      <div className="text-sm font-semibold text-[#0f172a]">Allowed Tools</div>
-                      <div className="mt-2 flex flex-wrap gap-3">
-                        {TOOL_OPTIONS.map((tool) => (
-                          <label
-                            key={tool.slug}
-                            className="flex items-center gap-2 rounded-2xl bg-white px-3 py-2 text-sm text-[#0f172a]"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={editAllowedTools.includes(tool.slug)}
-                              onChange={() =>
-                                setEditAllowedTools((current) =>
-                                  toggleAllowedTool(current, tool.slug),
-                                )
-                              }
-                              disabled={saving}
-                            />
-                            {tool.label}
-                          </label>
-                        ))}
-                      </div>
                     </div>
 
                     <div className="mt-6 flex flex-wrap gap-3">

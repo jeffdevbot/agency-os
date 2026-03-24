@@ -25,7 +25,6 @@ type TeamMember = {
   isAdmin: boolean;
   employmentStatus: string;
   benchStatus: string;
-  allowedTools: string[];
   clickupUserId: string | null;
   slackUserId: string | null;
 };
