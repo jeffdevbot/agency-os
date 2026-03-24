@@ -1,6 +1,45 @@
 # Monthly P&L Handoff
 
-_Last updated: 2026-03-23 (ET)_
+_Last updated: 2026-03-24 (ET)_
+
+## Current debugging focus
+
+The next Monthly P&L session should start from live debugging, not broad
+feature planning.
+
+Current priority:
+
+1. Investigate remaining **US Monthly P&L unmapped transactions** on the real
+   client profiles the user is reviewing now.
+2. Use live Supabase data first so the next session can inspect the exact
+   `monthly_pnl_import_months`, `monthly_pnl_ledger_entries`, and any related
+   mapping-rule rows before making assumptions.
+3. Treat the recent CA unmapped issue as already diagnosed:
+   - Lifestyle CA profile:
+     `6b4c8a33-db09-4ed7-b5f5-902c663051b3`
+   - affected warning months before the fix:
+     `2025-06-01`, `2025-07-01`, `2025-08-01`
+   - unmapped rows were all `FBA Inventory Fee` with `order_id` values
+     starting with `FBA`
+   - those represent partnered-carrier inbound FBA charges and should map to
+     `inbound_shipping_and_duties`
+   - the root cause was marketplace scoping: the catch-all
+     `order_id starts_with FBA` rule existed for `US` only
+   - repo migration now exists:
+     `supabase/migrations/20260324163000_add_monthly_pnl_ca_fba_inbound_carrier_rule.sql`
+   - pushed commit:
+     `15fcae6` (`Add CA FBA inbound carrier P&L rule`)
+4. If the user wants the CA warning fully cleared, the relevant source files
+   need to be re-imported after that rule:
+   - `2025Apr1-2025Jun30CustomTransaction.csv`
+   - `2025Jul1-2025Sep30CustomTransaction.csv`
+5. Important operational note for the next session:
+   - Supabase MCP auth may still look stale inside an existing Codex chat even
+     after `codex mcp login supabase` succeeds in the terminal
+   - if MCP tool calls still return `Auth required`, do **not** waste time
+     debating the config; start a fresh Codex session
+   - `codex mcp get supabase` / `codex mcp list` only show config, not a live
+     authenticated tool round-trip
 
 ## New session note
 
@@ -283,8 +322,12 @@ tool contract, and data requirements.
 26. Distex CA Monthly P&L is now live with active backfill coverage from
     `2024-01-01` through `2026-02-01` on profile
     `faf4307d-80d7-4fa0-8a85-e8b805110860`.
-27. Active CA month slices on both live CA profiles now have
-    `unmapped_amount = 0`.
+27. That earlier "CA fully clean" state is no longer the right blanket
+    assumption. A later real-client pass exposed an additional CA mapping gap:
+    `FBA Inventory Fee` rows with `order_id` values starting with `FBA`
+    (partnered-carrier inbound charges). That gap is now fixed in the rule
+    set, but warning cleanup still depends on re-importing the affected CA
+    source files.
 28. The async import path now stores progress/heartbeat metadata, marks failed
     background imports as `error` instead of leaving them stranded in
     `running`, and the UI surfaces queued/running progress instead of a silent
@@ -433,8 +476,9 @@ Distex CA:
    - source `2025Dec1-2026Feb28CustomTransaction.csv`
    - import status `success`
 
-Both CA profiles currently report `0` active months with non-zero unmapped
-amounts.
+Do not assume CA currently reports zero active unmapped months on every live
+profile. The later Lifestyle CA review exposed the inbound-carrier rule gap
+described above.
 
 ## Historical note on the 2026-03-16 cleanup
 
@@ -512,7 +556,7 @@ Live state after the fix:
 
 ## Current open area
 
-### CA validation is complete; focus shifts to the remaining implementation-plan items
+### CA validation is mostly complete; current focus shifts to live unmapped debugging
 
 The previous CA parser-discovery and live-validation tranche is done:
 
@@ -523,19 +567,24 @@ The previous CA parser-discovery and live-validation tranche is done:
 5. manual `Other expenses` are now live for `FBM Fulfillment Fees` and
    `Agency Fees`
 6. Whoosh CA and Distex CA are live on real uploaded transaction reports
-7. active CA month slices currently have zero unmapped totals
+7. Lifestyle CA exposed one additional real-world rule gap for
+   `FBA Inventory Fee` rows with `order_id` prefixed by `FBA`; that rule is
+   now fixed for `CA`, but the user still needs re-import coverage if they
+   want those historical warning months cleared
 
-The next work should be chosen intentionally rather than treated as an active
-blocker. The likely buckets are the remaining Monthly P&L items from the
-implementation plan, prioritized with the user. The most likely buckets are:
+The next work should be chosen intentionally rather than treated as broad new
+feature work. The immediate next bucket is live unmapped debugging on the US
+side, prioritized with the user. After that, the likely buckets are:
 
-1. broader client/marketplace backfill as the user requests it
-2. narrow mapping additions if future uploads expose new real-world labels
-3. low-risk report/operator additions such as disbursement reconciliation,
+1. confirm the exact remaining US unmapped rows from live Supabase data before
+   proposing new mapping rules
+2. broader client/marketplace backfill as the user requests it
+3. narrow mapping additions if future uploads expose new real-world labels
+4. low-risk report/operator additions such as disbursement reconciliation,
    remaining export polish, or drillback/provenance improvements
-4. operator workflow/product decisions now that COGS, payouts, and manual
+5. operator workflow/product decisions now that COGS, payouts, and manual
    other-expense tooling exist in the settings surface
-5. Windsor settlement ingestion only if/when that automation path becomes the
+6. Windsor settlement ingestion only if/when that automation path becomes the
    next explicit priority
 
 ## December 2025 final numbers

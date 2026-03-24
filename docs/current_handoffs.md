@@ -1,6 +1,6 @@
 # Current Handoffs
 
-_Last updated: 2026-03-23 (ET)_
+_Last updated: 2026-03-24 (ET)_
 
 Use this file to decide which restart/handoff docs are current versus merely
 historical reference.
@@ -43,6 +43,12 @@ historical reference.
    - if an existing Codex session still reports `Auth required` when using the
      Supabase MCP, treat that as stale session state and start a fresh Codex
      session before concluding the MCP is broken
+2. Monthly P&L active debugging focus as of 2026-03-24 (ET):
+   - next session should start with the remaining **US P&L unmapped
+     transactions**
+   - the current Monthly P&L handoff/prompt have been updated to reflect the
+     recent Lifestyle CA inbound-carrier rule gap and the exact Supabase MCP
+     caveat above
 
 ## Historical/reference docs
 

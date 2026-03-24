@@ -1,6 +1,6 @@
 # Monthly P&L Resume Prompt
 
-_Last updated: 2026-03-23 (ET)_
+_Last updated: 2026-03-24 (ET)_
 
 This prompt is no longer the default "active build" entrypoint. Monthly P&L,
 Claude P&L, and the YoY web surface are now shipped. Use this prompt only when
@@ -21,6 +21,35 @@ Read first, in this order:
 8. `docs/monthly_pnl_windsor_reconciliation.md`
 9. `AGENTS.md`
 
+Current return target for the next session:
+
+1. Investigate the **remaining US Monthly P&L unmapped transactions** on the
+   live client profile the user is reviewing.
+2. Use live Supabase inspection first. Do not assume the unmapped rows are the
+   same shape as the recent CA issue.
+3. Keep the recent CA finding in mind as proven precedent:
+   - Lifestyle CA profile:
+     `6b4c8a33-db09-4ed7-b5f5-902c663051b3`
+   - warning months:
+     `2025-06-01`, `2025-07-01`, `2025-08-01`
+   - unmapped rows were all `FBA Inventory Fee` with `order_id` starting
+     `FBA`
+   - those are inbound FBA partnered-carrier charges
+   - they should map to `inbound_shipping_and_duties`
+   - the missing `CA` catch-all rule now lives in repo migration
+     `20260324163000_add_monthly_pnl_ca_fba_inbound_carrier_rule.sql`
+   - pushed commit:
+     `15fcae6`
+4. If the user wants those CA warning months cleared in the product, the
+   relevant source files still need re-import after the rule fix:
+   - `2025Apr1-2025Jun30CustomTransaction.csv`
+   - `2025Jul1-2025Sep30CustomTransaction.csv`
+5. Supabase MCP note:
+   - `codex mcp get supabase` and `codex mcp list` only confirm config
+   - if live MCP tool calls still return `Auth required` after
+     `codex mcp login supabase`, assume stale chat-session state and start a
+     fresh Codex session
+
 Current reality:
 
 1. US Amazon P&L is live and validated for Whoosh US across Jan-Dec 2025 on
@@ -37,11 +66,14 @@ Current reality:
      `2026-01-01` through `2026-02-01`.
    - Distex CA profile `faf4307d-80d7-4fa0-8a85-e8b805110860` is active for
      `2024-01-01` through `2026-02-01`.
-6. Active CA month slices currently have `unmapped_amount = 0`.
+6. Do not assume all CA live profiles currently have `unmapped_amount = 0`.
+   A later Lifestyle CA review exposed a marketplace-scoped mapping gap for
+   `FBA Inventory Fee` rows with `order_id` values starting with `FBA`.
 7. CA mapping migrations already live:
    - `20260317150607_seed_monthly_pnl_ca_mapping_rules.sql`
    - `20260317154748_add_monthly_pnl_fulfilment_removal_prefix_rule.sql`
    - `20260317161435_add_monthly_pnl_ca_label_variants.sql`
+   - `20260324163000_add_monthly_pnl_ca_fba_inbound_carrier_rule.sql`
 8. Async import progress/heartbeat UX is live, and SKU-based COGS now supports
    CSV export/import in the settings card.
 9. `Other expenses` is now live in Monthly P&L settings:
@@ -173,31 +205,34 @@ Current reality:
 
 Primary goal for a future return:
 
-1. Treat Monthly P&L as shipped and start from refinement/debugging or the
-   next adjacent capability, not from "build the first Claude/P&L slice."
+1. Treat Monthly P&L as shipped and start from refinement/debugging, with the
+   next concrete debugging target being the remaining US unmapped rows rather
+   than a new feature build.
 
 Focus:
 
 1. Review the current shipped Monthly P&L state first.
-2. Review the remaining items in `docs/monthly_pnl_implementation_plan.md`,
+2. Inspect the live unmapped US rows in Supabase before proposing any mapping
+   rule or parser change.
+3. Review the remaining items in `docs/monthly_pnl_implementation_plan.md`,
    but frame the conversation around post-ship refinement or the next adjacent
    capability rather than first-slice build work.
-3. Inspect the existing report path before adding persistence or wrappers:
+4. Inspect the existing report path before adding persistence or wrappers:
    - `backend-core/app/services/pnl/report.py`
    - `backend-core/app/routers/pnl.py`
-4. Preserve validated Whoosh US and the currently active CA imports unless the
+5. Preserve validated Whoosh US and the currently active CA imports unless the
    user explicitly wants to replace them.
-5. Prefer focused, low-risk follow-up work over broad refactors.
-6. Treat Windsor compare as a reconciliation/debug aid, not the long-term
+6. Prefer focused, low-risk follow-up work over broad refactors.
+7. Treat Windsor compare as a reconciliation/debug aid, not the long-term
    financial-source direction.
-7. If the user pivots to direct Amazon SP-API financial integration, treat
+8. If the user pivots to direct Amazon SP-API financial integration, treat
    that as a separate P&L-first follow-up path rather than the assumed next
    step for Claude.
-8. Do not fragment the Claude Project into separate per-report bundles unless
+9. Do not fragment the Claude Project into separate per-report bundles unless
    there is a strong product reason. The current direction is one shared
    Agency OS Project with WBR and Monthly P&L guidance separated cleanly inside
    that bundle.
-9. For Monthly P&L email drafting, do not reuse the old screenshot/OCR prompt
+10. For Monthly P&L email drafting, do not reuse the old screenshot/OCR prompt
    shape. Use structured Agency OS report data as the source of truth and apply
    YoY only when prior-year comparables are actually available.
 
