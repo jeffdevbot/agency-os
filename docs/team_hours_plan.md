@@ -1,15 +1,47 @@
-# Team Hours v1 Plan
+# Team Hours v1 Plan / Current State
 
 _Drafted: 2026-03-23 (ET)_
 
+Status: `v1 shipped`
+
 ## Purpose
 
-Define the thin-slice implementation plan for `Team Hours`, an admin-only
+Define the original thin-slice implementation plan for `Team Hours`, an
+admin-only
 Command Center surface for slicing ClickUp time entries by team member and
 client/space.
 
 This is intentionally an internal reporting feature, not a broad ClickUp
 analytics platform.
+
+This document now doubles as the current implementation reference because the
+baseline Team Hours surface is already live.
+
+## Current shipped state
+
+Baseline Team Hours is live with:
+
+1. frontend page:
+   - `frontend-web/src/app/command-center/hours/page.tsx`
+2. frontend API client:
+   - `frontend-web/src/lib/api/admin/teamHours.ts`
+3. backend route:
+   - `backend-core/app/routers/admin.py`
+   - `GET /admin/team-hours`
+4. backend report service:
+   - `backend-core/app/services/clickup_team_hours.py`
+
+Current shipped behavior includes:
+
+1. admin-only access under `Command Center`
+2. date-range filtering
+3. `Team Members` and `Clients` views
+4. search within the active view
+5. summary cards
+6. stacked daily-hours charting
+7. explicit unmapped `ClickUp Users` and `Spaces` cleanup sections
+8. deep links back into Command Center client/team records
+9. CSV export of the current view
 
 ## Product decision
 
@@ -49,7 +81,7 @@ Recommendation:
 3. if a narrower permission is needed later, add it deliberately rather than
    inventing it for this first slice
 
-## Why now
+## Why now (historical)
 
 This is already the top `now` item in `docs/opportunity_backlog.md`.
 
@@ -77,10 +109,13 @@ Existing relevant foundations:
 6. Team profiles already store `clickup_user_id`
 7. Brands already store `clickup_space_id` and `clickup_list_id`
 
-Important gap:
+Gap that is now closed:
 
 1. current ClickUp integration supports task/space/list flows
-2. there is no current time-entry reporting path
+2. a real time-entry reporting path now exists in:
+   - `backend-core/app/services/clickup_team_hours.py`
+   - `backend-core/app/routers/admin.py`
+   - `frontend-web/src/app/command-center/hours/page.tsx`
 
 ## Official ClickUp API shape
 
@@ -286,7 +321,7 @@ Admin-only page in Command Center with:
 
 ## Backend slice
 
-### New service methods
+### Service methods
 
 Add to `backend-core/app/services/clickup.py`:
 
@@ -303,7 +338,7 @@ The current service already has:
 
 That makes it the right place to extend.
 
-### New report service
+### Report service
 
 Suggested new module:
 
@@ -318,27 +353,24 @@ Responsibilities:
 
 Keep this separate from the generic ClickUp transport client.
 
-### Suggested backend route
+### Actual backend route
 
-Add an admin-only endpoint under the Next.js Command Center API surface first:
+The shipped implementation uses a FastAPI admin route:
 
-- `frontend-web/src/app/api/command-center/hours/route.ts`
+- `backend-core/app/routers/admin.py`
+- `GET /admin/team-hours`
 
-Why Next API first:
+Why that is the real contract now:
 
-1. matches the existing Command Center auth pattern
-2. keeps the admin-only gate consistent with current Command Center routes
-3. can proxy to backend-core if needed later, but does not force a new public
-   backend route immediately
-
-Alternative:
-
-1. add a FastAPI backend route if the payload becomes large or reused elsewhere
-2. keep the Next route as the authenticated admin proxy
+1. it reuses the existing backend admin auth dependency
+2. it keeps the report builder close to the ClickUp transport and Supabase
+   mapping logic
+3. the current frontend calls that route directly through
+   `frontend-web/src/lib/api/admin/teamHours.ts`
 
 ## Frontend slice
 
-Suggested new page:
+Shipped page:
 
 - `frontend-web/src/app/command-center/hours/page.tsx`
 

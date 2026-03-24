@@ -31,7 +31,10 @@ historical reference.
 5. [Monthly P&L resume prompt](/Users/jeff/code/agency-os/docs/monthly_pnl_resume_prompt.md)
    - Current restart prompt if a future session returns specifically to
      Monthly P&L.
-6. [Opportunity backlog](/Users/jeff/code/agency-os/docs/opportunity_backlog.md)
+6. [Team Hours plan / current state](/Users/jeff/code/agency-os/docs/team_hours_plan.md)
+   - Current implementation reference for the shipped Team Hours surface under
+     Command Center.
+7. [Opportunity backlog](/Users/jeff/code/agency-os/docs/opportunity_backlog.md)
    - Lightweight priority list for next product/platform opportunities.
 
 ## Current operational notes

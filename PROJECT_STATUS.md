@@ -1,10 +1,15 @@
 # Changelog — Ecomlabs Tools
 
-_Last updated: 2026-03-23 (ET)_
+_Last updated: 2026-03-24 (ET)_
 
 > Development history for the project. For setup instructions and project overview, see [AGENTS.md](AGENTS.md).
 
 ---
+
+## 2026-03-24 (ET)
+- **Team Hours is now a real shipped Command Center surface, not just backlog planning:** The admin-only page at `/command-center/hours` is already wired end to end with a backend ClickUp time-entry report, Team Members / Clients views, stacked daily charting, unmapped cleanup sections, and deep links back into Command Center records.
+- **Team Hours now exports CSV from the live page:** Added client-side export of the current Team Members or Clients view, including summary, nested series/daily breakdown rows, and unmapped user/space rows, plus focused Vitest coverage for the export shape.
+- **Team Hours docs were updated to match reality:** The root `README`, `docs/team_hours_plan.md`, `docs/opportunity_backlog.md`, and `docs/current_handoffs.md` now describe Team Hours as shipped rather than as the next unbuilt feature.
 
 ## 2026-03-23 (ET)
 - **Claude/Agency OS Monthly P&L is now live beyond read-only analysis:** The shared `resolve_client` workflow now routes cleanly into Monthly P&L, the first read-only P&L MCP slice (`list_monthly_pnl_profiles`, `get_monthly_pnl_report`) is working in Claude, and the shared Claude Project bundle now covers both WBR and Monthly P&L instead of staying WBR-only.

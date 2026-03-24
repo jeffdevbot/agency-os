@@ -26,30 +26,37 @@ Status meanings:
 - `later`: worthwhile, but not close enough to plan yet
 - `hold`: strategically interesting, but too broad or premature
 - `maybe never`: possible, but high risk or weak ROI
+- `shipped`: already live; keep here only to track obvious follow-on polish
 
 ## 1. Team Hours
-- Status: `now`
+- Status: `shipped`
 - Priority: `1`
-- Why it matters: internal ops value is immediate; team-hours visibility is
-  currently painful and would help staffing, client profitability discussions,
-  and tool-priority decisions.
-- Thin slice: admin-only Command Center surface for date-range reporting of
-  ClickUp hours by team member and client/space.
+- Current reality: the baseline Team Hours surface is now live at
+  `/command-center/hours`.
+- Shipped scope:
+  - admin-only Command Center surface for date-range reporting of ClickUp hours
+    by team member and client/space
+  - Team Members / Clients views
+  - summary cards
+  - stacked daily charting
+  - unmapped user / space cleanup sections
+  - CSV export
 - Current product name: `Team Hours`
 - UI home: `Command Center`
 - Access: existing `is_admin` gate is sufficient for v1; do not introduce a
   separate `super_admin` concept yet.
-- Drift handling:
+- Ongoing drift reality:
   - some ClickUp spaces will not yet be linked to Command Center brands
   - some time entries may reference ClickUp users not yet linked to
     `profiles.clickup_user_id`
-  - v1 should surface those rows cleanly as unmapped / unlinked rather than
+  - the current product surfaces those rows as unmapped / unlinked rather than
     dropping them
-  - the intended operational fix is to add the missing mappings later in
+  - the intended operational fix remains adding the missing mappings later in
     Command Center
-- Active plan doc:
+- Current implementation reference:
   - `docs/team_hours_plan.md`
-- Nice to have later: tag slicing, richer filtering, utilization-style rollups.
+- Nice to have later: tag slicing, richer filtering, utilization-style
+  rollups, and profitability overlays.
 - Not now: perfect task/tag attribution or a large analytics surface.
 - Repo fit: good. There is already a real ClickUp service layer and task API
   path in:

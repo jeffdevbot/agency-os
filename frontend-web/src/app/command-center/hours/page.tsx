@@ -23,6 +23,11 @@ import {
   type TeamHoursUnmappedSpace,
   type TeamHoursUnmappedUser,
 } from "@/lib/api/admin/teamHours";
+import {
+  buildTeamHoursCsv,
+  buildTeamHoursCsvFilename,
+  downloadTeamHoursCsv,
+} from "@/lib/command-center/teamHoursExport";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const CHART_COLORS = [
@@ -457,6 +462,26 @@ export default function CommandCenterHoursPage() {
     [report?.unmapped_spaces],
   );
 
+  const handleExportCsv = () => {
+    if (!report || !summary) return;
+    try {
+      const csv = buildTeamHoursCsv({
+        viewMode,
+        startDate,
+        endDate,
+        summary,
+        teamMembers: filteredMembers,
+        clients: filteredClients,
+        unmappedUsers: report.unmapped_users ?? [],
+        unmappedSpaces: report.unmapped_spaces ?? [],
+      });
+      const filename = buildTeamHoursCsvFilename(viewMode, startDate, endDate);
+      downloadTeamHoursCsv(filename, csv);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Unable to export Team Hours CSV");
+    }
+  };
+
   return (
     <main className="space-y-6">
       <section className="rounded-3xl bg-white/95 p-8 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur">
@@ -470,8 +495,18 @@ export default function CommandCenterHoursPage() {
               Review who is logging time and where it lands. Team-member view stacks daily hours by client or brand. Client view stacks daily hours by team member, with brand splits preserved when they matter.
             </p>
           </div>
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-            {report ? `${formatLongDate(startDate)} to ${formatLongDate(endDate)}` : "Select a date range"}
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+              {report ? `${formatLongDate(startDate)} to ${formatLongDate(endDate)}` : "Select a date range"}
+            </div>
+            <button
+              type="button"
+              onClick={handleExportCsv}
+              disabled={!report || loading}
+              className="rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:-translate-y-0.5 hover:shadow disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:shadow-none"
+            >
+              Export {viewMode === "team_members" ? "Team Members" : "Clients"} CSV
+            </button>
           </div>
         </div>
 
