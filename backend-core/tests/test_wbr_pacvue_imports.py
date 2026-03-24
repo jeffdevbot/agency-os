@@ -151,6 +151,23 @@ class TestParsePacvueWorkbook:
         with pytest.raises(WBRValidationError, match="conflicting Pacvue tags"):
             parse_pacvue_workbook(file_bytes)
 
+    def test_prefers_live_row_over_archived_zero_conflict(self):
+        file_bytes = _build_workbook_bytes(
+            [
+                ["Name", "state", "CampaignTagNames", "Impression", "Click", "Spend", "Sales", "Orders"],
+                ["Campaign A", "enabled", "Screen Shine | Pro / Rsrch", 31905, 269, 604.84, 3335.59, 15],
+                ["Campaign A", "archived", "Screen Shine | Pro / Perf", 0, 0, 0, 0, 0],
+            ]
+        )
+
+        parsed = parse_pacvue_workbook(file_bytes)
+
+        assert parsed.rows_read == 2
+        assert parsed.duplicate_rows_skipped == 1
+        assert len(parsed.records) == 1
+        assert parsed.records[0].goal_code == "Rsrch"
+        assert parsed.records[0].raw_tag == "Screen Shine | Pro / Rsrch"
+
     def test_rejects_unsupported_goal_suffix(self):
         file_bytes = _build_workbook_bytes(
             [

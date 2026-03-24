@@ -42,6 +42,39 @@ class ParsedPacvueRecord:
     raw_payload: dict[str, Any]
 
 
+def _is_zero_metric_value(value: Any) -> bool:
+    text = _as_cell_text(value)
+    if not text:
+        return True
+    normalized = text.replace(",", "")
+    try:
+        return float(normalized) == 0.0
+    except ValueError:
+        return False
+
+
+def _record_is_archived_zero_duplicate(record: ParsedPacvueRecord) -> bool:
+    state = _as_cell_text(record.raw_payload.get("state")).lower()
+    if state != "archived":
+        return False
+    for key in ("Impression", "Click", "Spend", "Sales", "Orders"):
+        if not _is_zero_metric_value(record.raw_payload.get(key)):
+            return False
+    return True
+
+
+def _prefer_pacvue_record(existing: ParsedPacvueRecord, candidate: ParsedPacvueRecord) -> ParsedPacvueRecord | None:
+    if existing.raw_tag == candidate.raw_tag:
+        return existing
+    existing_archived_zero = _record_is_archived_zero_duplicate(existing)
+    candidate_archived_zero = _record_is_archived_zero_duplicate(candidate)
+    if existing_archived_zero and not candidate_archived_zero:
+        return candidate
+    if candidate_archived_zero and not existing_archived_zero:
+        return existing
+    return None
+
+
 @dataclass(frozen=True)
 class ParsedPacvueWorkbook:
     sheet_title: str
@@ -150,10 +183,15 @@ def parse_pacvue_workbook(file_bytes: bytes) -> ParsedPacvueWorkbook:
             deduped_by_campaign[campaign_name] = record
             records.append(record)
             continue
-        if existing.raw_tag != record.raw_tag:
+        preferred = _prefer_pacvue_record(existing, record)
+        if preferred is None:
             raise WBRValidationError(
                 f'Campaign "{campaign_name}" appears multiple times with conflicting Pacvue tags'
             )
+        if preferred is not existing:
+            deduped_by_campaign[campaign_name] = preferred
+            record_index = records.index(existing)
+            records[record_index] = preferred
         duplicate_rows_skipped += 1
 
     if not records:
