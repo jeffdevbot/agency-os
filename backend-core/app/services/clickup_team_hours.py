@@ -31,11 +31,11 @@ def _safe_int(value: Any) -> int | None:
 
 
 @dataclass(frozen=True)
-class _MappedBrand:
-    brand_id: str
-    brand_name: str
+class _MappedScope:
     client_id: str
     client_name: str
+    brand_id: str | None = None
+    brand_name: str | None = None
 
 
 class ClickUpTeamHoursService:
@@ -122,8 +122,8 @@ class ClickUpTeamHoursService:
             if clickup_user_id:
                 profiles_by_clickup_user[clickup_user_id].append(row)
 
-        brand_by_list_id: dict[str, _MappedBrand] = {}
-        brands_by_space_id: dict[str, list[_MappedBrand]] = defaultdict(list)
+        scopes_by_list_id: dict[str, list[_MappedScope]] = defaultdict(list)
+        scopes_by_space_id: dict[str, list[_MappedScope]] = defaultdict(list)
         for row in brands:
             if not isinstance(row, dict):
                 continue
@@ -132,23 +132,23 @@ class ClickUpTeamHoursService:
             brand_name = str(row.get("name") or "").strip()
             if not brand_id or not client_id or not brand_name:
                 continue
-            mapped = _MappedBrand(
-                brand_id=brand_id,
-                brand_name=brand_name,
+            mapped = _MappedScope(
                 client_id=client_id,
                 client_name=client_name_by_id.get(client_id, "Unknown client"),
+                brand_id=brand_id,
+                brand_name=brand_name,
             )
             list_id = _as_str(row.get("clickup_list_id"))
             if list_id:
-                brand_by_list_id[list_id] = mapped
+                scopes_by_list_id[list_id].append(mapped)
             space_id = _as_str(row.get("clickup_space_id"))
             if space_id:
-                brands_by_space_id[space_id].append(mapped)
+                scopes_by_space_id[space_id].append(mapped)
 
         return {
             "profiles_by_clickup_user": profiles_by_clickup_user,
-            "brand_by_list_id": brand_by_list_id,
-            "brands_by_space_id": brands_by_space_id,
+            "scopes_by_list_id": scopes_by_list_id,
+            "scopes_by_space_id": scopes_by_space_id,
         }
 
     def _normalize_entry(self, row: dict[str, Any], mappings: dict[str, Any]) -> dict[str, Any]:
@@ -161,11 +161,11 @@ class ClickUpTeamHoursService:
         space_id = _as_str(task_location.get("space_id"))
 
         profile = self._resolve_profile(clickup_user_id, mappings["profiles_by_clickup_user"])
-        brand = self._resolve_brand(
+        scope = self._resolve_scope(
             list_id=list_id,
             space_id=space_id,
-            brand_by_list_id=mappings["brand_by_list_id"],
-            brands_by_space_id=mappings["brands_by_space_id"],
+            scopes_by_list_id=mappings["scopes_by_list_id"],
+            scopes_by_space_id=mappings["scopes_by_space_id"],
         )
 
         raw_duration_ms = _safe_int(row.get("duration")) or 0
@@ -203,11 +203,11 @@ class ClickUpTeamHoursService:
                 for tag in (row.get("task_tags") or [])
                 if isinstance(tag, dict) and str(tag.get("name") or "").strip()
             ],
-            "brand_id": brand.brand_id if brand else None,
-            "brand_name": brand.brand_name if brand else None,
-            "client_id": brand.client_id if brand else None,
-            "client_name": brand.client_name if brand else None,
-            "space_mapped": bool(brand),
+            "brand_id": scope.brand_id if scope else None,
+            "brand_name": scope.brand_name if scope else None,
+            "client_id": scope.client_id if scope else None,
+            "client_name": scope.client_name if scope else None,
+            "space_mapped": bool(scope),
         }
 
     def _resolve_profile(
@@ -222,21 +222,44 @@ class ClickUpTeamHoursService:
             return None
         return matches[0]
 
-    def _resolve_brand(
+    def _resolve_scope(
         self,
         *,
         list_id: str | None,
         space_id: str | None,
-        brand_by_list_id: dict[str, _MappedBrand],
-        brands_by_space_id: dict[str, list[_MappedBrand]],
-    ) -> _MappedBrand | None:
-        if list_id and list_id in brand_by_list_id:
-            return brand_by_list_id[list_id]
+        scopes_by_list_id: dict[str, list[_MappedScope]],
+        scopes_by_space_id: dict[str, list[_MappedScope]],
+    ) -> _MappedScope | None:
+        if list_id:
+            resolved = self._collapse_scopes(scopes_by_list_id.get(list_id, []))
+            if resolved:
+                return resolved
         if not space_id:
             return None
-        matches = brands_by_space_id.get(space_id, [])
-        if len(matches) == 1:
-            return matches[0]
+        return self._collapse_scopes(scopes_by_space_id.get(space_id, []))
+
+    def _collapse_scopes(self, scopes: list[_MappedScope]) -> _MappedScope | None:
+        if not scopes:
+            return None
+
+        unique_scopes = {
+            (scope.client_id, scope.client_name, scope.brand_id, scope.brand_name): scope
+            for scope in scopes
+        }
+        deduped = list(unique_scopes.values())
+        if len(deduped) == 1:
+            return deduped[0]
+
+        client_ids = {scope.client_id for scope in deduped}
+        if len(client_ids) == 1:
+            first = deduped[0]
+            return _MappedScope(
+                client_id=first.client_id,
+                client_name=first.client_name,
+                brand_id=None,
+                brand_name=None,
+            )
+
         return None
 
     def _profile_name(self, profile: dict[str, Any]) -> str | None:

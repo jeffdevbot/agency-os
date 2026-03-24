@@ -176,14 +176,14 @@ async def test_build_report_maps_list_first_then_space_and_preserves_unlinked_bu
                     "client_id": "client-c",
                     "name": "Gamma Brand 1",
                     "clickup_space_id": "space-shared",
-                    "clickup_list_id": None,
+                    "clickup_list_id": "shared-list",
                 },
                 {
                     "id": "brand-c2",
                     "client_id": "client-c",
                     "name": "Gamma Brand 2",
                     "clickup_space_id": "space-shared",
-                    "clickup_list_id": None,
+                    "clickup_list_id": "shared-list",
                 },
             ],
         }
@@ -206,9 +206,9 @@ async def test_build_report_maps_list_first_then_space_and_preserves_unlinked_bu
     ]
     assert result["summary"] == {
         "total_hours": 3.5,
-        "mapped_hours": 3.0,
-        "unmapped_hours": 0.5,
-        "unattributed_hours": 0.5,
+        "mapped_hours": 3.5,
+        "unmapped_hours": 0.0,
+        "unattributed_hours": 0.0,
         "unique_users": 3,
         "entry_count": 4,
         "running_entries": 1,
@@ -228,9 +228,11 @@ async def test_build_report_maps_list_first_then_space_and_preserves_unlinked_bu
     bob = result["by_team_member"][1]
     assert bob["team_member_name"] == "Bob CU"
     assert bob["mapped"] is False
-    assert bob["unmapped_hours"] == 0.5
-    assert bob["clients"][0]["client_name"] == "Unlinked Space"
-    assert bob["clients"][0]["mapped"] is False
+    assert bob["mapped_hours"] == 0.5
+    assert bob["unmapped_hours"] == 0.0
+    assert bob["clients"][0]["client_name"] == "Gamma Client"
+    assert bob["clients"][0]["brand_name"] is None
+    assert bob["clients"][0]["mapped"] is True
 
     carol = result["by_team_member"][2]
     assert carol["total_hours"] == 0.0
@@ -260,15 +262,26 @@ async def test_build_report_maps_list_first_then_space_and_preserves_unlinked_bu
             "total_hours": 1.0,
         },
         {
+            "client_id": "client-c",
+            "client_name": "Gamma Client",
+            "brand_id": None,
+            "brand_name": None,
+            "mapped": True,
+            "team_member_count": 1,
+            "space_count": 1,
+            "entry_count": 1,
+            "total_hours": 0.5,
+        },
+        {
             "client_id": None,
             "client_name": "Unlinked Space",
             "brand_id": None,
             "brand_name": None,
             "mapped": False,
-            "team_member_count": 2,
-            "space_count": 2,
-            "entry_count": 2,
-            "total_hours": 0.5,
+            "team_member_count": 1,
+            "space_count": 1,
+            "entry_count": 1,
+            "total_hours": 0.0,
         },
     ]
     assert result["by_space"] == [
@@ -305,11 +318,11 @@ async def test_build_report_maps_list_first_then_space_and_preserves_unlinked_bu
             "space_name": "Shared Space",
             "list_id": "shared-list",
             "list_name": "Shared List",
-            "client_id": None,
-            "client_name": "Unlinked Space",
+            "client_id": "client-c",
+            "client_name": "Gamma Client",
             "brand_id": None,
             "brand_name": None,
-            "mapped": False,
+            "mapped": True,
             "team_member_count": 1,
             "entry_count": 1,
             "total_hours": 0.5,
@@ -345,13 +358,6 @@ async def test_build_report_maps_list_first_then_space_and_preserves_unlinked_bu
         },
     ]
     assert result["unmapped_spaces"] == [
-        {
-            "space_id": "space-shared",
-            "space_name": "Shared Space",
-            "list_id": "shared-list",
-            "list_name": "Shared List",
-            "total_hours": 0.5,
-        },
         {
             "space_id": "space-z",
             "space_name": "Zeta Space",
