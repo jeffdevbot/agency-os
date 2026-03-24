@@ -6,31 +6,81 @@ export type TeamHoursSummary = {
   unique_users: number;
   entry_count: number;
   running_entries: number;
+  team_member_count: number;
+  team_members_with_hours: number;
+  client_count: number;
+  clients_with_hours: number;
 };
 
-export type TeamHoursClientBucket = {
-  client_id: string | null;
-  client_name: string;
-  brand_id: string | null;
-  brand_name: string | null;
-  space_id: string | null;
-  space_name: string | null;
-  list_id: string | null;
-  list_name: string | null;
-  mapped: boolean;
+export type TeamHoursDailySegment = {
+  key: string;
+  label: string;
+  hours: number;
+  duration_ms: number;
+  client_id?: string | null;
+  client_name?: string | null;
+  brand_id?: string | null;
+  brand_name?: string | null;
+  mapped?: boolean;
+  team_member_profile_id?: string | null;
+  team_member_name?: string | null;
+  team_member_email?: string | null;
+  clickup_user_id?: string | null;
+};
+
+export type TeamHoursDailyPoint = {
+  date: string;
   total_hours: number;
+  segments: TeamHoursDailySegment[];
+};
+
+export type TeamHoursSeries = {
+  key: string;
+  label: string;
+  total_hours: number;
+  client_id?: string | null;
+  client_name?: string | null;
+  brand_id?: string | null;
+  brand_name?: string | null;
+  mapped?: boolean;
+  team_member_profile_id?: string | null;
+  team_member_name?: string | null;
+  team_member_email?: string | null;
+  clickup_user_id?: string | null;
+  space_id?: string | null;
+  space_name?: string | null;
+  list_id?: string | null;
+  list_name?: string | null;
 };
 
 export type TeamHoursMember = {
+  entity_id: string;
   clickup_user_id: string | null;
   team_member_profile_id: string | null;
   team_member_name: string;
   team_member_email: string | null;
-  mapped: boolean;
+  employment_status: string;
+  link_status: "linked" | "unlinked" | "ambiguous";
   total_hours: number;
   mapped_hours: number;
   unmapped_hours: number;
-  clients: TeamHoursClientBucket[];
+  entry_count: number;
+  active_day_count: number;
+  series: TeamHoursSeries[];
+  daily: TeamHoursDailyPoint[];
+};
+
+export type TeamHoursClient = {
+  entity_id: string;
+  client_id: string;
+  client_name: string;
+  status: string;
+  brand_count: number;
+  total_hours: number;
+  entry_count: number;
+  active_day_count: number;
+  series: TeamHoursSeries[];
+  daily: TeamHoursDailyPoint[];
 };
 
 export type TeamHoursUnmappedUser = {
@@ -48,42 +98,15 @@ export type TeamHoursUnmappedSpace = {
   total_hours: number;
 };
 
-export type TeamHoursClientSummary = {
-  client_id: string | null;
-  client_name: string;
-  brand_id: string | null;
-  brand_name: string | null;
-  mapped: boolean;
-  team_member_count: number;
-  space_count: number;
-  entry_count: number;
-  total_hours: number;
-};
-
-export type TeamHoursSpaceSummary = {
-  space_id: string | null;
-  space_name: string;
-  list_id: string | null;
-  list_name: string | null;
-  client_id: string | null;
-  client_name: string;
-  brand_id: string | null;
-  brand_name: string | null;
-  mapped: boolean;
-  team_member_count: number;
-  entry_count: number;
-  total_hours: number;
-};
-
 export type TeamHoursReport = {
   date_range: {
     start_date_ms: number;
     end_date_ms: number;
+    days: string[];
   };
   summary: TeamHoursSummary;
-  by_team_member: TeamHoursMember[];
-  by_client: TeamHoursClientSummary[];
-  by_space: TeamHoursSpaceSummary[];
+  team_members: TeamHoursMember[];
+  clients: TeamHoursClient[];
   unmapped_users: TeamHoursUnmappedUser[];
   unmapped_spaces: TeamHoursUnmappedSpace[];
 };

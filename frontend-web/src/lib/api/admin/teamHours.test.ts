@@ -23,10 +23,11 @@ describe("getTeamHoursReport", () => {
       "fetch",
       mockFetch(200, {
         summary: { total_hours: 4 },
-        by_team_member: [],
+        team_members: [],
+        clients: [],
         unmapped_users: [],
         unmapped_spaces: [],
-        date_range: { start_date_ms: 1, end_date_ms: 2 },
+        date_range: { start_date_ms: 1, end_date_ms: 2, days: [] },
       }),
     );
 

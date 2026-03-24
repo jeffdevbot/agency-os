@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from supabase import Client
@@ -28,6 +29,22 @@ def _safe_int(value: Any) -> int | None:
         return int(str(value))
     except (TypeError, ValueError):
         return None
+
+
+def _day_key_from_ms(value: int | None, *, fallback_ms: int) -> str:
+    candidate_ms = value if value and value > 0 else fallback_ms
+    return datetime.fromtimestamp(candidate_ms / 1000, tz=UTC).strftime("%Y-%m-%d")
+
+
+def _day_keys_in_range(start_date_ms: int, end_date_ms: int) -> list[str]:
+    start_day = datetime.fromtimestamp(start_date_ms / 1000, tz=UTC).date()
+    end_day = datetime.fromtimestamp(end_date_ms / 1000, tz=UTC).date()
+    days: list[str] = []
+    current = start_day
+    while current <= end_day:
+        days.append(current.isoformat())
+        current += timedelta(days=1)
+    return days
 
 
 @dataclass(frozen=True)
@@ -60,9 +77,10 @@ class ClickUpTeamHoursService:
         )
 
         mappings = self._load_mappings()
-        normalized = [self._normalize_entry(row, mappings) for row in entries]
+        normalized = [self._normalize_entry(row, mappings, fallback_day_ms=start_date_ms) for row in entries]
         return self._build_response(
             normalized,
+            mappings=mappings,
             start_date_ms=start_date_ms,
             end_date_ms=end_date_ms,
         )
@@ -94,7 +112,7 @@ class ClickUpTeamHoursService:
     def _load_mappings(self) -> dict[str, Any]:
         profiles_resp = (
             self.db.table("profiles")
-            .select("id, email, display_name, full_name, clickup_user_id")
+            .select("id, email, display_name, full_name, clickup_user_id, employment_status")
             .execute()
         )
         brands_resp = (
@@ -102,7 +120,7 @@ class ClickUpTeamHoursService:
             .select("id, client_id, name, clickup_space_id, clickup_list_id")
             .execute()
         )
-        clients_resp = self.db.table("agency_clients").select("id, name").execute()
+        clients_resp = self.db.table("agency_clients").select("id, name, status").execute()
 
         profiles = profiles_resp.data if isinstance(profiles_resp.data, list) else []
         brands = brands_resp.data if isinstance(brands_resp.data, list) else []
@@ -122,8 +140,24 @@ class ClickUpTeamHoursService:
             if clickup_user_id:
                 profiles_by_clickup_user[clickup_user_id].append(row)
 
+        profile_link_status_by_id: dict[str, str] = {}
+        for row in profiles:
+            if not isinstance(row, dict):
+                continue
+            profile_id = _as_str(row.get("id"))
+            if not profile_id:
+                continue
+            clickup_user_id = _as_str(row.get("clickup_user_id"))
+            if not clickup_user_id:
+                profile_link_status_by_id[profile_id] = "unlinked"
+            elif len(profiles_by_clickup_user.get(clickup_user_id, [])) == 1:
+                profile_link_status_by_id[profile_id] = "linked"
+            else:
+                profile_link_status_by_id[profile_id] = "ambiguous"
+
         scopes_by_list_id: dict[str, list[_MappedScope]] = defaultdict(list)
         scopes_by_space_id: dict[str, list[_MappedScope]] = defaultdict(list)
+        brand_count_by_client_id: dict[str, int] = defaultdict(int)
         for row in brands:
             if not isinstance(row, dict):
                 continue
@@ -132,6 +166,7 @@ class ClickUpTeamHoursService:
             brand_name = str(row.get("name") or "").strip()
             if not brand_id or not client_id or not brand_name:
                 continue
+            brand_count_by_client_id[client_id] += 1
             mapped = _MappedScope(
                 client_id=client_id,
                 client_name=client_name_by_id.get(client_id, "Unknown client"),
@@ -146,12 +181,22 @@ class ClickUpTeamHoursService:
                 scopes_by_space_id[space_id].append(mapped)
 
         return {
+            "profiles": [row for row in profiles if isinstance(row, dict)],
+            "clients": [row for row in clients if isinstance(row, dict)],
             "profiles_by_clickup_user": profiles_by_clickup_user,
+            "profile_link_status_by_id": profile_link_status_by_id,
             "scopes_by_list_id": scopes_by_list_id,
             "scopes_by_space_id": scopes_by_space_id,
+            "brand_count_by_client_id": brand_count_by_client_id,
         }
 
-    def _normalize_entry(self, row: dict[str, Any], mappings: dict[str, Any]) -> dict[str, Any]:
+    def _normalize_entry(
+        self,
+        row: dict[str, Any],
+        mappings: dict[str, Any],
+        *,
+        fallback_day_ms: int,
+    ) -> dict[str, Any]:
         user = row.get("user") if isinstance(row.get("user"), dict) else {}
         task = row.get("task") if isinstance(row.get("task"), dict) else {}
         task_location = row.get("task_location") if isinstance(row.get("task_location"), dict) else {}
@@ -171,6 +216,7 @@ class ClickUpTeamHoursService:
         raw_duration_ms = _safe_int(row.get("duration")) or 0
         is_running = raw_duration_ms < 0
         duration_ms = max(raw_duration_ms, 0)
+        start_ms = _safe_int(row.get("start"))
 
         return {
             "time_entry_id": _as_str(row.get("id")),
@@ -181,10 +227,15 @@ class ClickUpTeamHoursService:
             "team_member_profile_id": profile.get("id") if profile else None,
             "team_member_name": self._profile_name(profile) if profile else None,
             "team_member_email": _as_str(profile.get("email")) if profile else None,
-            "team_member_mapped": bool(profile),
+            "team_member_link_status": (
+                mappings["profile_link_status_by_id"].get(str(profile.get("id")))
+                if profile and _as_str(profile.get("id"))
+                else "unlinked"
+            ),
             "billable": bool(row.get("billable")) if row.get("billable") is not None else None,
-            "start_ms": _safe_int(row.get("start")),
+            "start_ms": start_ms,
             "end_ms": _safe_int(row.get("end")),
+            "day_key": _day_key_from_ms(start_ms, fallback_ms=fallback_day_ms),
             "duration_ms": duration_ms,
             "is_running": is_running,
             "description": _as_str(row.get("description")),
@@ -269,10 +320,101 @@ class ClickUpTeamHoursService:
             or _as_str(profile.get("email"))
         )
 
+    def _build_team_entity(self, profile: dict[str, Any], link_status: str) -> dict[str, Any]:
+        profile_id = _as_str(profile.get("id")) or "unknown-profile"
+        return {
+            "entity_id": f"profile:{profile_id}",
+            "team_member_profile_id": profile_id,
+            "clickup_user_id": _as_str(profile.get("clickup_user_id")),
+            "team_member_name": self._profile_name(profile) or "Unnamed team member",
+            "team_member_email": _as_str(profile.get("email")),
+            "employment_status": _as_str(profile.get("employment_status")) or "active",
+            "link_status": link_status,
+            "total_duration_ms": 0,
+            "mapped_duration_ms": 0,
+            "unmapped_duration_ms": 0,
+            "entry_count": 0,
+            "days": set(),
+            "series": {},
+            "daily": {},
+        }
+
+    def _build_clickup_only_entity(self, row: dict[str, Any]) -> dict[str, Any]:
+        clickup_user_id = row["clickup_user_id"] or "unknown"
+        return {
+            "entity_id": f"clickup:{clickup_user_id}",
+            "team_member_profile_id": None,
+            "clickup_user_id": row["clickup_user_id"],
+            "team_member_name": row["clickup_username"] or "Unlinked ClickUp User",
+            "team_member_email": row["clickup_user_email"],
+            "employment_status": "unknown",
+            "link_status": "unlinked",
+            "total_duration_ms": 0,
+            "mapped_duration_ms": 0,
+            "unmapped_duration_ms": 0,
+            "entry_count": 0,
+            "days": set(),
+            "series": {},
+            "daily": {},
+        }
+
+    def _build_client_entity(self, client: dict[str, Any], brand_count: int) -> dict[str, Any]:
+        client_id = _as_str(client.get("id")) or "unknown-client"
+        return {
+            "entity_id": f"client:{client_id}",
+            "client_id": client_id,
+            "client_name": _as_str(client.get("name")) or "Unknown client",
+            "status": _as_str(client.get("status")) or "active",
+            "brand_count": brand_count,
+            "total_duration_ms": 0,
+            "entry_count": 0,
+            "days": set(),
+            "series": {},
+            "daily": {},
+        }
+
+    def _upsert_daily_segment(
+        self,
+        entity: dict[str, Any],
+        *,
+        day_key: str,
+        segment_key: str,
+        duration_ms: int,
+        segment_factory: callable,
+    ) -> None:
+        if duration_ms <= 0:
+            return
+        day = entity["daily"].setdefault(
+            day_key,
+            {"date": day_key, "total_duration_ms": 0, "segments": {}},
+        )
+        day["total_duration_ms"] += duration_ms
+        segment = day["segments"].setdefault(segment_key, segment_factory())
+        segment["duration_ms"] += duration_ms
+
+    def _finalize_daily(self, daily_map: dict[str, Any]) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        for day_key in sorted(daily_map.keys()):
+            day = daily_map[day_key]
+            segments = [
+                {**segment, "hours": _hours(segment["duration_ms"])}
+                for segment in day["segments"].values()
+            ]
+            segments.sort(key=lambda item: (-item["hours"], str(item["label"])))
+            rows.append(
+                {
+                    "date": day_key,
+                    "total_hours": _hours(day["total_duration_ms"]),
+                    "segments": segments,
+                }
+            )
+        return rows
+
     def _build_response(
         self,
         rows: list[dict[str, Any]],
         *,
+        mappings: dict[str, Any],
         start_date_ms: int,
         end_date_ms: int,
     ) -> dict[str, Any]:
@@ -285,9 +427,28 @@ class ClickUpTeamHoursService:
         )
         running_entries = sum(1 for row in rows if row["is_running"])
 
-        by_member: dict[str, dict[str, Any]] = {}
-        by_client_totals: dict[str, dict[str, Any]] = {}
-        by_space_totals: dict[str, dict[str, Any]] = {}
+        day_keys = _day_keys_in_range(start_date_ms, end_date_ms)
+
+        team_entities: dict[str, dict[str, Any]] = {}
+        for profile in mappings["profiles"]:
+            profile_id = _as_str(profile.get("id"))
+            if not profile_id:
+                continue
+            team_entities[f"profile:{profile_id}"] = self._build_team_entity(
+                profile,
+                mappings["profile_link_status_by_id"].get(profile_id, "unlinked"),
+            )
+
+        client_entities: dict[str, dict[str, Any]] = {}
+        for client in mappings["clients"]:
+            client_id = _as_str(client.get("id"))
+            if not client_id:
+                continue
+            client_entities[f"client:{client_id}"] = self._build_client_entity(
+                client,
+                mappings["brand_count_by_client_id"].get(client_id, 0),
+            )
+
         unmapped_user_totals: dict[str, dict[str, Any]] = {}
         unmapped_space_totals: dict[str, dict[str, Any]] = {}
 
@@ -297,39 +458,39 @@ class ClickUpTeamHoursService:
                 if row["team_member_profile_id"]
                 else f"clickup:{row['clickup_user_id'] or 'unknown'}"
             )
-            member = by_member.setdefault(
+            member = team_entities.setdefault(
                 member_key,
-                {
-                    "clickup_user_id": row["clickup_user_id"],
-                    "team_member_profile_id": row["team_member_profile_id"],
-                    "team_member_name": row["team_member_name"]
-                    or row["clickup_username"]
-                    or "Unlinked ClickUp User",
-                    "team_member_email": row["team_member_email"] or row["clickup_user_email"],
-                    "mapped": bool(row["team_member_mapped"]),
-                    "total_duration_ms": 0,
-                    "mapped_duration_ms": 0,
-                    "unmapped_duration_ms": 0,
-                    "clients": {},
-                },
+                self._build_clickup_only_entity(row),
             )
             member["total_duration_ms"] += row["duration_ms"]
+            member["entry_count"] += 1
+            if row["duration_ms"] > 0:
+                member["days"].add(row["day_key"])
             if row["client_id"]:
                 member["mapped_duration_ms"] += row["duration_ms"]
             else:
                 member["unmapped_duration_ms"] += row["duration_ms"]
 
-            client_key = "|".join(
+            member_series_key = "|".join(
                 [
                     row["client_id"] or "unmapped-client",
-                    row["brand_id"] or "unmapped-brand",
-                    row["space_id"] or "unmapped-space",
-                    row["list_id"] or "unmapped-list",
+                    row["brand_id"] or "no-brand",
+                    row["space_id"] or "no-space",
+                    row["list_id"] or "no-list",
                 ]
             )
-            client_bucket = member["clients"].setdefault(
-                client_key,
+            member_series = member["series"].setdefault(
+                member_series_key,
                 {
+                    "key": member_series_key,
+                    "label": (
+                        f"{row['client_name']} • {row['brand_name']}"
+                        if row["client_name"] and row["brand_name"]
+                        else row["client_name"]
+                        or row["space_name"]
+                        or row["list_name"]
+                        or "Unlinked Space"
+                    ),
                     "client_id": row["client_id"],
                     "client_name": row["client_name"] or "Unlinked Space",
                     "brand_id": row["brand_id"],
@@ -342,73 +503,78 @@ class ClickUpTeamHoursService:
                     "duration_ms": 0,
                 },
             )
-            client_bucket["duration_ms"] += row["duration_ms"]
-
-            client_summary_key = "|".join(
-                [
-                    row["client_id"] or "unmapped-client",
-                    row["brand_id"] or "unmapped-brand",
-                ]
-            )
-            client_summary = by_client_totals.setdefault(
-                client_summary_key,
-                {
-                    "client_id": row["client_id"],
-                    "client_name": row["client_name"] or "Unlinked Space",
-                    "brand_id": row["brand_id"],
-                    "brand_name": row["brand_name"],
-                    "mapped": bool(row["space_mapped"]),
+            member_series["duration_ms"] += row["duration_ms"]
+            self._upsert_daily_segment(
+                member,
+                day_key=row["day_key"],
+                segment_key=member_series_key,
+                duration_ms=row["duration_ms"],
+                segment_factory=lambda: {
+                    "key": member_series_key,
+                    "label": member_series["label"],
+                    "client_id": member_series["client_id"],
+                    "client_name": member_series["client_name"],
+                    "brand_id": member_series["brand_id"],
+                    "brand_name": member_series["brand_name"],
+                    "mapped": member_series["mapped"],
                     "duration_ms": 0,
-                    "entry_count": 0,
-                    "team_member_ids": set(),
-                    "space_keys": set(),
                 },
             )
-            client_summary["duration_ms"] += row["duration_ms"]
-            client_summary["entry_count"] += 1
-            client_summary["team_member_ids"].add(
-                row["team_member_profile_id"]
-                or row["clickup_user_id"]
-                or row["clickup_username"]
-                or "unknown"
-            )
-            client_summary["space_keys"].add(
-                row["space_id"] or row["list_id"] or row["task_id"] or "unknown"
-            )
 
-            space_summary_key = "|".join(
-                [
-                    row["space_id"] or "unmapped-space",
-                    row["list_id"] or "unmapped-list",
-                ]
-            )
-            space_summary = by_space_totals.setdefault(
-                space_summary_key,
-                {
-                    "space_id": row["space_id"],
-                    "space_name": row["space_name"] or "Unlinked Space",
-                    "list_id": row["list_id"],
-                    "list_name": row["list_name"],
-                    "client_id": row["client_id"],
-                    "client_name": row["client_name"],
-                    "brand_id": row["brand_id"],
-                    "brand_name": row["brand_name"],
-                    "mapped": bool(row["space_mapped"]),
-                    "duration_ms": 0,
-                    "entry_count": 0,
-                    "team_member_ids": set(),
-                },
-            )
-            space_summary["duration_ms"] += row["duration_ms"]
-            space_summary["entry_count"] += 1
-            space_summary["team_member_ids"].add(
-                row["team_member_profile_id"]
-                or row["clickup_user_id"]
-                or row["clickup_username"]
-                or "unknown"
-            )
+            if row["client_id"]:
+                client_key = f"client:{row['client_id']}"
+                client = client_entities.get(client_key)
+                if client:
+                    client["total_duration_ms"] += row["duration_ms"]
+                    client["entry_count"] += 1
+                    if row["duration_ms"] > 0:
+                        client["days"].add(row["day_key"])
 
-            if not row["team_member_mapped"]:
+                    client_series_key = "|".join(
+                        [
+                            row["team_member_profile_id"] or "no-profile",
+                            row["clickup_user_id"] or "no-clickup",
+                            row["brand_id"] or "no-brand",
+                        ]
+                    )
+                    client_series = client["series"].setdefault(
+                        client_series_key,
+                        {
+                            "key": client_series_key,
+                            "label": (
+                                f"{member['team_member_name']} • {row['brand_name']}"
+                                if row["brand_name"]
+                                else member["team_member_name"]
+                            ),
+                            "team_member_profile_id": member["team_member_profile_id"],
+                            "team_member_name": member["team_member_name"],
+                            "team_member_email": member["team_member_email"],
+                            "clickup_user_id": member["clickup_user_id"],
+                            "brand_id": row["brand_id"],
+                            "brand_name": row["brand_name"],
+                            "duration_ms": 0,
+                        },
+                    )
+                    client_series["duration_ms"] += row["duration_ms"]
+                    self._upsert_daily_segment(
+                        client,
+                        day_key=row["day_key"],
+                        segment_key=client_series_key,
+                        duration_ms=row["duration_ms"],
+                        segment_factory=lambda: {
+                            "key": client_series_key,
+                            "label": client_series["label"],
+                            "team_member_profile_id": client_series["team_member_profile_id"],
+                            "team_member_name": client_series["team_member_name"],
+                            "team_member_email": client_series["team_member_email"],
+                            "clickup_user_id": client_series["clickup_user_id"],
+                            "brand_id": client_series["brand_id"],
+                            "brand_name": client_series["brand_name"],
+                            "duration_ms": 0,
+                        },
+                    )
+
+            if row["team_member_link_status"] != "linked":
                 unmapped_user_key = row["clickup_user_id"] or "unknown"
                 unmapped_user = unmapped_user_totals.setdefault(
                     unmapped_user_key,
@@ -440,137 +606,115 @@ class ClickUpTeamHoursService:
                 )
                 unmapped_space["duration_ms"] += row["duration_ms"]
 
-        by_team_member = []
-        for member in by_member.values():
-            clients = []
-            for bucket in member["clients"].values():
-                clients.append(
-                    {
-                        "client_id": bucket["client_id"],
-                        "client_name": bucket["client_name"],
-                        "brand_id": bucket["brand_id"],
-                        "brand_name": bucket["brand_name"],
-                        "space_id": bucket["space_id"],
-                        "space_name": bucket["space_name"],
-                        "list_id": bucket["list_id"],
-                        "list_name": bucket["list_name"],
-                        "mapped": bucket["mapped"],
-                        "total_hours": _hours(bucket["duration_ms"]),
-                    }
-                )
-            clients.sort(
-                key=lambda item: (
-                    -item["total_hours"],
-                    str(item["client_name"] or ""),
-                    str(item["brand_name"] or ""),
-                    str(item["space_name"] or ""),
-                )
-            )
-            by_team_member.append(
+        team_members = []
+        for entity in team_entities.values():
+            series = [
+                {**series_row, "total_hours": _hours(series_row["duration_ms"])}
+                for series_row in entity["series"].values()
+            ]
+            series.sort(key=lambda item: (-item["total_hours"], str(item["label"])))
+            team_members.append(
                 {
-                    "clickup_user_id": member["clickup_user_id"],
-                    "team_member_profile_id": member["team_member_profile_id"],
-                    "team_member_name": member["team_member_name"],
-                    "team_member_email": member["team_member_email"],
-                    "mapped": member["mapped"],
-                    "total_hours": _hours(member["total_duration_ms"]),
-                    "mapped_hours": _hours(member["mapped_duration_ms"]),
-                    "unmapped_hours": _hours(member["unmapped_duration_ms"]),
-                    "clients": clients,
+                    "entity_id": entity["entity_id"],
+                    "team_member_profile_id": entity["team_member_profile_id"],
+                    "clickup_user_id": entity["clickup_user_id"],
+                    "team_member_name": entity["team_member_name"],
+                    "team_member_email": entity["team_member_email"],
+                    "employment_status": entity["employment_status"],
+                    "link_status": entity["link_status"],
+                    "total_hours": _hours(entity["total_duration_ms"]),
+                    "mapped_hours": _hours(entity["mapped_duration_ms"]),
+                    "unmapped_hours": _hours(entity["unmapped_duration_ms"]),
+                    "entry_count": entity["entry_count"],
+                    "active_day_count": len(entity["days"]),
+                    "series": series,
+                    "daily": self._finalize_daily(entity["daily"]),
                 }
             )
-
-        by_team_member.sort(
-            key=lambda item: (-item["total_hours"], str(item["team_member_name"] or ""))
+        team_members.sort(
+            key=lambda item: (-item["total_hours"], str(item["team_member_name"]).lower())
         )
 
-        by_client = [
-            {
-                "client_id": row["client_id"],
-                "client_name": row["client_name"],
-                "brand_id": row["brand_id"],
-                "brand_name": row["brand_name"],
-                "mapped": row["mapped"],
-                "team_member_count": len(row["team_member_ids"]),
-                "space_count": len(row["space_keys"]),
-                "entry_count": row["entry_count"],
-                "total_hours": _hours(row["duration_ms"]),
-            }
-            for row in by_client_totals.values()
-        ]
-        by_client.sort(
-            key=lambda item: (
-                -item["total_hours"],
-                str(item["client_name"] or ""),
-                str(item["brand_name"] or ""),
+        clients = []
+        for entity in client_entities.values():
+            series = [
+                {**series_row, "total_hours": _hours(series_row["duration_ms"])}
+                for series_row in entity["series"].values()
+            ]
+            series.sort(key=lambda item: (-item["total_hours"], str(item["label"])))
+            clients.append(
+                {
+                    "entity_id": entity["entity_id"],
+                    "client_id": entity["client_id"],
+                    "client_name": entity["client_name"],
+                    "status": entity["status"],
+                    "brand_count": entity["brand_count"],
+                    "total_hours": _hours(entity["total_duration_ms"]),
+                    "entry_count": entity["entry_count"],
+                    "active_day_count": len(entity["days"]),
+                    "series": series,
+                    "daily": self._finalize_daily(entity["daily"]),
+                }
             )
+        clients.sort(key=lambda item: (-item["total_hours"], str(item["client_name"]).lower()))
+
+        unique_users = len(
+            {
+                row["clickup_user_id"] or row["clickup_username"] or row["clickup_user_email"] or "unknown"
+                for row in rows
+            }
         )
-
-        by_space = [
-            {
-                "space_id": row["space_id"],
-                "space_name": row["space_name"],
-                "list_id": row["list_id"],
-                "list_name": row["list_name"],
-                "client_id": row["client_id"],
-                "client_name": row["client_name"] or "Unlinked Space",
-                "brand_id": row["brand_id"],
-                "brand_name": row["brand_name"],
-                "mapped": row["mapped"],
-                "team_member_count": len(row["team_member_ids"]),
-                "entry_count": row["entry_count"],
-                "total_hours": _hours(row["duration_ms"]),
-            }
-            for row in by_space_totals.values()
-        ]
-        by_space.sort(
-            key=lambda item: (
-                -item["total_hours"],
-                str(item["space_name"] or ""),
-                str(item["list_name"] or ""),
-            )
-        )
-
-        unmapped_users = [
-            {
-                "clickup_user_id": row["clickup_user_id"],
-                "clickup_username": row["clickup_username"],
-                "clickup_user_email": row["clickup_user_email"],
-                "total_hours": _hours(row["duration_ms"]),
-            }
-            for row in unmapped_user_totals.values()
-        ]
-        unmapped_users.sort(key=lambda item: (-item["total_hours"], str(item["clickup_username"] or "")))
-
-        unmapped_spaces = [
-            {
-                "space_id": row["space_id"],
-                "space_name": row["space_name"] or "Unlinked Space",
-                "list_id": row["list_id"],
-                "list_name": row["list_name"],
-                "total_hours": _hours(row["duration_ms"]),
-            }
-            for row in unmapped_space_totals.values()
-        ]
-        unmapped_spaces.sort(key=lambda item: (-item["total_hours"], str(item["space_name"] or "")))
 
         return {
             "date_range": {
                 "start_date_ms": start_date_ms,
                 "end_date_ms": end_date_ms,
+                "days": day_keys,
             },
             "summary": {
                 "total_hours": _hours(total_duration_ms),
                 "mapped_hours": _hours(mapped_duration_ms),
                 "unmapped_hours": _hours(total_duration_ms - mapped_duration_ms),
                 "unattributed_hours": _hours(unattributed_duration_ms),
-                "unique_users": len(by_team_member),
+                "unique_users": unique_users,
                 "entry_count": len(rows),
                 "running_entries": running_entries,
+                "team_member_count": len(team_members),
+                "team_members_with_hours": sum(1 for item in team_members if item["total_hours"] > 0),
+                "client_count": len(clients),
+                "clients_with_hours": sum(1 for item in clients if item["total_hours"] > 0),
             },
-            "by_team_member": by_team_member,
-            "by_client": by_client,
-            "by_space": by_space,
-            "unmapped_users": unmapped_users,
-            "unmapped_spaces": unmapped_spaces,
+            "team_members": team_members,
+            "clients": clients,
+            "unmapped_users": [
+                {
+                    "clickup_user_id": row["clickup_user_id"],
+                    "clickup_username": row["clickup_username"],
+                    "clickup_user_email": row["clickup_user_email"],
+                    "total_hours": _hours(row["duration_ms"]),
+                }
+                for row in sorted(
+                    unmapped_user_totals.values(),
+                    key=lambda item: (
+                        -_hours(item["duration_ms"]),
+                        str(item["clickup_username"] or item["clickup_user_email"] or ""),
+                    ),
+                )
+            ],
+            "unmapped_spaces": [
+                {
+                    "space_id": row["space_id"],
+                    "space_name": row["space_name"] or "Unlinked Space",
+                    "list_id": row["list_id"],
+                    "list_name": row["list_name"],
+                    "total_hours": _hours(row["duration_ms"]),
+                }
+                for row in sorted(
+                    unmapped_space_totals.values(),
+                    key=lambda item: (
+                        -_hours(item["duration_ms"]),
+                        str(item["space_name"] or item["space_id"] or ""),
+                    ),
+                )
+            ],
         }

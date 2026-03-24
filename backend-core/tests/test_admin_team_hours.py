@@ -29,6 +29,7 @@ class _FakeTeamHoursService:
             "date_range": {
                 "start_date_ms": start_date_ms,
                 "end_date_ms": end_date_ms,
+                "days": ["2023-11-14"],
             },
             "summary": {
                 "total_hours": 1.5,
@@ -38,8 +39,13 @@ class _FakeTeamHoursService:
                 "unique_users": 1,
                 "entry_count": 2,
                 "running_entries": 0,
+                "team_member_count": 1,
+                "team_members_with_hours": 1,
+                "client_count": 1,
+                "clients_with_hours": 1,
             },
-            "by_team_member": [],
+            "team_members": [],
+            "clients": [],
             "unmapped_users": [],
             "unmapped_spaces": [],
         }

@@ -1,23 +1,54 @@
 "use client";
 
 import Link from "next/link";
-import { useDeferredValue, useEffect, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { getBrowserSupabaseClient } from "@/lib/supabaseClient";
 import {
   getTeamHoursReport,
-  type TeamHoursClientSummary,
+  type TeamHoursClient,
+  type TeamHoursDailySegment,
   type TeamHoursMember,
   type TeamHoursReport,
+  type TeamHoursSeries,
   type TeamHoursSummary,
-  type TeamHoursSpaceSummary,
   type TeamHoursUnmappedSpace,
   type TeamHoursUnmappedUser,
 } from "@/lib/api/admin/teamHours";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const CHART_COLORS = [
+  "#0a6fd6",
+  "#0f766e",
+  "#f59e0b",
+  "#7c3aed",
+  "#ef4444",
+  "#0891b2",
+  "#84cc16",
+  "#f97316",
+  "#14b8a6",
+  "#64748b",
+  "#ec4899",
+  "#8b5cf6",
+];
 
-type MappingFilter = "all" | "mapped" | "unlinked";
-type ViewMode = "all" | "clients" | "spaces" | "members" | "drift";
+type ViewMode = "team_members" | "clients";
+
+type ChartRow = {
+  date: string;
+  label: string;
+  total_hours: number;
+  __segments: TeamHoursDailySegment[];
+  [key: string]: string | number | TeamHoursDailySegment[];
+};
 
 const formatDateInput = (date: Date) => {
   const year = date.getFullYear();
@@ -26,15 +57,41 @@ const formatDateInput = (date: Date) => {
   return `${year}-${month}-${day}`;
 };
 
+const defaultDateRange = () => {
+  const end = new Date();
+  const start = new Date(end.getTime() - 29 * DAY_MS);
+  return {
+    startDate: formatDateInput(start),
+    endDate: formatDateInput(end),
+  };
+};
+
 const formatHours = (value: number) => `${value.toFixed(2)}h`;
 
-const roundHours = (value: number) => Math.round(value * 100) / 100;
-
-const passesMappingFilter = (mapped: boolean, filter: MappingFilter) => {
-  if (filter === "mapped") return mapped;
-  if (filter === "unlinked") return !mapped;
-  return true;
+const formatShortDate = (value: string) => {
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+  }).format(date);
 };
+
+const formatLongDate = (value: string) => {
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(date);
+};
+
+const startOfDayMs = (value: string) => new Date(`${value}T00:00:00`).getTime();
+
+const endOfDayMs = (value: string) => new Date(`${value}T23:59:59.999`).getTime();
+
+const safeColor = (index: number) => CHART_COLORS[index % CHART_COLORS.length];
 
 const matchesSearch = (
   query: string,
@@ -46,420 +103,186 @@ const matchesSearch = (
   );
 };
 
-const csvEscape = (value: string | number | boolean | null | undefined) => {
-  const text = String(value ?? "");
-  if (text.includes(",") || text.includes('"') || text.includes("\n")) {
-    return `"${text.replace(/"/g, '""')}"`;
-  }
-  return text;
-};
-
-const downloadCsv = (
-  filename: string,
-  headers: string[],
-  rows: Array<Array<string | number | boolean | null | undefined>>,
-) => {
-  const csv = [headers.map(csvEscape).join(","), ...rows.map((row) => row.map(csvEscape).join(","))].join("\n");
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
-};
-
-const formatDateLabel = (value: string) => {
-  const date = new Date(`${value}T00:00:00`);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "2-digit",
-    year: "numeric",
-  }).format(date);
-};
-
-const startOfDayMs = (value: string) => new Date(`${value}T00:00:00`).getTime();
-
-const endOfDayMs = (value: string) => new Date(`${value}T23:59:59.999`).getTime();
-
-const defaultDateRange = () => {
-  const end = new Date();
-  const start = new Date(end.getTime() - 29 * DAY_MS);
-  return {
-    startDate: formatDateInput(start),
-    endDate: formatDateInput(end),
-  };
-};
-
-type SummaryCardProps = {
+function SummaryCard({
+  label,
+  value,
+  hint,
+  tone = "default",
+}: {
   label: string;
   value: string;
+  hint?: string;
   tone?: "default" | "warn";
-};
-
-function ClientNameLink({
-  clientId,
-  clientName,
-  className = "",
-}: {
-  clientId: string | null;
-  clientName: string;
-  className?: string;
 }) {
-  if (!clientId) {
-    return <span className={className}>{clientName}</span>;
-  }
-
-  return (
-    <Link
-      href={`/command-center/clients/${clientId}`}
-      className={`${className} text-[#0a6fd6] underline decoration-[#0a6fd6]/30 underline-offset-4 transition hover:text-[#0859ad] hover:decoration-[#0859ad]`}
-    >
-      {clientName}
-    </Link>
-  );
-}
-
-function TeamMemberNameLink({
-  teamMemberProfileId,
-  teamMemberName,
-  className = "",
-}: {
-  teamMemberProfileId: string | null;
-  teamMemberName: string;
-  className?: string;
-}) {
-  if (!teamMemberProfileId) {
-    return <span className={className}>{teamMemberName}</span>;
-  }
-
-  return (
-    <Link
-      href={`/command-center/team/${teamMemberProfileId}`}
-      className={`${className} text-[#0a6fd6] underline decoration-[#0a6fd6]/30 underline-offset-4 transition hover:text-[#0859ad] hover:decoration-[#0859ad]`}
-    >
-      {teamMemberName}
-    </Link>
-  );
-}
-
-function SummaryCard({ label, value, tone = "default" }: SummaryCardProps) {
-  const toneClass =
+  const classes =
     tone === "warn"
-      ? "border-amber-200 bg-amber-50 text-amber-900"
-      : "border-slate-200 bg-white text-slate-900";
-
+      ? "border-amber-200 bg-amber-50 text-amber-950"
+      : "border-slate-200 bg-white text-slate-950";
   return (
-    <div className={`rounded-2xl border p-4 shadow-sm ${toneClass}`}>
+    <div className={`rounded-3xl border p-5 shadow-sm ${classes}`}>
       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{label}</p>
       <p className="mt-2 text-2xl font-semibold">{value}</p>
+      {hint ? <p className="mt-2 text-sm text-slate-500">{hint}</p> : null}
     </div>
   );
 }
 
-function TeamMemberTable({ members }: { members: TeamHoursMember[] }) {
-  if (members.length === 0) {
-    return (
-      <div className="rounded-3xl border border-dashed border-slate-300 bg-white/80 p-6 text-sm text-slate-500">
-        No ClickUp time entries were returned for this date range.
-      </div>
-    );
+function LinkStatusBadge({ status }: { status: TeamHoursMember["link_status"] }) {
+  if (status === "linked") {
+    return <span className="inline-flex rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-800">Linked</span>;
   }
+  if (status === "ambiguous") {
+    return <span className="inline-flex rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800">Duplicate ClickUp ID</span>;
+  }
+  return <span className="inline-flex rounded-full bg-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-700">Needs ClickUp ID</span>;
+}
+
+function ClientStatusBadge({ status }: { status: string }) {
+  if (status === "archived") {
+    return <span className="inline-flex rounded-full bg-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-700">Archived</span>;
+  }
+  if (status === "inactive") {
+    return <span className="inline-flex rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800">Inactive</span>;
+  }
+  return <span className="inline-flex rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-800">Active</span>;
+}
+
+function ChartTooltip({
+  active,
+  payload,
+  label,
+  colorByKey,
+}: {
+  active?: boolean;
+  payload?: Array<{ payload: ChartRow }>;
+  label?: string;
+  colorByKey: Map<string, string>;
+}) {
+  if (!active || !payload?.length) return null;
+  const row = payload[0]?.payload;
+  if (!row) return null;
 
   return (
-    <div className="overflow-hidden rounded-3xl bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
-      <div className="border-b border-slate-200 px-6 py-4">
-        <h2 className="text-lg font-semibold text-slate-900">By Team Member</h2>
-        <p className="mt-1 text-sm text-slate-500">
-          Profile linking and client attribution are tracked separately, so an unlinked ClickUp user can still have attributed client hours.
-        </p>
-      </div>
-      <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-slate-200 text-sm">
-          <thead className="bg-slate-50">
-            <tr className="text-left text-slate-500">
-              <th className="px-6 py-3 font-medium">Team Member</th>
-              <th className="px-4 py-3 font-medium">Profile</th>
-              <th className="px-4 py-3 font-medium">Total</th>
-              <th className="px-4 py-3 font-medium">Mapped</th>
-              <th className="px-4 py-3 font-medium">Unmapped</th>
-              <th className="px-6 py-3 font-medium">Client / Brand Breakdown</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {members.map((member) => (
-              <tr key={`${member.team_member_profile_id ?? "clickup"}:${member.clickup_user_id ?? "unknown"}`}>
-                <td className="px-6 py-4 align-top">
-                  <div className="font-semibold text-slate-900">
-                    <TeamMemberNameLink
-                      teamMemberProfileId={member.team_member_profile_id}
-                      teamMemberName={member.team_member_name}
-                      className="font-semibold text-slate-900"
-                    />
-                  </div>
-                  <div className="text-xs text-slate-500">{member.team_member_email ?? member.clickup_user_id ?? "No email"}</div>
-                  {member.clickup_user_id ? (
-                    <div className="text-xs text-slate-400">ClickUp ID: {member.clickup_user_id}</div>
-                  ) : null}
-                </td>
-                <td className="px-4 py-4 align-top">
+    <div className="min-w-[240px] rounded-2xl border border-slate-200 bg-white p-4 shadow-xl">
+      <p className="text-sm font-semibold text-slate-900">{formatLongDate(label ?? row.date)}</p>
+      <p className="mt-1 text-xs uppercase tracking-[0.16em] text-slate-500">Total {formatHours(row.total_hours)}</p>
+      <div className="mt-3 space-y-2">
+        {row.__segments.length === 0 ? (
+          <p className="text-sm text-slate-500">No hours logged.</p>
+        ) : (
+          row.__segments.map((segment) => (
+            <div key={segment.key} className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
                   <span
-                    className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
-                      member.mapped ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
-                    }`}
-                  >
-                    {member.mapped ? "Linked" : "Unlinked"}
-                  </span>
-                </td>
-                <td className="px-4 py-4 align-top font-semibold text-slate-900">{formatHours(member.total_hours)}</td>
-                <td className="px-4 py-4 align-top text-slate-700">{formatHours(member.mapped_hours)}</td>
-                <td className="px-4 py-4 align-top text-slate-700">{formatHours(member.unmapped_hours)}</td>
-                <td className="px-6 py-4 align-top">
-                  <div className="space-y-2">
-                    {member.clients.map((client) => (
-                      <div
-                        key={`${client.client_id ?? "unmapped"}:${client.brand_id ?? "brand"}:${client.space_id ?? "space"}:${client.list_id ?? "list"}`}
-                        className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2"
-                      >
-                        <div className="flex flex-wrap items-center gap-2">
-                          <ClientNameLink
-                            clientId={client.client_id}
-                            clientName={client.client_name}
-                            className="font-semibold text-slate-900"
-                          />
-                          {client.brand_name ? (
-                            <span className="text-slate-600">{client.brand_name}</span>
-                          ) : null}
-                          <span
-                            className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-                              client.mapped ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
-                            }`}
-                          >
-                            {client.mapped ? "Mapped" : "Unlinked"}
-                          </span>
-                          <span className="ml-auto font-semibold text-slate-900">{formatHours(client.total_hours)}</span>
-                        </div>
-                        <div className="mt-1 text-xs text-slate-500">
-                          Space: {client.space_name ?? client.space_id ?? "Unknown"} | List: {client.list_name ?? client.list_id ?? "Unknown"}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                    className="mt-1 h-2.5 w-2.5 rounded-full"
+                    style={{ backgroundColor: colorByKey.get(segment.key) ?? "#64748b" }}
+                  />
+                  <p className="truncate text-sm font-medium text-slate-800">{segment.label}</p>
+                </div>
+                {segment.brand_name ? (
+                  <p className="pl-4 text-xs text-slate-500">{segment.brand_name}</p>
+                ) : null}
+              </div>
+              <p className="text-sm font-semibold text-slate-900">{formatHours(segment.hours)}</p>
+            </div>
+          ))
+        )}
       </div>
     </div>
   );
 }
 
-function ClientSummaryTable({ rows }: { rows: TeamHoursClientSummary[] }) {
-  return (
-    <section className="overflow-hidden rounded-3xl bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
-      <div className="border-b border-slate-200 px-6 py-4">
-        <h2 className="text-lg font-semibold text-slate-900">By Client / Brand</h2>
-        <p className="mt-1 text-sm text-slate-500">
-          Client-first slice of hours so you can see where team time concentrated across mapped and unmapped work.
-        </p>
-      </div>
-      {rows.length === 0 ? (
-        <div className="px-6 py-5 text-sm text-slate-500">
-          No client rows match the current slice.
-        </div>
-      ) : (
-      <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-slate-200 text-sm">
-          <thead className="bg-slate-50">
-            <tr className="text-left text-slate-500">
-              <th className="px-6 py-3 font-medium">Client</th>
-              <th className="px-4 py-3 font-medium">Brand</th>
-              <th className="px-4 py-3 font-medium">Status</th>
-              <th className="px-4 py-3 font-medium">Hours</th>
-              <th className="px-4 py-3 font-medium">People</th>
-              <th className="px-4 py-3 font-medium">Spaces</th>
-              <th className="px-4 py-3 font-medium">Entries</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {rows.map((row) => (
-              <tr key={`${row.client_id ?? "unmapped"}:${row.brand_id ?? "brand"}`}>
-                <td className="px-6 py-4 font-semibold text-slate-900">
-                  <ClientNameLink
-                    clientId={row.client_id}
-                    clientName={row.client_name}
-                    className="font-semibold text-slate-900"
-                  />
-                </td>
-                <td className="px-4 py-4 text-slate-600">{row.brand_name ?? "—"}</td>
-                <td className="px-4 py-4">
-                  <span
-                    className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
-                      row.mapped ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
-                    }`}
-                  >
-                    {row.mapped ? "Mapped" : "Unlinked"}
-                  </span>
-                </td>
-                <td className="px-4 py-4 font-semibold text-slate-900">{formatHours(row.total_hours)}</td>
-                <td className="px-4 py-4 text-slate-600">{row.team_member_count}</td>
-                <td className="px-4 py-4 text-slate-600">{row.space_count}</td>
-                <td className="px-4 py-4 text-slate-600">{row.entry_count}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      )}
-    </section>
-  );
-}
-
-function SpaceSummaryTable({ rows }: { rows: TeamHoursSpaceSummary[] }) {
-  return (
-    <section className="overflow-hidden rounded-3xl bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
-      <div className="border-b border-slate-200 px-6 py-4">
-        <h2 className="text-lg font-semibold text-slate-900">By Space</h2>
-        <p className="mt-1 text-sm text-slate-500">
-          Space-first slice of hours so ClickUp structure drift is visible without losing the associated time.
-        </p>
-      </div>
-      {rows.length === 0 ? (
-        <div className="px-6 py-5 text-sm text-slate-500">
-          No space rows match the current slice.
-        </div>
-      ) : (
-      <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-slate-200 text-sm">
-          <thead className="bg-slate-50">
-            <tr className="text-left text-slate-500">
-              <th className="px-6 py-3 font-medium">Space</th>
-              <th className="px-4 py-3 font-medium">List</th>
-              <th className="px-4 py-3 font-medium">Client / Brand</th>
-              <th className="px-4 py-3 font-medium">Status</th>
-              <th className="px-4 py-3 font-medium">Hours</th>
-              <th className="px-4 py-3 font-medium">People</th>
-              <th className="px-4 py-3 font-medium">Entries</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {rows.map((row) => (
-              <tr key={`${row.space_id ?? "space"}:${row.list_id ?? "list"}`}>
-                <td className="px-6 py-4 font-semibold text-slate-900">{row.space_name}</td>
-                <td className="px-4 py-4 text-slate-600">{row.list_name ?? row.list_id ?? "—"}</td>
-                <td className="px-4 py-4 text-slate-600">
-                  <ClientNameLink
-                    clientId={row.client_id}
-                    clientName={row.client_name}
-                    className="font-medium text-slate-700"
-                  />
-                  {row.brand_name ? ` / ${row.brand_name}` : ""}
-                </td>
-                <td className="px-4 py-4">
-                  <span
-                    className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
-                      row.mapped ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
-                    }`}
-                  >
-                    {row.mapped ? "Mapped" : "Unlinked"}
-                  </span>
-                </td>
-                <td className="px-4 py-4 font-semibold text-slate-900">{formatHours(row.total_hours)}</td>
-                <td className="px-4 py-4 text-slate-600">{row.team_member_count}</td>
-                <td className="px-4 py-4 text-slate-600">{row.entry_count}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      )}
-    </section>
-  );
-}
-
-function DriftTable({
+function SeriesBreakdown({
   title,
-  description,
+  rows,
+  colorByKey,
+  emptyMessage,
+}: {
+  title: string;
+  rows: TeamHoursSeries[];
+  colorByKey: Map<string, string>;
+  emptyMessage: string;
+}) {
+  return (
+    <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+      <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">{title}</h3>
+      {rows.length === 0 ? (
+        <p className="mt-4 text-sm text-slate-500">{emptyMessage}</p>
+      ) : (
+        <div className="mt-4 space-y-3">
+          {rows.map((row) => (
+            <div key={row.key} className="flex items-start justify-between gap-4 rounded-2xl bg-slate-50 px-4 py-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span
+                    className="h-2.5 w-2.5 rounded-full"
+                    style={{ backgroundColor: colorByKey.get(row.key) ?? "#64748b" }}
+                  />
+                  <p className="truncate font-medium text-slate-900">{row.label}</p>
+                </div>
+                {row.team_member_email ? (
+                  <p className="pl-4 text-xs text-slate-500">{row.team_member_email}</p>
+                ) : null}
+                {row.client_name && row.brand_name ? (
+                  <p className="pl-4 text-xs text-slate-500">{row.client_name} / {row.brand_name}</p>
+                ) : null}
+                {row.client_name && !row.brand_name && row.label !== row.client_name ? (
+                  <p className="pl-4 text-xs text-slate-500">{row.client_name}</p>
+                ) : null}
+              </div>
+              <p className="text-sm font-semibold text-slate-900">{formatHours(row.total_hours)}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DriftCard({
+  title,
   rows,
   emptyMessage,
 }: {
   title: string;
-  description: string;
   rows: Array<{ key: string; name: string; detail: string; hours: number }>;
   emptyMessage: string;
 }) {
   return (
-    <section className="overflow-hidden rounded-3xl bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
-      <div className="border-b border-slate-200 px-6 py-4">
-        <h2 className="text-lg font-semibold text-slate-900">{title}</h2>
-        <p className="mt-1 text-sm text-slate-500">{description}</p>
-      </div>
+    <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+      <h2 className="text-lg font-semibold text-slate-900">{title}</h2>
       {rows.length === 0 ? (
-        <div className="px-6 py-5 text-sm text-slate-500">{emptyMessage}</div>
+        <p className="mt-4 text-sm text-slate-500">{emptyMessage}</p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-slate-200 text-sm">
-            <thead className="bg-slate-50">
-              <tr className="text-left text-slate-500">
-                <th className="px-6 py-3 font-medium">Name</th>
-                <th className="px-4 py-3 font-medium">Detail</th>
-                <th className="px-4 py-3 font-medium">Hours</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {rows.map((row) => (
-                <tr key={row.key}>
-                  <td className="px-6 py-4 font-semibold text-slate-900">{row.name}</td>
-                  <td className="px-4 py-4 text-slate-600">{row.detail}</td>
-                  <td className="px-4 py-4 font-semibold text-slate-900">{formatHours(row.hours)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="mt-4 space-y-3">
+          {rows.map((row) => (
+            <div key={row.key} className="flex items-start justify-between gap-4 rounded-2xl bg-slate-50 px-4 py-3">
+              <div className="min-w-0">
+                <p className="font-medium text-slate-900">{row.name}</p>
+                <p className="truncate text-sm text-slate-500">{row.detail}</p>
+              </div>
+              <p className="text-sm font-semibold text-slate-900">{formatHours(row.hours)}</p>
+            </div>
+          ))}
         </div>
       )}
     </section>
   );
 }
-
-const unmappedUserRows = (users: TeamHoursUnmappedUser[]) =>
-  users.map((user) => ({
-    key: user.clickup_user_id ?? user.clickup_username ?? "unknown-user",
-    name: user.clickup_username ?? "Unlinked ClickUp User",
-    detail:
-      user.clickup_user_email && user.clickup_user_id
-        ? `${user.clickup_user_email} | ClickUp ID: ${user.clickup_user_id}`
-        : user.clickup_user_email
-          ? user.clickup_user_email
-          : user.clickup_user_id
-            ? `ClickUp ID: ${user.clickup_user_id}`
-            : "No email or ClickUp user id",
-    hours: user.total_hours,
-  }));
-
-const unmappedSpaceRows = (spaces: TeamHoursUnmappedSpace[]) =>
-  spaces.map((space) => ({
-    key: space.space_id ?? space.list_id ?? "unknown-space",
-    name: space.space_name,
-    detail: `space_id=${space.space_id ?? "—"} | list_id=${space.list_id ?? "—"}`,
-    hours: space.total_hours,
-  }));
 
 export default function CommandCenterHoursPage() {
   const defaults = defaultDateRange();
   const [token, setToken] = useState<string | null>(null);
   const [startDate, setStartDate] = useState(defaults.startDate);
   const [endDate, setEndDate] = useState(defaults.endDate);
+  const [viewMode, setViewMode] = useState<ViewMode>("team_members");
   const [searchQuery, setSearchQuery] = useState("");
-  const [mappingFilter, setMappingFilter] = useState<MappingFilter>("all");
-  const [viewMode, setViewMode] = useState<ViewMode>("all");
   const [report, setReport] = useState<TeamHoursReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
+  const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
   const deferredSearchQuery = useDeferredValue(searchQuery.trim().toLowerCase());
 
   useEffect(() => {
@@ -510,156 +333,123 @@ export default function CommandCenterHoursPage() {
   }, [token, startDate, endDate]);
 
   const summary: TeamHoursSummary | null = report?.summary ?? null;
-  const filteredMembers: TeamHoursMember[] = [];
-  for (const member of report?.by_team_member ?? []) {
-    const memberMatches = matchesSearch(deferredSearchQuery, [
-      member.team_member_name,
-      member.team_member_email,
-      member.clickup_user_id,
-    ]);
-    const visibleClients = member.clients.filter((client) => {
-      if (!passesMappingFilter(client.mapped, mappingFilter)) return false;
-      if (memberMatches) return true;
-      return matchesSearch(deferredSearchQuery, [
+
+  const filteredMembers = useMemo(() => {
+    return (report?.team_members ?? []).filter((member) =>
+      matchesSearch(deferredSearchQuery, [
+        member.team_member_name,
+        member.team_member_email,
+        member.clickup_user_id,
+        member.link_status,
+      ]),
+    );
+  }, [deferredSearchQuery, report?.team_members]);
+
+  const filteredClients = useMemo(() => {
+    return (report?.clients ?? []).filter((client) =>
+      matchesSearch(deferredSearchQuery, [
         client.client_name,
-        client.brand_name,
-        client.space_name,
-        client.list_name,
-      ]);
+        client.status,
+      ]),
+    );
+  }, [deferredSearchQuery, report?.clients]);
+
+  useEffect(() => {
+    if (viewMode !== "team_members") return;
+    if (filteredMembers.length === 0) {
+      setSelectedMemberId(null);
+      return;
+    }
+    const stillVisible = filteredMembers.some((member) => member.entity_id === selectedMemberId);
+    if (stillVisible) return;
+    setSelectedMemberId(
+      filteredMembers.find((member) => member.total_hours > 0)?.entity_id ?? filteredMembers[0].entity_id,
+    );
+  }, [filteredMembers, selectedMemberId, viewMode]);
+
+  useEffect(() => {
+    if (viewMode !== "clients") return;
+    if (filteredClients.length === 0) {
+      setSelectedClientId(null);
+      return;
+    }
+    const stillVisible = filteredClients.some((client) => client.entity_id === selectedClientId);
+    if (stillVisible) return;
+    setSelectedClientId(
+      filteredClients.find((client) => client.total_hours > 0)?.entity_id ?? filteredClients[0].entity_id,
+    );
+  }, [filteredClients, selectedClientId, viewMode]);
+
+  const selectedMember = useMemo(
+    () => filteredMembers.find((member) => member.entity_id === selectedMemberId) ?? null,
+    [filteredMembers, selectedMemberId],
+  );
+  const selectedClient = useMemo(
+    () => filteredClients.find((client) => client.entity_id === selectedClientId) ?? null,
+    [filteredClients, selectedClientId],
+  );
+
+  const selectedEntity = viewMode === "team_members" ? selectedMember : selectedClient;
+  const chartSeries = selectedEntity?.series ?? [];
+
+  const colorByKey = useMemo(() => {
+    return new Map(chartSeries.map((series, index) => [series.key, safeColor(index)]));
+  }, [chartSeries]);
+
+  const chartData = useMemo(() => {
+    if (!report || !selectedEntity) return [];
+    const dailyMap = new Map(selectedEntity.daily.map((day) => [day.date, day]));
+    return report.date_range.days.map((date) => {
+      const row: ChartRow = {
+        date,
+        label: formatShortDate(date),
+        total_hours: 0,
+        __segments: [],
+      };
+      for (const series of chartSeries) {
+        row[series.key] = 0;
+      }
+      const day = dailyMap.get(date);
+      if (!day) return row;
+      row.total_hours = day.total_hours;
+      row.__segments = day.segments;
+      for (const segment of day.segments) {
+        row[segment.key] = segment.hours;
+      }
+      return row;
     });
-    if (visibleClients.length === 0) continue;
+  }, [chartSeries, report, selectedEntity]);
 
-    const totalHours = roundHours(
-      visibleClients.reduce((sum, client) => sum + client.total_hours, 0),
-    );
-    const mappedHours = roundHours(
-      visibleClients.reduce(
-        (sum, client) => sum + (client.mapped ? client.total_hours : 0),
-        0,
-      ),
-    );
+  const hasChartHours = chartData.some((row) => row.total_hours > 0);
 
-    filteredMembers.push({
-      ...member,
-      mapped: member.mapped,
-      total_hours: totalHours,
-      mapped_hours: mappedHours,
-      unmapped_hours: roundHours(totalHours - mappedHours),
-      clients: visibleClients,
-    });
-  }
-
-  const filteredClientRows = (report?.by_client ?? []).filter(
-    (row) =>
-      passesMappingFilter(row.mapped, mappingFilter) &&
-      matchesSearch(deferredSearchQuery, [
-        row.client_name,
-        row.brand_name,
-      ]),
+  const unmappedUserRows = useMemo(
+    () =>
+      (report?.unmapped_users ?? []).map((user: TeamHoursUnmappedUser) => ({
+        key: user.clickup_user_id ?? user.clickup_username ?? "unknown-user",
+        name: user.clickup_username ?? "Unlinked ClickUp User",
+        detail:
+          user.clickup_user_email && user.clickup_user_id
+            ? `${user.clickup_user_email} | ClickUp ID: ${user.clickup_user_id}`
+            : user.clickup_user_email
+              ? user.clickup_user_email
+              : user.clickup_user_id
+                ? `ClickUp ID: ${user.clickup_user_id}`
+                : "No email or ClickUp user id",
+        hours: user.total_hours,
+      })),
+    [report?.unmapped_users],
   );
-  const filteredSpaceRows = (report?.by_space ?? []).filter(
-    (row) =>
-      passesMappingFilter(row.mapped, mappingFilter) &&
-      matchesSearch(deferredSearchQuery, [
-        row.space_name,
-        row.list_name,
-        row.client_name,
-        row.brand_name,
-      ]),
+
+  const unmappedSpaceRows = useMemo(
+    () =>
+      (report?.unmapped_spaces ?? []).map((space: TeamHoursUnmappedSpace) => ({
+        key: space.space_id ?? space.list_id ?? "unknown-space",
+        name: space.space_name,
+        detail: `space_id=${space.space_id ?? "—"} | list_id=${space.list_id ?? "—"}`,
+        hours: space.total_hours,
+      })),
+    [report?.unmapped_spaces],
   );
-  const filteredUnmappedUsers =
-    mappingFilter === "mapped"
-      ? []
-      : (report?.unmapped_users ?? []).filter((row) =>
-          matchesSearch(deferredSearchQuery, [
-            row.clickup_username,
-            row.clickup_user_email,
-            row.clickup_user_id,
-          ]),
-        );
-  const filteredUnmappedSpaces =
-    mappingFilter === "mapped"
-      ? []
-      : (report?.unmapped_spaces ?? []).filter((row) =>
-          matchesSearch(deferredSearchQuery, [
-            row.space_name,
-            row.list_name,
-            row.space_id,
-            row.list_id,
-          ]),
-        );
-  const visibleSliceHours = roundHours(
-    filteredMembers.reduce((sum, member) => sum + member.total_hours, 0),
-  );
-  const filtersActive = deferredSearchQuery.length > 0 || mappingFilter !== "all";
-
-  const exportMemberBreakdown = () => {
-    if (!report) return;
-    downloadCsv(
-      `team-hours-members-${startDate}-to-${endDate}.csv`,
-      [
-        "team_member_name",
-        "team_member_email",
-        "profile_linked",
-        "team_total_hours",
-        "client_name",
-        "brand_name",
-        "space_name",
-        "list_name",
-        "bucket_mapped",
-        "bucket_total_hours",
-      ],
-      filteredMembers.flatMap((member) =>
-        member.clients.map((client) => [
-          member.team_member_name,
-          member.team_member_email,
-          member.mapped,
-          member.total_hours,
-          client.client_name,
-          client.brand_name,
-          client.space_name,
-          client.list_name,
-          client.mapped,
-          client.total_hours,
-        ]),
-      ),
-    );
-  };
-
-  const exportClientSummary = () => {
-    if (!report) return;
-    downloadCsv(
-      `team-hours-clients-${startDate}-to-${endDate}.csv`,
-      ["client_name", "brand_name", "mapped", "total_hours", "team_member_count", "space_count", "entry_count"],
-      filteredClientRows.map((row) => [
-        row.client_name,
-        row.brand_name,
-        row.mapped,
-        row.total_hours,
-        row.team_member_count,
-        row.space_count,
-        row.entry_count,
-      ]),
-    );
-  };
-
-  const exportSpaceSummary = () => {
-    if (!report) return;
-    downloadCsv(
-      `team-hours-spaces-${startDate}-to-${endDate}.csv`,
-      ["space_name", "list_name", "client_name", "brand_name", "mapped", "total_hours", "team_member_count", "entry_count"],
-      filteredSpaceRows.map((row) => [
-        row.space_name,
-        row.list_name,
-        row.client_name,
-        row.brand_name,
-        row.mapped,
-        row.total_hours,
-        row.team_member_count,
-        row.entry_count,
-      ]),
-    );
-  };
 
   return (
     <main className="space-y-6">
@@ -671,37 +461,11 @@ export default function CommandCenterHoursPage() {
             </Link>
             <h1 className="mt-3 text-3xl font-semibold text-slate-900">Team Hours</h1>
             <p className="mt-2 max-w-3xl text-sm text-slate-600">
-              ClickUp time-entry rollup for the team, with mapped and unmapped hours kept separate so Command Center drift is visible.
+              Review who is logging time and where it lands. Team-member view stacks daily hours by client or brand. Client view stacks daily hours by team member, with brand splits preserved when they matter.
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-              {report ? `${formatDateLabel(startDate)} to ${formatDateLabel(endDate)}` : "Select a date range"}
-            </div>
-            <button
-              type="button"
-              onClick={exportMemberBreakdown}
-              disabled={!report}
-              className="rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:-translate-y-0.5 hover:shadow disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Export Member CSV
-            </button>
-            <button
-              type="button"
-              onClick={exportClientSummary}
-              disabled={!report}
-              className="rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:-translate-y-0.5 hover:shadow disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Export Client CSV
-            </button>
-            <button
-              type="button"
-              onClick={exportSpaceSummary}
-              disabled={!report}
-              className="rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:-translate-y-0.5 hover:shadow disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Export Space CSV
-            </button>
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+            {report ? `${formatLongDate(startDate)} to ${formatLongDate(endDate)}` : "Select a date range"}
           </div>
         </div>
 
@@ -724,79 +488,44 @@ export default function CommandCenterHoursPage() {
               className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
             />
           </label>
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Coverage</p>
-            <p className="mt-2 text-sm text-slate-700">
-              Pulls workspace members first, then queries ClickUp time entries for the selected range.
-            </p>
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-2">
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setViewMode("team_members")}
+                className={`rounded-2xl px-4 py-3 text-sm font-semibold transition ${
+                  viewMode === "team_members"
+                    ? "bg-[#0a6fd6] text-white shadow"
+                    : "bg-white text-slate-700"
+                }`}
+              >
+                Team Members
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode("clients")}
+                className={`rounded-2xl px-4 py-3 text-sm font-semibold transition ${
+                  viewMode === "clients"
+                    ? "bg-[#0a6fd6] text-white shadow"
+                    : "bg-white text-slate-700"
+                }`}
+              >
+                Clients
+              </button>
+            </div>
           </div>
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Drift Handling</p>
-            <p className="mt-2 text-sm text-slate-700">
-              Unlinked users and spaces stay in the report so you can clean them up later in Command Center.
-            </p>
-          </div>
-        </div>
-
-        <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <label className="space-y-2 xl:col-span-2">
-            <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Search</span>
+          <label className="space-y-2">
+            <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+              Search {viewMode === "team_members" ? "Team Members" : "Clients"}
+            </span>
             <input
               type="text"
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
-              placeholder="Search team member, client, brand, space, list, or ClickUp id"
+              placeholder={viewMode === "team_members" ? "Search name, email, or ClickUp ID" : "Search client name"}
               className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
             />
           </label>
-          <label className="space-y-2">
-            <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Attribution Filter</span>
-            <select
-              value={mappingFilter}
-              onChange={(event) => setMappingFilter(event.target.value as MappingFilter)}
-              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
-            >
-              <option value="all">All Hours</option>
-              <option value="mapped">Attributed Only</option>
-              <option value="unlinked">Unattributed Only</option>
-            </select>
-          </label>
-          <label className="space-y-2">
-            <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Focus View</span>
-            <select
-              value={viewMode}
-              onChange={(event) => setViewMode(event.target.value as ViewMode)}
-              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
-            >
-              <option value="all">All Sections</option>
-              <option value="clients">Clients Only</option>
-              <option value="spaces">Spaces Only</option>
-              <option value="members">Team Members Only</option>
-              <option value="drift">Drift Only</option>
-            </select>
-          </label>
-        </div>
-
-        <div className="mt-4 flex flex-wrap items-center gap-3">
-          <button
-            type="button"
-            onClick={() => {
-              setSearchQuery("");
-              setMappingFilter("all");
-              setViewMode("all");
-            }}
-            className="rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:-translate-y-0.5 hover:shadow"
-          >
-            Clear Filters
-          </button>
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-600">
-            Visible slice: {formatHours(visibleSliceHours)} across {filteredMembers.length} people
-          </div>
-          {filtersActive ? (
-            <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
-              Filtered view active
-            </div>
-          ) : null}
         </div>
       </section>
 
@@ -816,58 +545,256 @@ export default function CommandCenterHoursPage() {
         <>
           <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <SummaryCard label="Total Hours" value={formatHours(summary.total_hours)} />
-            <SummaryCard label="Mapped Hours" value={formatHours(summary.mapped_hours)} />
-            <SummaryCard label="Unmapped Hours" value={formatHours(summary.unmapped_hours)} tone="warn" />
-            <SummaryCard label="Active People" value={String(summary.unique_users)} />
-            <SummaryCard label="Time Entries" value={String(summary.entry_count)} />
-            <SummaryCard label="Unattributed Hours" value={formatHours(summary.unattributed_hours)} tone="warn" />
-            <SummaryCard label="Running Entries" value={String(summary.running_entries)} tone={summary.running_entries > 0 ? "warn" : "default"} />
+            <SummaryCard
+              label="Team Logging"
+              value={`${summary.team_members_with_hours}/${summary.team_member_count}`}
+              hint="People with any logged hours in range"
+            />
+            <SummaryCard
+              label="Client Coverage"
+              value={`${summary.clients_with_hours}/${summary.client_count}`}
+              hint="Clients with any logged hours in range"
+            />
+            <SummaryCard
+              label="Unattributed Hours"
+              value={formatHours(summary.unattributed_hours)}
+              hint="Hours on spaces that still need client mapping"
+              tone="warn"
+            />
           </section>
 
-          {filtersActive ? (
-            <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-              <SummaryCard label="Visible Hours" value={formatHours(visibleSliceHours)} />
-              <SummaryCard label="Visible People" value={String(filteredMembers.length)} />
-              <SummaryCard label="Visible Clients" value={String(filteredClientRows.length)} />
-              <SummaryCard label="Visible Spaces" value={String(filteredSpaceRows.length)} />
+          <section className="grid gap-6 xl:grid-cols-[340px_minmax(0,1fr)]">
+            <aside className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="flex items-end justify-between gap-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                    {viewMode === "team_members" ? "Team Members" : "Clients"}
+                  </p>
+                  <h2 className="mt-2 text-xl font-semibold text-slate-900">
+                    {viewMode === "team_members" ? filteredMembers.length : filteredClients.length} visible
+                  </h2>
+                </div>
+                <div className="text-sm text-slate-500">
+                  {viewMode === "team_members"
+                    ? `${summary.team_member_count} total`
+                    : `${summary.client_count} total`}
+                </div>
+              </div>
+
+              <div className="mt-4 max-h-[820px] space-y-3 overflow-y-auto pr-1">
+                {viewMode === "team_members" ? (
+                  filteredMembers.length === 0 ? (
+                    <div className="rounded-2xl border border-dashed border-slate-300 px-4 py-6 text-sm text-slate-500">
+                      No team members match the current search.
+                    </div>
+                  ) : (
+                    filteredMembers.map((member) => {
+                      const selected = member.entity_id === selectedMemberId;
+                      return (
+                        <button
+                          key={member.entity_id}
+                          type="button"
+                          onClick={() => setSelectedMemberId(member.entity_id)}
+                          className={`w-full rounded-3xl border px-4 py-4 text-left transition ${
+                            selected
+                              ? "border-[#0a6fd6] bg-[#f3f8ff] shadow"
+                              : "border-slate-200 bg-slate-50 hover:border-slate-300 hover:bg-white"
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="truncate font-semibold text-slate-900">{member.team_member_name}</p>
+                              <p className="truncate text-sm text-slate-500">
+                                {member.team_member_email ?? member.clickup_user_id ?? "No email or ClickUp ID"}
+                              </p>
+                            </div>
+                            <p className="whitespace-nowrap text-sm font-semibold text-slate-900">{formatHours(member.total_hours)}</p>
+                          </div>
+                          <div className="mt-3 flex flex-wrap items-center gap-2">
+                            <LinkStatusBadge status={member.link_status} />
+                            <span className="text-xs text-slate-500">{member.active_day_count} active days</span>
+                            <span className="text-xs text-slate-500">{member.entry_count} entries</span>
+                          </div>
+                        </button>
+                      );
+                    })
+                  )
+                ) : filteredClients.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-slate-300 px-4 py-6 text-sm text-slate-500">
+                    No clients match the current search.
+                  </div>
+                ) : (
+                  filteredClients.map((client) => {
+                    const selected = client.entity_id === selectedClientId;
+                    return (
+                      <button
+                        key={client.entity_id}
+                        type="button"
+                        onClick={() => setSelectedClientId(client.entity_id)}
+                        className={`w-full rounded-3xl border px-4 py-4 text-left transition ${
+                          selected
+                            ? "border-[#0a6fd6] bg-[#f3f8ff] shadow"
+                            : "border-slate-200 bg-slate-50 hover:border-slate-300 hover:bg-white"
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="truncate font-semibold text-slate-900">{client.client_name}</p>
+                            <p className="truncate text-sm text-slate-500">{client.brand_count} brands</p>
+                          </div>
+                          <p className="whitespace-nowrap text-sm font-semibold text-slate-900">{formatHours(client.total_hours)}</p>
+                        </div>
+                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                          <ClientStatusBadge status={client.status} />
+                          <span className="text-xs text-slate-500">{client.active_day_count} active days</span>
+                          <span className="text-xs text-slate-500">{client.entry_count} entries</span>
+                        </div>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            </aside>
+
+            <section className="space-y-6">
+              {!selectedEntity ? (
+                <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-8 text-sm text-slate-500">
+                  Choose a {viewMode === "team_members" ? "team member" : "client"} to inspect daily hours.
+                </div>
+              ) : (
+                <>
+                  <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                    <div className="flex flex-wrap items-start justify-between gap-4">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                          {viewMode === "team_members" ? "Selected Team Member" : "Selected Client"}
+                        </p>
+                        <h2 className="mt-2 text-2xl font-semibold text-slate-900">
+                          {viewMode === "team_members"
+                            ? selectedMember?.team_member_name
+                            : selectedClient?.client_name}
+                        </h2>
+                        <p className="mt-2 text-sm text-slate-500">
+                          {viewMode === "team_members"
+                            ? selectedMember?.team_member_email ?? selectedMember?.clickup_user_id ?? "No email or ClickUp ID"
+                            : `${selectedClient?.brand_count ?? 0} brands tracked under this client`}
+                        </p>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2">
+                        {viewMode === "team_members" && selectedMember ? (
+                          <>
+                            <LinkStatusBadge status={selectedMember.link_status} />
+                            {selectedMember.team_member_profile_id ? (
+                              <Link
+                                href={`/command-center/team/${selectedMember.team_member_profile_id}`}
+                                className="rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:-translate-y-0.5 hover:shadow"
+                              >
+                                Open Team Profile
+                              </Link>
+                            ) : null}
+                          </>
+                        ) : null}
+                        {viewMode === "clients" && selectedClient ? (
+                          <>
+                            <ClientStatusBadge status={selectedClient.status} />
+                            <Link
+                              href={`/command-center/clients/${selectedClient.client_id}`}
+                              className="rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:-translate-y-0.5 hover:shadow"
+                            >
+                              Open Client
+                            </Link>
+                          </>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                      <SummaryCard label="Total" value={formatHours(selectedEntity.total_hours)} />
+                      <SummaryCard label="Active Days" value={String(selectedEntity.active_day_count)} />
+                      <SummaryCard label="Entries" value={String(selectedEntity.entry_count)} />
+                      {viewMode === "team_members" && selectedMember ? (
+                        <SummaryCard
+                          label="Unattributed"
+                          value={formatHours(selectedMember.unmapped_hours)}
+                          hint={`${formatHours(selectedMember.mapped_hours)} attributed`}
+                          tone={selectedMember.unmapped_hours > 0 ? "warn" : "default"}
+                        />
+                      ) : (
+                        <SummaryCard
+                          label="Series"
+                          value={String(selectedEntity.series.length)}
+                          hint="Distinct stacked segments in chart"
+                        />
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                    <div className="flex flex-wrap items-end justify-between gap-4">
+                      <div>
+                        <h3 className="text-lg font-semibold text-slate-900">Daily Hours</h3>
+                        <p className="mt-1 text-sm text-slate-500">
+                          {viewMode === "team_members"
+                            ? "Each day stacks hours by client or brand."
+                            : "Each day stacks hours by team member, splitting brands when the same person worked multiple brands under the client."}
+                        </p>
+                      </div>
+                      <div className="text-sm text-slate-500">
+                        Hover any day to inspect the stacked amounts.
+                      </div>
+                    </div>
+
+                    <div className="mt-6 h-[420px]">
+                      {!hasChartHours ? (
+                        <div className="flex h-full items-center justify-center rounded-3xl border border-dashed border-slate-300 bg-slate-50 text-sm text-slate-500">
+                          No hours logged for this selection in the current date range.
+                        </div>
+                      ) : (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={chartData} margin={{ top: 12, right: 12, left: 0, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                            <XAxis dataKey="label" tick={{ fontSize: 12 }} stroke="#64748b" minTickGap={16} />
+                            <YAxis tick={{ fontSize: 12 }} stroke="#64748b" />
+                            <Tooltip content={<ChartTooltip colorByKey={colorByKey} />} />
+                            {chartSeries.map((series, index) => (
+                              <Bar
+                                key={series.key}
+                                dataKey={series.key}
+                                stackId="hours"
+                                fill={safeColor(index)}
+                                radius={[6, 6, 0, 0]}
+                              />
+                            ))}
+                          </BarChart>
+                        </ResponsiveContainer>
+                      )}
+                    </div>
+                  </div>
+
+                  <SeriesBreakdown
+                    title={viewMode === "team_members" ? "Clients / Brands in Range" : "People / Brands in Range"}
+                    rows={selectedEntity.series}
+                    colorByKey={colorByKey}
+                    emptyMessage="No stacked series for this selection yet."
+                  />
+                </>
+              )}
             </section>
-          ) : null}
+          </section>
 
-          {viewMode === "all" ? (
-            <div className="grid gap-6 xl:grid-cols-2">
-              <ClientSummaryTable rows={filteredClientRows} />
-              <SpaceSummaryTable rows={filteredSpaceRows} />
-            </div>
-          ) : null}
-
-          {viewMode === "clients" ? (
-            <ClientSummaryTable rows={filteredClientRows} />
-          ) : null}
-
-          {viewMode === "spaces" ? (
-            <SpaceSummaryTable rows={filteredSpaceRows} />
-          ) : null}
-
-          {(viewMode === "all" || viewMode === "members") ? (
-            <TeamMemberTable members={filteredMembers} />
-          ) : null}
-
-          {(viewMode === "all" || viewMode === "drift") ? (
-            <div className="grid gap-6 xl:grid-cols-2">
-              <DriftTable
-                title="Unlinked ClickUp Users"
-                description="These users logged time but do not resolve cleanly to a single Command Center profile."
-                rows={unmappedUserRows(filteredUnmappedUsers)}
-                emptyMessage="All visible time-entry users map cleanly to Command Center profiles."
-              />
-              <DriftTable
-                title="Unlinked Spaces"
-                description="These entries did not resolve cleanly to a single brand via ClickUp list or space mapping."
-                rows={unmappedSpaceRows(filteredUnmappedSpaces)}
-                emptyMessage="All visible hours map cleanly to a brand."
-              />
-            </div>
-          ) : null}
+          <section className="grid gap-6 xl:grid-cols-2">
+            <DriftCard
+              title="Unlinked ClickUp Users"
+              rows={unmappedUserRows}
+              emptyMessage="All visible ClickUp users resolve cleanly to Command Center profiles."
+            />
+            <DriftCard
+              title="Unmapped Spaces"
+              rows={unmappedSpaceRows}
+              emptyMessage="All visible hours map cleanly to a client."
+            />
+          </section>
         </>
       ) : null}
     </main>

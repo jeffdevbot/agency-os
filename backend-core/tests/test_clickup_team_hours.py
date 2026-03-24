@@ -42,7 +42,7 @@ class _FakeTable:
 
 
 @pytest.mark.asyncio
-async def test_build_report_maps_list_first_then_space_and_preserves_unlinked_buckets():
+async def test_build_report_returns_full_roster_and_daily_series():
     clickup = _FakeClickUp(
         team_id="team-1",
         teams=[
@@ -63,7 +63,6 @@ async def test_build_report_maps_list_first_then_space_and_preserves_unlinked_bu
                 "duration": "7200000",
                 "start": "1700000000000",
                 "end": "1700007200000",
-                "billable": True,
                 "task": {"id": "task-1", "name": "Mapped by list"},
                 "task_location": {
                     "space_id": "space-a",
@@ -71,16 +70,14 @@ async def test_build_report_maps_list_first_then_space_and_preserves_unlinked_bu
                     "list_id": "list-a",
                     "list_name": "Alpha List",
                 },
-                "task_tags": [{"name": "ops"}],
             },
             {
                 "id": "te-2",
                 "wid": "team-1",
                 "user": {"id": 101, "username": "Alice CU", "email": "alice@clickup.test"},
                 "duration": "3600000",
-                "start": "1700010000000",
-                "end": "1700013600000",
-                "billable": True,
+                "start": "1700086400000",
+                "end": "1700090000000",
                 "task": {"id": "task-2", "name": "Mapped by unique space"},
                 "task_location": {
                     "space_id": "space-b",
@@ -88,41 +85,21 @@ async def test_build_report_maps_list_first_then_space_and_preserves_unlinked_bu
                     "list_id": "unknown-list",
                     "list_name": "Unknown List",
                 },
-                "task_tags": [],
             },
             {
                 "id": "te-3",
                 "wid": "team-1",
                 "user": {"id": 202, "username": "Bob CU", "email": "bob@clickup.test"},
                 "duration": "1800000",
-                "start": "1700020000000",
-                "end": "1700021800000",
-                "billable": False,
-                "task": {"id": "task-3", "name": "Unmapped space"},
+                "start": "1700000000000",
+                "end": "1700001800000",
+                "task": {"id": "task-3", "name": "Shared client"},
                 "task_location": {
                     "space_id": "space-shared",
                     "space_name": "Shared Space",
                     "list_id": "shared-list",
                     "list_name": "Shared List",
                 },
-                "task_tags": [],
-            },
-            {
-                "id": "te-4",
-                "wid": "team-1",
-                "user": {"id": 303, "username": "Carol CU", "email": "carol@clickup.test"},
-                "duration": "-1",
-                "start": "1700030000000",
-                "end": None,
-                "billable": None,
-                "task": {"id": "task-4", "name": "Running"},
-                "task_location": {
-                    "space_id": "space-z",
-                    "space_name": "Zeta Space",
-                    "list_id": "list-z",
-                    "list_name": "Zeta List",
-                },
-                "task_tags": [],
             },
         ],
     )
@@ -135,6 +112,15 @@ async def test_build_report_maps_list_first_then_space_and_preserves_unlinked_bu
                     "display_name": "Alice",
                     "full_name": "Alice Agency",
                     "clickup_user_id": "101",
+                    "employment_status": "active",
+                },
+                {
+                    "id": "profile-2",
+                    "email": "zoe@agency.test",
+                    "display_name": "Zoe",
+                    "full_name": "Zoe Agency",
+                    "clickup_user_id": None,
+                    "employment_status": "active",
                 },
                 {
                     "id": "profile-dup-1",
@@ -142,6 +128,7 @@ async def test_build_report_maps_list_first_then_space_and_preserves_unlinked_bu
                     "display_name": "Bob One",
                     "full_name": "Bob One",
                     "clickup_user_id": "202",
+                    "employment_status": "active",
                 },
                 {
                     "id": "profile-dup-2",
@@ -149,12 +136,14 @@ async def test_build_report_maps_list_first_then_space_and_preserves_unlinked_bu
                     "display_name": "Bob Two",
                     "full_name": "Bob Two",
                     "clickup_user_id": "202",
+                    "employment_status": "active",
                 },
             ],
             "agency_clients": [
-                {"id": "client-a", "name": "Alpha Client"},
-                {"id": "client-b", "name": "Beta Client"},
-                {"id": "client-c", "name": "Gamma Client"},
+                {"id": "client-a", "name": "Alpha Client", "status": "active"},
+                {"id": "client-b", "name": "Beta Client", "status": "active"},
+                {"id": "client-c", "name": "Gamma Client", "status": "active"},
+                {"id": "client-z", "name": "Zero Client", "status": "inactive"},
             ],
             "brands": [
                 {
@@ -204,144 +193,94 @@ async def test_build_report_maps_list_first_then_space_and_preserves_unlinked_bu
             "include_location_names": True,
         }
     ]
+
+    assert result["date_range"]["days"] == ["2023-11-14", "2023-11-15"]
     assert result["summary"] == {
         "total_hours": 3.5,
         "mapped_hours": 3.5,
         "unmapped_hours": 0.0,
         "unattributed_hours": 0.0,
-        "unique_users": 3,
-        "entry_count": 4,
-        "running_entries": 1,
+        "unique_users": 2,
+        "entry_count": 3,
+        "running_entries": 0,
+        "team_member_count": 5,
+        "team_members_with_hours": 2,
+        "client_count": 4,
+        "clients_with_hours": 3,
     }
 
-    alice = result["by_team_member"][0]
-    assert alice["team_member_name"] == "Alice"
-    assert alice["mapped"] is True
+    assert [member["team_member_name"] for member in result["team_members"]] == [
+        "Alice",
+        "Bob CU",
+        "Bob One",
+        "Bob Two",
+        "Zoe",
+    ]
+
+    alice = result["team_members"][0]
+    assert alice["link_status"] == "linked"
     assert alice["total_hours"] == 3.0
-    assert alice["clients"][0]["client_name"] == "Alpha Client"
-    assert alice["clients"][0]["brand_name"] == "Alpha Brand"
-    assert alice["clients"][0]["total_hours"] == 2.0
-    assert alice["clients"][1]["client_name"] == "Beta Client"
-    assert alice["clients"][1]["brand_name"] == "Beta Brand"
-    assert alice["clients"][1]["total_hours"] == 1.0
-
-    bob = result["by_team_member"][1]
-    assert bob["team_member_name"] == "Bob CU"
-    assert bob["mapped"] is False
-    assert bob["mapped_hours"] == 0.5
-    assert bob["unmapped_hours"] == 0.0
-    assert bob["clients"][0]["client_name"] == "Gamma Client"
-    assert bob["clients"][0]["brand_name"] is None
-    assert bob["clients"][0]["mapped"] is True
-
-    carol = result["by_team_member"][2]
-    assert carol["total_hours"] == 0.0
-    assert carol["mapped"] is False
-
-    assert result["by_client"] == [
+    assert [series["label"] for series in alice["series"]] == [
+        "Alpha Client • Alpha Brand",
+        "Beta Client • Beta Brand",
+    ]
+    assert alice["daily"] == [
         {
-            "client_id": "client-a",
-            "client_name": "Alpha Client",
-            "brand_id": "brand-a",
-            "brand_name": "Alpha Brand",
-            "mapped": True,
-            "team_member_count": 1,
-            "space_count": 1,
-            "entry_count": 1,
+            "date": "2023-11-14",
             "total_hours": 2.0,
+            "segments": [
+                {
+                    "key": "client-a|brand-a|space-a|list-a",
+                    "label": "Alpha Client • Alpha Brand",
+                    "client_id": "client-a",
+                    "client_name": "Alpha Client",
+                    "brand_id": "brand-a",
+                    "brand_name": "Alpha Brand",
+                    "mapped": True,
+                    "hours": 2.0,
+                    "duration_ms": 7200000,
+                }
+            ],
         },
         {
-            "client_id": "client-b",
-            "client_name": "Beta Client",
-            "brand_id": "brand-b",
-            "brand_name": "Beta Brand",
-            "mapped": True,
-            "team_member_count": 1,
-            "space_count": 1,
-            "entry_count": 1,
+            "date": "2023-11-15",
             "total_hours": 1.0,
-        },
-        {
-            "client_id": "client-c",
-            "client_name": "Gamma Client",
-            "brand_id": None,
-            "brand_name": None,
-            "mapped": True,
-            "team_member_count": 1,
-            "space_count": 1,
-            "entry_count": 1,
-            "total_hours": 0.5,
-        },
-        {
-            "client_id": None,
-            "client_name": "Unlinked Space",
-            "brand_id": None,
-            "brand_name": None,
-            "mapped": False,
-            "team_member_count": 1,
-            "space_count": 1,
-            "entry_count": 1,
-            "total_hours": 0.0,
+            "segments": [
+                {
+                    "key": "client-b|brand-b|space-b|unknown-list",
+                    "label": "Beta Client • Beta Brand",
+                    "client_id": "client-b",
+                    "client_name": "Beta Client",
+                    "brand_id": "brand-b",
+                    "brand_name": "Beta Brand",
+                    "mapped": True,
+                    "hours": 1.0,
+                    "duration_ms": 3600000,
+                }
+            ],
         },
     ]
-    assert result["by_space"] == [
-        {
-            "space_id": "space-a",
-            "space_name": "Alpha Space",
-            "list_id": "list-a",
-            "list_name": "Alpha List",
-            "client_id": "client-a",
-            "client_name": "Alpha Client",
-            "brand_id": "brand-a",
-            "brand_name": "Alpha Brand",
-            "mapped": True,
-            "team_member_count": 1,
-            "entry_count": 1,
-            "total_hours": 2.0,
-        },
-        {
-            "space_id": "space-b",
-            "space_name": "Beta Space",
-            "list_id": "unknown-list",
-            "list_name": "Unknown List",
-            "client_id": "client-b",
-            "client_name": "Beta Client",
-            "brand_id": "brand-b",
-            "brand_name": "Beta Brand",
-            "mapped": True,
-            "team_member_count": 1,
-            "entry_count": 1,
-            "total_hours": 1.0,
-        },
-        {
-            "space_id": "space-shared",
-            "space_name": "Shared Space",
-            "list_id": "shared-list",
-            "list_name": "Shared List",
-            "client_id": "client-c",
-            "client_name": "Gamma Client",
-            "brand_id": None,
-            "brand_name": None,
-            "mapped": True,
-            "team_member_count": 1,
-            "entry_count": 1,
-            "total_hours": 0.5,
-        },
-        {
-            "space_id": "space-z",
-            "space_name": "Zeta Space",
-            "list_id": "list-z",
-            "list_name": "Zeta List",
-            "client_id": None,
-            "client_name": "Unlinked Space",
-            "brand_id": None,
-            "brand_name": None,
-            "mapped": False,
-            "team_member_count": 1,
-            "entry_count": 1,
-            "total_hours": 0.0,
-        },
+
+    bob_clickup = result["team_members"][1]
+    assert bob_clickup["team_member_profile_id"] is None
+    assert bob_clickup["clickup_user_id"] == "202"
+    assert bob_clickup["link_status"] == "unlinked"
+    assert bob_clickup["series"][0]["label"] == "Gamma Client"
+
+    zero_member = result["team_members"][-1]
+    assert zero_member["team_member_name"] == "Zoe"
+    assert zero_member["total_hours"] == 0.0
+    assert zero_member["daily"] == []
+
+    assert [client["client_name"] for client in result["clients"]] == [
+        "Alpha Client",
+        "Beta Client",
+        "Gamma Client",
+        "Zero Client",
     ]
+    gamma = result["clients"][2]
+    assert gamma["series"][0]["label"] == "Bob CU"
+    assert gamma["daily"][0]["segments"][0]["brand_name"] is None
 
     assert result["unmapped_users"] == [
         {
@@ -349,23 +288,9 @@ async def test_build_report_maps_list_first_then_space_and_preserves_unlinked_bu
             "clickup_username": "Bob CU",
             "clickup_user_email": "bob@clickup.test",
             "total_hours": 0.5,
-        },
-        {
-            "clickup_user_id": "303",
-            "clickup_username": "Carol CU",
-            "clickup_user_email": "carol@clickup.test",
-            "total_hours": 0.0,
-        },
+        }
     ]
-    assert result["unmapped_spaces"] == [
-        {
-            "space_id": "space-z",
-            "space_name": "Zeta Space",
-            "list_id": "list-z",
-            "list_name": "Zeta List",
-            "total_hours": 0.0,
-        },
-    ]
+    assert result["unmapped_spaces"] == []
 
 
 @pytest.mark.asyncio
