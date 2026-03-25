@@ -22,6 +22,7 @@ DEFAULT_CHUNK_DAYS = 14
 DEFAULT_DAILY_LOOKBACK_DAYS = 14
 DEFAULT_REPORT_POLL_SECONDS = 30
 DEFAULT_REPORT_MAX_POLLS = 60
+OBSERVED_REPORT_RETENTION_DAYS = 60
 
 AMAZON_ADS_API_URL = "https://advertising-api.amazon.com"
 AMAZON_ADS_REPORT_CREATE_PATH = "/reporting/reports"
@@ -226,6 +227,13 @@ class AmazonAdsSyncService:
         today = datetime.now(UTC).date()
         if date_to > today:
             raise WBRValidationError("date_to must be less than or equal to today")
+        retention_start_date = self._report_retention_start_date(today)
+        if date_from < retention_start_date:
+            raise WBRValidationError(
+                "Amazon Ads backfill start date is older than the current observed report retention window. "
+                f"Choose {retention_start_date.isoformat()} or later "
+                f"(about {OBSERVED_REPORT_RETENTION_DAYS} calendar days inclusive)."
+            )
 
         profile = self._get_profile(profile_id)
         ads_profile_id = self._require_amazon_ads_profile_id(profile)
@@ -255,6 +263,13 @@ class AmazonAdsSyncService:
             "date_to": date_to.isoformat(),
             "chunks": results,
         }
+
+    @staticmethod
+    def _report_retention_start_date(today: date) -> date:
+        # Live Amazon Ads API behavior is currently acting like a 60 calendar
+        # day inclusive window, so the earliest allowed start date is 59 days
+        # before "today".
+        return today - timedelta(days=OBSERVED_REPORT_RETENTION_DAYS - 1)
 
     async def run_daily_refresh(
         self,

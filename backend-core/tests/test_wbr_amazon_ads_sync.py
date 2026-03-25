@@ -217,6 +217,28 @@ def test_run_backfill_rejects_future_end_date(monkeypatch):
         )
 
 
+def test_run_backfill_rejects_start_before_observed_retention_window(monkeypatch):
+    svc = AmazonAdsSyncService(MagicMock())
+
+    class _FakeDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 3, 24, 12, 0, 0, tzinfo=tz or UTC)
+
+    monkeypatch.setattr(sync_module, "datetime", _FakeDateTime)
+
+    with pytest.raises(WBRValidationError, match="Choose 2026-01-24 or later"):
+        asyncio.run(
+            svc.run_backfill(
+                profile_id="profile-1",
+                date_from=date(2026, 1, 23),
+                date_to=date(2026, 1, 24),
+                chunk_days=7,
+                user_id="user-1",
+            )
+        )
+
+
 def test_run_daily_refresh_uses_profile_rewrite_window(monkeypatch):
     svc = AmazonAdsSyncService(MagicMock())
 
