@@ -646,6 +646,24 @@ async def list_sync_runs(
         raise HTTPException(status_code=500, detail="Failed to list WBR sync runs")
 
 
+@router.get("/profiles/{profile_id}/sync-coverage")
+async def get_sync_coverage(
+    profile_id: str,
+    source_type: str = Query("windsor_business"),
+    user=Depends(require_admin_user),
+):
+    svc = _get_sync_run_service()
+    try:
+        coverage = svc.get_sync_coverage(profile_id, source_type=source_type)
+        return {"ok": True, **coverage}
+    except WBRNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except WBRValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to load WBR sync coverage")
+
+
 @router.post("/profiles/{profile_id}/sync-runs/windsor-business/backfill")
 async def run_windsor_business_backfill(
     profile_id: str,

@@ -18,6 +18,24 @@ export type WbrSyncRun = {
   updated_at: string | null;
 };
 
+export type WbrCoverageRange = {
+  date_from: string;
+  date_to: string;
+};
+
+export type WbrSyncCoverage = {
+  source_type: string;
+  window_start: string;
+  window_end: string;
+  window_label: string;
+  covered_day_count: number;
+  in_flight_day_count: number;
+  missing_day_count: number;
+  covered_ranges: WbrCoverageRange[];
+  in_flight_ranges: WbrCoverageRange[];
+  missing_ranges: WbrCoverageRange[];
+};
+
 export type RunWbrWindsorBusinessBackfillRequest = {
   date_from: string;
   date_to: string;
@@ -260,6 +278,34 @@ const parseSyncRunList = (payload: unknown): WbrSyncRun[] => {
   return payload.runs.map(parseSyncRun);
 };
 
+const parseCoverageRange = (value: unknown): WbrCoverageRange => {
+  if (!isRecord(value)) {
+    throw new Error("Invalid WBR coverage range");
+  }
+  return {
+    date_from: asString(value.date_from),
+    date_to: asString(value.date_to),
+  };
+};
+
+const parseSyncCoverage = (payload: unknown): WbrSyncCoverage => {
+  if (!isRecord(payload)) {
+    throw new Error("Invalid WBR sync coverage response");
+  }
+  return {
+    source_type: asString(payload.source_type),
+    window_start: asString(payload.window_start),
+    window_end: asString(payload.window_end),
+    window_label: asString(payload.window_label),
+    covered_day_count: asNumber(payload.covered_day_count),
+    in_flight_day_count: asNumber(payload.in_flight_day_count),
+    missing_day_count: asNumber(payload.missing_day_count),
+    covered_ranges: Array.isArray(payload.covered_ranges) ? payload.covered_ranges.map(parseCoverageRange) : [],
+    in_flight_ranges: Array.isArray(payload.in_flight_ranges) ? payload.in_flight_ranges.map(parseCoverageRange) : [],
+    missing_ranges: Array.isArray(payload.missing_ranges) ? payload.missing_ranges.map(parseCoverageRange) : [],
+  };
+};
+
 const parseChunkResult = (value: unknown): RunWbrWindsorBusinessChunkResult => {
   if (!isRecord(value) || !isRecord(value.run)) {
     throw new Error("Invalid Windsor business sync chunk response");
@@ -430,6 +476,20 @@ export const listWbrSyncRuns = async (
     { method: "GET" }
   );
   return parseSyncRunList(payload);
+};
+
+export const getWbrSyncCoverage = async (
+  token: string,
+  profileId: string,
+  sourceType = "windsor_business"
+): Promise<WbrSyncCoverage> => {
+  const query = new URLSearchParams({ source_type: sourceType });
+  const payload = await requestJson<unknown>(
+    token,
+    `/admin/wbr/profiles/${profileId}/sync-coverage?${query.toString()}`,
+    { method: "GET" }
+  );
+  return parseSyncCoverage(payload);
 };
 
 export const runWbrWindsorBusinessBackfill = async (

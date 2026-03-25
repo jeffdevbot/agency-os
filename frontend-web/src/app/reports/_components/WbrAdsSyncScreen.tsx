@@ -34,6 +34,21 @@ const formatTimestamp = (value: string | null): string => {
   }).format(parsed);
 };
 
+const formatDateLabel = (value: string): string => {
+  const parsed = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return new Intl.DateTimeFormat("en-CA", {
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+  }).format(parsed);
+};
+
+const formatDateRangeLabel = (dateFrom: string, dateTo: string): string => {
+  if (dateFrom === dateTo) return formatDateLabel(dateFrom);
+  return `${formatDateLabel(dateFrom)} to ${formatDateLabel(dateTo)}`;
+};
+
 const statusClasses = {
   running: "border-sky-200 bg-sky-50 text-sky-800",
   success: "border-emerald-200 bg-emerald-50 text-emerald-800",
@@ -457,11 +472,87 @@ export default function WbrAdsSyncScreen({ clientSlug, marketplaceCode }: Props)
             Row-level ads reporting requires Pacvue campaign mapping. Until that is configured, this sync still lets us validate marketplace-level totals.
           </p>
 
+          <div className="mt-6 rounded-2xl border border-slate-200 bg-[#f8fbff] p-5">
+            <div>
+              <p className="text-sm font-semibold text-[#0f172a]">Coverage Check</p>
+              <p className="mt-1 text-sm text-[#4c576f]">
+                {sync.coverage
+                  ? `${sync.coverage.window_label}: ${sync.coverage.window_start} to ${sync.coverage.window_end}`
+                  : "Current Amazon Ads retention-window coverage and missing date ranges."}
+              </p>
+            </div>
+
+            <div className="mt-4 grid gap-4 md:grid-cols-3">
+              <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-[#4c576f]">Covered Days</p>
+                <p className="mt-2 text-2xl font-semibold text-[#0f172a]">{sync.coverage?.covered_day_count ?? 0}</p>
+              </div>
+              <div className="rounded-2xl border border-sky-200 bg-sky-50/70 p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-sky-800">In Flight</p>
+                <p className="mt-2 text-2xl font-semibold text-sky-900">{sync.coverage?.in_flight_day_count ?? 0}</p>
+              </div>
+              <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-[#92400e]">Missing Days</p>
+                <p className="mt-2 text-2xl font-semibold text-[#92400e]">{sync.coverage?.missing_day_count ?? 0}</p>
+              </div>
+            </div>
+
+            {sync.loadingRuns ? (
+              <p className="mt-4 text-sm text-[#64748b]">Loading coverage…</p>
+            ) : sync.coverage && sync.coverage.missing_ranges.length > 0 ? (
+              <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50/70 p-4">
+                <p className="text-sm font-semibold text-[#92400e]">Missing Amazon Ads date ranges</p>
+                <p className="mt-1 text-sm text-[#78350f]">
+                  This only checks the current observed Amazon Ads retention window, not older history that the API no longer exposes.
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {sync.coverage.missing_ranges.slice(0, 8).map((range) => (
+                    <span
+                      key={`${range.date_from}:${range.date_to}`}
+                      className="inline-flex rounded-full border border-amber-200 bg-white px-3 py-1 text-xs font-medium text-[#78350f]"
+                    >
+                      {formatDateRangeLabel(range.date_from, range.date_to)}
+                    </span>
+                  ))}
+                  {sync.coverage.missing_ranges.length > 8 ? (
+                    <span className="inline-flex rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-[#4c576f]">
+                      +{sync.coverage.missing_ranges.length - 8} more
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+            ) : sync.coverage ? (
+              <p className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                No missing dates inside the current Amazon Ads retention window.
+              </p>
+            ) : null}
+
+            {!sync.loadingRuns && sync.coverage && sync.coverage.in_flight_ranges.length > 0 ? (
+              <div className="mt-4 rounded-2xl border border-sky-200 bg-sky-50/70 p-4">
+                <p className="text-sm font-semibold text-sky-900">Runs still processing</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {sync.coverage.in_flight_ranges.map((range) => (
+                    <span
+                      key={`${range.date_from}:${range.date_to}`}
+                      className="inline-flex rounded-full border border-sky-200 bg-white px-3 py-1 text-xs font-medium text-sky-900"
+                    >
+                      {formatDateRangeLabel(range.date_from, range.date_to)}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </div>
+
           <div className="mt-6 grid gap-4 lg:grid-cols-2">
             <div className="rounded-2xl border border-slate-200 bg-white p-5">
               <p className="text-sm font-semibold text-[#0f172a]">Historical Backfill</p>
               <p className="mt-1 text-sm text-[#4c576f]">
                 Backfill daily Sponsored Products, Sponsored Brands, and Sponsored Display campaign facts in date chunks so we can validate weekly ad totals.
+              </p>
+              <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                Amazon Ads is currently behaving like a roughly {sync.observedRetentionDays}-day inclusive retention window for these reports. Choose a start date of{" "}
+                <span className="font-semibold">{sync.retentionStartIso}</span> or later.
               </p>
               <div className="mt-4 grid gap-3 md:grid-cols-3">
                 <label className="text-sm">
@@ -469,6 +560,7 @@ export default function WbrAdsSyncScreen({ clientSlug, marketplaceCode }: Props)
                   <input
                     type="date"
                     value={sync.backfillStartDate}
+                    min={sync.retentionStartIso}
                     max={sync.todayIso}
                     onChange={(event) => sync.setBackfillStartDate(event.target.value)}
                     className="w-full rounded-xl border border-[#c7d8f5] bg-[#f7faff] px-3 py-2 text-sm text-[#0f172a] outline-none ring-[#0a6fd6] focus:ring-2"

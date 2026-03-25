@@ -36,6 +36,21 @@ class _FakeSyncRunService:
         self.calls.append({"profile_id": profile_id, "source_type": source_type})
         return [{"id": "run-1", "source_type": source_type}]
 
+    def get_sync_coverage(self, profile_id: str, *, source_type: str):
+        self.calls.append({"profile_id": profile_id, "source_type": source_type, "kind": "coverage"})
+        return {
+            "source_type": source_type,
+            "window_start": "2026-01-01",
+            "window_end": "2026-03-25",
+            "window_label": "Recent SP-API coverage window",
+            "covered_day_count": 70,
+            "in_flight_day_count": 5,
+            "missing_day_count": 9,
+            "covered_ranges": [{"date_from": "2026-01-01", "date_to": "2026-03-10"}],
+            "in_flight_ranges": [{"date_from": "2026-03-11", "date_to": "2026-03-15"}],
+            "missing_ranges": [{"date_from": "2026-03-16", "date_to": "2026-03-24"}],
+        }
+
 
 def _override_admin():
     return {"sub": "user-123"}
@@ -114,3 +129,24 @@ def test_list_sync_runs_uses_generic_sync_run_service(monkeypatch):
     assert response.status_code == 200
     assert response.json()["runs"] == [{"id": "run-1", "source_type": "windsor_returns"}]
     assert fake_sync_service.calls == [{"profile_id": "profile-1", "source_type": "windsor_returns"}]
+
+
+def test_get_sync_coverage_uses_generic_sync_run_service(monkeypatch):
+    fake_sync_service = _FakeSyncRunService()
+    monkeypatch.setattr(wbr, "_get_sync_run_service", lambda: fake_sync_service)
+    app.dependency_overrides[wbr.require_admin_user] = _override_admin
+
+    try:
+        with TestClient(app) as client:
+            response = client.get(
+                "/admin/wbr/profiles/profile-1/sync-coverage",
+                params={"source_type": "amazon_ads"},
+            )
+    finally:
+        app.dependency_overrides.pop(wbr.require_admin_user, None)
+
+    assert response.status_code == 200
+    assert response.json()["missing_ranges"] == [{"date_from": "2026-03-16", "date_to": "2026-03-24"}]
+    assert fake_sync_service.calls == [
+        {"profile_id": "profile-1", "source_type": "amazon_ads", "kind": "coverage"}
+    ]

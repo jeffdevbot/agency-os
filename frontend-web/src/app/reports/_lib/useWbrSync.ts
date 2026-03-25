@@ -4,9 +4,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { getBrowserSupabaseClient } from "@/lib/supabaseClient";
 import type { WbrProfile } from "../wbr/_lib/wbrApi";
 import {
+  getWbrSyncCoverage,
   listWbrSyncRuns,
   runWbrWindsorBusinessBackfill,
   runWbrWindsorBusinessDailyRefresh,
+  type WbrSyncCoverage,
   type WbrSyncRun,
 } from "../wbr/_lib/wbrSection1Api";
 
@@ -32,6 +34,7 @@ export function useWbrSync(profile: WbrProfile | null) {
   const supabase = useMemo(() => getBrowserSupabaseClient(), []);
   const todayIso = useMemo(() => formatDateInput(new Date()), []);
   const [runs, setRuns] = useState<WbrSyncRun[]>([]);
+  const [coverage, setCoverage] = useState<WbrSyncCoverage | null>(null);
   const [section3Runs, setSection3Runs] = useState<WbrSyncRun[]>([]);
   const [loadingRuns, setLoadingRuns] = useState(true);
   const [refreshingRuns, setRefreshingRuns] = useState(false);
@@ -75,6 +78,7 @@ export function useWbrSync(profile: WbrProfile | null) {
     async (isRefresh: boolean) => {
       if (!profile?.id) {
         setRuns([]);
+        setCoverage(null);
         setSection3Runs([]);
         setLoadingRuns(false);
         setRefreshingRuns(false);
@@ -90,12 +94,14 @@ export function useWbrSync(profile: WbrProfile | null) {
 
       try {
         const token = await getAccessToken();
-        const [nextRuns, invRuns, retRuns] = await Promise.all([
+        const [nextRuns, nextCoverage, invRuns, retRuns] = await Promise.all([
           listWbrSyncRuns(token, profile.id, "windsor_business"),
+          getWbrSyncCoverage(token, profile.id, "windsor_business"),
           listWbrSyncRuns(token, profile.id, "windsor_inventory"),
           listWbrSyncRuns(token, profile.id, "windsor_returns"),
         ]);
         setRuns(nextRuns);
+        setCoverage(nextCoverage);
         setSection3Runs(
           [...invRuns, ...retRuns].sort(
             (a, b) => new Date(b.created_at ?? "").getTime() - new Date(a.created_at ?? "").getTime()
@@ -103,6 +109,7 @@ export function useWbrSync(profile: WbrProfile | null) {
         );
       } catch (error) {
         setRuns([]);
+        setCoverage(null);
         setSection3Runs([]);
         setErrorMessage(error instanceof Error ? error.message : "Unable to load WBR sync runs");
       } finally {
@@ -206,6 +213,7 @@ export function useWbrSync(profile: WbrProfile | null) {
 
   return {
     runs,
+    coverage,
     section3Runs,
     loadingRuns,
     refreshingRuns,
