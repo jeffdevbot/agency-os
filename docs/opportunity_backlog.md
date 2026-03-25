@@ -82,6 +82,8 @@ Status meanings:
   - stockout / inventory-awareness where possible
 - Product requirement: users should be able to “play” with assumptions rather
   than accept one locked forecast.
+- Active plan doc:
+  - `docs/forecasting_v1_plan.md`
 - Nice to have later:
   - per-child-ASIN scenarios
   - inventory line overlays

@@ -34,7 +34,9 @@ historical reference.
 6. [Team Hours plan / current state](/Users/jeff/code/agency-os/docs/team_hours_plan.md)
    - Current implementation reference for the shipped Team Hours surface under
      Command Center.
-7. [Opportunity backlog](/Users/jeff/code/agency-os/docs/opportunity_backlog.md)
+7. [Forecasting v1 plan](/Users/jeff/code/agency-os/docs/forecasting_v1_plan.md)
+   - Current planning document for the next forecasting surface under Reports.
+8. [Opportunity backlog](/Users/jeff/code/agency-os/docs/opportunity_backlog.md)
    - Lightweight priority list for next product/platform opportunities.
 
 ## Current operational notes
