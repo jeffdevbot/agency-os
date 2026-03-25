@@ -35,6 +35,18 @@ export default function ProfileSummaryCard({ profile }: Props) {
           {profile.amazon_ads_account_id ?? "-"}
         </p>
         <p>
+          <span className="font-semibold text-[#0f172a]">Amazon Ads Country:</span>{" "}
+          {profile.amazon_ads_country_code ?? "-"}
+        </p>
+        <p>
+          <span className="font-semibold text-[#0f172a]">Amazon Ads Currency:</span>{" "}
+          {profile.amazon_ads_currency_code ?? "-"}
+        </p>
+        <p>
+          <span className="font-semibold text-[#0f172a]">Amazon Ads Marketplace:</span>{" "}
+          {profile.amazon_ads_marketplace_string_id ?? "-"}
+        </p>
+        <p>
           <span className="font-semibold text-[#0f172a]">Daily Rewrite Days:</span> {profile.daily_rewrite_days}
         </p>
         <p>

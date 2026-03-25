@@ -11,6 +11,9 @@ export type WbrProfile = {
   windsor_account_id: string | null;
   amazon_ads_profile_id: string | null;
   amazon_ads_account_id: string | null;
+  amazon_ads_country_code: string | null;
+  amazon_ads_currency_code: string | null;
+  amazon_ads_marketplace_string_id: string | null;
   backfill_start_date: string | null;
   daily_rewrite_days: number;
   sp_api_auto_sync_enabled: boolean;
@@ -105,6 +108,9 @@ export type CreateWbrProfileRequest = {
   windsor_account_id?: string | null;
   amazon_ads_profile_id?: string | null;
   amazon_ads_account_id?: string | null;
+  amazon_ads_country_code?: string | null;
+  amazon_ads_currency_code?: string | null;
+  amazon_ads_marketplace_string_id?: string | null;
   backfill_start_date?: string | null;
   daily_rewrite_days: number;
   sp_api_auto_sync_enabled?: boolean;
@@ -118,6 +124,9 @@ export type UpdateWbrProfileRequest = {
   windsor_account_id?: string | null;
   amazon_ads_profile_id?: string | null;
   amazon_ads_account_id?: string | null;
+  amazon_ads_country_code?: string | null;
+  amazon_ads_currency_code?: string | null;
+  amazon_ads_marketplace_string_id?: string | null;
   backfill_start_date?: string | null;
   daily_rewrite_days?: number | null;
   sp_api_auto_sync_enabled?: boolean | null;
@@ -217,6 +226,9 @@ const parseProfile = (value: unknown): WbrProfile => {
     windsor_account_id: asNullableString(value.windsor_account_id),
     amazon_ads_profile_id: asNullableString(value.amazon_ads_profile_id),
     amazon_ads_account_id: asNullableString(value.amazon_ads_account_id),
+    amazon_ads_country_code: asNullableString(value.amazon_ads_country_code),
+    amazon_ads_currency_code: asNullableString(value.amazon_ads_currency_code),
+    amazon_ads_marketplace_string_id: asNullableString(value.amazon_ads_marketplace_string_id),
     backfill_start_date: asNullableString(value.backfill_start_date),
     daily_rewrite_days: asNumber(value.daily_rewrite_days),
     sp_api_auto_sync_enabled: asBoolean(value.sp_api_auto_sync_enabled),

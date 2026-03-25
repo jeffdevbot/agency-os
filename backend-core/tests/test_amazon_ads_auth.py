@@ -122,6 +122,9 @@ class _FakeProfileService:
             "windsor_account_id": None,
             "amazon_ads_profile_id": None,
             "amazon_ads_account_id": None,
+            "amazon_ads_country_code": None,
+            "amazon_ads_currency_code": None,
+            "amazon_ads_marketplace_string_id": None,
             "backfill_start_date": None,
             "daily_rewrite_days": 14,
         }
@@ -413,6 +416,9 @@ class TestSelectProfileEndpoint:
                     json={
                         "amazon_ads_profile_id": "1234567890",
                         "amazon_ads_account_id": "ACCT-999",
+                        "amazon_ads_country_code": "US",
+                        "amazon_ads_currency_code": "USD",
+                        "amazon_ads_marketplace_string_id": "ATVPDKIKX0DER",
                     },
                 )
             assert resp.status_code == 200
@@ -420,6 +426,9 @@ class TestSelectProfileEndpoint:
             updates = fake_svc.last_update["updates"]
             assert updates["amazon_ads_profile_id"] == "1234567890"
             assert updates["amazon_ads_account_id"] == "ACCT-999"
+            assert updates["amazon_ads_country_code"] == "US"
+            assert updates["amazon_ads_currency_code"] == "USD"
+            assert updates["amazon_ads_marketplace_string_id"] == "ATVPDKIKX0DER"
         finally:
             app.dependency_overrides.pop(wbr.require_admin_user, None)
 
@@ -436,6 +445,9 @@ class TestSelectProfileEndpoint:
                 "windsor_account_id": None,
                 "amazon_ads_profile_id": "old-profile",
                 "amazon_ads_account_id": "old-account",
+                "amazon_ads_country_code": "CA",
+                "amazon_ads_currency_code": "CAD",
+                "amazon_ads_marketplace_string_id": "A2EUQ1WTGCTBG2",
                 "backfill_start_date": None,
                 "daily_rewrite_days": 14,
             }
@@ -453,6 +465,9 @@ class TestSelectProfileEndpoint:
             updates = fake_svc.last_update["updates"]
             assert updates["amazon_ads_profile_id"] == "new-profile"
             assert updates["amazon_ads_account_id"] is None
+            assert updates["amazon_ads_country_code"] is None
+            assert updates["amazon_ads_currency_code"] is None
+            assert updates["amazon_ads_marketplace_string_id"] is None
         finally:
             app.dependency_overrides.pop(wbr.require_admin_user, None)
 

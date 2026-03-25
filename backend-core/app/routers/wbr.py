@@ -123,6 +123,9 @@ class CreateProfileRequest(BaseModel):
     windsor_account_id: Optional[str] = None
     amazon_ads_profile_id: Optional[str] = None
     amazon_ads_account_id: Optional[str] = None
+    amazon_ads_country_code: Optional[str] = None
+    amazon_ads_currency_code: Optional[str] = None
+    amazon_ads_marketplace_string_id: Optional[str] = None
     backfill_start_date: Optional[str] = None
     daily_rewrite_days: int = Field(14, ge=1, le=60)
     sp_api_auto_sync_enabled: bool = False
@@ -136,6 +139,9 @@ class UpdateProfileRequest(BaseModel):
     windsor_account_id: Optional[str] = None
     amazon_ads_profile_id: Optional[str] = None
     amazon_ads_account_id: Optional[str] = None
+    amazon_ads_country_code: Optional[str] = None
+    amazon_ads_currency_code: Optional[str] = None
+    amazon_ads_marketplace_string_id: Optional[str] = None
     backfill_start_date: Optional[str] = None
     daily_rewrite_days: Optional[int] = Field(None, ge=1, le=60)
     sp_api_auto_sync_enabled: Optional[bool] = None
@@ -869,6 +875,9 @@ class AmazonAdsConnectRequest(BaseModel):
 class SelectAmazonAdsProfileRequest(BaseModel):
     amazon_ads_profile_id: str = Field(..., min_length=1)
     amazon_ads_account_id: Optional[str] = None
+    amazon_ads_country_code: Optional[str] = None
+    amazon_ads_currency_code: Optional[str] = None
+    amazon_ads_marketplace_string_id: Optional[str] = None
 
 
 @router.post("/profiles/{profile_id}/amazon-ads/connect")
@@ -1034,6 +1043,9 @@ async def select_amazon_ads_profile(
         updates = {
             "amazon_ads_profile_id": request.amazon_ads_profile_id,
             "amazon_ads_account_id": request.amazon_ads_account_id or None,
+            "amazon_ads_country_code": request.amazon_ads_country_code or None,
+            "amazon_ads_currency_code": request.amazon_ads_currency_code or None,
+            "amazon_ads_marketplace_string_id": request.amazon_ads_marketplace_string_id or None,
         }
         profile = svc.update_profile(profile_id, updates, user_id=_user_id(user))
         return {"ok": True, "profile": profile}

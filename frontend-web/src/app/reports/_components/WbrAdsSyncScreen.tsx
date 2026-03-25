@@ -173,6 +173,9 @@ export default function WbrAdsSyncScreen({ clientSlug, marketplaceCode }: Props)
         resolved.profile.id,
         String(ap.profileId),
         ap.accountInfo?.id,
+        ap.countryCode,
+        ap.currencyCode,
+        ap.accountInfo?.marketplaceStringId,
       );
       setAdsProfiles([]);
       window.location.reload();
@@ -333,6 +336,29 @@ export default function WbrAdsSyncScreen({ clientSlug, marketplaceCode }: Props)
                 </button>
               </div>
             )}
+
+            {resolved.profile.amazon_ads_profile_id ? (
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="rounded-2xl border border-slate-200 bg-white p-5">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-[#4c576f]">Country Code</p>
+                  <p className="mt-2 text-sm font-semibold text-[#0f172a]">
+                    {resolved.profile.amazon_ads_country_code ?? "—"}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-white p-5">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-[#4c576f]">Currency Code</p>
+                  <p className="mt-2 text-sm font-semibold text-[#0f172a]">
+                    {resolved.profile.amazon_ads_currency_code ?? "—"}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-white p-5">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-[#4c576f]">Marketplace String ID</p>
+                  <p className="mt-2 text-sm font-semibold text-[#0f172a]">
+                    {resolved.profile.amazon_ads_marketplace_string_id ?? "—"}
+                  </p>
+                </div>
+              </div>
+            ) : null}
 
             {adsProfiles.length > 0 ? (
               <div className="mt-4">

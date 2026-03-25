@@ -386,6 +386,9 @@ export const selectAmazonAdsProfile = async (
   profileId: string,
   amazonAdsProfileId: string,
   amazonAdsAccountId?: string,
+  amazonAdsCountryCode?: string,
+  amazonAdsCurrencyCode?: string,
+  amazonAdsMarketplaceStringId?: string,
 ): Promise<void> => {
   await requestJson<unknown>(
     token,
@@ -395,6 +398,9 @@ export const selectAmazonAdsProfile = async (
       body: JSON.stringify({
         amazon_ads_profile_id: amazonAdsProfileId,
         amazon_ads_account_id: amazonAdsAccountId ?? null,
+        amazon_ads_country_code: amazonAdsCountryCode ?? null,
+        amazon_ads_currency_code: amazonAdsCurrencyCode ?? null,
+        amazon_ads_marketplace_string_id: amazonAdsMarketplaceStringId ?? null,
       }),
     },
   );
