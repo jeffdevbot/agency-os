@@ -55,6 +55,16 @@ class AggregatedBusinessFact:
     source_payload: dict[str, Any]
 
 
+@dataclass(frozen=True)
+class ParentAsinConflict:
+    report_date: date
+    child_asin: str
+    stored_parent_asin: str | None
+    distinct_parent_asins: list[str]
+    source_row_count: int
+    source_payload: dict[str, Any]
+
+
 def _clean_numeric_text(value: Any) -> str:
     return str(value or "").strip().replace(",", "")
 
@@ -265,6 +275,7 @@ class WindsorBusinessSyncService:
         try:
             raw_rows = await self._fetch_rows(account_id=account_id, date_from=date_from, date_to=date_to)
             facts = self._aggregate_rows(raw_rows, expected_account_id=account_id)
+            conflicts = self._extract_parent_asin_conflicts(facts)
             self._replace_fact_window(
                 profile_id=profile_id,
                 sync_run_id=run_id,
@@ -272,6 +283,21 @@ class WindsorBusinessSyncService:
                 date_to=date_to,
                 facts=facts,
             )
+            if conflicts:
+                self._record_parent_asin_conflicts(
+                    profile_id=profile_id,
+                    sync_run_id=run_id,
+                    conflicts=conflicts,
+                )
+                self._update_sync_run_request_meta(
+                    run_id=run_id,
+                    request_meta={
+                        "parent_asin_conflicts": {
+                            "count": len(conflicts),
+                            "child_asins": [conflict.child_asin for conflict in conflicts[:25]],
+                        }
+                    },
+                )
             finished = self._finalize_sync_run(
                 run_id=run_id,
                 status="success",
@@ -405,6 +431,10 @@ class WindsorBusinessSyncService:
                     row,
                 ]
             }
+            distinct_parent_asins = self._distinct_parent_asins(merged_payload["source_rows"])
+            if len(distinct_parent_asins) > 1:
+                merged_payload["parent_asin_conflict"] = True
+                merged_payload["distinct_parent_asins"] = distinct_parent_asins
             by_key[key] = AggregatedBusinessFact(
                 report_date=existing.report_date,
                 child_asin=existing.child_asin,
@@ -418,6 +448,117 @@ class WindsorBusinessSyncService:
             )
 
         return sorted(by_key.values(), key=lambda item: (item.report_date, item.child_asin))
+
+    def _distinct_parent_asins(self, source_rows: list[dict[str, Any]]) -> list[str]:
+        return sorted(
+            {
+                str(row.get(FIELD_PARENT_ASIN) or "").strip().upper()
+                for row in source_rows
+                if str(row.get(FIELD_PARENT_ASIN) or "").strip()
+            }
+        )
+
+    def _extract_parent_asin_conflicts(
+        self,
+        facts: list[AggregatedBusinessFact],
+    ) -> list[ParentAsinConflict]:
+        conflicts: list[ParentAsinConflict] = []
+        for fact in facts:
+            if not fact.source_payload.get("parent_asin_conflict"):
+                continue
+            distinct_parent_asins = fact.source_payload.get("distinct_parent_asins")
+            if not isinstance(distinct_parent_asins, list) or len(distinct_parent_asins) < 2:
+                continue
+            conflicts.append(
+                ParentAsinConflict(
+                    report_date=fact.report_date,
+                    child_asin=fact.child_asin,
+                    stored_parent_asin=fact.parent_asin,
+                    distinct_parent_asins=[str(value) for value in distinct_parent_asins],
+                    source_row_count=fact.source_row_count,
+                    source_payload=fact.source_payload,
+                )
+            )
+        return conflicts
+
+    def _record_parent_asin_conflicts(
+        self,
+        *,
+        profile_id: str,
+        sync_run_id: str,
+        conflicts: list[ParentAsinConflict],
+    ) -> None:
+        table_name = "wbr_business_parent_asin_conflicts"
+        now = datetime.now(UTC).isoformat()
+
+        for conflict in conflicts:
+            conflict_date_iso = conflict.report_date.isoformat()
+            existing_response = (
+                self.db.table(table_name)
+                .select("id, report_date")
+                .eq("profile_id", profile_id)
+                .eq("child_asin", conflict.child_asin)
+                .execute()
+            )
+            existing_rows = (
+                existing_response.data if isinstance(existing_response.data, list) else []
+            )
+            existing_dates = {
+                str(row.get("report_date") or "").strip()
+                for row in existing_rows
+                if str(row.get("report_date") or "").strip()
+            }
+            all_dates = sorted(existing_dates | {conflict_date_iso})
+            first_detected_date = all_dates[0]
+            last_detected_date = all_dates[-1]
+            overlap_day_count = len(all_dates)
+
+            payload = {
+                "profile_id": profile_id,
+                "sync_run_id": sync_run_id,
+                "report_date": conflict_date_iso,
+                "child_asin": conflict.child_asin,
+                "stored_parent_asin": conflict.stored_parent_asin,
+                "distinct_parent_asins": conflict.distinct_parent_asins,
+                "source_row_count": conflict.source_row_count,
+                "first_detected_date": first_detected_date,
+                "last_detected_date": last_detected_date,
+                "overlap_day_count": overlap_day_count,
+                "source_payload": conflict.source_payload,
+                "updated_at": now,
+            }
+
+            existing_same_day = next(
+                (
+                    row for row in existing_rows
+                    if str(row.get("report_date") or "").strip() == conflict_date_iso
+                ),
+                None,
+            )
+            if existing_same_day and str(existing_same_day.get("id") or "").strip():
+                (
+                    self.db.table(table_name)
+                    .update(payload)
+                    .eq("id", str(existing_same_day["id"]))
+                    .execute()
+                )
+            else:
+                self.db.table(table_name).insert({**payload, "created_at": now}).execute()
+
+            (
+                self.db.table(table_name)
+                .update(
+                    {
+                        "first_detected_date": first_detected_date,
+                        "last_detected_date": last_detected_date,
+                        "overlap_day_count": overlap_day_count,
+                        "updated_at": now,
+                    }
+                )
+                .eq("profile_id", profile_id)
+                .eq("child_asin", conflict.child_asin)
+                .execute()
+            )
 
     def _replace_fact_window(
         self,

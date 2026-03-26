@@ -1,6 +1,6 @@
 # Current Handoffs
 
-_Last updated: 2026-03-25 (ET)_
+_Last updated: 2026-03-26 (ET)_
 
 Use this file to decide which restart/handoff docs are current versus merely
 historical reference.
@@ -45,6 +45,10 @@ historical reference.
      Open follow-ups: broader task update/close/move flows, idempotency.
 9. [Opportunity backlog](/Users/jeff/code/agency-os/docs/opportunity_backlog.md)
    - Lightweight priority list for next product/platform opportunities.
+10. [Supabase Python client upgrade plan](/Users/jeff/code/agency-os/docs/supabase_python_client_upgrade_plan.md)
+   - Tonight-review reference for the backend Supabase dependency warning,
+     upgrade scope, and the explicit non-goal of forcing Amazon Ads or Windsor
+     re-auth.
 
 ## Current operational notes
 
@@ -69,6 +73,14 @@ historical reference.
      sales (`267.58 CAD`)
    - that dedicated triage thread is now historical/reference rather than the
      primary active WBR restart path
+4. Supabase Python client warning follow-up as of 2026-03-26 (ET):
+   - the current backend warning is from the older `supabase==2.6.0` Python
+     dependency chain still pulling `gotrue`
+   - the Claude MCP auth work this week was OAuth/JWKS compatibility, not a
+     Python client migration
+   - the tracked upgrade follow-up should not require mass re-auth of Amazon
+     Ads or Windsor accounts because those credentials are stored in database
+     rows
 
 ## Historical/reference docs
 

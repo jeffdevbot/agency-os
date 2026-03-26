@@ -161,9 +161,30 @@ Status meanings:
 - Not now: full provider plug-and-play architecture unless a second provider
   is truly needed in production.
 
-## 6. N-Gram API Automation
-- Status: `later`
+## 6. Supabase Python Client Upgrade
+- Status: `next`
 - Priority: `6`
+- Why it matters: the backend test suite now emits a real deprecation warning
+  from the current Supabase Python dependency chain (`gotrue`), and we should
+  confirm the clean upgrade path before it becomes urgent.
+- Current reality:
+  - `backend-core/requirements.txt` still pins `supabase==2.6.0`
+  - recent Claude MCP auth work was OAuth/JWKS compatibility, not a client
+    library migration
+  - this should not require re-authing Amazon Ads or Windsor accounts because
+    those credentials are stored in DB rows, not transient local sessions
+- Active planning doc:
+  - `docs/supabase_python_client_upgrade_plan.md`
+- Thin slice:
+  - inspect latest compatible package
+  - test upgrade on a branch
+  - run auth-sensitive suites
+  - decide whether to ship, defer, or temporarily filter the warning in pytest
+- Not now: risky same-day auth churn before client work.
+
+## 7. N-Gram API Automation
+- Status: `later`
+- Priority: `7`
 - Why it matters: removing the STR export/upload step would reduce friction on
   a tool the team already uses.
 - Thin slice:
@@ -177,9 +198,9 @@ Status meanings:
 - Main risk: this is not a small extension of the current file-based N-Gram
   tool; it becomes a new ingestion/reporting pipeline.
 
-## 7. Client Context Layer
+## 8. Client Context Layer
 - Status: `hold`
-- Priority: `7`
+- Priority: `8`
 - Why it matters: a unified client context would materially improve meeting
   prep, reporting synthesis, and smarter drafts.
 - Inputs that could matter:
@@ -195,9 +216,9 @@ Status meanings:
 - Better framing: use narrow, workflow-specific context improvements first
   instead of building “all client context” in one move.
 
-## 8. Multi-Provider AI Plug-and-Play
+## 9. Multi-Provider AI Plug-and-Play
 - Status: `hold`
-- Priority: `8`
+- Priority: `9`
 - Why it matters: optional future flexibility across OpenAI, Claude, and
   others.
 - Current view: desirable in theory, but weaker than the case for shared AI
@@ -205,9 +226,9 @@ Status meanings:
 - Not now: provider abstraction for its own sake.
 - Main risk: architecture tax before real demand exists.
 
-## 9. N-Gram Direct Publish to Amazon
+## 10. N-Gram Direct Publish to Amazon
 - Status: `maybe never`
-- Priority: `9`
+- Priority: `10`
 - Why it matters: could remove a manual step after human review.
 - Why it is low priority: no undo path, real campaign risk, and heavy trust /
   safety requirements.
