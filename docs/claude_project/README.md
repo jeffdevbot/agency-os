@@ -27,7 +27,10 @@ docs.
   - `list_monthly_pnl_profiles`
   - `get_monthly_pnl_report`
   - `get_monthly_pnl_email_brief`
-- [ ] Keep `draft_wbr_email` and `draft_monthly_pnl_email` on approval unless/until you want mutating actions to run without confirmation
+  - `list_clickup_tasks`
+  - `get_clickup_task`
+  - `resolve_team_member`
+- [ ] Keep `draft_wbr_email`, `draft_monthly_pnl_email`, and `create_clickup_task` on approval unless/until you want mutating actions to run without confirmation
 
 ### Claude Project
 
@@ -35,9 +38,11 @@ docs.
 - [x] `project_instructions.md` added to Project Instructions
 - [x] `wbr_mcp_playbook.md` uploaded to Project Files
 - [x] `monthly_pnl_mcp_playbook.md` uploaded to Project Files once you want Monthly P&L available in Claude
+- [ ] Upload `clickup_mcp_playbook.md` to Project Files once you want ClickUp available in Claude
 - [ ] Re-paste the latest `project_instructions.md` if the local file changes
 - [ ] Re-upload the latest `wbr_mcp_playbook.md` if the local file changes
 - [ ] Re-upload the latest `monthly_pnl_mcp_playbook.md` if the local file changes
+- [ ] Re-upload the latest `clickup_mcp_playbook.md` if the local file changes
 
 ### WBR Pilot Tools
 
@@ -66,6 +71,14 @@ docs.
 - [x] Monthly P&L YoY is live in the web app
 - [x] Claude can still reason about YoY using the existing P&L tools
 
+### ClickUp Current State
+
+- [x] ClickUp Claude surface is live
+- [x] Shared `resolve_client` returns brand / ClickUp routing metadata
+- [x] Claude can review mapped backlog tasks through `list_clickup_tasks`
+- [x] Claude can inspect mapped task links through `get_clickup_task`
+- [x] Claude can preview and create mapped ClickUp tasks
+
 ### Next Expansion Options
 
 - [ ] tighten tool descriptions / output formatting based on pilot usage
@@ -86,6 +99,7 @@ Upload only the files Claude needs for durable reference:
 
 1. `wbr_mcp_playbook.md`
 2. `monthly_pnl_mcp_playbook.md`
+3. `clickup_mcp_playbook.md`
 
 Optional later:
 
@@ -110,9 +124,12 @@ This bundle now supports a small shared reporting surface:
 
 1. Agency OS WBR MCP workflows
 2. Agency OS Monthly P&L MCP workflows
-3. live WBR tools plus live Monthly P&L analysis / brief / draft tools
-4. the expected usage pattern for client resolution, profile resolution,
-   summary retrieval, brief generation, and draft creation where supported
+3. Agency OS ClickUp MCP workflows
+4. live WBR tools plus live Monthly P&L analysis / brief / draft tools plus
+   live ClickUp review / preview / create tools
+5. the expected usage pattern for client resolution, profile resolution,
+   summary retrieval, task inspection, assignee resolution, brief generation,
+   and draft / task creation where supported
 
 Expand this folder only when a workflow is stable enough to deserve durable
 Claude Project knowledge.

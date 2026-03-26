@@ -25,7 +25,7 @@ historical reference.
    - Narrow operational runbook for Windsor Section 1 ingestion.
 3. [Claude Project bundle](/Users/jeff/code/agency-os/docs/claude_project/README.md)
    - Current project instructions/files bundle for the live shared WBR +
-     Monthly P&L Claude surface.
+     Monthly P&L + ClickUp Claude surface.
 4. [Monthly P&L handoff](/Users/jeff/code/agency-os/docs/monthly_pnl_handoff.md)
    - Current shipped-state reference for Monthly P&L, Claude P&L, and YoY.
 5. [Monthly P&L resume prompt](/Users/jeff/code/agency-os/docs/monthly_pnl_resume_prompt.md)
