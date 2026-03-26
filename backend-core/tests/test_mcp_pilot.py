@@ -1011,6 +1011,14 @@ def test_wbr_tools_are_registered(monkeypatch):
         "resolve_team_member",
         "prepare_clickup_task",
         "create_clickup_task",
+        # analyst-query tools (Slice 1)
+        "get_asin_sales_window",
+        "list_child_asins_for_row",
+        "get_sync_freshness_status",
+        # analyst-query tools (Slice 2)
+        "query_business_facts",
+        "query_ads_facts",
+        "query_catalog_context",
     }
 
     _content, payload = asyncio.run(server.call_tool("list_wbr_profiles", {"client_id": "c1"}))

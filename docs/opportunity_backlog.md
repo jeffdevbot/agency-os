@@ -190,6 +190,19 @@ Status meanings:
 - Thin slice:
   - pull report inputs automatically from Amazon Ads-connected data
   - generate the same workbook without manual STR upload
+- Active planning doc:
+  - `docs/search_term_automation_plan.md`
+- Current framing:
+  - this is now broader than “N-Gram API automation”
+  - the real roadmap is:
+    - richer catalog context expansion
+    - STR ingestion
+    - AI recommendation + review workspace
+    - eventual direct Amazon writeback with approval/audit
+- Dependency to respect:
+  - do not treat STR ingestion as fully standalone
+  - the AI/review path depends on a stronger catalog context layer than the
+    current `wbr_profile_child_asins` surface alone
 - Nice to have later:
   - scheduled refreshes
   - readiness notifications
@@ -216,9 +229,33 @@ Status meanings:
 - Better framing: use narrow, workflow-specific context improvements first
   instead of building “all client context” in one move.
 
-## 9. Multi-Provider AI Plug-and-Play
-- Status: `hold`
+## 9. Claude Analyst Query Tools
+- Status: `next`
 - Priority: `9`
+- Why it matters: lets Claude answer ad hoc internal business questions without
+  requiring manual SQL or a bespoke tool for every single ask.
+- Thin slice:
+  - compact read-only analyst query layer
+  - narrow high-value tools first
+  - guarded drill-down tools second
+- Active planning doc:
+  - `docs/claude_analyst_query_tools_plan.md`
+- Initial recommended tools:
+  - `get_asin_sales_window`
+  - `list_child_asins_for_row`
+  - `get_sync_freshness_status`
+  - then bounded analyst-query tools for business facts / ads facts / catalog /
+    P&L detail
+- Not now:
+  - raw unrestricted SQL for Claude
+  - STR analyst tools before STR ingestion exists
+  - mutation flows
+- Main risk: overbuilding too many overlapping tools instead of using a compact
+  business-shaped surface.
+
+## 10. Multi-Provider AI Plug-and-Play
+- Status: `hold`
+- Priority: `10`
 - Why it matters: optional future flexibility across OpenAI, Claude, and
   others.
 - Current view: desirable in theory, but weaker than the case for shared AI
@@ -226,9 +263,9 @@ Status meanings:
 - Not now: provider abstraction for its own sake.
 - Main risk: architecture tax before real demand exists.
 
-## 10. N-Gram Direct Publish to Amazon
+## 11. N-Gram Direct Publish to Amazon
 - Status: `maybe never`
-- Priority: `10`
+- Priority: `11`
 - Why it matters: could remove a manual step after human review.
 - Why it is low priority: no undo path, real campaign risk, and heavy trust /
   safety requirements.

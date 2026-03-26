@@ -49,6 +49,17 @@ historical reference.
    - Tonight-review reference for the backend Supabase dependency warning,
      upgrade scope, and the explicit non-goal of forcing Amazon Ads or Windsor
      re-auth.
+11. [Search term automation plan](/Users/jeff/code/agency-os/docs/search_term_automation_plan.md)
+   - Current phased planning doc for richer catalog context expansion plus the
+     future STR ingestion / AI review / direct Amazon writeback roadmap for the
+     current N-Gram / N-PAT workflow.
+12. [Claude tool budget plan](/Users/jeff/code/agency-os/docs/claude_tool_budget_plan.md)
+   - Current sizing reference for the live MCP tool surface, Claude Project
+     file bundle, and the recommended safe expansion budget for future analyst
+     query tools.
+13. [Claude analyst query tools plan](/Users/jeff/code/agency-os/docs/claude_analyst_query_tools_plan.md)
+   - Current implementation-planning doc for the next read-only analyst-query
+     MCP expansion beyond WBR / Monthly P&L / ClickUp.
 
 ## Current operational notes
 

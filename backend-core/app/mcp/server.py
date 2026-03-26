@@ -17,6 +17,7 @@ from typing import Any
 
 from ..config import settings
 from .auth import SupabasePilotTokenVerifier
+from .tools.analyst import register_analyst_tools
 from .tools.clickup import register_clickup_tools
 from .tools.clients import register_client_tools
 from .tools.pnl import register_pnl_tools
@@ -54,6 +55,7 @@ def create_mcp_server() -> FastMCP:
     register_wbr_tools(mcp)
     register_pnl_tools(mcp)
     register_clickup_tools(mcp)
+    register_analyst_tools(mcp)
     return mcp
 
 
