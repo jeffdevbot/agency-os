@@ -173,7 +173,8 @@ async def resolve_brand_destination(
             raise ClickUpToolError(
                 "ambiguous_destination",
                 f"Client has multiple brands with ClickUp destinations: {brand_names}. "
-                "Provide brand_id to disambiguate.",
+                "Provide brand_id to disambiguate. "
+                "Use resolve_client to see all brand IDs for this client.",
             )
 
         brand = candidates[0]
@@ -588,7 +589,8 @@ def _resolve_assignee(
         if not match:
             raise ClickUpToolError(
                 "not_found",
-                f"Team member profile '{norm_pid}' not found.",
+                f"Team member profile '{norm_pid}' not found. "
+                "Use resolve_team_member to find the correct profile_id.",
             )
         cu = str(match.get("clickup_user_id") or "").strip() or None
         if not _is_valid_clickup_user_id(cu):
@@ -608,7 +610,8 @@ def _resolve_assignee(
     if not matches:
         raise ClickUpToolError(
             "not_found",
-            f"No team member found matching '{norm_query}'.",
+            f"No team member found matching '{norm_query}'. "
+            "Check the spelling or call resolve_team_member with client_id for a scoped search.",
         )
 
     if len(matches) > 1:
@@ -619,7 +622,8 @@ def _resolve_assignee(
         raise ClickUpToolError(
             "ambiguous_assignee",
             f"Multiple team members match '{norm_query}': {names}. "
-            "Provide assignee_profile_id to disambiguate.",
+            "Provide assignee_profile_id to disambiguate. "
+            "Call resolve_team_member with client_id to see all candidates.",
         )
 
     m = matches[0]

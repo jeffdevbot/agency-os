@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -1148,19 +1149,174 @@ async def test_create_task_config_error(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# MCP tool wrapper tests — Slice 2 tools
+# ---------------------------------------------------------------------------
+#
+# These tests call through the full MCP registration path (create_mcp_server →
+# server.call_tool) to verify wrapper behavior: structured success, structured
+# error, and mutation result shape.  Service-layer behaviour is already covered
+# by the unit tests above; here we care about the MCP shim.
+#
+# Monkeypatching targets the service module so the MCP tool code is exercised.
+
+
+def _make_wrapper_db(*, brands=None, profiles=None, assignments=None):
+    return _FakeMultiTableDB({
+        "brands": brands or [],
+        "profiles": profiles or [],
+        "client_assignments": assignments or [],
+    })
+
+
+def test_mcp_resolve_team_member_success(monkeypatch):
+    """resolve_team_member MCP tool returns structured matches on success."""
+    from app.mcp.server import create_mcp_server
+
+    fake_db = _make_wrapper_db(profiles=[
+        {"id": "p1", "display_name": "Susie Q", "full_name": "Susan Quinn", "email": "susie@co.com", "clickup_user_id": "7777"}
+    ])
+    monkeypatch.setattr("app.services.clickup_task_tools._get_supabase_admin_client", lambda: fake_db)
+
+    server = create_mcp_server()
+    _content, payload = asyncio.run(server.call_tool("resolve_team_member", {"query": "susie"}))
+
+    assert "error" not in payload
+    assert len(payload["matches"]) == 1
+    m = payload["matches"][0]
+    assert m["profile_id"] == "p1"
+    assert m["resolution_status"] == "resolved"
+    assert m["clickup_user_id"] == "7777"
+
+
+def test_mcp_resolve_team_member_empty_query_returns_error(monkeypatch):
+    """resolve_team_member MCP tool returns structured error for empty query."""
+    from app.mcp.server import create_mcp_server
+
+    fake_db = _make_wrapper_db()
+    monkeypatch.setattr("app.services.clickup_task_tools._get_supabase_admin_client", lambda: fake_db)
+
+    server = create_mcp_server()
+    _content, payload = asyncio.run(server.call_tool("resolve_team_member", {"query": ""}))
+
+    assert payload["error"] == "validation_error"
+    assert "query" in payload["message"].lower() or "empty" in payload["message"].lower()
+
+
+def test_mcp_prepare_clickup_task_success(monkeypatch):
+    """prepare_clickup_task MCP tool returns full payload, destination, assignee, and warnings."""
+    from app.mcp.server import create_mcp_server
+
+    fake_svc = _FakeClickUpService()
+    fake_db = _make_wrapper_db(
+        brands=[{"id": "brand-1", "client_id": "cid", "name": "Acme", "clickup_list_id": "list-42", "clickup_space_id": None}],
+        profiles=[{"id": "p1", "display_name": "Susie Q", "full_name": "", "email": "s@co.com", "clickup_user_id": "7777"}],
+    )
+    monkeypatch.setattr("app.services.clickup_task_tools.get_clickup_service", lambda: fake_svc)
+    monkeypatch.setattr("app.services.clickup_task_tools._get_supabase_admin_client", lambda: fake_db)
+
+    server = create_mcp_server()
+    _content, payload = asyncio.run(server.call_tool(
+        "prepare_clickup_task",
+        {"client_id": "cid", "title": "Review Q2 plan", "assignee_profile_id": "p1"},
+    ))
+
+    assert "error" not in payload
+    assert payload["brand_id"] == "brand-1"
+    assert payload["brand_name"] == "Acme"
+    assert payload["destination"]["list_id"] == "list-42"
+    assert payload["destination"]["resolution_basis"] == "mapped_list"
+    assert payload["assignee"]["profile_id"] == "p1"
+    assert payload["assignee"]["resolution_status"] == "resolved"
+    assert payload["task_payload"]["name"] == "Review Q2 plan"
+    assert payload["task_payload"]["assignee_ids"] == ["7777"]
+    assert payload["warnings"] == []
+
+
+def test_mcp_prepare_clickup_task_destination_error_returns_structured_error(monkeypatch):
+    """prepare_clickup_task returns structured error when destination cannot be resolved."""
+    from app.mcp.server import create_mcp_server
+
+    fake_svc = _FakeClickUpService()
+    fake_db = _make_wrapper_db(brands=[])  # no brands → not_found
+    monkeypatch.setattr("app.services.clickup_task_tools.get_clickup_service", lambda: fake_svc)
+    monkeypatch.setattr("app.services.clickup_task_tools._get_supabase_admin_client", lambda: fake_db)
+
+    server = create_mcp_server()
+    _content, payload = asyncio.run(server.call_tool(
+        "prepare_clickup_task",
+        {"client_id": "no-such-client", "title": "Task"},
+    ))
+
+    assert payload["error"] == "not_found"
+    assert "no-such-client" in payload["message"]
+
+
+def test_mcp_create_clickup_task_success_returns_task_id_and_url(monkeypatch):
+    """create_clickup_task MCP tool returns task_id, task_url, destination, and assignee."""
+    from app.mcp.server import create_mcp_server
+
+    fake_svc = _FakeClickUpService(
+        create_result=ClickUpTask(id="cu-task-99", url="https://app.clickup.com/t/cu-task-99")
+    )
+    fake_db = _make_wrapper_db(
+        brands=[{"id": "brand-1", "client_id": "cid", "name": "Acme", "clickup_list_id": "list-42", "clickup_space_id": None}],
+    )
+    monkeypatch.setattr("app.services.clickup_task_tools.get_clickup_service", lambda: fake_svc)
+    monkeypatch.setattr("app.services.clickup_task_tools._get_supabase_admin_client", lambda: fake_db)
+
+    server = create_mcp_server()
+    _content, payload = asyncio.run(server.call_tool(
+        "create_clickup_task",
+        {"client_id": "cid", "title": "Launch checklist", "description_md": "Do the thing"},
+    ))
+
+    assert "error" not in payload
+    assert payload["task_id"] == "cu-task-99"
+    assert payload["task_url"] == "https://app.clickup.com/t/cu-task-99"
+    assert payload["client_id"] == "cid"
+    assert payload["brand_id"] == "brand-1"
+    assert payload["destination"]["list_id"] == "list-42"
+    assert payload["assignee"]["resolution_status"] == "unassigned"
+    # Verify the ClickUp service was actually called
+    assert len(fake_svc.create_calls) == 1
+    assert fake_svc.create_calls[0]["name"] == "Launch checklist"
+
+
+def test_mcp_create_clickup_task_api_error_returns_structured_error(monkeypatch):
+    """create_clickup_task returns structured error when the ClickUp API call fails."""
+    from app.mcp.server import create_mcp_server
+    from app.services.clickup import ClickUpAPIError
+
+    fake_svc = _FakeClickUpService(create_error=ClickUpAPIError("ClickUp returned 503"))
+    fake_db = _make_wrapper_db(
+        brands=[{"id": "brand-1", "client_id": "cid", "name": "Acme", "clickup_list_id": "list-42", "clickup_space_id": None}],
+    )
+    monkeypatch.setattr("app.services.clickup_task_tools.get_clickup_service", lambda: fake_svc)
+    monkeypatch.setattr("app.services.clickup_task_tools._get_supabase_admin_client", lambda: fake_db)
+
+    server = create_mcp_server()
+    _content, payload = asyncio.run(server.call_tool(
+        "create_clickup_task",
+        {"client_id": "cid", "title": "Will fail"},
+    ))
+
+    assert payload["error"] == "clickup_api_error"
+    assert "503" in payload["message"]
+
+
+# ---------------------------------------------------------------------------
+# MCP tool registration smoke test
+# ---------------------------------------------------------------------------
+
+
 def test_clickup_tools_registered_in_mcp_server():
     """Verify all five ClickUp tools are registered in the MCP server."""
     from app.mcp.server import create_mcp_server
 
     server = create_mcp_server()
-    # FastMCP exposes registered tools via _tool_manager or similar.
-    # Use the public list_tools() if available, otherwise check the internal registry.
-    try:
-        tools = server.list_tools()
-        tool_names = {t.name if hasattr(t, "name") else t["name"] for t in tools}
-    except Exception:
-        # Fallback: inspect the tool manager directly
-        tool_names = set(server._tool_manager._tools.keys())
+    tools = asyncio.run(server.list_tools())
+    tool_names = {t.name for t in tools}
 
     assert "list_clickup_tasks" in tool_names
     assert "get_clickup_tasks" not in tool_names  # wrong name guard

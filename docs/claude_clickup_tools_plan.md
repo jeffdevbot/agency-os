@@ -2,7 +2,14 @@
 
 _Drafted: 2026-03-25 (ET)_
 
-Status: `planning`
+Status: `implemented — Slice 0–3 complete as of 2026-03-25`
+
+Slice 0–3 are merged and tested. All five MCP tools are live on the shared
+Agency OS pilot surface: `list_clickup_tasks`, `get_clickup_task`,
+`resolve_team_member`, `prepare_clickup_task`, `create_clickup_task`.
+Remaining items from Slice 3 open questions (task update/close/move,
+team-rollout workspace guard for `get_clickup_task`, idempotency
+persistence) are tracked in the opportunity backlog.
 
 ## Purpose
 
@@ -16,9 +23,10 @@ The target is:
 1. list tasks from the correct client/brand backlog destination
 2. inspect an explicitly linked ClickUp task directly from a task URL or task
    id
-3. prepare a new task in the correct destination
-4. create the task safely
-5. optionally assign a mapped team member
+3. resolve assignees from natural-language team-member references
+4. prepare a new task in the correct destination
+5. create the task safely
+6. optionally assign a mapped team member
 
 This is not a plan for broad ClickUp admin workflows, space management, or
 replacing the app UI.
@@ -172,6 +180,19 @@ If not:
 2. fail with explicit guidance, depending on the tool mode
 
 Do not let Claude guess raw ClickUp assignee IDs.
+
+However, because the target product shape is a Jarvis-like conversational
+assistant rather than a form-driven tool belt:
+
+1. v1 should support natural-language assignee references such as `assign this
+   to Susie` or `put Jeff on it`
+2. the agent should understand those references in context and call the right
+   resolution tools rather than depending on regex-style command parsing
+3. those references must be resolved against Agency OS team-member data first
+4. ambiguity should fail closed with a clarification prompt
+5. the conversational input can be natural language, but the execution path
+   must still resolve to one concrete local profile before any ClickUp
+   mutation happens
 
 Before passing any assignee value into the ClickUp client:
 
@@ -381,7 +402,64 @@ Implementation note:
 3. missing ClickUp configuration should return a structured
    `configuration_error` response rather than an opaque 500
 
-### 3. `prepare_clickup_task`
+### 3. `resolve_team_member`
+
+Purpose:
+
+1. resolve a natural-language assignee reference to one concrete Agency OS
+   team member before task creation
+
+Why this belongs in v1:
+
+1. the intended product shape is conversational, not form-driven
+2. forcing users to provide `assignee_profile_id` manually would be the wrong
+   UX for the shared Claude surface
+3. a read-only assignee resolver preserves conversational feel without giving
+   up safety
+4. this supports the broader Agency OS / The Claw philosophy that the model
+   should understand the request and call the right tool, not rely on brittle
+   command syntax
+
+Input shape:
+
+```json
+{
+  "query": "string",
+  "client_id": "uuid | optional",
+  "brand_id": "uuid | optional"
+}
+```
+
+Behavior:
+
+1. the agent may call this tool after interpreting natural conversational
+   language such as `assign this to Susie on the CA side`
+2. resolve the query against Command Center team-member records
+3. use client / brand assignment hints when available to improve ranking and
+   reduce ambiguity
+4. return one concrete match when confidence is sufficient
+5. fail closed when multiple candidates remain plausible
+6. return `clickup_user_id` status so Claude can tell whether assignment is
+   actually possible
+
+Output shape:
+
+```json
+{
+  "matches": [
+    {
+      "profile_id": "uuid",
+      "team_member_name": "string",
+      "team_member_email": "string | null",
+      "clickup_user_id": "string | null",
+      "assignment_scope": "client | brand | none | mixed",
+      "resolution_status": "resolved | ambiguous | missing_mapping"
+    }
+  ]
+}
+```
+
+### 4. `prepare_clickup_task`
 
 Purpose:
 
@@ -395,14 +473,17 @@ Input shape:
   "brand_id": "uuid | optional",
   "title": "string",
   "description_md": "string | optional",
-  "assignee_profile_id": "uuid | optional"
+  "assignee_profile_id": "uuid | optional",
+  "assignee_query": "string | optional"
 }
 ```
 
 Behavior:
 
 1. resolve the exact destination using the same rules as `list_clickup_tasks`
-2. resolve the assignee from `profiles.clickup_user_id` if provided
+2. resolve the assignee from either:
+   - `assignee_profile_id` when already known, or
+   - `assignee_query` via team-member resolution
 3. return warnings for:
    - missing brand clarification
    - unmapped destination
@@ -436,7 +517,7 @@ Output shape:
 }
 ```
 
-### 4. `create_clickup_task`
+### 5. `create_clickup_task`
 
 Purpose:
 
@@ -450,7 +531,8 @@ Input shape:
   "brand_id": "uuid | optional",
   "title": "string",
   "description_md": "string | optional",
-  "assignee_profile_id": "uuid | optional"
+  "assignee_profile_id": "uuid | optional",
+  "assignee_query": "string | optional"
 }
 ```
 
@@ -544,22 +626,36 @@ Implement assignee resolution in one shared backend helper.
 
 ### V1 input rule
 
-The mutating tools should accept `assignee_profile_id`, not a raw ClickUp user
-id and not a free-text assignee name.
+The mutating tools should accept conversational assignee intent while still
+resolving to one concrete local profile before mutation.
 
 Reason:
 
-1. deterministic lookup
-2. consistent with Command Center ownership of team-member mappings
-3. avoids ambiguous name matching in the first slice
+1. the target assistant experience is natural-language-first
+2. the agent should infer intent from normal conversation and then call
+   explicit resolution tools
+3. deterministic local resolution still preserves safety after that
+4. Command Center remains the source of truth for team-member mappings
+5. raw ClickUp user IDs should still never be user inputs
+
+Recommended v1 contract:
+
+1. support `assignee_query` for conversational usage
+2. let the agent decide when to call `resolve_team_member` based on natural
+   language in the conversation
+3. also allow `assignee_profile_id` when a prior tool call has already
+   resolved the person explicitly
 
 ### V1 assignee behavior
 
-1. if `assignee_profile_id` is omitted, create unassigned
-2. if the profile exists and has a unique integer-shaped `clickup_user_id`,
+1. if both `assignee_query` and `assignee_profile_id` are omitted, create
+   unassigned
+2. if `assignee_profile_id` is provided, use it directly after validation
+3. if `assignee_query` is provided, resolve it against team-member records
+4. if the resolved profile has a unique integer-shaped `clickup_user_id`,
    assign it
-3. if no `clickup_user_id` exists, fail with a mapping error in prepare/create
-4. if local data somehow implies ambiguity, fail closed
+5. if no `clickup_user_id` exists, fail with a mapping error in prepare/create
+6. if local data implies ambiguity, fail closed and require clarification
 
 Initial stance on assignment scope:
 
@@ -568,11 +664,11 @@ Initial stance on assignment scope:
 2. if that constraint becomes operationally important later, add it as a
    stricter policy rather than assuming it now
 
-### Later, if needed
+Implementation note:
 
-Add a read-only `resolve_team_member` MCP tool for natural-language assignee
-resolution. Do not add that in the first slice unless it becomes a real
-usability blocker.
+1. the read-only `resolve_team_member` tool should ship early enough that
+   Claude can preserve conversational behavior while still using explicit
+   local resolution under the hood
 
 ## Backend organization rules
 
@@ -617,7 +713,8 @@ Reuse caveat:
 
 Goal:
 
-1. build deterministic destination and assignee resolution helpers
+1. build destination and assignee resolution helpers that support
+   conversational tool-calling safely
 
 Why this is split from Slice 1:
 
@@ -652,8 +749,9 @@ Work:
 2. register it in `backend-core/app/mcp/server.py`
 3. implement `list_clickup_tasks`
 4. implement `get_clickup_task`
-5. add structured result formatting
-6. add Claude manual smoke test coverage
+5. implement `resolve_team_member`
+6. add structured result formatting
+7. add Claude manual smoke test coverage
 
 Done when:
 
@@ -661,7 +759,9 @@ Done when:
    backlog destination
 2. Claude can inspect a directly linked ClickUp task from a task URL or task
    id
-3. ambiguous client/brand cases fail with clear guidance
+3. Claude can resolve a natural-language assignee reference to one concrete
+   team member or fail closed on ambiguity
+4. ambiguous client/brand cases fail with clear guidance
 
 ## Slice 2: prepare-create mutation flow
 
@@ -709,6 +809,8 @@ Work:
    - missing lists in a mapped space fail cleanly
 2. assignee resolution:
    - mapped profile
+   - natural-language query resolves to one profile
+   - natural-language query remains ambiguous and fails closed
    - missing `clickup_user_id`
    - malformed non-integer `clickup_user_id`
    - invalid profile id
@@ -734,18 +836,22 @@ Work:
 1. MCP server registration includes new ClickUp tools
 2. `list_clickup_tasks` returns structured task rows
 3. `get_clickup_task` returns structured task data from id or URL input
-4. `prepare_clickup_task` returns preview payload and warnings
-5. `create_clickup_task` returns task id and URL
-6. ambiguous destination cases fail closed
+4. `resolve_team_member` returns a concrete team-member match or a structured
+   ambiguity result
+5. `prepare_clickup_task` returns preview payload and warnings
+6. `create_clickup_task` returns task id and URL
+7. ambiguous destination cases fail closed
 
 ### Manual smoke tests
 
 1. resolve client -> list tasks for a mapped brand
 2. paste a ClickUp task URL -> inspect the exact task
-3. resolve client -> prepare task for a mapped brand
-4. resolve client -> create task for a mapped brand
-5. create task with mapped assignee
-6. create task for a client with multiple brands and verify Claude must
+3. ask naturally for an assignee such as `assign this to Susie` and verify
+   Claude resolves the correct team member or asks a clarifying question
+4. resolve client -> prepare task for a mapped brand
+5. resolve client -> create task for a mapped brand
+6. create task with mapped assignee
+7. create task for a client with multiple brands and verify Claude must
    clarify rather than guessing
 
 ## Acceptance criteria
@@ -756,13 +862,15 @@ This plan is complete when:
 2. Claude can list backlog tasks for a correctly resolved brand
 3. Claude can inspect a specific ClickUp task from a direct task URL or task
    id
-4. Claude can preview a task creation payload safely
-5. Claude can create a task in the correct destination
-6. assignment works only through mapped `profiles.clickup_user_id`
-7. no tool accepts raw destination ids from the user
-8. ambiguous destination selection fails closed
-9. invalid assignee mappings fail explicitly instead of silently dropping
-   assignment
+4. Claude can resolve natural-language assignee references into one concrete
+   local team member or fail closed on ambiguity
+5. Claude can preview a task creation payload safely
+6. Claude can create a task in the correct destination
+7. assignment works only through mapped `profiles.clickup_user_id`
+8. no tool accepts raw destination ids from the user
+9. ambiguous destination selection fails closed
+10. invalid assignee mappings fail explicitly instead of silently dropping
+    assignment
 
 ## Open questions
 
@@ -786,10 +894,25 @@ require explicit `clickup_list_id`.
 
 Recommended answer:
 
-1. no
+1. yes
 
-Use `assignee_profile_id` first. Add a separate resolver tool only if prompt
-quality or usability clearly suffers.
+Reason:
+
+1. the target product shape is a Jarvis-like conversational assistant, not a
+   rigid form flow
+2. requiring users to provide `assignee_profile_id` manually would break that
+   interaction model
+3. the correct compromise is conversational input plus explicit local tool
+   resolution after the model understands intent
+
+Implementation stance:
+
+1. ship a read-only `resolve_team_member` tool in v1
+2. allow mutation tools to accept either `assignee_query` or an already
+   resolved `assignee_profile_id`
+3. let the agent infer when team-member resolution is needed from normal
+   conversation, not from regex-style control syntax
+4. fail closed when multiple candidates remain plausible
 
 ### 3. Should task update / close ship in the same tranche?
 
@@ -828,6 +951,7 @@ Build Slice 0 and Slice 1 first:
 1. shared destination / assignee resolver
 2. `list_clickup_tasks`
 3. `get_clickup_task`
+4. `resolve_team_member`
 
 That gives a real Claude ClickUp foothold without taking mutation risk on the
 first commit.
