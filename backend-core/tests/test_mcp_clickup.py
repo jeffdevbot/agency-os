@@ -709,6 +709,43 @@ def test_resolve_team_member_empty_query_raises():
     assert exc_info.value.error_type == "validation_error"
 
 
+def test_resolve_team_member_matches_full_name_when_display_name_differs():
+    """full_name must be searchable even when display_name is populated."""
+    db = _profile_db([
+        {
+            "id": "p1",
+            "display_name": "Suz",
+            "full_name": "Suzanne Clarke",
+            "email": "suz@co.com",
+            "clickup_user_id": "111",
+        }
+    ])
+    # Query matches full_name only — display_name "Suz" does not contain "Suzanne"
+    result = resolve_team_member_query(db, query="Suzanne", client_id=None, brand_id=None)
+    assert len(result["matches"]) == 1
+    assert result["matches"][0]["profile_id"] == "p1"
+    assert result["matches"][0]["resolution_status"] == "resolved"
+
+
+def test_resolve_team_member_display_name_match_still_works():
+    """Existing display_name matching must still work."""
+    db = _profile_db([
+        {"id": "p1", "display_name": "Suz", "full_name": "Suzanne Clarke", "email": "suz@co.com", "clickup_user_id": "111"}
+    ])
+    result = resolve_team_member_query(db, query="suz", client_id=None, brand_id=None)
+    assert len(result["matches"]) == 1
+    assert result["matches"][0]["profile_id"] == "p1"
+
+
+def test_resolve_team_member_email_match_still_works():
+    """Email matching must still work."""
+    db = _profile_db([
+        {"id": "p1", "display_name": "Suz", "full_name": "Suzanne Clarke", "email": "suz@co.com", "clickup_user_id": "111"}
+    ])
+    result = resolve_team_member_query(db, query="suz@co.com", client_id=None, brand_id=None)
+    assert len(result["matches"]) == 1
+
+
 def test_resolve_team_member_client_assigned_ranks_first():
     """Profiles assigned to the client should appear before unassigned profiles."""
     db = _FakeMultiTableDB({
@@ -805,6 +842,51 @@ def test_resolve_assignee_by_query_no_match_raises():
     assert exc_info.value.error_type == "not_found"
 
 
+def test_resolve_assignee_brand_context_still_ambiguous_when_both_match():
+    """Brand context helps ranking but two matching profiles remain ambiguous.
+    Fail-closed behavior must hold even when one candidate has brand scope."""
+    db = _FakeMultiTableDB({
+        "profiles": [
+            {"id": "p1", "display_name": "Alex", "full_name": "", "email": "alex.a@co.com", "clickup_user_id": "111"},
+            {"id": "p2", "display_name": "Alex", "full_name": "", "email": "alex.b@co.com", "clickup_user_id": "222"},
+        ],
+        "client_assignments": [
+            {"team_member_id": "p2", "brand_id": "brand-7", "client_id": "client-x"},
+        ],
+    })
+    with pytest.raises(ClickUpToolError) as exc_info:
+        _resolve_assignee(
+            db,
+            assignee_profile_id=None,
+            assignee_query="alex",
+            client_id="client-x",
+            brand_id="brand-7",
+        )
+    assert exc_info.value.error_type == "ambiguous_assignee"
+
+
+def test_resolve_assignee_brand_context_single_match_resolves():
+    """Single match with brand assignment resolves correctly — brand context is threaded."""
+    db = _FakeMultiTableDB({
+        "profiles": [
+            {"id": "p1", "display_name": "Jordan", "full_name": "", "email": "j@co.com", "clickup_user_id": "999"},
+        ],
+        "client_assignments": [
+            {"team_member_id": "p1", "brand_id": "brand-7", "client_id": "client-x"},
+        ],
+    })
+    result = _resolve_assignee(
+        db,
+        assignee_profile_id=None,
+        assignee_query="jordan",
+        client_id="client-x",
+        brand_id="brand-7",
+    )
+    assert result["resolution_status"] == "resolved"
+    assert result["profile_id"] == "p1"
+    assert result["clickup_user_id"] == "999"
+
+
 # ---------------------------------------------------------------------------
 # prepare_task_for_brand
 # ---------------------------------------------------------------------------
@@ -878,6 +960,35 @@ async def test_prepare_task_warns_on_missing_assignee_mapping(monkeypatch):
     assert result["task_payload"]["assignee_ids"] == []
     assert len(result["warnings"]) == 1
     assert "unassigned" in result["warnings"][0].lower()
+
+
+@pytest.mark.asyncio
+async def test_prepare_task_threads_brand_context_into_assignee_resolution(monkeypatch):
+    """prepare_task_for_brand must pass the resolved brand_id into assignee resolution
+    so that brand assignment hints reduce ambiguity."""
+    fake_svc = _FakeClickUpService()
+    # Two profiles named "Alex"; only p2 is assigned to brand-1
+    fake_db = _FakeMultiTableDB({
+        "brands": [{"id": "brand-1", "client_id": "cid", "name": "B", "clickup_list_id": "list-1", "clickup_space_id": None}],
+        "profiles": [
+            {"id": "p1", "display_name": "Alex A", "full_name": "", "email": "a@co.com", "clickup_user_id": "111"},
+            {"id": "p2", "display_name": "Alex B", "full_name": "", "email": "b@co.com", "clickup_user_id": "222"},
+        ],
+        "client_assignments": [
+            {"team_member_id": "p2", "brand_id": "brand-1", "client_id": "cid"},
+        ],
+    })
+    monkeypatch.setattr("app.services.clickup_task_tools.get_clickup_service", lambda: fake_svc)
+    monkeypatch.setattr("app.services.clickup_task_tools._get_supabase_admin_client", lambda: fake_db)
+
+    # Two "Alex" profiles → should still be ambiguous (both match), fail closed
+    with pytest.raises(ClickUpToolError) as exc_info:
+        await prepare_task_for_brand(
+            client_id="cid", brand_id=None, title="Task",
+            description_md=None, assignee_profile_id=None, assignee_query="Alex",
+        )
+    assert exc_info.value.error_type == "ambiguous_assignee"
+    # Confirms brand_id was threaded in (both still match, fail closed — not a silent wrong pick)
 
 
 @pytest.mark.asyncio

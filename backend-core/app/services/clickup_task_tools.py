@@ -513,10 +513,12 @@ def resolve_team_member_query(
         display_name = str(row.get("display_name") or "").strip()
         full_name = str(row.get("full_name") or "").strip()
         email = str(row.get("email") or "").strip()
-        label = display_name or full_name
-        haystack = f"{label} {email}".casefold()
+        # Match against all three fields independently so full_name is searchable
+        # even when display_name is populated.
+        haystack = f"{display_name} {full_name} {email}".casefold()
         if needle not in haystack:
             continue
+        label = display_name or full_name
         profile_id = str(row.get("id") or "").strip()
         clickup_uid = str(row.get("clickup_user_id") or "").strip() or None
         scope = _assignment_scope(profile_id, norm_brand_id, assignment_rows)
@@ -556,11 +558,15 @@ def _resolve_assignee(
     assignee_profile_id: str | None,
     assignee_query: str | None,
     client_id: str | None,
+    brand_id: str | None = None,
 ) -> dict[str, Any]:
     """Resolve assignee input to {profile_id, clickup_user_id, resolution_status}.
 
     resolution_status values: resolved | unassigned | missing_mapping
     Raises ClickUpToolError for: validation_error, not_found, ambiguous_assignee.
+
+    brand_id is forwarded to resolve_team_member_query so that brand assignment
+    hints can reduce ambiguity when two profiles otherwise match equally.
     """
     norm_pid = (assignee_profile_id or "").strip() or None
     norm_query = (assignee_query or "").strip() or None
@@ -593,9 +599,9 @@ def _resolve_assignee(
             }
         return {"profile_id": norm_pid, "clickup_user_id": cu, "resolution_status": "resolved"}
 
-    # assignee_query path
+    # assignee_query path — pass brand_id so assignment hints can reduce ambiguity
     resolution = resolve_team_member_query(
-        db, query=norm_query, client_id=client_id, brand_id=None
+        db, query=norm_query, client_id=client_id, brand_id=brand_id
     )
     matches = resolution["matches"]
 
@@ -680,6 +686,7 @@ async def prepare_task_for_brand(
             assignee_profile_id=assignee_profile_id,
             assignee_query=assignee_query,
             client_id=client_id,
+            brand_id=destination["brand_id"],
         )
 
         warnings: list[str] = []
@@ -757,6 +764,7 @@ async def create_task_for_brand(
             assignee_profile_id=assignee_profile_id,
             assignee_query=assignee_query,
             client_id=client_id,
+            brand_id=destination["brand_id"],
         )
 
         assignee_ids: list[str] = []
