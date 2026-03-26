@@ -144,6 +144,17 @@ class TestParseListingFile:
         assert record.merchant_shipping_group == "Default"
         assert record.item_condition == "New"
 
+    def test_duplicate_asin_merge_keeps_zero_quantity(self):
+        file_bytes = (
+            "item-name\tseller-sku\tasin1\tquantity\r\n"
+            "Widget A\tSKU-1\tB012345678\t12\r\n"
+            "Widget A\tSKU-1\tB012345678\t0\r\n"
+        ).encode("utf-8")
+
+        parsed = parse_listing_file("all-listings-report.txt", file_bytes)
+
+        assert parsed.records[0].quantity == "0"
+
 
 class TestListingImportService:
     def test_import_replaces_active_child_asin_snapshot(self):

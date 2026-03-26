@@ -8,13 +8,28 @@ ALTER TABLE public.wbr_profile_child_asins
 
 UPDATE public.wbr_profile_child_asins
 SET
-  item_description = COALESCE(item_description, NULLIF(raw_payload->>'merchant_listings_all_data__item_description', '')),
-  status = COALESCE(status, NULLIF(raw_payload->>'merchant_listings_all_data__status', '')),
-  price = COALESCE(price, NULLIF(raw_payload->>'merchant_listings_all_data__price', '')),
-  quantity = COALESCE(quantity, NULLIF(raw_payload->>'merchant_listings_all_data__quantity', '')),
+  item_description = COALESCE(
+    wbr_profile_child_asins.item_description,
+    NULLIF(raw_payload->>'merchant_listings_all_data__item_description', '')
+  ),
+  status = COALESCE(
+    wbr_profile_child_asins.status,
+    NULLIF(raw_payload->>'merchant_listings_all_data__status', '')
+  ),
+  price = COALESCE(
+    wbr_profile_child_asins.price,
+    NULLIF(raw_payload->>'merchant_listings_all_data__price', '')
+  ),
+  quantity = COALESCE(
+    wbr_profile_child_asins.quantity,
+    NULLIF(raw_payload->>'merchant_listings_all_data__quantity', '')
+  ),
   merchant_shipping_group = COALESCE(
-    merchant_shipping_group,
+    wbr_profile_child_asins.merchant_shipping_group,
     NULLIF(raw_payload->>'merchant_listings_all_data__merchant_shipping_group', '')
   ),
-  item_condition = COALESCE(item_condition, NULLIF(raw_payload->>'merchant_listings_all_data__item_condition', ''))
+  item_condition = COALESCE(
+    wbr_profile_child_asins.item_condition,
+    NULLIF(raw_payload->>'merchant_listings_all_data__item_condition', '')
+  )
 WHERE raw_payload <> '{}'::jsonb;

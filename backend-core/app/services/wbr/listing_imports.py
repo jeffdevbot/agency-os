@@ -290,12 +290,16 @@ def _merge_record(existing: ParsedListingRecord, incoming: ParsedListingRecord) 
         source_item_style=incoming.source_item_style or existing.source_item_style,
         size=incoming.size or existing.size,
         fulfillment_method=incoming.fulfillment_method or existing.fulfillment_method,
-        item_description=incoming.item_description or existing.item_description,
-        status=incoming.status or existing.status,
-        price=incoming.price or existing.price,
-        quantity=incoming.quantity or existing.quantity,
-        merchant_shipping_group=incoming.merchant_shipping_group or existing.merchant_shipping_group,
-        item_condition=incoming.item_condition or existing.item_condition,
+        item_description=incoming.item_description if incoming.item_description is not None else existing.item_description,
+        status=incoming.status if incoming.status is not None else existing.status,
+        price=incoming.price if incoming.price is not None else existing.price,
+        quantity=incoming.quantity if incoming.quantity is not None else existing.quantity,
+        merchant_shipping_group=(
+            incoming.merchant_shipping_group
+            if incoming.merchant_shipping_group is not None
+            else existing.merchant_shipping_group
+        ),
+        item_condition=incoming.item_condition if incoming.item_condition is not None else existing.item_condition,
         raw_payload={**existing.raw_payload, **incoming.raw_payload},
     )
 
