@@ -97,6 +97,80 @@ def _fetch_brand_rows(db: Any, client_id: str) -> list[dict[str, Any]]:
     return [r for r in rows if isinstance(r, dict) and str(r.get("id") or "").strip()]
 
 
+async def _fetch_all_allowed_destinations(
+    db: Any,
+    clickup_service: Any,
+) -> set[str]:
+    """Return the set of ClickUp list IDs that are backlog destinations for any Agency OS brand.
+
+    - Brands with clickup_list_id: add that list directly.
+    - Brands with only clickup_space_id: resolve the fallback/default list via get_space_lists().
+      Uses the same Inbox-first fallback as resolve_brand_destination.
+      If resolution fails for a space, that brand contributes nothing (fail closed).
+
+    No client filter — used for workspace-scoping in get_task_by_id_or_url.
+    Authorization is always by list_id; space_id alone never grants access.
+    """
+    resp = (
+        db.table("brands")
+        .select("clickup_list_id, clickup_space_id")
+        .execute()
+    )
+    rows = resp.data if isinstance(resp.data, list) else []
+    allowed: set[str] = set()
+
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        list_id = str(r.get("clickup_list_id") or "").strip()
+        space_id = str(r.get("clickup_space_id") or "").strip()
+
+        if list_id:
+            # Direct mapping — prefer this over space fallback.
+            allowed.add(list_id)
+        elif space_id:
+            # Space-only brand: resolve the fallback/default list.
+            # Uses get_space_lists() directly, same as resolve_brand_destination.
+            try:
+                lists = await clickup_service.get_space_lists(space_id)
+            except ClickUpError:
+                # Fail closed: can't determine allowed list for this space.
+                continue
+            if not lists:
+                continue
+            fallback = next(
+                (lst for lst in lists if str(lst.get("name") or "").strip().lower() == "inbox"),
+                lists[0],
+            )
+            fallback_list_id = str(fallback.get("id") or "").strip()
+            if fallback_list_id:
+                allowed.add(fallback_list_id)
+
+    return allowed
+
+
+def _assert_task_destination_allowed(
+    raw_task: dict[str, Any],
+    allowed_list_ids: set[str],
+) -> None:
+    """Raise ClickUpToolError('not_allowed') if the task list is not an allowed Agency OS destination.
+
+    Authorization is by task list_id only — space_id alone never grants access.
+    Fails closed: tasks with no list metadata are treated as not allowed.
+    """
+    task_list_id = str((raw_task.get("list") or {}).get("id") or "").strip()
+
+    if task_list_id and task_list_id in allowed_list_ids:
+        return
+
+    raise ClickUpToolError(
+        "not_allowed",
+        "This task is not in an allowed Agency OS destination. "
+        "Only tasks from mapped client brand destinations may be fetched. "
+        "Use resolve_client to find mapped brands and their destination IDs.",
+    )
+
+
 async def resolve_brand_destination(
     db: Any,
     clickup_service: Any,
@@ -386,6 +460,10 @@ async def get_task_by_id_or_url(
 
     try:
         raw = await clickup.get_task(parsed_id)
+        # Scope check while service is still open — space-only brands need get_space_lists().
+        db = _get_supabase_admin_client()
+        allowed_list_ids = await _fetch_all_allowed_destinations(db, clickup)
+        _assert_task_destination_allowed(raw, allowed_list_ids)
     except ClickUpNotFoundError:
         raise ClickUpToolError(
             "not_found",

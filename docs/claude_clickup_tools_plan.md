@@ -2,14 +2,14 @@
 
 _Drafted: 2026-03-25 (ET)_
 
-Status: `implemented — Slice 0–3 complete as of 2026-03-25`
+Status: `implemented — Slice 0–4 complete as of 2026-03-25`
 
-Slice 0–3 are merged and tested. All five MCP tools are live on the shared
+Slice 0–4 are merged and tested. All five MCP tools are live on the shared
 Agency OS pilot surface: `list_clickup_tasks`, `get_clickup_task`,
 `resolve_team_member`, `prepare_clickup_task`, `create_clickup_task`.
-Remaining items from Slice 3 open questions (task update/close/move,
-team-rollout workspace guard for `get_clickup_task`, idempotency
-persistence) are tracked in the opportunity backlog.
+`get_clickup_task` now scopes fetches to mapped Agency OS brand destinations
+(Slice 4 workspace guard). Remaining open items (task update/close/move,
+idempotency persistence) are tracked in the opportunity backlog.
 
 ## Purpose
 

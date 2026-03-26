@@ -12,6 +12,8 @@ import pytest
 from app.services.clickup import ClickUpTask
 from app.services.clickup_task_tools import (
     ClickUpToolError,
+    _assert_task_destination_allowed,
+    _fetch_all_allowed_destinations,
     _fetch_brand_rows,
     _format_full_task,
     _format_task_row,
@@ -553,7 +555,11 @@ async def test_get_task_by_id(monkeypatch):
         "space": {"id": "space-1", "name": "Client Space"},
     }
     fake_svc = _FakeClickUpService(task_data=task_raw)
+    fake_db = _FakeBrandsDB([
+        {"id": "brand-1", "client_id": "cid", "name": "B", "clickup_list_id": "list-1", "clickup_space_id": "space-1"},
+    ])
     monkeypatch.setattr("app.services.clickup_task_tools.get_clickup_service", lambda: fake_svc)
+    monkeypatch.setattr("app.services.clickup_task_tools._get_supabase_admin_client", lambda: fake_db)
 
     result = await get_task_by_id_or_url(task_id="task-xyz", task_url=None)
     task = result["task"]
@@ -573,8 +579,16 @@ async def test_get_task_by_id(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_get_task_by_url(monkeypatch):
-    fake_svc = _FakeClickUpService(task_data={"id": "task-abc", "name": "T"})
+    fake_svc = _FakeClickUpService(task_data={
+        "id": "task-abc", "name": "T",
+        "list": {"id": "list-abc", "name": "Backlog"},
+        "space": {"id": "space-abc", "name": "Client Space"},
+    })
+    fake_db = _FakeBrandsDB([
+        {"id": "brand-1", "client_id": "cid", "name": "B", "clickup_list_id": "list-abc", "clickup_space_id": None},
+    ])
     monkeypatch.setattr("app.services.clickup_task_tools.get_clickup_service", lambda: fake_svc)
+    monkeypatch.setattr("app.services.clickup_task_tools._get_supabase_admin_client", lambda: fake_db)
 
     result = await get_task_by_id_or_url(
         task_id=None, task_url="https://app.clickup.com/t/task-abc"
@@ -620,6 +634,211 @@ def test_get_task_bad_url_raises_before_service():
             )
         )
     assert exc_info.value.error_type == "parse_error"
+
+
+# ---------------------------------------------------------------------------
+# _fetch_all_allowed_destinations / _assert_task_destination_allowed
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_fetch_all_allowed_destinations_direct_list_ids():
+    """Brands with clickup_list_id contribute it directly; no space calls made."""
+    db = _FakeBrandsDB([
+        {"id": "b1", "clickup_list_id": "list-10", "clickup_space_id": None},
+        {"id": "b2", "clickup_list_id": "list-30", "clickup_space_id": "space-30"},
+    ])
+    fake_svc = _FakeClickUpService()
+    allowed = await _fetch_all_allowed_destinations(db, fake_svc)
+    assert "list-10" in allowed
+    assert "list-30" in allowed
+    # b2 has list_id so get_space_lists should NOT be called
+    assert fake_svc.get_space_lists_calls == []
+
+
+@pytest.mark.asyncio
+async def test_fetch_all_allowed_destinations_space_only_resolves_inbox():
+    """Space-only brand resolves via get_space_lists; prefers a list named Inbox."""
+    db = _FakeBrandsDB([
+        {"id": "b1", "clickup_list_id": None, "clickup_space_id": "space-20"},
+    ])
+    fake_svc = _FakeClickUpService(space_lists=[
+        {"id": "list-inbox", "name": "Inbox"},
+        {"id": "list-planning", "name": "Planning"},
+    ])
+    allowed = await _fetch_all_allowed_destinations(db, fake_svc)
+    assert "list-inbox" in allowed
+    assert "list-planning" not in allowed
+    assert fake_svc.get_space_lists_calls == ["space-20"]
+
+
+@pytest.mark.asyncio
+async def test_fetch_all_allowed_destinations_space_only_fallback_to_first():
+    """Space-only brand falls back to first list when no list is named Inbox."""
+    db = _FakeBrandsDB([
+        {"id": "b1", "clickup_list_id": None, "clickup_space_id": "space-20"},
+    ])
+    fake_svc = _FakeClickUpService(space_lists=[
+        {"id": "list-first", "name": "Backlog"},
+        {"id": "list-second", "name": "Done"},
+    ])
+    allowed = await _fetch_all_allowed_destinations(db, fake_svc)
+    assert "list-first" in allowed
+    assert "list-second" not in allowed
+
+
+@pytest.mark.asyncio
+async def test_fetch_all_allowed_destinations_space_only_fails_closed_on_error():
+    """If get_space_lists fails for a space-only brand, that brand contributes nothing."""
+    from app.services.clickup import ClickUpAPIError
+    db = _FakeBrandsDB([
+        {"id": "b1", "clickup_list_id": None, "clickup_space_id": "space-20"},
+    ])
+    fake_svc = _FakeClickUpService(space_lists_error=ClickUpAPIError("503"))
+    allowed = await _fetch_all_allowed_destinations(db, fake_svc)
+    assert len(allowed) == 0
+
+
+@pytest.mark.asyncio
+async def test_fetch_all_allowed_destinations_empty_when_no_brands():
+    db = _FakeBrandsDB([])
+    fake_svc = _FakeClickUpService()
+    allowed = await _fetch_all_allowed_destinations(db, fake_svc)
+    assert allowed == set()
+
+
+def test_assert_task_destination_allowed_passes_on_list_id_match():
+    allowed_list_ids = {"list-1"}
+    raw = {"id": "t1", "list": {"id": "list-1"}, "space": {"id": "space-99"}}
+    _assert_task_destination_allowed(raw, allowed_list_ids)  # should not raise
+
+
+def test_assert_task_destination_allowed_space_id_alone_does_not_grant_access():
+    """Space ID in the allowed set no longer exists; task is blocked by list_id only."""
+    # Even if the task's space matches a known space, it's not sufficient — only list_id counts.
+    allowed_list_ids: set[str] = set()  # no lists allowed
+    raw = {"id": "t1", "list": {"id": "list-unmapped"}, "space": {"id": "space-99"}}
+    with pytest.raises(ClickUpToolError) as exc_info:
+        _assert_task_destination_allowed(raw, allowed_list_ids)
+    assert exc_info.value.error_type == "not_allowed"
+
+
+def test_assert_task_destination_allowed_raises_when_no_match():
+    allowed_list_ids = {"list-1"}
+    raw = {"id": "t1", "list": {"id": "list-other"}, "space": {"id": "space-other"}}
+    with pytest.raises(ClickUpToolError) as exc_info:
+        _assert_task_destination_allowed(raw, allowed_list_ids)
+    assert exc_info.value.error_type == "not_allowed"
+    assert "mapped" in exc_info.value.message.lower()
+
+
+def test_assert_task_destination_allowed_raises_when_no_metadata():
+    """Tasks with no list metadata are treated as not allowed (fail closed)."""
+    allowed_list_ids = {"list-1"}
+    raw = {"id": "t1"}  # no list key
+    with pytest.raises(ClickUpToolError) as exc_info:
+        _assert_task_destination_allowed(raw, allowed_list_ids)
+    assert exc_info.value.error_type == "not_allowed"
+
+
+@pytest.mark.asyncio
+async def test_get_task_blocked_when_not_in_allowed_destination(monkeypatch):
+    """get_task_by_id_or_url raises not_allowed when task is in an unmapped destination."""
+    task_raw = {
+        "id": "task-x",
+        "name": "External task",
+        "list": {"id": "list-foreign"},
+        "space": {"id": "space-foreign"},
+    }
+    fake_svc = _FakeClickUpService(task_data=task_raw)
+    # Brand DB has only list-1; task is in list-foreign → blocked
+    fake_db = _FakeBrandsDB([
+        {"id": "brand-1", "client_id": "cid", "name": "B", "clickup_list_id": "list-1", "clickup_space_id": None},
+    ])
+    monkeypatch.setattr("app.services.clickup_task_tools.get_clickup_service", lambda: fake_svc)
+    monkeypatch.setattr("app.services.clickup_task_tools._get_supabase_admin_client", lambda: fake_db)
+
+    with pytest.raises(ClickUpToolError) as exc_info:
+        await get_task_by_id_or_url(task_id="task-x", task_url=None)
+    assert exc_info.value.error_type == "not_allowed"
+    # ClickUp service was still closed despite the scope error
+    assert fake_svc.closed is True
+
+
+@pytest.mark.asyncio
+async def test_get_task_allowed_for_space_only_brand_in_fallback_list(monkeypatch):
+    """Space-only brand: task in the resolved fallback list is allowed."""
+    task_raw = {
+        "id": "task-y",
+        "name": "Space task",
+        "list": {"id": "list-inbox", "name": "Inbox"},
+        "space": {"id": "space-20", "name": "Client Space"},
+    }
+    fake_svc = _FakeClickUpService(
+        task_data=task_raw,
+        space_lists=[{"id": "list-inbox", "name": "Inbox"}, {"id": "list-other", "name": "Done"}],
+    )
+    fake_db = _FakeBrandsDB([
+        {"id": "brand-2", "client_id": "cid", "name": "B", "clickup_list_id": None, "clickup_space_id": "space-20"},
+    ])
+    monkeypatch.setattr("app.services.clickup_task_tools.get_clickup_service", lambda: fake_svc)
+    monkeypatch.setattr("app.services.clickup_task_tools._get_supabase_admin_client", lambda: fake_db)
+
+    result = await get_task_by_id_or_url(task_id="task-y", task_url=None)
+    assert result["task"]["id"] == "task-y"
+    assert fake_svc.closed is True
+
+
+@pytest.mark.asyncio
+async def test_get_task_blocked_for_space_only_brand_in_non_fallback_list(monkeypatch):
+    """Space-only brand: task in a different list within the same space is blocked."""
+    task_raw = {
+        "id": "task-z",
+        "name": "Off-list task",
+        "list": {"id": "list-other", "name": "Done"},
+        "space": {"id": "space-20", "name": "Client Space"},
+    }
+    fake_svc = _FakeClickUpService(
+        task_data=task_raw,
+        space_lists=[{"id": "list-inbox", "name": "Inbox"}, {"id": "list-other", "name": "Done"}],
+    )
+    fake_db = _FakeBrandsDB([
+        {"id": "brand-2", "client_id": "cid", "name": "B", "clickup_list_id": None, "clickup_space_id": "space-20"},
+    ])
+    monkeypatch.setattr("app.services.clickup_task_tools.get_clickup_service", lambda: fake_svc)
+    monkeypatch.setattr("app.services.clickup_task_tools._get_supabase_admin_client", lambda: fake_db)
+
+    with pytest.raises(ClickUpToolError) as exc_info:
+        await get_task_by_id_or_url(task_id="task-z", task_url=None)
+    assert exc_info.value.error_type == "not_allowed"
+    assert fake_svc.closed is True
+
+
+@pytest.mark.asyncio
+async def test_get_task_blocked_when_space_resolution_fails(monkeypatch):
+    """Space-only brand where get_space_lists fails → task blocked (fail closed)."""
+    from app.services.clickup import ClickUpAPIError
+
+    task_raw = {
+        "id": "task-w",
+        "name": "Task",
+        "list": {"id": "list-any"},
+        "space": {"id": "space-20"},
+    }
+    fake_svc = _FakeClickUpService(
+        task_data=task_raw,
+        space_lists_error=ClickUpAPIError("timeout"),
+    )
+    fake_db = _FakeBrandsDB([
+        {"id": "brand-2", "client_id": "cid", "name": "B", "clickup_list_id": None, "clickup_space_id": "space-20"},
+    ])
+    monkeypatch.setattr("app.services.clickup_task_tools.get_clickup_service", lambda: fake_svc)
+    monkeypatch.setattr("app.services.clickup_task_tools._get_supabase_admin_client", lambda: fake_db)
+
+    with pytest.raises(ClickUpToolError) as exc_info:
+        await get_task_by_id_or_url(task_id="task-w", task_url=None)
+    assert exc_info.value.error_type == "not_allowed"
+    assert fake_svc.closed is True
 
 
 # ---------------------------------------------------------------------------
@@ -1303,6 +1522,53 @@ def test_mcp_create_clickup_task_api_error_returns_structured_error(monkeypatch)
 
     assert payload["error"] == "clickup_api_error"
     assert "503" in payload["message"]
+
+
+def test_mcp_get_clickup_task_allowed_destination_returns_task(monkeypatch):
+    """get_clickup_task returns task data when list_id matches a mapped brand."""
+    from app.mcp.server import create_mcp_server
+
+    fake_svc = _FakeClickUpService(task_data={
+        "id": "task-99",
+        "name": "Ship it",
+        "list": {"id": "list-42", "name": "Inbox"},
+        "space": {"id": "space-7", "name": "Workspace"},
+    })
+    fake_db = _make_wrapper_db(
+        brands=[{"id": "brand-1", "client_id": "cid", "name": "Acme", "clickup_list_id": "list-42", "clickup_space_id": None}],
+    )
+    monkeypatch.setattr("app.services.clickup_task_tools.get_clickup_service", lambda: fake_svc)
+    monkeypatch.setattr("app.services.clickup_task_tools._get_supabase_admin_client", lambda: fake_db)
+
+    server = create_mcp_server()
+    _content, payload = asyncio.run(server.call_tool("get_clickup_task", {"task_id": "task-99"}))
+
+    assert "error" not in payload
+    assert payload["task"]["id"] == "task-99"
+    assert payload["task"]["list_id"] == "list-42"
+
+
+def test_mcp_get_clickup_task_not_allowed_returns_structured_error(monkeypatch):
+    """get_clickup_task returns not_allowed when the task is outside all mapped destinations."""
+    from app.mcp.server import create_mcp_server
+
+    fake_svc = _FakeClickUpService(task_data={
+        "id": "task-external",
+        "name": "Outside task",
+        "list": {"id": "list-foreign"},
+        "space": {"id": "space-foreign"},
+    })
+    fake_db = _make_wrapper_db(
+        brands=[{"id": "brand-1", "client_id": "cid", "name": "Acme", "clickup_list_id": "list-42", "clickup_space_id": None}],
+    )
+    monkeypatch.setattr("app.services.clickup_task_tools.get_clickup_service", lambda: fake_svc)
+    monkeypatch.setattr("app.services.clickup_task_tools._get_supabase_admin_client", lambda: fake_db)
+
+    server = create_mcp_server()
+    _content, payload = asyncio.run(server.call_tool("get_clickup_task", {"task_id": "task-external"}))
+
+    assert payload["error"] == "not_allowed"
+    assert "mapped" in payload["message"].lower()
 
 
 # ---------------------------------------------------------------------------

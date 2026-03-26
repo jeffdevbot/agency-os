@@ -83,7 +83,7 @@ def register_clickup_tools(mcp: Any) -> None:
             "Fetch a single ClickUp task by task ID or URL. "
             "Accepted formats: bare task id, or https://app.clickup.com/t/{task_id}. "
             "Returns structured task data including status, assignees, and list/space metadata. "
-            "Note: any valid ClickUp task URL is readable in the current pilot."
+            "Only tasks in mapped Agency OS brand destinations may be fetched."
         ),
         structured_output=True,
     )
