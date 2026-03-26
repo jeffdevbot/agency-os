@@ -10,7 +10,7 @@ rationale plus the WBR-specific live-state notes in one place.
 
 ## Current implementation status
 
-As of March 23, 2026:
+As of March 25, 2026:
 
 1. The WBR v2 foundation migrations are implemented and applied live:
    - `20260312000001_wbr_profiles_and_rows.sql`
@@ -26,6 +26,7 @@ As of March 23, 2026:
    - `20260318160000_add_wbr_report_snapshots.sql`
    - `20260318203000_add_wbr_scope_exclusions.sql`
    - `20260319000001_add_wbr_email_drafts.sql`
+   - `20260325113000_add_wbr_amazon_ads_profile_metadata.sql`
 3. The application layer is wired to the full current WBR v2 stack:
    - profiles and row tree
    - Pacvue import and campaign mapping
@@ -64,6 +65,24 @@ As of March 23, 2026:
    Excel export, and includes inline trend charts for Sections 1 and 2. Those
    are application-layer features and do not change the core schema, but they
    are part of the shipped WBR v2 surface.
+10. A live Supabase row-count snapshot taken on 2026-03-25 showed the current
+    WBR production footprint at:
+    - `wbr_profiles`: `7`
+    - `wbr_rows`: `173`
+    - `wbr_sync_runs`: `671`
+    - `wbr_business_asin_daily`: `47716`
+    - `wbr_ads_campaign_daily`: `79033`
+    - `wbr_inventory_asin_snapshots`: `1006`
+    - `wbr_returns_asin_daily`: `559`
+    - `report_api_connections`: `4`
+    - `wbr_report_snapshots`: `171`
+    - `wbr_email_drafts`: `17`
+11. The same live snapshot showed the currently observed `wbr_sync_runs`
+    source mix as:
+    - `windsor_business`: `357`
+    - `amazon_ads`: `274`
+    - `windsor_inventory`: `20`
+    - `windsor_returns`: `20`
 
 ## Decision on the old migration
 
@@ -137,6 +156,9 @@ Columns:
 - `windsor_account_id text`
 - `amazon_ads_profile_id text`
 - `amazon_ads_account_id text`
+- `amazon_ads_country_code text`
+- `amazon_ads_currency_code text`
+- `amazon_ads_marketplace_string_id text`
 - `backfill_start_date date`
 - `daily_rewrite_days integer not null default 14 check (daily_rewrite_days >= 1 and daily_rewrite_days <= 60)`
 - `sp_api_auto_sync_enabled boolean not null default false`
@@ -155,6 +177,10 @@ Constraints/indexes:
 Notes:
 
 - `display_name` is the operator-facing label like `WHOOSH INC [US]`.
+- Amazon Ads advertiser-profile selection now persists extra profile metadata
+  on the WBR profile row itself:
+  `amazon_ads_country_code`, `amazon_ads_currency_code`, and
+  `amazon_ads_marketplace_string_id`.
 - If later needed, source credentials can be moved to separate config tables, but this is enough for the prototype.
 - Ads API queued-report state currently lives in `wbr_sync_runs.request_meta` rather than a dedicated report-job table.
 
@@ -679,6 +705,7 @@ the following live migrations:
 10. `20260318160000_add_wbr_report_snapshots.sql`
 11. `20260318203000_add_wbr_scope_exclusions.sql`
 12. `20260319000001_add_wbr_email_drafts.sql`
+13. `20260325113000_add_wbr_amazon_ads_profile_metadata.sql`
 
 Notable differences versus the original phased plan:
 
@@ -696,6 +723,9 @@ Notable differences versus the original phased plan:
    snapshots first, then email drafts.
 7. Scope exclusions shipped as real tables rather than staying as a purely
    service-layer filtering concept.
+8. Amazon Ads advertiser-profile metadata ended up living directly on
+   `wbr_profiles` so the selected profile can carry country / currency /
+   marketplace context in addition to the raw profile id.
 
 ## Backend impact
 

@@ -1,6 +1,6 @@
 # Current Handoffs
 
-_Last updated: 2026-03-24 (ET)_
+_Last updated: 2026-03-25 (ET)_
 
 Use this file to decide which restart/handoff docs are current versus merely
 historical reference.
@@ -54,17 +54,31 @@ historical reference.
    - the current Monthly P&L handoff/prompt have been updated to reflect the
      recent Lifestyle CA inbound-carrier rule gap and the exact Supabase MCP
      caveat above
+3. WBR Amazon Ads Lifestyle triage update as of 2026-03-25 (ET):
+   - Lifestyle US remains the confirmed wrong-profile case that was fixed by
+     re-selecting the correct advertiser profile
+   - Lifestyle CA was rechecked against a March 16 Amazon campaign export, and
+     the live DB matched the export exactly for both spend (`80.37 CAD`) and
+     sales (`267.58 CAD`)
+   - that dedicated triage thread is now historical/reference rather than the
+     primary active WBR restart path
 
 ## Historical/reference docs
 
 1. [WBR v2 handoff](/Users/jeff/code/agency-os/docs/wbr_v2_handoff.md)
    - Historical shipped-state/debug reference for WBR.
    - WBR is stable for now; this is no longer the primary restart doc.
-2. [PnL YoY implementation plan](/Users/jeff/code/agency-os/docs/pnl_yoy_implementation_plan.md)
+2. [WBR Ads profile triage handoff](/Users/jeff/code/agency-os/docs/wbr_ads_profile_triage_handoff.md)
+   - Historical/reference record for the resolved Lifestyle US/CA Amazon Ads
+     triage thread, including the March 25 CA export-vs-DB validation.
+3. [WBR Ads profile triage resume prompt](/Users/jeff/code/agency-os/docs/wbr_ads_profile_triage_resume_prompt.md)
+   - Historical restart prompt for that resolved triage thread if a new
+     discrepancy appears later.
+4. [PnL YoY implementation plan](/Users/jeff/code/agency-os/docs/pnl_yoy_implementation_plan.md)
    - Historical implementation record for the now-shipped YoY architecture.
-3. [Archived session prompts](/Users/jeff/code/agency-os/docs/archive/session_prompts)
+5. [Archived session prompts](/Users/jeff/code/agency-os/docs/archive/session_prompts)
    - Historical prompts from active build/debug phases.
-4. [Older archived non-The-Claw docs](/Users/jeff/code/agency-os/docs/archive/non_agencyclaw/README.md)
+6. [Older archived non-The-Claw docs](/Users/jeff/code/agency-os/docs/archive/non_agencyclaw/README.md)
    - Historical product/build docs no longer meant to be the active entrypoint.
 
 ## Rule of thumb

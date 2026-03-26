@@ -1,10 +1,15 @@
 # Changelog — Ecomlabs Tools
 
-_Last updated: 2026-03-24 (ET)_
+_Last updated: 2026-03-25 (ET)_
 
 > Development history for the project. For setup instructions and project overview, see [AGENTS.md](AGENTS.md).
 
 ---
+
+## 2026-03-25 (ET)
+- **Lifestyle CA WBR Amazon Ads validation now has a concrete day-level win:** Live Supabase facts for the Lifestyle CA WBR profile were checked against a fresh Amazon Ads campaign export for `2026-03-16`, and the DB matched the export exactly for both ad spend (`80.37 CAD`) and ad-attributed sales (`267.58 CAD`).
+- **The old open CA triage question is no longer “does the DB match the export for the checked day?”** The checked March 16 campaign-level rows now line up exactly between `wbr_ads_campaign_daily` and the Amazon CSV export, including the three non-zero-sales campaigns and their spend / sales values.
+- **The Lifestyle US/CA Amazon Ads profile triage docs were updated to reflect the resolved validation state:** The dedicated CA triage handoff/prompt are now historical reference rather than the primary active restart thread, while preserving the operational notes about the earlier US wrong-profile fix and the March 25 CA validation result.
 
 ## 2026-03-24 (ET)
 - **Team Hours is now a real shipped Command Center surface, not just backlog planning:** The admin-only page at `/command-center/hours` is already wired end to end with a backend ClickUp time-entry report, Team Members / Clients views, stacked daily charting, unmapped cleanup sections, and deep links back into Command Center records.
