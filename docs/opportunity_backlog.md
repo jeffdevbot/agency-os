@@ -116,7 +116,7 @@ Status meanings:
   availability.
 
 ## 4. Claude ClickUp Tools
-- Status: `next`
+- Status: `shipped`
 - Priority: `4`
 - Why it matters: useful extension of the shared Agency OS Claude surface for
   operational work.
@@ -125,13 +125,23 @@ Status meanings:
   - create backlog task in the right destination
   - assign team members
 - Current reality:
-  - ClickUp task creation already exists in backend services
-  - The Claw already has confirmed task-creation behavior
-  - but this is not yet a real Claude/MCP tool belt
+  - this is now a real Claude/MCP tool belt
+  - the live surface includes:
+    - `list_clickup_tasks`
+    - `get_clickup_task`
+    - `resolve_team_member`
+    - `prepare_clickup_task`
+    - `create_clickup_task`
+  - the ClickUp Claude surface is now live and in pilot testing
 - Active plan doc:
   - `docs/claude_clickup_tools_plan.md`
+- Remaining follow-on work:
+  - idempotency persistence for create
+  - task update / close / move flows
+  - any pilot-driven polish that only becomes obvious through live usage
 - Not now: broad ClickUp admin workflows or replacing the app UI.
-- Main risk: mutation safety and destination-resolution correctness.
+- Main risk now: operator ergonomics and retry safety rather than whether the
+  core MCP surface exists.
 
 ## 5. Shared AI Service / Model Lanes
 - Status: `later`

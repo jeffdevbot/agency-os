@@ -78,6 +78,8 @@ docs.
 - [x] Claude can review mapped backlog tasks through `list_clickup_tasks`
 - [x] Claude can inspect mapped task links through `get_clickup_task`
 - [x] Claude can preview and create mapped ClickUp tasks
+- [x] ClickUp MCP surface is now in real pilot testing with the same Claude
+  Project bundle as WBR and Monthly P&L
 
 ### Next Expansion Options
 
@@ -130,6 +132,13 @@ This bundle now supports a small shared reporting surface:
 5. the expected usage pattern for client resolution, profile resolution,
    summary retrieval, task inspection, assignee resolution, brief generation,
    and draft / task creation where supported
+
+Current live testing status:
+
+1. WBR is live in Claude
+2. Monthly P&L is live in Claude
+3. ClickUp is now live in Claude and actively being tested on the Jeff-only
+   pilot surface
 
 Expand this folder only when a workflow is stable enough to deserve durable
 Claude Project knowledge.

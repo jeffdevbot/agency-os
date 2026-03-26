@@ -5,7 +5,8 @@ Ecomlabs Tools is the internal platform that consolidates our ad analytics, SOP 
 ## Current milestone
 
 The Jeff-only Claude Pro remote MCP pilot is now live as a shared WBR +
-Monthly P&L surface, and Monthly P&L YoY is now shipped in the web app.
+Monthly P&L + ClickUp surface, and the ClickUp slice is now in real pilot
+testing.
 
 Current live outcome:
 - Claude web can authenticate to the private `Agency OS` connector through Supabase OAuth.
@@ -18,7 +19,12 @@ Current live outcome:
   - `get_monthly_pnl_report`
   - `get_monthly_pnl_email_brief`
   - `draft_monthly_pnl_email`
-- A compact Claude Project bundle now lives in `docs/claude_project/` so the pilot can use durable project instructions and narrow reference files instead of large planning docs.
+  - `list_clickup_tasks`
+  - `get_clickup_task`
+  - `resolve_team_member`
+  - `prepare_clickup_task`
+  - `create_clickup_task`
+- A compact Claude Project bundle now lives in `docs/claude_project/` so the pilot can use durable project instructions and narrow reference files instead of large planning docs, and that bundle now includes ClickUp guidance alongside WBR and Monthly P&L.
 - WBR snapshot freshness is now tied to the sync lifecycle and backed by a stale-snapshot self-heal on read, so the Claude/The Claw path no longer depends on an old stored digest lingering after newer Windsor/Amazon Ads refreshes.
 - Monthly P&L now supports:
   - read-only analysis in Claude
@@ -29,6 +35,12 @@ Current live outcome:
 - Monthly P&L YoY currently uses the shared backend comparison layer in the web
   app. Claude does not yet have a dedicated YoY MCP tool, but it can still do
   YoY reasoning with the existing P&L tool surface.
+- ClickUp now supports:
+  - mapped backlog task review in Claude
+  - direct mapped task-link inspection in Claude
+  - conversational assignee resolution in Claude
+  - preview-before-create task flow in Claude
+  - real ClickUp task creation in Claude
 
 This does **not** replace The Claw in Slack. The current surface split is:
 - **The Claw in Slack** for quick operational requests.
@@ -54,7 +66,7 @@ This does **not** replace The Claw in Slack. The current surface split is:
 
 ### Shipped Services (Internal / No UI)
 - **ClickUp Service (backend-core)** — shared backend integration layer for ClickUp API calls (task creation + future sync). Routes live under `backend-core/app/routers/clickup.py`. Spec: `docs/archive/non_agencyclaw/08_clickup_service_prd.md`.
-- **Agency OS MCP (Jeff-only pilot)** — private remote MCP server mounted from `backend-core` and currently exposed to Claude Pro for shared WBR + Monthly P&L workflows. Current live tool belt: `resolve_client`, `list_wbr_profiles`, `get_wbr_summary`, `draft_wbr_email`, `list_monthly_pnl_profiles`, `get_monthly_pnl_report`, `get_monthly_pnl_email_brief`, and `draft_monthly_pnl_email`. WBR freshness is sync-backed and self-healing on read; Monthly P&L analysis, briefing, and drafting are live. Primary docs: `docs/claude_primary_surface_plan.md`, `docs/agency_os_mcp_implementation_plan.md`, and the compact Claude Project bundle in `docs/claude_project/`.
+- **Agency OS MCP (Jeff-only pilot)** — private remote MCP server mounted from `backend-core` and currently exposed to Claude Pro for shared WBR + Monthly P&L + ClickUp workflows. Current live tool belt: `resolve_client`, `list_wbr_profiles`, `get_wbr_summary`, `draft_wbr_email`, `list_monthly_pnl_profiles`, `get_monthly_pnl_report`, `get_monthly_pnl_email_brief`, `draft_monthly_pnl_email`, `list_clickup_tasks`, `get_clickup_task`, `resolve_team_member`, `prepare_clickup_task`, and `create_clickup_task`. WBR freshness is sync-backed and self-healing on read; Monthly P&L analysis, briefing, and drafting are live; ClickUp backlog review / task inspection / preview / create are now live and in pilot testing. Primary docs: `docs/claude_primary_surface_plan.md`, `docs/agency_os_mcp_implementation_plan.md`, and the compact Claude Project bundle in `docs/claude_project/`.
 
 ### In Flight / Upcoming
 - **The Claw** — Slack assistant reboot for agency operations. Current plan/docs: `docs/theclaw/current/01_theclaw_reboot_implementation_plan.md`, `docs/theclaw/current/02_theclaw_architecture.md`.
@@ -68,7 +80,7 @@ This does **not** replace The Claw in Slack. The current surface split is:
 ### Dev Operations
 - `docs/current_handoffs.md` — single index for which handoff/restart docs are current versus historical/reference.
 - `docs/mcp_setup.md` — MCP workspace setup and verification (Supabase MCP server config, read-only connectivity checks, and `401 Unauthorized` re-auth recovery).
-- `docs/claude_project/` — compact Claude Project setup bundle for the live shared WBR + Monthly P&L Claude surface, including project instructions and narrow playbooks for upload into Claude Projects.
+- `docs/claude_project/` — compact Claude Project setup bundle for the live shared WBR + Monthly P&L + ClickUp Claude surface, including project instructions and narrow playbooks for upload into Claude Projects.
 - `docs/windsor_wbr_ingestion_runbook.md` — Windsor Section 1 ingestion operations for WBR (account scoping, date windows, sync behavior, and batching strategy).
 - `docs/wbr_v2_schema_plan.md` — WBR schema/reference plan annotated with current implementation status, live migrations, and the current sync-run/job-state notes.
 - `docs/wbr_v2_handoff.md` — historical WBR shipped-state/debug reference; no longer the default restart doc now that WBR is stable for the moment.
