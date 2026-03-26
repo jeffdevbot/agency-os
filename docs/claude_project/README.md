@@ -30,6 +30,13 @@ docs.
   - `list_clickup_tasks`
   - `get_clickup_task`
   - `resolve_team_member`
+  - `get_asin_sales_window`
+  - `list_child_asins_for_row`
+  - `get_sync_freshness_status`
+  - `query_business_facts`
+  - `query_ads_facts`
+  - `query_catalog_context`
+  - `query_monthly_pnl_detail`
 - [ ] Keep `draft_wbr_email`, `draft_monthly_pnl_email`, and `create_clickup_task` on approval unless/until you want mutating actions to run without confirmation
 
 ### Claude Project
@@ -39,10 +46,12 @@ docs.
 - [x] `wbr_mcp_playbook.md` uploaded to Project Files
 - [x] `monthly_pnl_mcp_playbook.md` uploaded to Project Files once you want Monthly P&L available in Claude
 - [ ] Upload `clickup_mcp_playbook.md` to Project Files once you want ClickUp available in Claude
+- [ ] Upload `analyst_query_mcp_playbook.md` to Project Files once you want analyst-query tools available in Claude
 - [ ] Re-paste the latest `project_instructions.md` if the local file changes
 - [ ] Re-upload the latest `wbr_mcp_playbook.md` if the local file changes
 - [ ] Re-upload the latest `monthly_pnl_mcp_playbook.md` if the local file changes
 - [ ] Re-upload the latest `clickup_mcp_playbook.md` if the local file changes
+- [ ] Re-upload the latest `analyst_query_mcp_playbook.md` if the local file changes
 
 ### WBR Pilot Tools
 
@@ -81,6 +90,12 @@ docs.
 - [x] ClickUp MCP surface is now in real pilot testing with the same Claude
   Project bundle as WBR and Monthly P&L
 
+### Analyst Query Current State
+
+- [x] Analyst-query MCP surface is shipped in the backend
+- [ ] Analyst-query Claude Project file uploaded
+- [ ] Analyst-query prompts smoke-tested in Claude after deploy / connector refresh
+
 ### Next Expansion Options
 
 - [ ] tighten tool descriptions / output formatting based on pilot usage
@@ -102,6 +117,7 @@ Upload only the files Claude needs for durable reference:
 1. `wbr_mcp_playbook.md`
 2. `monthly_pnl_mcp_playbook.md`
 3. `clickup_mcp_playbook.md`
+4. `analyst_query_mcp_playbook.md`
 
 Optional later:
 
@@ -127,11 +143,13 @@ This bundle now supports a small shared reporting surface:
 1. Agency OS WBR MCP workflows
 2. Agency OS Monthly P&L MCP workflows
 3. Agency OS ClickUp MCP workflows
-4. live WBR tools plus live Monthly P&L analysis / brief / draft tools plus
-   live ClickUp review / preview / create tools
-5. the expected usage pattern for client resolution, profile resolution,
+4. Agency OS analyst-query MCP workflows
+5. live WBR tools plus live Monthly P&L analysis / brief / draft tools plus
+   live ClickUp review / preview / create tools plus live analyst-query tools
+6. the expected usage pattern for client resolution, profile resolution,
    summary retrieval, task inspection, assignee resolution, brief generation,
-   and draft / task creation where supported
+   direct analyst lookup, flexible drill-down, and draft / task creation where
+   supported
 
 Current live testing status:
 
@@ -139,6 +157,8 @@ Current live testing status:
 2. Monthly P&L is live in Claude
 3. ClickUp is now live in Claude and actively being tested on the Jeff-only
    pilot surface
+4. Analyst-query tools are shipped in the repo and should be added to the
+   Claude Project bundle once the deployed connector is refreshed
 
 Expand this folder only when a workflow is stable enough to deserve durable
 Claude Project knowledge.
