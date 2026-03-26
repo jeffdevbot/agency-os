@@ -227,6 +227,10 @@ class ClickUpService:
             return []
         return lists
 
+    async def get_task(self, task_id: str) -> dict[str, Any]:
+        """GET /task/{task_id} — fetch a single task by ID."""
+        return await self._request("GET", f"/task/{task_id}")
+
     async def resolve_default_list_id(self, space_id: str, override_list_id: str | None = None) -> str:
         if override_list_id:
             return override_list_id

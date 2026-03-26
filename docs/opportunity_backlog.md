@@ -116,7 +116,7 @@ Status meanings:
   availability.
 
 ## 4. Claude ClickUp Tools
-- Status: `later`
+- Status: `next`
 - Priority: `4`
 - Why it matters: useful extension of the shared Agency OS Claude surface for
   operational work.
@@ -128,6 +128,8 @@ Status meanings:
   - ClickUp task creation already exists in backend services
   - The Claw already has confirmed task-creation behavior
   - but this is not yet a real Claude/MCP tool belt
+- Active plan doc:
+  - `docs/claude_clickup_tools_plan.md`
 - Not now: broad ClickUp admin workflows or replacing the app UI.
 - Main risk: mutation safety and destination-resolution correctness.
 

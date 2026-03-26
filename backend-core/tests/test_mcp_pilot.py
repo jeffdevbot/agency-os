@@ -1005,6 +1005,8 @@ def test_wbr_tools_are_registered(monkeypatch):
         "list_wbr_profiles",
         "list_monthly_pnl_profiles",
         "resolve_client",
+        "list_clickup_tasks",
+        "get_clickup_task",
     }
 
     _content, payload = asyncio.run(server.call_tool("list_wbr_profiles", {"client_id": "c1"}))

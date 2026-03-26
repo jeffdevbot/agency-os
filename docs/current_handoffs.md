@@ -36,7 +36,10 @@ historical reference.
      Command Center.
 7. [Forecasting v1 plan](/Users/jeff/code/agency-os/docs/forecasting_v1_plan.md)
    - Current planning document for the next forecasting surface under Reports.
-8. [Opportunity backlog](/Users/jeff/code/agency-os/docs/opportunity_backlog.md)
+8. [Claude ClickUp tools plan](/Users/jeff/code/agency-os/docs/claude_clickup_tools_plan.md)
+   - Current implementation plan for the next ClickUp expansion on the shared
+     Agency OS Claude / MCP surface.
+9. [Opportunity backlog](/Users/jeff/code/agency-os/docs/opportunity_backlog.md)
    - Lightweight priority list for next product/platform opportunities.
 
 ## Current operational notes
