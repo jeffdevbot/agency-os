@@ -26,6 +26,7 @@ from app.services.clickup_task_tools import (
     prepare_task_for_brand,
     resolve_brand_destination,
     resolve_team_member_query,
+    update_task_by_id_or_url,
 )
 
 
@@ -92,6 +93,8 @@ class _FakeClickUpService:
         tasks_in_list_error: Exception | None = None,
         create_result: ClickUpTask | None = None,
         create_error: Exception | None = None,
+        update_result: dict[str, Any] | None = None,
+        update_error: Exception | None = None,
     ) -> None:
         self.space_lists = space_lists or []
         self.space_lists_error = space_lists_error
@@ -103,10 +106,20 @@ class _FakeClickUpService:
             id="created-task-1", url="https://app.clickup.com/t/created-task-1"
         )
         self.create_error = create_error
+        self.update_result = update_result or {
+            "id": "task-1",
+            "name": "Updated task",
+            "description": "Updated description",
+            "url": "https://app.clickup.com/t/task-1",
+            "list": {"id": "list-1", "name": "Inbox"},
+            "space": {"id": "space-1", "name": "Client Space"},
+        }
+        self.update_error = update_error
         self.closed = False
         self.get_space_lists_calls: list[str] = []
         self.get_task_calls: list[str] = []
         self.create_calls: list[dict[str, Any]] = []
+        self.update_calls: list[dict[str, Any]] = []
 
     async def get_space_lists(self, space_id: str) -> list[dict[str, Any]]:
         self.get_space_lists_calls.append(space_id)
@@ -145,6 +158,28 @@ class _FakeClickUpService:
         if self.create_error:
             raise self.create_error
         return self.create_result
+
+    async def update_task(
+        self,
+        task_id: str,
+        *,
+        name: str | None = None,
+        description_md: str | None = None,
+        assignee_ids: list[str] | None = None,
+        update_assignees: bool = False,
+    ) -> dict[str, Any]:
+        self.update_calls.append(
+            {
+                "task_id": task_id,
+                "name": name,
+                "description_md": description_md,
+                "assignee_ids": assignee_ids,
+                "update_assignees": update_assignees,
+            }
+        )
+        if self.update_error:
+            raise self.update_error
+        return self.update_result
 
     async def aclose(self) -> None:
         self.closed = True
@@ -1364,6 +1399,195 @@ async def test_create_task_config_error(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# update_task_by_id_or_url
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_update_task_success_updates_title_and_description(monkeypatch):
+    task_raw = {
+        "id": "task-55",
+        "name": "Original",
+        "description": "Before",
+        "list": {"id": "list-1", "name": "Inbox"},
+        "space": {"id": "space-1", "name": "Client Space"},
+        "url": "https://app.clickup.com/t/task-55",
+    }
+    updated_raw = {
+        "id": "task-55",
+        "name": "Updated",
+        "description": "After",
+        "list": {"id": "list-1", "name": "Inbox"},
+        "space": {"id": "space-1", "name": "Client Space"},
+        "url": "https://app.clickup.com/t/task-55",
+    }
+    fake_svc = _FakeClickUpService(task_data=task_raw, update_result=updated_raw)
+    fake_db = _FakeMultiTableDB({
+        "brands": [{"id": "brand-1", "client_id": "cid", "name": "B", "clickup_list_id": "list-1", "clickup_space_id": None}],
+        "profiles": [],
+        "client_assignments": [],
+    })
+    monkeypatch.setattr("app.services.clickup_task_tools.get_clickup_service", lambda: fake_svc)
+    monkeypatch.setattr("app.services.clickup_task_tools._get_supabase_admin_client", lambda: fake_db)
+
+    result = await update_task_by_id_or_url(
+        task_id="task-55",
+        task_url=None,
+        title="Updated",
+        description_md="After",
+        assignee_profile_id=None,
+        assignee_query=None,
+        clear_assignees=False,
+        client_id=None,
+        brand_id=None,
+    )
+
+    assert result["task"]["id"] == "task-55"
+    assert result["task"]["name"] == "Updated"
+    assert result["task"]["description_md"] == "After"
+    assert result["assignee"]["resolution_status"] == "unchanged"
+    assert fake_svc.update_calls[0]["name"] == "Updated"
+    assert fake_svc.update_calls[0]["description_md"] == "After"
+    assert fake_svc.update_calls[0]["update_assignees"] is False
+    assert fake_svc.closed is True
+
+
+@pytest.mark.asyncio
+async def test_update_task_can_clear_assignees(monkeypatch):
+    task_raw = {
+        "id": "task-56",
+        "name": "Original",
+        "list": {"id": "list-1", "name": "Inbox"},
+        "space": {"id": "space-1", "name": "Client Space"},
+    }
+    fake_svc = _FakeClickUpService(task_data=task_raw)
+    fake_db = _FakeMultiTableDB({
+        "brands": [{"id": "brand-1", "client_id": "cid", "name": "B", "clickup_list_id": "list-1", "clickup_space_id": None}],
+        "profiles": [],
+        "client_assignments": [],
+    })
+    monkeypatch.setattr("app.services.clickup_task_tools.get_clickup_service", lambda: fake_svc)
+    monkeypatch.setattr("app.services.clickup_task_tools._get_supabase_admin_client", lambda: fake_db)
+
+    result = await update_task_by_id_or_url(
+        task_id="task-56",
+        task_url=None,
+        title=None,
+        description_md=None,
+        assignee_profile_id=None,
+        assignee_query=None,
+        clear_assignees=True,
+        client_id=None,
+        brand_id=None,
+    )
+
+    assert result["assignee"]["resolution_status"] == "cleared"
+    assert fake_svc.update_calls[0]["assignee_ids"] == []
+    assert fake_svc.update_calls[0]["update_assignees"] is True
+
+
+@pytest.mark.asyncio
+async def test_update_task_missing_mapping_assignee_fails(monkeypatch):
+    task_raw = {
+        "id": "task-57",
+        "name": "Original",
+        "list": {"id": "list-1", "name": "Inbox"},
+        "space": {"id": "space-1", "name": "Client Space"},
+    }
+    fake_svc = _FakeClickUpService(task_data=task_raw)
+    fake_db = _FakeMultiTableDB({
+        "brands": [{"id": "brand-1", "client_id": "cid", "name": "B", "clickup_list_id": "list-1", "clickup_space_id": None}],
+        "profiles": [{"id": "p1", "display_name": "Susie", "full_name": "", "email": "s@co.com", "clickup_user_id": None}],
+        "client_assignments": [],
+    })
+    monkeypatch.setattr("app.services.clickup_task_tools.get_clickup_service", lambda: fake_svc)
+    monkeypatch.setattr("app.services.clickup_task_tools._get_supabase_admin_client", lambda: fake_db)
+
+    with pytest.raises(ClickUpToolError) as exc_info:
+        await update_task_by_id_or_url(
+            task_id="task-57",
+            task_url=None,
+            title=None,
+            description_md=None,
+            assignee_profile_id="p1",
+            assignee_query=None,
+            clear_assignees=False,
+            client_id="cid",
+            brand_id="brand-1",
+        )
+    assert exc_info.value.error_type == "missing_mapping"
+    assert fake_svc.update_calls == []
+    assert fake_svc.closed is True
+
+
+@pytest.mark.asyncio
+async def test_update_task_not_allowed_fails_before_update(monkeypatch):
+    task_raw = {
+        "id": "task-58",
+        "name": "Original",
+        "list": {"id": "list-foreign", "name": "Elsewhere"},
+        "space": {"id": "space-foreign", "name": "Elsewhere"},
+    }
+    fake_svc = _FakeClickUpService(task_data=task_raw)
+    fake_db = _FakeMultiTableDB({
+        "brands": [{"id": "brand-1", "client_id": "cid", "name": "B", "clickup_list_id": "list-1", "clickup_space_id": None}],
+        "profiles": [],
+        "client_assignments": [],
+    })
+    monkeypatch.setattr("app.services.clickup_task_tools.get_clickup_service", lambda: fake_svc)
+    monkeypatch.setattr("app.services.clickup_task_tools._get_supabase_admin_client", lambda: fake_db)
+
+    with pytest.raises(ClickUpToolError) as exc_info:
+        await update_task_by_id_or_url(
+            task_id="task-58",
+            task_url=None,
+            title="Updated",
+            description_md=None,
+            assignee_profile_id=None,
+            assignee_query=None,
+            clear_assignees=False,
+            client_id=None,
+            brand_id=None,
+        )
+    assert exc_info.value.error_type == "not_allowed"
+    assert fake_svc.update_calls == []
+    assert fake_svc.closed is True
+
+
+@pytest.mark.asyncio
+async def test_update_task_requires_a_change(monkeypatch):
+    task_raw = {
+        "id": "task-59",
+        "name": "Original",
+        "list": {"id": "list-1", "name": "Inbox"},
+        "space": {"id": "space-1", "name": "Client Space"},
+    }
+    fake_svc = _FakeClickUpService(task_data=task_raw)
+    fake_db = _FakeMultiTableDB({
+        "brands": [{"id": "brand-1", "client_id": "cid", "name": "B", "clickup_list_id": "list-1", "clickup_space_id": None}],
+        "profiles": [],
+        "client_assignments": [],
+    })
+    monkeypatch.setattr("app.services.clickup_task_tools.get_clickup_service", lambda: fake_svc)
+    monkeypatch.setattr("app.services.clickup_task_tools._get_supabase_admin_client", lambda: fake_db)
+
+    with pytest.raises(ClickUpToolError) as exc_info:
+        await update_task_by_id_or_url(
+            task_id="task-59",
+            task_url=None,
+            title=None,
+            description_md=None,
+            assignee_profile_id=None,
+            assignee_query=None,
+            clear_assignees=False,
+            client_id=None,
+            brand_id=None,
+        )
+    assert exc_info.value.error_type == "validation_error"
+    assert fake_svc.update_calls == []
+
+
+# ---------------------------------------------------------------------------
 # MCP tool registration smoke test
 # ---------------------------------------------------------------------------
 
@@ -1524,6 +1748,59 @@ def test_mcp_create_clickup_task_api_error_returns_structured_error(monkeypatch)
     assert "503" in payload["message"]
 
 
+def test_mcp_update_clickup_task_success_returns_updated_task(monkeypatch):
+    """update_clickup_task returns structured updated task data on success."""
+    from app.mcp.server import create_mcp_server
+
+    fake_svc = _FakeClickUpService(
+        task_data={
+            "id": "task-77",
+            "name": "Original",
+            "list": {"id": "list-42", "name": "Inbox"},
+            "space": {"id": "space-7", "name": "Workspace"},
+        },
+        update_result={
+            "id": "task-77",
+            "name": "Updated title",
+            "description": "New description",
+            "url": "https://app.clickup.com/t/task-77",
+            "list": {"id": "list-42", "name": "Inbox"},
+            "space": {"id": "space-7", "name": "Workspace"},
+        },
+    )
+    fake_db = _make_wrapper_db(
+        brands=[{"id": "brand-1", "client_id": "cid", "name": "Acme", "clickup_list_id": "list-42", "clickup_space_id": None}],
+    )
+    monkeypatch.setattr("app.services.clickup_task_tools.get_clickup_service", lambda: fake_svc)
+    monkeypatch.setattr("app.services.clickup_task_tools._get_supabase_admin_client", lambda: fake_db)
+
+    server = create_mcp_server()
+    _content, payload = asyncio.run(server.call_tool(
+        "update_clickup_task",
+        {"task_id": "task-77", "title": "Updated title", "description_md": "New description"},
+    ))
+
+    assert "error" not in payload
+    assert payload["task"]["id"] == "task-77"
+    assert payload["task"]["name"] == "Updated title"
+    assert payload["task"]["description_md"] == "New description"
+    assert payload["assignee"]["resolution_status"] == "unchanged"
+
+
+def test_mcp_update_clickup_task_validation_error_returns_structured_error(monkeypatch):
+    """update_clickup_task returns structured validation_error when no changes are provided."""
+    from app.mcp.server import create_mcp_server
+
+    server = create_mcp_server()
+    _content, payload = asyncio.run(server.call_tool(
+        "update_clickup_task",
+        {"task_id": "task-77"},
+    ))
+
+    assert payload["error"] == "validation_error"
+    assert "at least one change" in payload["message"].lower()
+
+
 def test_mcp_get_clickup_task_allowed_destination_returns_task(monkeypatch):
     """get_clickup_task returns task data when list_id matches a mapped brand."""
     from app.mcp.server import create_mcp_server
@@ -1577,7 +1854,7 @@ def test_mcp_get_clickup_task_not_allowed_returns_structured_error(monkeypatch):
 
 
 def test_clickup_tools_registered_in_mcp_server():
-    """Verify all five ClickUp tools are registered in the MCP server."""
+    """Verify all six ClickUp tools are registered in the MCP server."""
     from app.mcp.server import create_mcp_server
 
     server = create_mcp_server()
@@ -1587,6 +1864,7 @@ def test_clickup_tools_registered_in_mcp_server():
     assert "list_clickup_tasks" in tool_names
     assert "get_clickup_tasks" not in tool_names  # wrong name guard
     assert "get_clickup_task" in tool_names
+    assert "update_clickup_task" in tool_names
     assert "resolve_team_member" in tool_names
     assert "prepare_clickup_task" in tool_names
     assert "create_clickup_task" in tool_names

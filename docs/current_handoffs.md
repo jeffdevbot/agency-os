@@ -37,11 +37,12 @@ historical reference.
 7. [Forecasting v1 plan](/Users/jeff/code/agency-os/docs/forecasting_v1_plan.md)
    - Current planning document for the next forecasting surface under Reports.
 8. [Claude ClickUp tools plan](/Users/jeff/code/agency-os/docs/claude_clickup_tools_plan.md)
-   - Slice 0–4 implemented and live. All five MCP tools are shipped:
-     `list_clickup_tasks`, `get_clickup_task`, `resolve_team_member`,
+   - Slice 0–4 implemented and live, plus follow-on `update_clickup_task`.
+     Current shipped ClickUp MCP tools: `list_clickup_tasks`,
+     `get_clickup_task`, `update_clickup_task`, `resolve_team_member`,
      `prepare_clickup_task`, `create_clickup_task`. `get_clickup_task` now
      scopes fetches to mapped Agency OS brand destinations (workspace guard).
-     Open follow-ups: task update/close, idempotency.
+     Open follow-ups: broader task update/close/move flows, idempotency.
 9. [Opportunity backlog](/Users/jeff/code/agency-os/docs/opportunity_backlog.md)
    - Lightweight priority list for next product/platform opportunities.
 

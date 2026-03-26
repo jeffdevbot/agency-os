@@ -7,6 +7,7 @@ _Last updated: 2026-03-25 (ET)_
 ---
 
 ## 2026-03-25 (ET)
+- **Claude/Agency OS ClickUp MCP can now edit existing mapped tasks, not just inspect or create them:** Added `update_clickup_task` to the shared Claude tool belt so the pilot surface can safely fetch a mapped task by id/URL, scope-check it against allowed Agency OS backlog destinations, and update title, description, or assignee through the same local assignee-resolution rules already used for creates.
 - **Claude/Agency OS ClickUp MCP is now live in the Jeff-only pilot and ready for user testing:** The shared Claude surface now includes `list_clickup_tasks`, `get_clickup_task`, `resolve_team_member`, `prepare_clickup_task`, and `create_clickup_task`, with destination routing owned by Command Center, fail-closed brand/assignee resolution, and task-link scoping limited to mapped Agency OS brand backlog destinations.
 - **The Claude Project bundle now covers ClickUp alongside WBR and Monthly P&L:** Added a dedicated `docs/claude_project/clickup_mcp_playbook.md` plus refreshed Claude Project instructions/README guidance so the live shared Claude surface has operator-facing usage docs for task review, task inspection, assignee resolution, preview, and create flows.
 - **ClickUp MCP moved out of planning and into live-testing status:** The ClickUp plan/handoff docs now describe the slice buildout as implemented, the next work is no longer “ship the tool belt,” and the immediate phase is real pilot usage plus follow-on hardening only if testing exposes pain.

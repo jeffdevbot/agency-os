@@ -129,6 +129,7 @@ Status meanings:
   - the live surface includes:
     - `list_clickup_tasks`
     - `get_clickup_task`
+    - `update_clickup_task`
     - `resolve_team_member`
     - `prepare_clickup_task`
     - `create_clickup_task`

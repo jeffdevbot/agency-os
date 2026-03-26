@@ -1,4 +1,4 @@
-"""ClickUp MCP tool orchestration — destination resolution, URL parsing, task fetch/create."""
+"""ClickUp MCP tool orchestration — destination resolution, URL parsing, task fetch/create/update."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from .clickup import (
     ClickUpConfigurationError,
     ClickUpError,
     ClickUpNotFoundError,
+    ClickUpValidationError,
     get_clickup_service,
 )
 
@@ -480,6 +481,18 @@ async def get_task_by_id_or_url(
     return {"task": _format_full_task(raw)}
 
 
+async def _fetch_allowed_task_raw(
+    clickup: Any,
+    parsed_id: str,
+) -> dict[str, Any]:
+    """Fetch a task and enforce Agency OS destination scoping."""
+    raw = await clickup.get_task(parsed_id)
+    db = _get_supabase_admin_client()
+    allowed_list_ids = await _fetch_all_allowed_destinations(db, clickup)
+    _assert_task_destination_allowed(raw, allowed_list_ids)
+    return raw
+
+
 # ---------------------------------------------------------------------------
 # Team-member / assignee resolution
 # ---------------------------------------------------------------------------
@@ -889,6 +902,108 @@ async def create_task_for_brand(
                 "resolution_status": final_assignee_status,
             },
         }
+    finally:
+        try:
+            await clickup.aclose()
+        except Exception:
+            pass
+
+
+async def update_task_by_id_or_url(
+    *,
+    task_id: str | None,
+    task_url: str | None,
+    title: str | None,
+    description_md: str | None,
+    assignee_profile_id: str | None,
+    assignee_query: str | None,
+    clear_assignees: bool,
+    client_id: str | None,
+    brand_id: str | None,
+) -> dict[str, Any]:
+    """Fetch an allowed task, apply safe updates, and return the updated task."""
+    parsed_id = parse_clickup_task_id(task_id=task_id, task_url=task_url)
+
+    norm_title = title.strip() if title is not None else None
+    if title is not None and not norm_title:
+        raise ClickUpToolError("validation_error", "title cannot be empty.")
+
+    if clear_assignees and (assignee_profile_id or assignee_query):
+        raise ClickUpToolError(
+            "validation_error",
+            "Do not provide assignee_profile_id or assignee_query when clear_assignees is true.",
+        )
+
+    if norm_title is None and description_md is None and not clear_assignees and not assignee_profile_id and not assignee_query:
+        raise ClickUpToolError(
+            "validation_error",
+            "Provide at least one change: title, description_md, assignee_profile_id, assignee_query, or clear_assignees.",
+        )
+
+    try:
+        clickup = get_clickup_service()
+    except ClickUpConfigurationError as exc:
+        raise ClickUpToolError("configuration_error", str(exc)) from exc
+
+    try:
+        _existing = await _fetch_allowed_task_raw(clickup, parsed_id)
+
+        assignee_ids: list[str] | None = None
+        update_assignees = False
+        assignee_meta = {
+            "profile_id": None,
+            "clickup_user_id": None,
+            "resolution_status": "unchanged",
+        }
+
+        if clear_assignees:
+            assignee_ids = []
+            update_assignees = True
+            assignee_meta["resolution_status"] = "cleared"
+        elif assignee_profile_id or assignee_query:
+            db = _get_supabase_admin_client()
+            assignee = _resolve_assignee(
+                db,
+                assignee_profile_id=assignee_profile_id,
+                assignee_query=assignee_query,
+                client_id=client_id,
+                brand_id=brand_id,
+            )
+            update_assignees = True
+            if assignee["resolution_status"] == "resolved" and assignee["clickup_user_id"]:
+                assignee_ids = [assignee["clickup_user_id"]]
+                assignee_meta = assignee
+            elif assignee["resolution_status"] == "missing_mapping":
+                raise ClickUpToolError(
+                    "missing_mapping",
+                    "Resolved assignee has no valid ClickUp user ID mapping. "
+                    "Use resolve_team_member to inspect the candidate before updating the task.",
+                )
+
+        try:
+            updated = await clickup.update_task(
+                parsed_id,
+                name=norm_title,
+                description_md=description_md,
+                assignee_ids=assignee_ids,
+                update_assignees=update_assignees,
+            )
+        except ClickUpValidationError as exc:
+            raise ClickUpToolError("validation_error", str(exc)) from exc
+        except ClickUpError as exc:
+            raise ClickUpToolError("clickup_api_error", str(exc)) from exc
+
+        return {
+            "task": _format_full_task(updated),
+            "assignee": assignee_meta,
+        }
+    except ClickUpNotFoundError:
+        raise ClickUpToolError(
+            "not_found",
+            f"ClickUp task '{parsed_id}' was not found.",
+        )
+    except ClickUpError as exc:
+        raise ClickUpToolError("clickup_api_error", str(exc)) from exc
     finally:
         try:
             await clickup.aclose()

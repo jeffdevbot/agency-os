@@ -1,4 +1,4 @@
-"""ClickUp MCP tools — list, inspect, resolve assignees, prepare, and create tasks."""
+"""ClickUp MCP tools — list, inspect, resolve assignees, prepare, create, and update tasks."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from ...services.clickup_task_tools import (
     list_tasks_for_brand,
     prepare_task_for_brand,
     resolve_team_member_matches,
+    update_task_by_id_or_url,
 )
 
 _logger = logging.getLogger(__name__)
@@ -99,6 +100,53 @@ def register_clickup_tools(mcp: Any) -> None:
             return result
         except ClickUpToolError as exc:
             _log_tool_outcome("get_clickup_task", f"error:{exc.error_type}")
+            return {"error": exc.error_type, "message": exc.message}
+
+    @mcp.tool(
+        name="update_clickup_task",
+        description=(
+            "Update an existing ClickUp task by task ID or URL. "
+            "Accepted task inputs: bare task id, or https://app.clickup.com/t/{task_id}. "
+            "Only tasks in mapped Agency OS brand destinations may be updated. "
+            "You may update title, description, or assignee. "
+            "For assignee: provide assignee_query (natural language) or assignee_profile_id. "
+            "Set clear_assignees=true to remove assignees."
+        ),
+        structured_output=True,
+    )
+    async def update_clickup_task(
+        task_id: str | None = None,
+        task_url: str | None = None,
+        title: str | None = None,
+        description_md: str | None = None,
+        assignee_profile_id: str | None = None,
+        assignee_query: str | None = None,
+        clear_assignees: bool = False,
+        client_id: str | None = None,
+        brand_id: str | None = None,
+    ) -> dict[str, Any]:
+        _log_tool_outcome("update_clickup_task", "started")
+        try:
+            result = await update_task_by_id_or_url(
+                task_id=task_id,
+                task_url=task_url,
+                title=title,
+                description_md=description_md,
+                assignee_profile_id=assignee_profile_id,
+                assignee_query=assignee_query,
+                clear_assignees=clear_assignees,
+                client_id=client_id,
+                brand_id=brand_id,
+            )
+            _log_tool_outcome(
+                "update_clickup_task",
+                "success",
+                task_id=result.get("task", {}).get("id"),
+                assignee_status=result.get("assignee", {}).get("resolution_status"),
+            )
+            return result
+        except ClickUpToolError as exc:
+            _log_tool_outcome("update_clickup_task", f"error:{exc.error_type}")
             return {"error": exc.error_type, "message": exc.message}
 
     @mcp.tool(

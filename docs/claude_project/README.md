@@ -77,7 +77,7 @@ docs.
 - [x] Shared `resolve_client` returns brand / ClickUp routing metadata
 - [x] Claude can review mapped backlog tasks through `list_clickup_tasks`
 - [x] Claude can inspect mapped task links through `get_clickup_task`
-- [x] Claude can preview and create mapped ClickUp tasks
+- [x] Claude can preview, create, and edit mapped ClickUp tasks
 - [x] ClickUp MCP surface is now in real pilot testing with the same Claude
   Project bundle as WBR and Monthly P&L
 

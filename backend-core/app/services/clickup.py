@@ -359,6 +359,40 @@ class ClickUpService:
         url = data.get("url")
         return ClickUpTask(id=task_id, url=str(url) if url else None)
 
+    async def update_task(
+        self,
+        task_id: str,
+        *,
+        name: str | None = None,
+        description_md: str | None = None,
+        assignee_ids: list[str] | None = None,
+        update_assignees: bool = False,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {}
+
+        if name is not None:
+            payload["name"] = name
+
+        if description_md is not None:
+            payload["description"] = description_md
+
+        if update_assignees:
+            normalized_assignees: list[int] = []
+            for raw in assignee_ids or []:
+                raw_str = str(raw).strip()
+                if not raw_str:
+                    continue
+                try:
+                    normalized_assignees.append(int(raw_str))
+                except ValueError:
+                    continue
+            payload["assignees"] = normalized_assignees
+
+        if not payload:
+            raise ClickUpValidationError("No task fields were provided for update.")
+
+        return await self._request("PUT", f"/task/{task_id}", json=payload)
+
     async def create_task_in_space(
         self,
         space_id: str,

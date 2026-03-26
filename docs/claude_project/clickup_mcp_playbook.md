@@ -12,9 +12,10 @@ Current scope:
 
 1. list tasks from the correct mapped client/brand backlog destination
 2. inspect a specific ClickUp task from a task URL or task id
-3. resolve natural-language assignee references against Agency OS team members
-4. preview a task create payload before mutation
-5. create a task in the correct mapped backlog destination
+3. update an existing mapped ClickUp task
+4. resolve natural-language assignee references against Agency OS team members
+5. preview a task create payload before mutation
+6. create a task in the correct mapped backlog destination
 
 ## Live Tools
 
@@ -110,6 +111,35 @@ Returns matches with:
 3. `clickup_user_id`
 4. assignment scope hints
 5. `resolution_status`
+
+### `update_clickup_task`
+
+Use when the user wants to edit an existing ClickUp task that already exists.
+
+Input:
+
+```json
+{
+  "task_url": "https://app.clickup.com/t/86dzr5nhe",
+  "title": "Updated title | optional",
+  "description_md": "Updated markdown | optional",
+  "assignee_profile_id": "uuid | optional",
+  "assignee_query": "Susie | optional",
+  "clear_assignees": false,
+  "client_id": "uuid | optional",
+  "brand_id": "uuid | optional"
+}
+```
+
+Behavior:
+
+1. fetches and scopes the task to mapped Agency OS destinations first
+2. updates title, description, or assignee
+3. allows conversational assignee updates through local team-member resolution
+4. fails closed if the task is outside mapped destinations or assignee
+   resolution is ambiguous
+
+This is a mutating tool.
 
 ### `prepare_clickup_task`
 
@@ -228,10 +258,19 @@ If the user wants a new ClickUp task:
 7. if the assignee has no valid ClickUp mapping, keep the task unassigned and
    explain that clearly
 
+### 6. Task editing
+
+If the user wants to revise an existing task:
+
+1. call `get_clickup_task` when you need to inspect the task first
+2. call `update_clickup_task` when the user clearly wants the task changed
+3. use `resolve_team_member` first when assignee intent is ambiguous
+4. do not imply the task was edited unless `update_clickup_task` succeeds
+
 ## Working Rules
 
 1. Prefer Agency OS mappings over memory or guesses for ClickUp routing.
-2. Treat `create_clickup_task` as a mutating action.
+2. Treat `create_clickup_task` and `update_clickup_task` as mutating actions.
 3. Treat `prepare_clickup_task` as read-only preview, not creation.
 4. Use `resolve_client` before backlog-task work when a canonical `client_id`
    is not already known.
@@ -252,4 +291,5 @@ If the user wants a new ClickUp task:
 2. "Open this ClickUp task: https://app.clickup.com/t/86dzr5nhe"
 3. "Create a ClickUp task for Lifestyle CA to review ad spend anomaly"
 4. "Assign this to Susie"
-5. "Preview the ClickUp task before creating it"
+5. "Update this ClickUp task title to 'Review CA ad spend anomaly today'"
+6. "Preview the ClickUp task before creating it"
