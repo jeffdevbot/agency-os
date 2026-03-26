@@ -98,6 +98,17 @@ def _fetch_brand_rows(db: Any, client_id: str) -> list[dict[str, Any]]:
     return [r for r in rows if isinstance(r, dict) and str(r.get("id") or "").strip()]
 
 
+def _fetch_all_brand_rows(db: Any) -> list[dict[str, Any]]:
+    """Fetch all brand rows with ClickUp destination fields from Command Center."""
+    resp = (
+        db.table("brands")
+        .select("id, client_id, name, clickup_list_id, clickup_space_id")
+        .execute()
+    )
+    rows = resp.data if isinstance(resp.data, list) else []
+    return [r for r in rows if isinstance(r, dict) and str(r.get("id") or "").strip()]
+
+
 async def _fetch_all_allowed_destinations(
     db: Any,
     clickup_service: Any,
@@ -112,12 +123,7 @@ async def _fetch_all_allowed_destinations(
     No client filter — used for workspace-scoping in get_task_by_id_or_url.
     Authorization is always by list_id; space_id alone never grants access.
     """
-    resp = (
-        db.table("brands")
-        .select("clickup_list_id, clickup_space_id")
-        .execute()
-    )
-    rows = resp.data if isinstance(resp.data, list) else []
+    rows = _fetch_all_brand_rows(db)
     allowed: set[str] = set()
 
     for r in rows:
@@ -493,6 +499,59 @@ async def _fetch_allowed_task_raw(
     return raw
 
 
+async def _derive_task_brand_context(
+    db: Any,
+    clickup: Any,
+    raw_task: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Return the unique brand/client mapping for an already-allowed task list, if known."""
+    task_list_id = str((raw_task.get("list") or {}).get("id") or "").strip()
+    if not task_list_id:
+        return None
+
+    rows = _fetch_all_brand_rows(db)
+    matches: list[dict[str, Any]] = []
+    for row in rows:
+        direct_list_id = str(row.get("clickup_list_id") or "").strip()
+        space_id = str(row.get("clickup_space_id") or "").strip()
+
+        if direct_list_id:
+            if direct_list_id != task_list_id:
+                continue
+            matches.append({
+                "client_id": str(row.get("client_id") or "").strip() or None,
+                "brand_id": str(row.get("id") or "").strip() or None,
+                "brand_name": str(row.get("name") or "").strip() or None,
+                "resolution_basis": "mapped_list",
+            })
+            continue
+
+        if not space_id:
+            continue
+
+        try:
+            lists = await clickup.get_space_lists(space_id)
+        except ClickUpError:
+            continue
+        if not lists:
+            continue
+        fallback = next(
+            (lst for lst in lists if str(lst.get("name") or "").strip().lower() == "inbox"),
+            lists[0],
+        )
+        fallback_list_id = str(fallback.get("id") or "").strip()
+        if fallback_list_id != task_list_id:
+            continue
+        matches.append({
+            "client_id": str(row.get("client_id") or "").strip() or None,
+            "brand_id": str(row.get("id") or "").strip() or None,
+            "brand_name": str(row.get("name") or "").strip() or None,
+            "resolution_basis": "mapped_space_default_list",
+        })
+
+    return matches[0] if len(matches) == 1 else None
+
+
 # ---------------------------------------------------------------------------
 # Team-member / assignee resolution
 # ---------------------------------------------------------------------------
@@ -697,6 +756,26 @@ def _resolve_assignee(
         db, query=norm_query, client_id=client_id, brand_id=brand_id
     )
     matches = resolution["matches"]
+
+    # Mutation-time assignee resolution should prefer candidates that are in the
+    # known client/brand scope over unrelated global matches. This lets
+    # conversational inputs like "assign this to Alex" resolve safely when the
+    # surrounding task/client context identifies one in-scope person and the
+    # other match is outside the client/brand.
+    if norm_query and matches:
+        preferred: list[dict[str, Any]] = []
+        if brand_id:
+            preferred = [
+                m for m in matches
+                if m.get("assignment_scope") in ("brand", "mixed")
+            ]
+        if not preferred and client_id:
+            preferred = [
+                m for m in matches
+                if m.get("assignment_scope") in ("brand", "client", "mixed")
+            ]
+        if preferred:
+            matches = preferred
 
     if not matches:
         raise ClickUpToolError(
@@ -947,6 +1026,8 @@ async def update_task_by_id_or_url(
 
     try:
         _existing = await _fetch_allowed_task_raw(clickup, parsed_id)
+        db = _get_supabase_admin_client()
+        task_context = await _derive_task_brand_context(db, clickup, _existing)
 
         assignee_ids: list[str] | None = None
         update_assignees = False
@@ -961,13 +1042,12 @@ async def update_task_by_id_or_url(
             update_assignees = True
             assignee_meta["resolution_status"] = "cleared"
         elif assignee_profile_id or assignee_query:
-            db = _get_supabase_admin_client()
             assignee = _resolve_assignee(
                 db,
                 assignee_profile_id=assignee_profile_id,
                 assignee_query=assignee_query,
-                client_id=client_id,
-                brand_id=brand_id,
+                client_id=(task_context or {}).get("client_id") or client_id,
+                brand_id=(task_context or {}).get("brand_id") or brand_id,
             )
             update_assignees = True
             if assignee["resolution_status"] == "resolved" and assignee["clickup_user_id"]:

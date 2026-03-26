@@ -1098,14 +1098,14 @@ def test_resolve_assignee_by_query_no_match_raises():
 
 
 def test_resolve_assignee_brand_context_still_ambiguous_when_both_match():
-    """Brand context helps ranking but two matching profiles remain ambiguous.
-    Fail-closed behavior must hold even when one candidate has brand scope."""
+    """Fail closed when multiple in-scope candidates still match the same query."""
     db = _FakeMultiTableDB({
         "profiles": [
             {"id": "p1", "display_name": "Alex", "full_name": "", "email": "alex.a@co.com", "clickup_user_id": "111"},
             {"id": "p2", "display_name": "Alex", "full_name": "", "email": "alex.b@co.com", "clickup_user_id": "222"},
         ],
         "client_assignments": [
+            {"team_member_id": "p1", "brand_id": "brand-7", "client_id": "client-x"},
             {"team_member_id": "p2", "brand_id": "brand-7", "client_id": "client-x"},
         ],
     })
@@ -1118,6 +1118,30 @@ def test_resolve_assignee_brand_context_still_ambiguous_when_both_match():
             brand_id="brand-7",
         )
     assert exc_info.value.error_type == "ambiguous_assignee"
+
+
+def test_resolve_assignee_brand_context_prefers_in_scope_candidate():
+    """Brand/client context should discard unrelated global matches when exactly one
+    in-scope candidate remains."""
+    db = _FakeMultiTableDB({
+        "profiles": [
+            {"id": "p1", "display_name": "Alex", "full_name": "", "email": "alex.a@co.com", "clickup_user_id": "111"},
+            {"id": "p2", "display_name": "Alex", "full_name": "", "email": "alex.b@co.com", "clickup_user_id": "222"},
+        ],
+        "client_assignments": [
+            {"team_member_id": "p2", "brand_id": "brand-7", "client_id": "client-x"},
+        ],
+    })
+    result = _resolve_assignee(
+        db,
+        assignee_profile_id=None,
+        assignee_query="alex",
+        client_id="client-x",
+        brand_id="brand-7",
+    )
+    assert result["resolution_status"] == "resolved"
+    assert result["profile_id"] == "p2"
+    assert result["clickup_user_id"] == "222"
 
 
 def test_resolve_assignee_brand_context_single_match_resolves():
@@ -1220,7 +1244,7 @@ async def test_prepare_task_warns_on_missing_assignee_mapping(monkeypatch):
 @pytest.mark.asyncio
 async def test_prepare_task_threads_brand_context_into_assignee_resolution(monkeypatch):
     """prepare_task_for_brand must pass the resolved brand_id into assignee resolution
-    so that brand assignment hints reduce ambiguity."""
+    so that in-scope candidates win over unrelated global matches."""
     fake_svc = _FakeClickUpService()
     # Two profiles named "Alex"; only p2 is assigned to brand-1
     fake_db = _FakeMultiTableDB({
@@ -1236,14 +1260,13 @@ async def test_prepare_task_threads_brand_context_into_assignee_resolution(monke
     monkeypatch.setattr("app.services.clickup_task_tools.get_clickup_service", lambda: fake_svc)
     monkeypatch.setattr("app.services.clickup_task_tools._get_supabase_admin_client", lambda: fake_db)
 
-    # Two "Alex" profiles → should still be ambiguous (both match), fail closed
-    with pytest.raises(ClickUpToolError) as exc_info:
-        await prepare_task_for_brand(
-            client_id="cid", brand_id=None, title="Task",
-            description_md=None, assignee_profile_id=None, assignee_query="Alex",
-        )
-    assert exc_info.value.error_type == "ambiguous_assignee"
-    # Confirms brand_id was threaded in (both still match, fail closed — not a silent wrong pick)
+    result = await prepare_task_for_brand(
+        client_id="cid", brand_id=None, title="Task",
+        description_md=None, assignee_profile_id=None, assignee_query="Alex",
+    )
+    assert result["assignee"]["resolution_status"] == "resolved"
+    assert result["assignee"]["profile_id"] == "p2"
+    assert result["task_payload"]["assignee_ids"] == ["222"]
 
 
 @pytest.mark.asyncio
@@ -1585,6 +1608,55 @@ async def test_update_task_requires_a_change(monkeypatch):
         )
     assert exc_info.value.error_type == "validation_error"
     assert fake_svc.update_calls == []
+
+
+@pytest.mark.asyncio
+async def test_update_task_uses_task_context_for_assignee_resolution(monkeypatch):
+    task_raw = {
+        "id": "task-60",
+        "name": "Original",
+        "list": {"id": "list-1", "name": "Inbox"},
+        "space": {"id": "space-1", "name": "Client Space"},
+    }
+    updated_raw = {
+        "id": "task-60",
+        "name": "Original",
+        "list": {"id": "list-1", "name": "Inbox"},
+        "space": {"id": "space-1", "name": "Client Space"},
+        "assignees": [{"username": "Alex B"}],
+    }
+    fake_svc = _FakeClickUpService(task_data=task_raw, update_result=updated_raw)
+    fake_db = _FakeMultiTableDB({
+        "brands": [
+            {"id": "brand-1", "client_id": "cid", "name": "B", "clickup_list_id": "list-1", "clickup_space_id": None},
+        ],
+        "profiles": [
+            {"id": "p1", "display_name": "Alex A", "full_name": "", "email": "a@co.com", "clickup_user_id": "111"},
+            {"id": "p2", "display_name": "Alex B", "full_name": "", "email": "b@co.com", "clickup_user_id": "222"},
+        ],
+        "client_assignments": [
+            {"team_member_id": "p2", "brand_id": "brand-1", "client_id": "cid"},
+        ],
+    })
+    monkeypatch.setattr("app.services.clickup_task_tools.get_clickup_service", lambda: fake_svc)
+    monkeypatch.setattr("app.services.clickup_task_tools._get_supabase_admin_client", lambda: fake_db)
+
+    result = await update_task_by_id_or_url(
+        task_id="task-60",
+        task_url=None,
+        title=None,
+        description_md=None,
+        assignee_profile_id=None,
+        assignee_query="Alex",
+        clear_assignees=False,
+        client_id=None,
+        brand_id=None,
+    )
+
+    assert result["assignee"]["resolution_status"] == "resolved"
+    assert result["assignee"]["profile_id"] == "p2"
+    assert fake_svc.update_calls[0]["assignee_ids"] == ["222"]
+    assert fake_svc.update_calls[0]["update_assignees"] is True
 
 
 # ---------------------------------------------------------------------------
