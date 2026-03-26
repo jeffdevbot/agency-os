@@ -64,6 +64,13 @@ Current structured fields include:
 8. `size`
 9. `fulfillment_method`
 
+So today we already have usable product/title context through:
+
+1. `child_product_name`
+2. `parent_title`
+3. `child_sku`
+4. `category`
+
 The Windsor listing import also fetches more raw fields than it promotes,
 including items such as:
 
@@ -79,6 +86,67 @@ including items such as:
 
 Those richer fields are currently available only in `raw_payload`, not as a
 clean catalog context layer for AI or review workflows.
+
+### Live raw-payload audit
+
+We audited live active `wbr_profile_child_asins.raw_payload` coverage across
+real profiles before locking the expansion plan.
+
+What we found:
+
+1. `status`, `price`, `quantity`, `merchant_shipping_group`, and
+   `item_condition` are generally strong promotion candidates.
+2. `item_description` is useful and often populated, but not universally
+   reliable enough to be treated as guaranteed on the compact active index.
+3. `image_url`, `item_note`, and `browse_path` currently look effectively
+   empty in the live data and should not be treated as near-term first-class
+   fields.
+4. `child_product_name` / title context already exists and is usable today.
+5. A fresh Distex CA Listings Import confirmed that the earlier odd payload
+   shape was an import-lineage issue, not a Canada-specific issue.
+
+Representative profile audit:
+
+1. Basari World MX
+   - `item_description`: 19.4%
+   - `status`: 100%
+   - `price`: 98.0%
+   - `quantity`: 96.2%
+   - `merchant_shipping_group`: 100%
+   - `item_condition`: ~100%
+2. Lifestyle US
+   - `item_description`: 94.8%
+   - `status`: 100%
+   - `price`: 92.2%
+   - `quantity`: 90.9%
+   - `merchant_shipping_group`: 100%
+   - `item_condition`: 100%
+3. Distex CA after fresh import
+   - `item_description`: 93.1%
+   - `status`: 100%
+   - `price`: 86.3%
+   - `quantity`: 98.0%
+   - `merchant_shipping_group`: 100%
+   - `item_condition`: 100%
+4. Ahimsa US
+   - `item_description`: 98.6%
+   - `status`: 100%
+   - `price`: 86.5%
+   - `quantity`: 74.3%
+   - `merchant_shipping_group`: 100%
+   - `item_condition`: 100%
+
+Global active-row audit:
+
+1. `item_description`: 42.8%
+2. `status`: 88.3%
+3. `price`: 83.2%
+4. `quantity`: 81.3%
+5. `merchant_shipping_group`: 88.3%
+6. `item_condition`: 88.2%
+7. `image_url`: 0%
+8. `item_note`: 0%
+9. `browse_path`: 0%
 
 ### Important architecture gap
 
@@ -136,20 +204,28 @@ Large or semi-structured listing content belongs in a separate snapshot table.
 
 #### 1. Extend `wbr_profile_child_asins` modestly
 
-Promote the most useful already-fetched Windsor fields into first-class
-columns:
+Promote the strongest operational Windsor fields into first-class columns:
 
-1. `item_description`
+1. `status`
+2. `price`
+3. `quantity`
+4. `merchant_shipping_group`
+5. `item_condition`
+
+Treat `item_description` as optional:
+
+1. it is often valuable and often populated
+2. but it is not reliable enough across all profiles to be treated as a
+   required compact-index field
+3. it may still be promoted, but should be nullable and not assumed to exist
+
+Do **not** promote these yet:
+
+1. `image_url`
 2. `item_note`
-3. `image_url`
-4. `status`
-5. `price`
-6. `quantity`
-7. `merchant_shipping_group`
-8. `item_condition`
-9. `browse_path`
+3. `browse_path`
 
-These are high-value and low-risk because Windsor already returns them.
+Those three currently look effectively empty in live data.
 
 #### 2. Add a richer content snapshot table
 
@@ -183,6 +259,15 @@ Suggested columns:
 16. `created_at`
 17. `updated_at`
 
+Important note:
+
+1. `bullet_points jsonb` is an aspirational field, not a confirmed near-term
+   Windsor field
+2. the live Windsor audit did not confirm bullet-point availability through the
+   current Amazon SP listing source
+3. this richer content table should therefore allow partial population and be
+   designed to accept later enrichment sources cleanly
+
 ### What may still be missing after Windsor expansion
 
 The Windsor merchant listings feed may still not be enough for:
@@ -195,6 +280,16 @@ The Windsor merchant listings feed may still not be enough for:
 So the dependency phase should be designed to allow a later second source if
 needed, not to assume Windsor is perfect.
 
+Important clarification:
+
+1. we do already have title/name context today
+2. we do **not** have evidence yet that Windsor exposes bullet points through
+   the current Amazon SP listing source
+3. the public Windsor field-reference page did not confirm bullet fields in a
+   way we could verify from static page content
+4. bullets should therefore be treated as an unverified enrichment target, not
+   as a guaranteed field we simply forgot to request
+
 ### Campaign-product context dependency
 
 The AI layer also needs a way to know what a campaign is for.
@@ -204,6 +299,7 @@ Recommended addition:
 1. create a small campaign-product context layer that links campaigns or ad
    groups to intended child ASINs / row scope
 2. do not overload `wbr_pacvue_campaign_map` for this
+3. treat this as distinct from campaign filtering / exclusion policy
 
 Possible inputs:
 
@@ -211,12 +307,54 @@ Possible inputs:
 2. Amazon Ads entity data / bulk data
 3. manual override when a campaign intentionally spans multiple products
 
+Suggested purpose of `search_term_campaign_scope`:
+
+1. represent the intended promoted product scope of a campaign or ad group
+2. support recommendation relevance decisions
+3. support later review UI explanations
+4. not act as a generic exclusion table for legacy campaign-name filters
+
 ## Phase 1: STR ingestion
 
 ### Goal
 
 Replace the manual Pacvue export dependency with programmatic STR ingestion
 while keeping the legacy file upload flow untouched.
+
+### Amazon report priority
+
+For this project, not every Amazon Ads console report matters equally.
+
+Recommended priority:
+
+1. `Search term`
+   - core fact source for N-Gram / N-PAT replacement
+2. `Advertised product`
+   - high-value product-context source for understanding what was actually being
+     promoted
+3. `Targeting`
+   - high-value intent/context source for understanding keyword vs ASIN target
+     setup
+4. `Purchased product`
+   - high-value conversion-context source for understanding what actually sold
+
+Useful next, but not core to the first automation slice:
+
+1. `Campaign`
+   - helpful summary context and likely worth adding once the core four are
+     stable
+2. `Placement`
+   - useful diagnostic context, but not required for first-pass negation logic
+
+Lower priority for this roadmap:
+
+1. `Budget`
+2. `Audience`
+3. `Performance Over Time`
+4. `Search Term Impression Share`
+5. `Gross and Invalid Traffic`
+6. `Prompts`
+7. `Video`
 
 ### Product shape
 
@@ -263,6 +401,63 @@ Suggested daily-fact grain:
 14. `sales`
 15. `source_payload`
 
+Recommended natural key at this grain:
+
+1. `profile_id`
+2. `report_date`
+3. `campaign_id`
+4. `search_term`
+5. `match_type`
+
+Deduplicate at that persisted fact grain, not by heuristic text cleanup.
+
+Important implementation note:
+
+1. the current WBR Amazon Ads sync is campaign-level only with
+   `groupBy: ["campaign"]`
+2. search-term ingestion will require a separate report definition / request
+   path
+3. ad-group-level STR support should be treated as an explicit design choice,
+   not assumed "for free"
+4. ad-group-aware ingestion should be treated as an explicit upgrade decision,
+   not bundled implicitly into the first STR sync
+5. if ad-group grain is required for review quality, that should be called out
+   as added implementation complexity rather than an incidental extension of
+   the current ads sync
+
+Recommended MVP decision:
+
+1. campaign + search term grain is sufficient for Phase 1 parity with the
+   current Pacvue-driven N-Gram / N-PAT workflow
+2. ad-group-aware grain becomes important when a single campaign contains
+   materially different ad groups targeting different products
+3. treat ad-group-aware ingestion as a Phase 2 enhancement unless Phase 1
+   source testing shows that campaign-level grain is too coarse for reliable
+   recommendation review
+
+### Phase 1 grain decision
+
+Campaign + search-term grain is sufficient for MVP parity with the current
+N-Gram / N-PAT tools:
+
+1. the existing Pacvue export format is campaign + search-term with no
+   ad-group column
+2. the current N-Gram and N-PAT tools do not use ad-group identity
+3. ad-group grain adds implementation complexity without parity benefit at this
+   stage
+
+Decision:
+
+1. MVP `search_term_daily_facts` grain is: `(profile_id, report_date,
+   campaign_id, search_term, match_type)`
+2. `ad_group_id` and `ad_group_name` columns should still exist in the schema
+   as nullable, populated when the report source provides them
+3. making them nullable from day one preserves the upgrade path without
+   requiring a schema migration when Phase 2 relevance classification needs
+   ad-group context
+4. do not lock `ad_group_id` into the natural key until ad-group-aware MVP is
+   an explicit requirement
+
 ### Rules
 
 1. keep campaign names exactly as sourced
@@ -270,6 +465,22 @@ Suggested daily-fact grain:
 3. dedupe at the persisted fact grain, not by heuristic text cleanup
 4. support backfill plus trailing daily refresh
 5. treat Pacvue upload as fallback until parity is proven
+6. assume API backfill is retention-limited
+7. keep `ad_group_id` and `ad_group_name` nullable until ad-group-aware grain is
+   an explicit requirement
+
+### Retention / backfill note
+
+The current Amazon Ads WBR sync already documents an observed retention window
+of about 60 days:
+
+1. `OBSERVED_REPORT_RETENTION_DAYS = 60` in `amazon_ads_sync.py`
+
+So Phase 1 should assume:
+
+1. live API backfill will likely be capped to roughly 60 days
+2. if a deeper historical STR corpus is needed initially, Pacvue exports may
+   still be required as bootstrap input
 
 ### Acceptance criteria
 
@@ -420,8 +631,18 @@ ingestion by itself.
 
 Specifically:
 
-1. expand WBR listing ingestion into richer structured catalog context
-2. design the campaign-product context layer
-3. only then lock the final STR storage schema
+1. use the completed live `raw_payload` audit to finalize promoted catalog
+   fields:
+   - promote `status`, `price`, `quantity`, `merchant_shipping_group`, and
+     `item_condition`
+   - keep `item_description` optional / nullable
+   - do not promote `image_url`, `item_note`, or `browse_path` yet
+2. expand WBR listing ingestion into richer structured catalog context
+3. design the campaign-product context layer with a sharper definition of
+   `search_term_campaign_scope`
+4. lock the Phase 1 STR schema around the decided MVP grain:
+   - campaign + search term natural key
+   - nullable `ad_group_id` / `ad_group_name` columns for forward compatibility
+5. only then build the first STR ingestion slice
 
 That sequence reduces rework in the later AI recommendation phase.

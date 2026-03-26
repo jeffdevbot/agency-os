@@ -128,6 +128,22 @@ class TestParseListingFile:
         assert parsed.rows_read == 1
         assert parsed.records[0].child_product_name == "WHOOSH’s Cleaner"
 
+    def test_parses_richer_listing_fields(self):
+        file_bytes = (
+            "item-name\tseller-sku\tasin1\titem-description\tstatus\tprice\tquantity\tmerchant-shipping-group\titem-condition\r\n"
+            "Widget A\tSKU-1\tB012345678\tMicrofiber cleaner\tActive\t19.99\t12\tDefault\tNew\r\n"
+        ).encode("utf-8")
+
+        parsed = parse_listing_file("all-listings-report.txt", file_bytes)
+
+        record = parsed.records[0]
+        assert record.item_description == "Microfiber cleaner"
+        assert record.status == "Active"
+        assert record.price == "19.99"
+        assert record.quantity == "12"
+        assert record.merchant_shipping_group == "Default"
+        assert record.item_condition == "New"
+
 
 class TestListingImportService:
     def test_import_replaces_active_child_asin_snapshot(self):
@@ -166,6 +182,48 @@ class TestListingImportService:
         assert result["batch"]["import_status"] == "success"
         assert result["summary"]["rows_loaded"] == 2
         assert result["summary"]["duplicate_rows_merged"] == 0
+
+    def test_import_persists_richer_listing_fields(self):
+        file_bytes = (
+            "seller-sku\titem-name\tasin1\titem-description\tstatus\tprice\tquantity\tmerchant-shipping-group\titem-condition\r\n"
+            "SKU-1\tWidget A\tB012345678\tMicrofiber cleaner\tActive\t19.99\t12\tDefault\tNew\r\n"
+        ).encode("utf-8")
+
+        profile = {"id": "p1"}
+        running_batch = {"id": "b1", "import_status": "running"}
+        finished_batch = {"id": "b1", "import_status": "success", "rows_read": 1, "rows_loaded": 1}
+        deactivate_table = _chain_table([])
+        insert_table = _chain_table([{"id": "a1"}])
+
+        db = _multi_table_db(
+            {
+                "wbr_profiles": [_chain_table([profile])],
+                "wbr_listing_import_batches": [
+                    _chain_table([running_batch]),
+                    _chain_table([finished_batch]),
+                ],
+                "wbr_profile_child_asins": [
+                    deactivate_table,
+                    insert_table,
+                ],
+            }
+        )
+
+        svc = ListingImportService(db)
+        svc.import_file(
+            profile_id="p1",
+            file_name="all-listings-report.txt",
+            file_bytes=file_bytes,
+            user_id="u1",
+        )
+
+        payload = insert_table.insert.call_args.args[0][0]
+        assert payload["item_description"] == "Microfiber cleaner"
+        assert payload["status"] == "Active"
+        assert payload["price"] == "19.99"
+        assert payload["quantity"] == "12"
+        assert payload["merchant_shipping_group"] == "Default"
+        assert payload["item_condition"] == "New"
 
     def test_rejects_unsupported_extensions(self):
         svc = ListingImportService(MagicMock())

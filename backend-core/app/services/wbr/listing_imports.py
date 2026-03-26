@@ -117,6 +117,30 @@ LISTING_HEADER_ALIASES = {
         "productidtype",
         "merchantlistingsalldataproductidtype",
     },
+    "item_description": {
+        "itemdescription",
+        "merchantlistingsalldataitemdescription",
+    },
+    "status": {
+        "status",
+        "merchantlistingsalldatastatus",
+    },
+    "price": {
+        "price",
+        "merchantlistingsalldataprice",
+    },
+    "quantity": {
+        "quantity",
+        "merchantlistingsalldataquantity",
+    },
+    "merchant_shipping_group": {
+        "merchantshippinggroup",
+        "merchantlistingsalldatamerchantshippinggroup",
+    },
+    "item_condition": {
+        "itemcondition",
+        "merchantlistingsalldataitemcondition",
+    },
 }
 
 FOOTER_LABELS = {"total", "total:"}
@@ -137,6 +161,12 @@ class ParsedListingRecord:
     source_item_style: str | None
     size: str | None
     fulfillment_method: str | None
+    item_description: str | None
+    status: str | None
+    price: str | None
+    quantity: str | None
+    merchant_shipping_group: str | None
+    item_condition: str | None
     raw_payload: dict[str, Any]
 
 
@@ -236,6 +266,12 @@ def _parse_record_from_row(
         source_item_style=_normalize_optional(_pick_row_value(row, header_map, "source_item_style")),
         size=_normalize_optional(_pick_row_value(row, header_map, "size")),
         fulfillment_method=_normalize_optional(_pick_row_value(row, header_map, "fulfillment_method")),
+        item_description=_normalize_optional(_pick_row_value(row, header_map, "item_description")),
+        status=_normalize_optional(_pick_row_value(row, header_map, "status")),
+        price=_normalize_optional(_pick_row_value(row, header_map, "price")),
+        quantity=_normalize_optional(_pick_row_value(row, header_map, "quantity")),
+        merchant_shipping_group=_normalize_optional(_pick_row_value(row, header_map, "merchant_shipping_group")),
+        item_condition=_normalize_optional(_pick_row_value(row, header_map, "item_condition")),
         raw_payload=raw_payload,
     )
 
@@ -254,6 +290,12 @@ def _merge_record(existing: ParsedListingRecord, incoming: ParsedListingRecord) 
         source_item_style=incoming.source_item_style or existing.source_item_style,
         size=incoming.size or existing.size,
         fulfillment_method=incoming.fulfillment_method or existing.fulfillment_method,
+        item_description=incoming.item_description or existing.item_description,
+        status=incoming.status or existing.status,
+        price=incoming.price or existing.price,
+        quantity=incoming.quantity or existing.quantity,
+        merchant_shipping_group=incoming.merchant_shipping_group or existing.merchant_shipping_group,
+        item_condition=incoming.item_condition or existing.item_condition,
         raw_payload={**existing.raw_payload, **incoming.raw_payload},
     )
 
@@ -712,6 +754,12 @@ class ListingImportService:
                 "source_item_style": record.source_item_style,
                 "size": record.size,
                 "fulfillment_method": record.fulfillment_method,
+                "item_description": record.item_description,
+                "status": record.status,
+                "price": record.price,
+                "quantity": record.quantity,
+                "merchant_shipping_group": record.merchant_shipping_group,
+                "item_condition": record.item_condition,
                 "raw_payload": record.raw_payload,
                 "active": True,
             }
