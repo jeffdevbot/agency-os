@@ -1,4 +1,4 @@
-"""Tests for ClickUp MCP tool foundation — Slice 0 + Slice 1."""
+"""Tests for ClickUp MCP tools — Slice 0 + Slice 1 + Slice 2."""
 
 from __future__ import annotations
 
@@ -8,15 +8,21 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from app.services.clickup import ClickUpTask
 from app.services.clickup_task_tools import (
     ClickUpToolError,
     _fetch_brand_rows,
     _format_full_task,
     _format_task_row,
+    _is_valid_clickup_user_id,
+    _resolve_assignee,
+    create_task_for_brand,
     get_task_by_id_or_url,
     list_tasks_for_brand,
     parse_clickup_task_id,
+    prepare_task_for_brand,
     resolve_brand_destination,
+    resolve_team_member_query,
 )
 
 
@@ -60,6 +66,17 @@ class _FakeBrandsDB:
         raise AssertionError(f"unexpected table: {name}")
 
 
+class _FakeMultiTableDB:
+    """General-purpose multi-table Supabase DB fake."""
+
+    def __init__(self, tables: dict[str, list[dict[str, Any]]]) -> None:
+        self._tables = tables
+
+    def table(self, name: str) -> _FakeQuery:
+        rows = self._tables.get(name, [])
+        return _FakeQuery(rows)
+
+
 class _FakeClickUpService:
     def __init__(
         self,
@@ -70,6 +87,8 @@ class _FakeClickUpService:
         task_error: Exception | None = None,
         tasks_in_list: list[dict[str, Any]] | None = None,
         tasks_in_list_error: Exception | None = None,
+        create_result: ClickUpTask | None = None,
+        create_error: Exception | None = None,
     ) -> None:
         self.space_lists = space_lists or []
         self.space_lists_error = space_lists_error
@@ -77,9 +96,14 @@ class _FakeClickUpService:
         self.task_error = task_error
         self.tasks_in_list = tasks_in_list or []
         self.tasks_in_list_error = tasks_in_list_error
+        self.create_result = create_result or ClickUpTask(
+            id="created-task-1", url="https://app.clickup.com/t/created-task-1"
+        )
+        self.create_error = create_error
         self.closed = False
         self.get_space_lists_calls: list[str] = []
         self.get_task_calls: list[str] = []
+        self.create_calls: list[dict[str, Any]] = []
 
     async def get_space_lists(self, space_id: str) -> list[dict[str, Any]]:
         self.get_space_lists_calls.append(space_id)
@@ -104,6 +128,20 @@ class _FakeClickUpService:
         if self.tasks_in_list_error:
             raise self.tasks_in_list_error
         return self.tasks_in_list[:max_tasks]
+
+    async def create_task_in_list(
+        self,
+        list_id: str,
+        name: str,
+        description_md: str | None = None,
+        assignee_ids: list[str] | None = None,
+    ) -> ClickUpTask:
+        self.create_calls.append(
+            {"list_id": list_id, "name": name, "description_md": description_md, "assignee_ids": assignee_ids}
+        )
+        if self.create_error:
+            raise self.create_error
+        return self.create_result
 
     async def aclose(self) -> None:
         self.closed = True
@@ -584,12 +622,423 @@ def test_get_task_bad_url_raises_before_service():
 
 
 # ---------------------------------------------------------------------------
+# _is_valid_clickup_user_id
+# ---------------------------------------------------------------------------
+
+
+def test_is_valid_clickup_user_id_integer_string():
+    assert _is_valid_clickup_user_id("12345678") is True
+
+
+def test_is_valid_clickup_user_id_rejects_empty():
+    assert _is_valid_clickup_user_id("") is False
+    assert _is_valid_clickup_user_id(None) is False
+
+
+def test_is_valid_clickup_user_id_rejects_non_integer():
+    assert _is_valid_clickup_user_id("abc") is False
+    assert _is_valid_clickup_user_id("12.34") is False
+
+
+# ---------------------------------------------------------------------------
+# resolve_team_member_query
+# ---------------------------------------------------------------------------
+
+
+def _profile_db(profiles, assignments=None):
+    return _FakeMultiTableDB({
+        "profiles": profiles,
+        "client_assignments": assignments or [],
+    })
+
+
+def test_resolve_team_member_single_match_resolved():
+    db = _profile_db([
+        {"id": "p1", "display_name": "Susie Smith", "full_name": "Susan Smith", "email": "susie@co.com", "clickup_user_id": "987654"}
+    ])
+    result = resolve_team_member_query(db, query="Susie", client_id=None, brand_id=None)
+    assert len(result["matches"]) == 1
+    m = result["matches"][0]
+    assert m["profile_id"] == "p1"
+    assert m["resolution_status"] == "resolved"
+    assert m["clickup_user_id"] == "987654"
+    assert m["assignment_scope"] == "none"
+
+
+def test_resolve_team_member_missing_clickup_user_id():
+    db = _profile_db([
+        {"id": "p1", "display_name": "Jeff Adams", "full_name": "", "email": "jeff@co.com", "clickup_user_id": None}
+    ])
+    result = resolve_team_member_query(db, query="jeff", client_id=None, brand_id=None)
+    assert len(result["matches"]) == 1
+    assert result["matches"][0]["resolution_status"] == "missing_mapping"
+    assert result["matches"][0]["clickup_user_id"] is None
+
+
+def test_resolve_team_member_non_integer_clickup_user_id():
+    db = _profile_db([
+        {"id": "p1", "display_name": "Dana", "full_name": "", "email": "dana@co.com", "clickup_user_id": "not-an-int"}
+    ])
+    result = resolve_team_member_query(db, query="dana", client_id=None, brand_id=None)
+    assert result["matches"][0]["resolution_status"] == "missing_mapping"
+
+
+def test_resolve_team_member_ambiguous_multiple_matches():
+    db = _profile_db([
+        {"id": "p1", "display_name": "Alex A", "full_name": "", "email": "alex.a@co.com", "clickup_user_id": "111"},
+        {"id": "p2", "display_name": "Alex B", "full_name": "", "email": "alex.b@co.com", "clickup_user_id": "222"},
+    ])
+    result = resolve_team_member_query(db, query="alex", client_id=None, brand_id=None)
+    assert len(result["matches"]) == 2
+    for m in result["matches"]:
+        assert m["resolution_status"] == "ambiguous"
+
+
+def test_resolve_team_member_no_match_returns_empty_list():
+    db = _profile_db([
+        {"id": "p1", "display_name": "Charlie", "full_name": "", "email": "charlie@co.com", "clickup_user_id": "111"}
+    ])
+    result = resolve_team_member_query(db, query="zzzunknown", client_id=None, brand_id=None)
+    assert result["matches"] == []
+
+
+def test_resolve_team_member_empty_query_raises():
+    db = _profile_db([])
+    with pytest.raises(ClickUpToolError) as exc_info:
+        resolve_team_member_query(db, query="   ", client_id=None, brand_id=None)
+    assert exc_info.value.error_type == "validation_error"
+
+
+def test_resolve_team_member_client_assigned_ranks_first():
+    """Profiles assigned to the client should appear before unassigned profiles."""
+    db = _FakeMultiTableDB({
+        "profiles": [
+            {"id": "p1", "display_name": "Alice", "full_name": "", "email": "alice@co.com", "clickup_user_id": "111"},
+            {"id": "p2", "display_name": "Alice B", "full_name": "", "email": "alice.b@co.com", "clickup_user_id": "222"},
+        ],
+        "client_assignments": [
+            {"team_member_id": "p2", "brand_id": None, "client_id": "client-x"},
+        ],
+    })
+    result = resolve_team_member_query(db, query="alice", client_id="client-x", brand_id=None)
+    assert len(result["matches"]) == 2
+    # p2 is assigned → should be first
+    assert result["matches"][0]["profile_id"] == "p2"
+    assert result["matches"][0]["assignment_scope"] == "client"
+    assert result["matches"][1]["profile_id"] == "p1"
+    assert result["matches"][1]["assignment_scope"] == "none"
+
+
+def test_resolve_team_member_brand_scope_detected():
+    db = _FakeMultiTableDB({
+        "profiles": [
+            {"id": "p1", "display_name": "Sam", "full_name": "", "email": "sam@co.com", "clickup_user_id": "555"}
+        ],
+        "client_assignments": [
+            {"team_member_id": "p1", "brand_id": "brand-7", "client_id": "client-x"},
+        ],
+    })
+    result = resolve_team_member_query(db, query="sam", client_id="client-x", brand_id="brand-7")
+    assert result["matches"][0]["assignment_scope"] == "brand"
+
+
+# ---------------------------------------------------------------------------
+# _resolve_assignee
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_assignee_unassigned_when_neither_provided():
+    db = _profile_db([])
+    result = _resolve_assignee(db, assignee_profile_id=None, assignee_query=None, client_id=None)
+    assert result["resolution_status"] == "unassigned"
+    assert result["profile_id"] is None
+    assert result["clickup_user_id"] is None
+
+
+def test_resolve_assignee_both_provided_raises_validation_error():
+    db = _profile_db([])
+    with pytest.raises(ClickUpToolError) as exc_info:
+        _resolve_assignee(db, assignee_profile_id="p1", assignee_query="susie", client_id=None)
+    assert exc_info.value.error_type == "validation_error"
+
+
+def test_resolve_assignee_by_profile_id_resolved():
+    db = _profile_db([
+        {"id": "p1", "display_name": "Susie", "full_name": "", "email": "s@co.com", "clickup_user_id": "9001"}
+    ])
+    result = _resolve_assignee(db, assignee_profile_id="p1", assignee_query=None, client_id=None)
+    assert result["resolution_status"] == "resolved"
+    assert result["clickup_user_id"] == "9001"
+
+
+def test_resolve_assignee_by_profile_id_missing_mapping():
+    db = _profile_db([
+        {"id": "p1", "display_name": "Susie", "full_name": "", "email": "s@co.com", "clickup_user_id": None}
+    ])
+    result = _resolve_assignee(db, assignee_profile_id="p1", assignee_query=None, client_id=None)
+    assert result["resolution_status"] == "missing_mapping"
+    assert result["clickup_user_id"] is None
+
+
+def test_resolve_assignee_by_profile_id_not_found():
+    db = _profile_db([])
+    with pytest.raises(ClickUpToolError) as exc_info:
+        _resolve_assignee(db, assignee_profile_id="nonexistent", assignee_query=None, client_id=None)
+    assert exc_info.value.error_type == "not_found"
+
+
+def test_resolve_assignee_by_query_ambiguous_raises():
+    db = _profile_db([
+        {"id": "p1", "display_name": "Alex A", "full_name": "", "email": "a@co.com", "clickup_user_id": "1"},
+        {"id": "p2", "display_name": "Alex B", "full_name": "", "email": "b@co.com", "clickup_user_id": "2"},
+    ])
+    with pytest.raises(ClickUpToolError) as exc_info:
+        _resolve_assignee(db, assignee_profile_id=None, assignee_query="alex", client_id=None)
+    assert exc_info.value.error_type == "ambiguous_assignee"
+    assert "Alex A" in exc_info.value.message or "Alex B" in exc_info.value.message
+
+
+def test_resolve_assignee_by_query_no_match_raises():
+    db = _profile_db([])
+    with pytest.raises(ClickUpToolError) as exc_info:
+        _resolve_assignee(db, assignee_profile_id=None, assignee_query="nobody", client_id=None)
+    assert exc_info.value.error_type == "not_found"
+
+
+# ---------------------------------------------------------------------------
+# prepare_task_for_brand
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_prepare_task_basic_unassigned(monkeypatch):
+    fake_svc = _FakeClickUpService()
+    fake_db = _FakeMultiTableDB({
+        "brands": [{"id": "brand-1", "client_id": "cid", "name": "B", "clickup_list_id": "list-1", "clickup_space_id": None}],
+        "profiles": [],
+        "client_assignments": [],
+    })
+    monkeypatch.setattr("app.services.clickup_task_tools.get_clickup_service", lambda: fake_svc)
+    monkeypatch.setattr("app.services.clickup_task_tools._get_supabase_admin_client", lambda: fake_db)
+
+    result = await prepare_task_for_brand(
+        client_id="cid", brand_id=None, title="New Task",
+        description_md=None, assignee_profile_id=None, assignee_query=None,
+    )
+
+    assert result["brand_id"] == "brand-1"
+    assert result["destination"]["list_id"] == "list-1"
+    assert result["task_payload"]["name"] == "New Task"
+    assert result["task_payload"]["assignee_ids"] == []
+    assert result["assignee"]["resolution_status"] == "unassigned"
+    assert result["warnings"] == []
+    assert fake_svc.closed is True
+
+
+@pytest.mark.asyncio
+async def test_prepare_task_with_resolved_assignee(monkeypatch):
+    fake_svc = _FakeClickUpService()
+    fake_db = _FakeMultiTableDB({
+        "brands": [{"id": "brand-1", "client_id": "cid", "name": "B", "clickup_list_id": "list-1", "clickup_space_id": None}],
+        "profiles": [{"id": "p1", "display_name": "Susie", "full_name": "", "email": "s@co.com", "clickup_user_id": "9001"}],
+        "client_assignments": [],
+    })
+    monkeypatch.setattr("app.services.clickup_task_tools.get_clickup_service", lambda: fake_svc)
+    monkeypatch.setattr("app.services.clickup_task_tools._get_supabase_admin_client", lambda: fake_db)
+
+    result = await prepare_task_for_brand(
+        client_id="cid", brand_id=None, title="Task",
+        description_md="Details", assignee_profile_id="p1", assignee_query=None,
+    )
+
+    assert result["assignee"]["profile_id"] == "p1"
+    assert result["assignee"]["clickup_user_id"] == "9001"
+    assert result["assignee"]["resolution_status"] == "resolved"
+    assert result["task_payload"]["assignee_ids"] == ["9001"]
+    assert result["warnings"] == []
+
+
+@pytest.mark.asyncio
+async def test_prepare_task_warns_on_missing_assignee_mapping(monkeypatch):
+    fake_svc = _FakeClickUpService()
+    fake_db = _FakeMultiTableDB({
+        "brands": [{"id": "brand-1", "client_id": "cid", "name": "B", "clickup_list_id": "list-1", "clickup_space_id": None}],
+        "profiles": [{"id": "p1", "display_name": "Susie", "full_name": "", "email": "s@co.com", "clickup_user_id": None}],
+        "client_assignments": [],
+    })
+    monkeypatch.setattr("app.services.clickup_task_tools.get_clickup_service", lambda: fake_svc)
+    monkeypatch.setattr("app.services.clickup_task_tools._get_supabase_admin_client", lambda: fake_db)
+
+    result = await prepare_task_for_brand(
+        client_id="cid", brand_id=None, title="Task",
+        description_md=None, assignee_profile_id="p1", assignee_query=None,
+    )
+
+    assert result["assignee"]["resolution_status"] == "missing_mapping"
+    assert result["task_payload"]["assignee_ids"] == []
+    assert len(result["warnings"]) == 1
+    assert "unassigned" in result["warnings"][0].lower()
+
+
+@pytest.mark.asyncio
+async def test_prepare_task_empty_title_raises(monkeypatch):
+    fake_svc = _FakeClickUpService()
+    fake_db = _FakeMultiTableDB({"brands": [], "profiles": [], "client_assignments": []})
+    monkeypatch.setattr("app.services.clickup_task_tools.get_clickup_service", lambda: fake_svc)
+    monkeypatch.setattr("app.services.clickup_task_tools._get_supabase_admin_client", lambda: fake_db)
+
+    with pytest.raises(ClickUpToolError) as exc_info:
+        await prepare_task_for_brand(
+            client_id="cid", brand_id=None, title="   ",
+            description_md=None, assignee_profile_id=None, assignee_query=None,
+        )
+    assert exc_info.value.error_type == "validation_error"
+
+
+@pytest.mark.asyncio
+async def test_prepare_task_config_error(monkeypatch):
+    from app.services.clickup import ClickUpConfigurationError
+
+    def _raise():
+        raise ClickUpConfigurationError("CLICKUP_API_TOKEN not set")
+
+    monkeypatch.setattr("app.services.clickup_task_tools.get_clickup_service", _raise)
+
+    with pytest.raises(ClickUpToolError) as exc_info:
+        await prepare_task_for_brand(
+            client_id="cid", brand_id=None, title="Task",
+            description_md=None, assignee_profile_id=None, assignee_query=None,
+        )
+    assert exc_info.value.error_type == "configuration_error"
+
+
+# ---------------------------------------------------------------------------
+# create_task_for_brand
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_create_task_success_in_list(monkeypatch):
+    fake_svc = _FakeClickUpService(
+        create_result=ClickUpTask(id="new-task-99", url="https://app.clickup.com/t/new-task-99")
+    )
+    fake_db = _FakeMultiTableDB({
+        "brands": [{"id": "brand-1", "client_id": "cid", "name": "B", "clickup_list_id": "list-1", "clickup_space_id": None}],
+        "profiles": [],
+        "client_assignments": [],
+    })
+    monkeypatch.setattr("app.services.clickup_task_tools.get_clickup_service", lambda: fake_svc)
+    monkeypatch.setattr("app.services.clickup_task_tools._get_supabase_admin_client", lambda: fake_db)
+
+    result = await create_task_for_brand(
+        client_id="cid", brand_id=None, title="Deploy fix",
+        description_md="Details", assignee_profile_id=None, assignee_query=None,
+    )
+
+    assert result["task_id"] == "new-task-99"
+    assert result["task_url"] == "https://app.clickup.com/t/new-task-99"
+    assert result["client_id"] == "cid"
+    assert result["brand_id"] == "brand-1"
+    assert result["destination"]["list_id"] == "list-1"
+    assert result["assignee"]["resolution_status"] == "unassigned"
+    # Verify the right call was made
+    assert len(fake_svc.create_calls) == 1
+    call = fake_svc.create_calls[0]
+    assert call["list_id"] == "list-1"
+    assert call["name"] == "Deploy fix"
+    assert fake_svc.closed is True
+
+
+@pytest.mark.asyncio
+async def test_create_task_with_resolved_assignee(monkeypatch):
+    fake_svc = _FakeClickUpService()
+    fake_db = _FakeMultiTableDB({
+        "brands": [{"id": "brand-1", "client_id": "cid", "name": "B", "clickup_list_id": "list-1", "clickup_space_id": None}],
+        "profiles": [{"id": "p1", "display_name": "Susie", "full_name": "", "email": "s@co.com", "clickup_user_id": "9001"}],
+        "client_assignments": [],
+    })
+    monkeypatch.setattr("app.services.clickup_task_tools.get_clickup_service", lambda: fake_svc)
+    monkeypatch.setattr("app.services.clickup_task_tools._get_supabase_admin_client", lambda: fake_db)
+
+    result = await create_task_for_brand(
+        client_id="cid", brand_id=None, title="Task for Susie",
+        description_md=None, assignee_profile_id="p1", assignee_query=None,
+    )
+
+    assert result["assignee"]["profile_id"] == "p1"
+    assert result["assignee"]["clickup_user_id"] == "9001"
+    assert result["assignee"]["resolution_status"] == "resolved"
+    assert fake_svc.create_calls[0]["assignee_ids"] == ["9001"]
+
+
+@pytest.mark.asyncio
+async def test_create_task_missing_assignee_mapping_creates_unassigned(monkeypatch):
+    """missing_mapping assignee should produce an unassigned create, not an error."""
+    fake_svc = _FakeClickUpService()
+    fake_db = _FakeMultiTableDB({
+        "brands": [{"id": "brand-1", "client_id": "cid", "name": "B", "clickup_list_id": "list-1", "clickup_space_id": None}],
+        "profiles": [{"id": "p1", "display_name": "Susie", "full_name": "", "email": "s@co.com", "clickup_user_id": None}],
+        "client_assignments": [],
+    })
+    monkeypatch.setattr("app.services.clickup_task_tools.get_clickup_service", lambda: fake_svc)
+    monkeypatch.setattr("app.services.clickup_task_tools._get_supabase_admin_client", lambda: fake_db)
+
+    result = await create_task_for_brand(
+        client_id="cid", brand_id=None, title="Task",
+        description_md=None, assignee_profile_id="p1", assignee_query=None,
+    )
+
+    assert result["assignee"]["resolution_status"] == "unassigned"
+    # No assignee_ids passed to ClickUp
+    assert fake_svc.create_calls[0]["assignee_ids"] is None
+
+
+@pytest.mark.asyncio
+async def test_create_task_api_error_becomes_structured_tool_error(monkeypatch):
+    from app.services.clickup import ClickUpAPIError
+
+    fake_svc = _FakeClickUpService(create_error=ClickUpAPIError("500 Internal Server Error"))
+    fake_db = _FakeMultiTableDB({
+        "brands": [{"id": "brand-1", "client_id": "cid", "name": "B", "clickup_list_id": "list-1", "clickup_space_id": None}],
+        "profiles": [],
+        "client_assignments": [],
+    })
+    monkeypatch.setattr("app.services.clickup_task_tools.get_clickup_service", lambda: fake_svc)
+    monkeypatch.setattr("app.services.clickup_task_tools._get_supabase_admin_client", lambda: fake_db)
+
+    with pytest.raises(ClickUpToolError) as exc_info:
+        await create_task_for_brand(
+            client_id="cid", brand_id=None, title="Task",
+            description_md=None, assignee_profile_id=None, assignee_query=None,
+        )
+    assert exc_info.value.error_type == "clickup_api_error"
+    assert fake_svc.closed is True
+
+
+@pytest.mark.asyncio
+async def test_create_task_config_error(monkeypatch):
+    from app.services.clickup import ClickUpConfigurationError
+
+    def _raise():
+        raise ClickUpConfigurationError("CLICKUP_API_TOKEN not set")
+
+    monkeypatch.setattr("app.services.clickup_task_tools.get_clickup_service", _raise)
+
+    with pytest.raises(ClickUpToolError) as exc_info:
+        await create_task_for_brand(
+            client_id="cid", brand_id=None, title="Task",
+            description_md=None, assignee_profile_id=None, assignee_query=None,
+        )
+    assert exc_info.value.error_type == "configuration_error"
+
+
+# ---------------------------------------------------------------------------
 # MCP tool registration smoke test
 # ---------------------------------------------------------------------------
 
 
 def test_clickup_tools_registered_in_mcp_server():
-    """Verify the two ClickUp tools are registered in the MCP server."""
+    """Verify all five ClickUp tools are registered in the MCP server."""
     from app.mcp.server import create_mcp_server
 
     server = create_mcp_server()
@@ -605,3 +1054,6 @@ def test_clickup_tools_registered_in_mcp_server():
     assert "list_clickup_tasks" in tool_names
     assert "get_clickup_tasks" not in tool_names  # wrong name guard
     assert "get_clickup_task" in tool_names
+    assert "resolve_team_member" in tool_names
+    assert "prepare_clickup_task" in tool_names
+    assert "create_clickup_task" in tool_names
