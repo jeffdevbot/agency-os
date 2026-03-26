@@ -108,10 +108,13 @@ async def resolve_brand_destination(
 
     Resolution order:
       1. If brand_id is provided, use that brand only.
-      2. If brand_id is omitted and exactly one brand exists, use it.
-      3. Multiple brands without brand_id → fail closed (ambiguous).
-      4. No brands → fail.
-      5. For the resolved brand:
+      2. If brand_id is omitted:
+         a. Filter to brands that have a ClickUp destination (list_id or space_id).
+         b. Use the sole mapped candidate if exactly one exists.
+         c. Multiple mapped candidates → fail closed (ambiguous_destination).
+         d. No mapped candidates → fail (mapping_error).
+         e. No brands at all for the client → fail (not_found).
+      3. For the resolved brand:
          a. Prefer clickup_list_id (direct).
          b. Fall back to clickup_space_id: call get_space_lists() directly.
             Do NOT use resolve_default_list_id() — it has a global default_list_id
@@ -127,34 +130,53 @@ async def resolve_brand_destination(
     if not norm_client_id:
         raise ClickUpToolError("validation_error", "client_id is required.")
 
-    rows = _fetch_brand_rows(db, norm_client_id)
+    all_rows = _fetch_brand_rows(db, norm_client_id)
 
     if norm_brand_id:
-        rows = [r for r in rows if str(r.get("id") or "").strip() == norm_brand_id]
-
-    if not rows:
-        if norm_brand_id:
+        # Explicit brand_id: find exactly that brand under this client.
+        matched = [r for r in all_rows if str(r.get("id") or "").strip() == norm_brand_id]
+        if not matched:
             raise ClickUpToolError(
                 "not_found",
                 f"Brand '{norm_brand_id}' not found under client '{norm_client_id}'.",
             )
-        raise ClickUpToolError(
-            "not_found",
-            f"No brands found for client '{norm_client_id}'.",
-        )
+        brand = matched[0]
+    else:
+        # No explicit brand_id: ambiguity is evaluated over mapped candidates only.
+        # A brand with neither clickup_list_id nor clickup_space_id is not a candidate.
+        if not all_rows:
+            raise ClickUpToolError(
+                "not_found",
+                f"No brands found for client '{norm_client_id}'.",
+            )
 
-    if len(rows) > 1:
-        # Should only happen when brand_id was omitted and multiple brands exist.
-        brand_names = ", ".join(
-            str(r.get("name") or r.get("id") or "?")
-            for r in sorted(rows, key=lambda r: str(r.get("name") or "").casefold())
-        )
-        raise ClickUpToolError(
-            "ambiguous_destination",
-            f"Client has multiple brands: {brand_names}. Provide brand_id to disambiguate.",
-        )
+        def _is_mapped(r: dict[str, Any]) -> bool:
+            return bool(
+                str(r.get("clickup_list_id") or "").strip()
+                or str(r.get("clickup_space_id") or "").strip()
+            )
 
-    brand = rows[0]
+        candidates = [r for r in all_rows if _is_mapped(r)]
+
+        if not candidates:
+            raise ClickUpToolError(
+                "mapping_error",
+                f"No brands for client '{norm_client_id}' have a ClickUp destination configured. "
+                "Set clickup_list_id or clickup_space_id in Command Center.",
+            )
+
+        if len(candidates) > 1:
+            brand_names = ", ".join(
+                str(r.get("name") or r.get("id") or "?")
+                for r in sorted(candidates, key=lambda r: str(r.get("name") or "").casefold())
+            )
+            raise ClickUpToolError(
+                "ambiguous_destination",
+                f"Client has multiple brands with ClickUp destinations: {brand_names}. "
+                "Provide brand_id to disambiguate.",
+            )
+
+        brand = candidates[0]
     resolved_brand_id = str(brand.get("id") or "").strip()
     brand_name = str(brand.get("name") or "").strip()
     list_id = str(brand.get("clickup_list_id") or "").strip() or None
@@ -312,12 +334,15 @@ async def list_tasks_for_brand(
             date_updated_gt = int(cutoff.timestamp() * 1000)
 
         # limit caps both the returned count and how far pagination goes.
-        tasks = await clickup.get_tasks_in_list_all_pages(
-            destination["list_id"],
-            date_updated_gt=date_updated_gt,
-            include_closed=include_closed,
-            max_tasks=limit,
-        )
+        try:
+            tasks = await clickup.get_tasks_in_list_all_pages(
+                destination["list_id"],
+                date_updated_gt=date_updated_gt,
+                include_closed=include_closed,
+                max_tasks=limit,
+            )
+        except ClickUpError as exc:
+            raise ClickUpToolError("clickup_api_error", str(exc)) from exc
 
         return {
             "client_id": client_id,

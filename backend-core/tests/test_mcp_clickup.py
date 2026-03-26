@@ -69,12 +69,14 @@ class _FakeClickUpService:
         task_data: dict[str, Any] | None = None,
         task_error: Exception | None = None,
         tasks_in_list: list[dict[str, Any]] | None = None,
+        tasks_in_list_error: Exception | None = None,
     ) -> None:
         self.space_lists = space_lists or []
         self.space_lists_error = space_lists_error
         self.task_data = task_data or {"id": "task-1", "name": "Test task"}
         self.task_error = task_error
         self.tasks_in_list = tasks_in_list or []
+        self.tasks_in_list_error = tasks_in_list_error
         self.closed = False
         self.get_space_lists_calls: list[str] = []
         self.get_task_calls: list[str] = []
@@ -99,6 +101,8 @@ class _FakeClickUpService:
         include_closed: bool = False,
         max_tasks: int = 200,
     ) -> list[dict[str, Any]]:
+        if self.tasks_in_list_error:
+            raise self.tasks_in_list_error
         return self.tasks_in_list[:max_tasks]
 
     async def aclose(self) -> None:
@@ -260,7 +264,25 @@ async def test_resolve_space_fallback_fails_when_space_has_no_lists():
 
 
 @pytest.mark.asyncio
-async def test_resolve_fails_closed_on_multiple_brands_no_brand_id():
+async def test_resolve_sole_mapped_brand_wins_when_other_brands_have_no_destination():
+    """One mapped brand + one unmapped brand → use the sole mapped brand, not ambiguous."""
+    db = _FakeBrandsDB(
+        [
+            {"id": "brand-1", "client_id": "client-a", "name": "Alpha", "clickup_list_id": "list-1", "clickup_space_id": None},
+            {"id": "brand-2", "client_id": "client-a", "name": "Beta", "clickup_list_id": None, "clickup_space_id": None},
+        ]
+    )
+    svc = _FakeClickUpService()
+    result = await resolve_brand_destination(db, svc, client_id="client-a", brand_id=None)
+
+    assert result["brand_id"] == "brand-1"
+    assert result["list_id"] == "list-1"
+    assert result["resolution_basis"] == "mapped_list"
+
+
+@pytest.mark.asyncio
+async def test_resolve_fails_closed_on_multiple_mapped_brands_no_brand_id():
+    """Multiple brands all with destinations → ambiguous without brand_id."""
     db = _FakeBrandsDB(
         [
             {"id": "brand-1", "client_id": "client-a", "name": "Alpha", "clickup_list_id": "list-1", "clickup_space_id": None},
@@ -274,6 +296,40 @@ async def test_resolve_fails_closed_on_multiple_brands_no_brand_id():
     assert exc_info.value.error_type == "ambiguous_destination"
     assert "Alpha" in exc_info.value.message
     assert "Beta" in exc_info.value.message
+
+
+@pytest.mark.asyncio
+async def test_resolve_fails_closed_on_multiple_brands_no_brand_id():
+    """Legacy name preserved — same as above, confirms backward-compatible behavior."""
+    db = _FakeBrandsDB(
+        [
+            {"id": "brand-1", "client_id": "client-a", "name": "Alpha", "clickup_list_id": "list-1", "clickup_space_id": None},
+            {"id": "brand-2", "client_id": "client-a", "name": "Beta", "clickup_list_id": "list-2", "clickup_space_id": None},
+        ]
+    )
+    svc = _FakeClickUpService()
+
+    with pytest.raises(ClickUpToolError) as exc_info:
+        await resolve_brand_destination(db, svc, client_id="client-a", brand_id=None)
+    assert exc_info.value.error_type == "ambiguous_destination"
+    assert "Alpha" in exc_info.value.message
+    assert "Beta" in exc_info.value.message
+
+
+@pytest.mark.asyncio
+async def test_resolve_fails_mapping_error_when_brands_exist_but_none_have_destinations():
+    """Brands exist but none have clickup_list_id or clickup_space_id → mapping_error, not not_found."""
+    db = _FakeBrandsDB(
+        [
+            {"id": "brand-1", "client_id": "client-a", "name": "Alpha", "clickup_list_id": None, "clickup_space_id": None},
+            {"id": "brand-2", "client_id": "client-a", "name": "Beta", "clickup_list_id": None, "clickup_space_id": None},
+        ]
+    )
+    svc = _FakeClickUpService()
+
+    with pytest.raises(ClickUpToolError) as exc_info:
+        await resolve_brand_destination(db, svc, client_id="client-a", brand_id=None)
+    assert exc_info.value.error_type == "mapping_error"
 
 
 @pytest.mark.asyncio
@@ -414,6 +470,28 @@ async def test_list_tasks_fails_on_config_error(monkeypatch):
             client_id="cid", brand_id=None, updated_since_days=None, include_closed=False, limit=50
         )
     assert exc_info.value.error_type == "configuration_error"
+
+
+@pytest.mark.asyncio
+async def test_list_tasks_api_error_becomes_structured_tool_error(monkeypatch):
+    """ClickUp read failures must surface as ClickUpToolError, not raw exceptions."""
+    from app.services.clickup import ClickUpAPIError
+
+    fake_svc = _FakeClickUpService(
+        tasks_in_list_error=ClickUpAPIError("ClickUp API error (502): Bad Gateway")
+    )
+    fake_db = _FakeBrandsDB(
+        [{"id": "brand-1", "client_id": "cid", "name": "B", "clickup_list_id": "list-1", "clickup_space_id": None}]
+    )
+    monkeypatch.setattr("app.services.clickup_task_tools.get_clickup_service", lambda: fake_svc)
+    monkeypatch.setattr("app.services.clickup_task_tools._get_supabase_admin_client", lambda: fake_db)
+
+    with pytest.raises(ClickUpToolError) as exc_info:
+        await list_tasks_for_brand(
+            client_id="cid", brand_id=None, updated_since_days=None, include_closed=False, limit=50
+        )
+    assert exc_info.value.error_type == "clickup_api_error"
+    assert fake_svc.closed is True
 
 
 # ---------------------------------------------------------------------------
