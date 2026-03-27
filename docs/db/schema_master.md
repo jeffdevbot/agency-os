@@ -2,16 +2,16 @@
 
 ## Snapshot
 
-- Last verified (UTC): `2026-03-23 20:25:08Z`
+- Last verified (UTC): `2026-03-27 19:53:08Z`
 - Source: live Supabase introspection via MCP (`supabase.execute_sql` against `information_schema` + `pg_catalog`)
 - Schema: `public`
-- Relations: `78` total (`77` tables, `1` view, `0` materialized views)
-- Columns: `902`
-- Primary key entries: `84`
-- Foreign key entries: `141`
-- Indexes: `306`
-- RLS policies: `137`
-- Functions: `135`
+- Relations: `80` total (`79` tables, `1` view, `0` materialized views)
+- Columns: `955`
+- Primary key entries: `79`
+- Foreign key entries: `145`
+- Indexes: `318`
+- RLS policies: `141`
+- Functions: `138`
 
 ## Scope Note
 
@@ -65,6 +65,8 @@ refreshed directly from live Supabase MCP instead.
 | `public.playbook_sops` | `table` | `yes` |
 | `public.profiles` | `table` | `yes` |
 | `public.report_api_connections` | `table` | `yes` |
+| `public.search_term_campaign_scope` | `table` | `yes` |
+| `public.search_term_daily_facts` | `table` | `yes` |
 | `public.scribe_customer_questions` | `table` | `yes` |
 | `public.scribe_generated_content` | `table` | `yes` |
 | `public.scribe_generation_jobs` | `table` | `yes` |
@@ -169,6 +171,8 @@ refreshed directly from live Supabase MCP instead.
 - `wbr_profiles`
 - `wbr_rows`
 - `wbr_sync_runs`
+- `search_term_campaign_scope`
+- `search_term_daily_facts`
 - `wbr_business_asin_daily`
 - `wbr_ads_campaign_daily`
 - `wbr_inventory_asin_snapshots`
@@ -540,6 +544,12 @@ refreshed directly from live Supabase MCP instead.
   - `amazon_ads_refresh_token text nullable`
   - `sp_api_auto_sync_enabled bool default false`
   - `ads_api_auto_sync_enabled bool default false`
+  - `amazon_ads_country_code text nullable`
+  - `amazon_ads_currency_code text nullable`
+  - `amazon_ads_marketplace_string_id text nullable`
+  - `search_term_auto_sync_enabled bool default false`
+  - `search_term_sb_auto_sync_enabled bool default false`
+  - `search_term_sd_auto_sync_enabled bool default false`
 
 ### `public.wbr_rows`
 
@@ -587,6 +597,45 @@ refreshed directly from live Supabase MCP instead.
   - `finished_at timestamptz nullable`
   - `created_at timestamptz`
   - `updated_at timestamptz`
+  - `ad_product text nullable`
+  - `report_type_id text nullable`
+
+### `public.search_term_daily_facts`
+
+- RLS enabled: `yes`
+- Primary key: `id`
+- Key foreign keys:
+  - `profile_id -> wbr_profiles.id`
+  - `sync_run_id -> wbr_sync_runs.id`
+- Columns:
+  - `id uuid`
+  - `profile_id uuid`
+  - `sync_run_id uuid nullable`
+  - `report_date date`
+  - `campaign_type text`
+  - `campaign_id text nullable`
+  - `campaign_name text`
+  - `campaign_name_head text nullable`
+  - `campaign_name_parts jsonb default '[]'`
+  - `ad_group_id text nullable`
+  - `ad_group_name text nullable`
+  - `search_term text`
+  - `match_type text nullable`
+  - `impressions int4 default 0`
+  - `clicks int4 default 0`
+  - `spend numeric default 0`
+  - `orders int4 default 0`
+  - `sales numeric default 0`
+  - `currency_code text nullable`
+  - `source_payload jsonb default '{}'`
+  - `created_at timestamptz`
+  - `updated_at timestamptz`
+  - `keyword_id text nullable`
+  - `keyword text nullable`
+  - `keyword_type text nullable`
+  - `targeting text nullable`
+  - `ad_product text nullable`
+  - `report_type_id text nullable`
 
 ### `public.wbr_report_snapshots`
 

@@ -53,11 +53,15 @@ historical reference.
    - Current phased planning doc for richer catalog context expansion plus the
      current STR implementation / AI review / direct Amazon writeback roadmap
      for the current N-Gram / N-PAT workflow.
-12. [Claude tool budget plan](/Users/jeff/code/agency-os/docs/claude_tool_budget_plan.md)
+12. [N-Gram native replacement plan](/Users/jeff/code/agency-os/docs/ngram_native_replacement_plan.md)
+   - Current product framing for replacing the legacy Pacvue-export-driven
+     N-Gram workflow with native data selection, workbook generation, and
+     side-by-side manual vs AI-assisted paths.
+13. [Claude tool budget plan](/Users/jeff/code/agency-os/docs/claude_tool_budget_plan.md)
    - Current sizing reference for the live MCP tool surface, Claude Project
      file bundle, and the recommended safe expansion budget for future analyst
      query tools.
-13. [Claude analyst query tools plan](/Users/jeff/code/agency-os/docs/claude_analyst_query_tools_plan.md)
+14. [Claude analyst query tools plan](/Users/jeff/code/agency-os/docs/claude_analyst_query_tools_plan.md)
    - Current implementation-planning doc for the next read-only analyst-query
      MCP expansion beyond WBR / Monthly P&L / ClickUp.
 
@@ -127,6 +131,73 @@ historical reference.
      - that mixed Pacvue shape is useful for understanding the old workflow
      - it is **not** evidence that Amazon-native `SP`, `SB`, and `SD` use the
        same report family or should share one implementation contract
+   - the first live backend-only SB contract probe has now been run on Whoosh
+     US (March 27, 2026):
+     - Amazon accepted `adProduct = SPONSORED_BRANDS`
+     - Amazon accepted `reportTypeId = sbSearchTerm`
+     - Amazon accepted `groupBy = ["searchTerm"]`
+     - Amazon rejected `groupBy = ["campaign"]` for `sbSearchTerm`
+     - Amazon rejected guessed SP-style columns such as `keyword` and
+       `targeting`
+     - Amazon accepted this candidate SB column set:
+       - `date`
+       - `campaignId`
+       - `campaignName`
+       - `adGroupId`
+       - `adGroupName`
+       - `keywordId`
+       - `keywordText`
+       - `keywordType`
+       - `matchType`
+       - `searchTerm`
+       - `impressions`
+       - `clicks`
+       - `cost`
+       - `purchases`
+       - `sales`
+       - `adKeywordStatus`
+     - accepted live SB probe report ids:
+       - `e1389546-cf24-4f62-8e1f-c0b01986ed6d`
+       - `946b80e9-98b9-4216-a60e-2cc9c0c6a891`
+     - both accepted reports later completed successfully with `283` rows each
+     - observed minimal payload keys:
+       - `date`
+       - `campaignId`
+       - `campaignName`
+       - `searchTerm`
+       - `impressions`
+       - `clicks`
+       - `cost`
+       - `purchases`
+       - `sales`
+     - observed richer payload keys:
+       - `date`
+       - `campaignId`
+       - `campaignName`
+       - `adGroupId`
+       - `adGroupName`
+       - `keywordId`
+       - `keywordText`
+       - `keywordType`
+       - `matchType`
+       - `searchTerm`
+       - `impressions`
+       - `clicks`
+       - `cost`
+       - `purchases`
+       - `sales`
+       - `adKeywordStatus`
+   - product framing update:
+     - the next operator-facing milestone should not be a generic search-term
+       dashboard or Pacvue clone
+     - the preferred direction is a native replacement of the current N-Gram
+       workflow:
+       - native data selection instead of Pacvue export/upload
+       - same practical workbook generation path
+       - optional AI-assisted path beside the manual path
+       - current manager review/export habits preserved until trust is earned
+     - detailed operator-flow framing now lives in:
+       [N-Gram native replacement plan](/Users/jeff/code/agency-os/docs/ngram_native_replacement_plan.md)
    - pre-worker-redeploy STR runs remain untrustworthy validation evidence
 6. Supabase MCP local auth restart note:
    - if Supabase MCP tools are unavailable in a Codex session, run:

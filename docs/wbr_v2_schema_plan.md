@@ -10,7 +10,7 @@ rationale plus the WBR-specific live-state notes in one place.
 
 ## Current implementation status
 
-As of March 25, 2026:
+As of March 27, 2026:
 
 1. The WBR v2 foundation migrations are implemented and applied live:
    - `20260312000001_wbr_profiles_and_rows.sql`
@@ -27,6 +27,10 @@ As of March 25, 2026:
    - `20260318203000_add_wbr_scope_exclusions.sql`
    - `20260319000001_add_wbr_email_drafts.sql`
    - `20260325113000_add_wbr_amazon_ads_profile_metadata.sql`
+   - `20260326233000_add_search_term_daily_facts.sql`
+   - `20260327120000_add_str_keyword_fields.sql`
+   - `20260327143000_add_str_ad_product_foundation.sql`
+   - `20260327204500_harden_str_fact_metadata.sql`
 3. The application layer is wired to the full current WBR v2 stack:
    - profiles and row tree
    - Pacvue import and campaign mapping
@@ -51,6 +55,8 @@ As of March 25, 2026:
    - `wbr_asin_exclusions`
    - `wbr_campaign_exclusions`
    - `wbr_email_drafts`
+   - `search_term_daily_facts`
+   - `search_term_campaign_scope`
 7. Shared external auth for report-level integrations is now centered on:
    - `report_api_connections`
    - WBR still retains `wbr_amazon_ads_connections` as a legacy/compatibility
@@ -65,13 +71,15 @@ As of March 25, 2026:
    Excel export, and includes inline trend charts for Sections 1 and 2. Those
    are application-layer features and do not change the core schema, but they
    are part of the shipped WBR v2 surface.
-10. A live Supabase row-count snapshot taken on 2026-03-25 showed the current
+10. A live Supabase row-count snapshot taken on 2026-03-27 showed the current
     WBR production footprint at:
     - `wbr_profiles`: `7`
     - `wbr_rows`: `173`
-    - `wbr_sync_runs`: `671`
+    - `wbr_sync_runs`: `785`
     - `wbr_business_asin_daily`: `47716`
     - `wbr_ads_campaign_daily`: `79033`
+    - `search_term_daily_facts`: `20701`
+    - `search_term_campaign_scope`: `0`
     - `wbr_inventory_asin_snapshots`: `1006`
     - `wbr_returns_asin_daily`: `559`
     - `report_api_connections`: `4`
@@ -79,10 +87,18 @@ As of March 25, 2026:
     - `wbr_email_drafts`: `17`
 11. The same live snapshot showed the currently observed `wbr_sync_runs`
     source mix as:
-    - `windsor_business`: `357`
-    - `amazon_ads`: `274`
-    - `windsor_inventory`: `20`
-    - `windsor_returns`: `20`
+    - `windsor_business`: `419`
+    - `amazon_ads`: `286`
+    - `amazon_ads_search_terms`: `12`
+    - `windsor_inventory`: `34`
+    - `windsor_returns`: `34`
+12. Search-term reporting is now a first-class WBR source:
+    - queued runs use `source_type = 'amazon_ads_search_terms'`
+    - facts land in `search_term_daily_facts`
+    - current live SP runs also stamp `ad_product` and `report_type_id`
+      directly on both `wbr_sync_runs` and `search_term_daily_facts`
+    - a DB trigger now backfills and enforces those fact metadata fields on
+      insert/update so future rows cannot silently lose them
 
 ## Decision on the old migration
 
@@ -163,6 +179,9 @@ Columns:
 - `daily_rewrite_days integer not null default 14 check (daily_rewrite_days >= 1 and daily_rewrite_days <= 60)`
 - `sp_api_auto_sync_enabled boolean not null default false`
 - `ads_api_auto_sync_enabled boolean not null default false`
+- `search_term_auto_sync_enabled boolean not null default false`
+- `search_term_sb_auto_sync_enabled boolean not null default false`
+- `search_term_sd_auto_sync_enabled boolean not null default false`
 - `created_by uuid references public.profiles(id)`
 - `updated_by uuid references public.profiles(id)`
 - `created_at timestamptz not null default now()`
@@ -380,6 +399,8 @@ Columns:
 - `rows_fetched integer not null default 0`
 - `rows_loaded integer not null default 0`
 - `request_meta jsonb not null default '{}'::jsonb`
+- `ad_product text`
+- `report_type_id text`
 - `error_message text`
 - `initiated_by uuid references public.profiles(id)`
 - `started_at timestamptz not null default now()`
@@ -398,6 +419,9 @@ Reasoning:
 - For Amazon Ads, the currently shipped implementation also stores queued
   report-job state in `request_meta` so the worker can resume polling/download
   work across loops without a separate job table.
+- Search-term runs now also stamp the primary `ad_product` and
+  `report_type_id` directly on the sync run row so per-product views do not
+  need to parse `request_meta` just to distinguish SP vs future SB/SD lanes.
 
 ### 9. `wbr_business_asin_daily`
 
@@ -469,7 +493,64 @@ Operational rule:
 - Rewrite rolling recent windows to handle attribution and reporting lag.
 - If `sync_run_id` is present, it must belong to the same `profile_id` and have `source_type = 'amazon_ads'`.
 
-### 11. `report_api_connections`
+### 11. `search_term_daily_facts`
+
+Purpose:
+
+- Daily Amazon Ads search-term facts at query grain, currently live for
+  Sponsored Products (`spSearchTerm`) and structured to support future
+  per-product expansion.
+
+Columns:
+
+- `id uuid primary key default gen_random_uuid()`
+- `profile_id uuid not null references public.wbr_profiles(id) on delete cascade`
+- `sync_run_id uuid references public.wbr_sync_runs(id) on delete set null`
+- `report_date date not null`
+- `campaign_type text not null`
+- `campaign_id text`
+- `campaign_name text not null`
+- `campaign_name_head text`
+- `campaign_name_parts jsonb not null default '[]'::jsonb`
+- `ad_group_id text`
+- `ad_group_name text`
+- `search_term text not null`
+- `match_type text`
+- `impressions integer not null default 0 check (impressions >= 0)`
+- `clicks integer not null default 0 check (clicks >= 0)`
+- `spend numeric(18, 2) not null default 0`
+- `orders integer not null default 0 check (orders >= 0)`
+- `sales numeric(18, 2) not null default 0`
+- `currency_code text`
+- `source_payload jsonb not null default '{}'::jsonb`
+- `keyword_id text`
+- `keyword text`
+- `keyword_type text`
+- `targeting text`
+- `ad_product text`
+- `report_type_id text`
+- `created_at timestamptz not null default now()`
+- `updated_at timestamptz not null default now()`
+
+Constraints/indexes:
+
+- Unique index on:
+  `(profile_id, report_date, campaign_type, coalesce(campaign_id, ''), campaign_name, coalesce(keyword_id, ''), coalesce(targeting, ''), search_term, coalesce(match_type, ''))`
+- Index on `(profile_id, report_date desc)`
+- Index on `(profile_id, campaign_type, report_date desc)`
+- Index on `(profile_id, ad_product, report_date desc)`
+- Index on `(profile_id, search_term)`
+- Index on `(profile_id, campaign_name)`
+
+Operational rule:
+
+- Rewrite by date window, not append-only.
+- If `sync_run_id` is present, it must belong to the same `profile_id` and
+  have `source_type = 'amazon_ads_search_terms'`.
+- `ad_product` / `report_type_id` are backfilled from `source_payload` or the
+  parent sync run if they are missing at write time.
+
+### 12. `report_api_connections`
 
 Purpose:
 
@@ -505,7 +586,7 @@ Notes:
 - Live WBR code prefers this shared connection store over the older
   `wbr_amazon_ads_connections` table when shared credentials are present.
 
-### 12. `wbr_report_snapshots`
+### 13. `wbr_report_snapshots`
 
 Purpose:
 
@@ -539,7 +620,7 @@ Notes:
 - It supports downstream drafting, MCP summaries, and audit/debug workflows
   without re-deriving the digest every time.
 
-### 13. `wbr_asin_exclusions`
+### 14. `wbr_asin_exclusions`
 
 Purpose:
 
@@ -563,7 +644,7 @@ Constraints/indexes:
 - Partial unique index on `(profile_id, child_asin)` where `active = true`.
 - Index on `(profile_id, created_at desc)`.
 
-### 14. `wbr_campaign_exclusions`
+### 15. `wbr_campaign_exclusions`
 
 Purpose:
 
@@ -587,7 +668,7 @@ Constraints/indexes:
 - Partial unique index on `(profile_id, campaign_name)` where `active = true`.
 - Index on `(profile_id, created_at desc)`.
 
-### 15. `wbr_email_drafts`
+### 16. `wbr_email_drafts`
 
 Purpose:
 

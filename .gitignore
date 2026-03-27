@@ -4,3 +4,5 @@ __pycache__/
 .venv/
 .next/
 supabase/.temp/
+backend-core/.env.local
+frontend-web/.env.local

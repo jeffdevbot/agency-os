@@ -17,6 +17,11 @@ This plan covers:
    - later action tools
 4. eventual direct writeback to Amazon with explicit approval and audit
 
+For the operator-facing N-Gram replacement concept built on top of this data
+foundation, see:
+
+- [N-Gram native replacement plan](/Users/jeff/code/agency-os/docs/ngram_native_replacement_plan.md)
+
 It does **not** assume the existing `/ngram` and `/npat` routes should be
 rewired in place. The preferred product direction is a new surface that can
 ship alongside the legacy upload flow until the replacement is trusted.
@@ -969,6 +974,61 @@ Important note:
 2. current supported scope remains **Sponsored Products only**
 3. SB / SD remain intentionally unverified / unsupported until their exact
    report contracts are confirmed
+4. live SB contract probing has now started on Whoosh US:
+   - a backend-only Amazon Ads probe on March 27, 2026 confirmed that
+     `SPONSORED_BRANDS` accepts `reportTypeId = sbSearchTerm`
+   - Amazon accepted `groupBy = ["searchTerm"]`
+   - Amazon rejected `groupBy = ["campaign"]` for `sbSearchTerm`
+   - Amazon rejected guessed SP-style columns such as `keyword` and
+     `targeting`
+   - Amazon accepted this candidate SB column set:
+     - `date`
+     - `campaignId`
+     - `campaignName`
+     - `adGroupId`
+     - `adGroupName`
+     - `keywordId`
+     - `keywordText`
+     - `keywordType`
+     - `matchType`
+     - `searchTerm`
+     - `impressions`
+     - `clicks`
+     - `cost`
+     - `purchases`
+     - `sales`
+     - `adKeywordStatus`
+   - accepted live report ids from the probe:
+     - `e1389546-cf24-4f62-8e1f-c0b01986ed6d`
+     - `946b80e9-98b9-4216-a60e-2cc9c0c6a891`
+   - both accepted reports later completed successfully with `283` rows each
+   - observed minimal payload keys:
+     - `date`
+     - `campaignId`
+     - `campaignName`
+     - `searchTerm`
+     - `impressions`
+     - `clicks`
+     - `cost`
+     - `purchases`
+     - `sales`
+   - observed richer payload keys:
+     - `date`
+     - `campaignId`
+     - `campaignName`
+     - `adGroupId`
+     - `adGroupName`
+     - `keywordId`
+     - `keywordText`
+     - `keywordType`
+     - `matchType`
+     - `searchTerm`
+     - `impressions`
+     - `clicks`
+     - `cost`
+     - `purchases`
+     - `sales`
+     - `adKeywordStatus`
 
 If live validation succeeds, the next active build slice should be:
 
@@ -1000,6 +1060,19 @@ That sequence keeps the rollout understandable:
 4. validate additional ad products one by one ⏳
 5. then build action tools on top of trusted data
 
+Important product framing note:
+
+1. the next true operator-facing workflow should not be treated as a generic
+   filter/dashboard replacement for Pacvue or Amazon
+2. the preferred product direction is to replace the current N-Gram flow in a
+   minimally disruptive way:
+   - native data already ingested
+   - same practical workbook output
+   - manual and AI-assisted paths side by side
+   - existing review/export habits preserved until trust is earned
+3. the detailed workflow framing for that replacement now lives in:
+   - [N-Gram native replacement plan](/Users/jeff/code/agency-os/docs/ngram_native_replacement_plan.md)
+
 ## SB / SD validation plan
 
 ### Goal
@@ -1018,12 +1091,37 @@ assuming ad-product parity.
 
 1. identify the exact Amazon Ads report family intended to represent SB search
    term performance for this workflow
+   - current live probe result: `reportTypeId = sbSearchTerm`
 2. confirm the live request contract:
    - `adProduct`
    - `reportTypeId`
    - `groupBy`
    - allowed `columns`
    - retention/window behavior
+   - current live probe result from Whoosh US on March 27, 2026:
+     - `adProduct = SPONSORED_BRANDS`
+     - `reportTypeId = sbSearchTerm`
+     - `groupBy = ["searchTerm"]`
+     - `groupBy = ["campaign"]` is rejected by Amazon for this report type
+     - `keyword` and `targeting` are invalid SB columns
+     - `keywordText` is valid
+     - accepted candidate columns:
+       - `date`
+       - `campaignId`
+       - `campaignName`
+       - `adGroupId`
+       - `adGroupName`
+       - `keywordId`
+       - `keywordText`
+       - `keywordType`
+       - `matchType`
+       - `searchTerm`
+       - `impressions`
+       - `clicks`
+       - `cost`
+       - `purchases`
+       - `sales`
+       - `adKeywordStatus`
 3. run a minimal API smoke test against one live profile with real SB activity
 4. inspect the raw payload and confirm whether the returned grain matches the
    planned fact model or requires ad-product-specific handling
