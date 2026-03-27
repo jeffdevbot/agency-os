@@ -226,11 +226,14 @@ class AmazonAdsSearchTermSyncService(AmazonAdsSyncService):
         *,
         marketplace_code: str,
     ) -> list[SearchTermDailyFact]:
-        # Dedup key includes keyword_id so that the same search term triggered
-        # by different keywords in the same campaign/ad group is stored as
-        # separate rows — which matches the Amazon report semantics.
+        # Dedup key includes keyword_id and targeting so that:
+        #   - the same search term triggered by different keywords in the same
+        #     campaign/ad group is stored as separate rows (keyword targeting)
+        #   - auto-targeting rows (keyword_id=None) with different targeting
+        #     expressions are also stored as separate rows
+        # Both match Amazon report semantics for spSearchTerm.
         by_key: dict[
-            tuple[date, str, str, str | None, str | None, str, str | None],
+            tuple[date, str, str, str | None, str | None, str | None, str, str | None],
             SearchTermDailyFact,
         ] = {}
 
@@ -317,6 +320,7 @@ class AmazonAdsSearchTermSyncService(AmazonAdsSyncService):
                 campaign_name,
                 ad_group_name,
                 keyword_id,
+                targeting,
                 search_term,
                 match_type,
             )

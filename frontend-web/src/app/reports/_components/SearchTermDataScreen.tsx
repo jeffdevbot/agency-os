@@ -186,10 +186,8 @@ function FilterBar({
             onChange={(e) => onCampaignTypeChange(e.target.value)}
             className={inputClass}
           >
-            <option value="">All types</option>
+            <option value="">All</option>
             <option value="sponsored_products">Sponsored Products</option>
-            <option value="sponsored_brands">Sponsored Brands</option>
-            <option value="sponsored_display">Sponsored Display</option>
           </select>
         </label>
         <label className="text-sm">

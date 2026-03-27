@@ -292,7 +292,7 @@ def test_aggregate_rows_keyword_fields_nullable_for_auto_targeting():
 
 
 # ------------------------------------------------------------------
-# 7 — keyword_id is part of the dedup key
+# 7 — keyword_id AND targeting are part of the dedup key
 # ------------------------------------------------------------------
 
 def test_aggregate_rows_same_search_term_different_keyword_id_not_merged():
@@ -393,6 +393,98 @@ def test_aggregate_rows_same_keyword_id_same_search_term_does_merge():
     assert len(facts) == 1
     assert facts[0].impressions == 120
     assert facts[0].clicks == 6
+
+
+def test_aggregate_rows_auto_targeting_different_targeting_not_merged():
+    """
+    Auto-targeting rows (no keyword_id) with different targeting expressions
+    must NOT be merged.  targeting is the identity dimension for auto-targeting
+    rows, just as keyword_id is the identity dimension for keyword-targeted rows.
+    """
+    svc = AmazonAdsSearchTermSyncService(MagicMock())
+
+    facts = svc._aggregate_rows(
+        [
+            {
+                "date": "2026-03-01",
+                "campaignName": "Auto Campaign",
+                "adGroupName": "AG 1",
+                "targeting": "close-match",
+                "searchTerm": "wireless earbuds",
+                "matchType": "AUTO",
+                "impressions": "100",
+                "clicks": "4",
+                "cost": "2.00",
+                "purchases7d": "1",
+                "sales7d": "25.00",
+                "__campaign_type": "sponsored_products",
+            },
+            {
+                "date": "2026-03-01",
+                "campaignName": "Auto Campaign",
+                "adGroupName": "AG 1",
+                "targeting": "substitutes",
+                "searchTerm": "wireless earbuds",
+                "matchType": "AUTO",
+                "impressions": "60",
+                "clicks": "2",
+                "cost": "1.00",
+                "purchases7d": "0",
+                "sales7d": "0",
+                "__campaign_type": "sponsored_products",
+            },
+        ],
+        marketplace_code="US",
+    )
+
+    assert len(facts) == 2, (
+        "Auto-targeting rows with different targeting expressions must be distinct facts"
+    )
+    targeting_values = {f.targeting for f in facts}
+    assert targeting_values == {"close-match", "substitutes"}
+
+
+def test_aggregate_rows_auto_targeting_same_targeting_does_merge():
+    """Auto-targeting duplicate rows with the same targeting should still merge."""
+    svc = AmazonAdsSearchTermSyncService(MagicMock())
+
+    facts = svc._aggregate_rows(
+        [
+            {
+                "date": "2026-03-01",
+                "campaignName": "Auto Campaign",
+                "adGroupName": "AG 1",
+                "targeting": "close-match",
+                "searchTerm": "wireless earbuds",
+                "matchType": "AUTO",
+                "impressions": "100",
+                "clicks": "4",
+                "cost": "2.00",
+                "purchases7d": "1",
+                "sales7d": "25.00",
+                "__campaign_type": "sponsored_products",
+            },
+            {
+                "date": "2026-03-01",
+                "campaignName": "Auto Campaign",
+                "adGroupName": "AG 1",
+                "targeting": "close-match",
+                "searchTerm": "wireless earbuds",
+                "matchType": "AUTO",
+                "impressions": "20",
+                "clicks": "1",
+                "cost": "0.50",
+                "purchases7d": "0",
+                "sales7d": "0",
+                "__campaign_type": "sponsored_products",
+            },
+        ],
+        marketplace_code="US",
+    )
+
+    assert len(facts) == 1
+    assert facts[0].impressions == 120
+    assert facts[0].clicks == 5
 
 
 # ------------------------------------------------------------------

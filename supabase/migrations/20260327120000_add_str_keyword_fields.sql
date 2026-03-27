@@ -36,9 +36,17 @@ COMMENT ON COLUMN public.search_term_daily_facts.keyword_type
 COMMENT ON COLUMN public.search_term_daily_facts.targeting
   IS 'Amazon Ads targeting expression (targeting/targetingExpression). Present for auto-targeting rows.';
 
--- Rebuild the unique index to include keyword_id.
--- Old index did not include keyword_id, which could conflate distinct
--- keyword–search_term pairs into a single row.
+-- Rebuild the unique index to include keyword_id and targeting.
+--
+-- keyword_id: the same search term can be triggered by multiple distinct
+--   keywords in the same campaign — those rows are legitimately different.
+--   COALESCE(keyword_id, '') keeps auto-targeting rows (no keyword) comparable.
+--
+-- targeting: for auto-targeting rows (keyword_id IS NULL), the targeting
+--   expression is the identity dimension.  Two auto-targeting rows with the
+--   same search_term but different targeting expressions are distinct in the
+--   Amazon report and must be stored as separate rows.
+--   COALESCE(targeting, '') keeps keyword-targeted rows (no targeting) comparable.
 DROP INDEX IF EXISTS uq_search_term_daily_facts_profile_day_type_campaign_term_match;
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_str_facts_profile_day_type_campaign_keyword_term_match
@@ -49,6 +57,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_str_facts_profile_day_type_campaign_keyword
     COALESCE(campaign_id,  ''),
     campaign_name,
     COALESCE(keyword_id,   ''),
+    COALESCE(targeting,    ''),
     search_term,
     COALESCE(match_type,   '')
   );
