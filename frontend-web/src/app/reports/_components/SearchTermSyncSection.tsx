@@ -240,12 +240,14 @@ export default function SearchTermSyncSection({ marketplaces, loading, onProfile
             come in later stages. STR sync is separate from the existing Ads campaign sync.
           </p>
         </div>
-        <span
-          className="inline-flex cursor-not-allowed select-none rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-400"
-          title="Search Term Data surface is coming in Stage 2"
+        <button
+          type="button"
+          disabled
+          aria-label="Open Search Term Data — coming in Stage 2"
+          className="cursor-not-allowed rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-400"
         >
           Open Search Term Data
-        </span>
+        </button>
       </div>
 
       {/* Guidance block */}

@@ -72,7 +72,7 @@ export function useSearchTermSync(profile: WbrProfile | null) {
 
   const loadRuns = useCallback(
     async (isRefresh: boolean) => {
-      if (!profile?.id || !profile.amazon_ads_profile_id) {
+      if (!profile?.id) {
         setRuns([]);
         setLoadingRuns(false);
         setRefreshingRuns(false);
