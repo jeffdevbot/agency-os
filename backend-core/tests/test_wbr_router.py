@@ -107,6 +107,23 @@ def test_update_profile_preserves_explicit_false_boolean(monkeypatch):
     assert fake_service.profile_updates["updates"]["sp_api_auto_sync_enabled"] is False
 
 
+def test_update_profile_preserves_explicit_false_search_term_boolean(monkeypatch):
+    fake_service = _FakeWbrService()
+    monkeypatch.setattr(wbr, "_get_service", lambda: fake_service)
+    app.dependency_overrides[wbr.require_admin_user] = _override_admin
+
+    try:
+      with TestClient(app) as client:
+          response = client.patch("/admin/wbr/profiles/profile-1", json={"search_term_auto_sync_enabled": False})
+    finally:
+      app.dependency_overrides.pop(wbr.require_admin_user, None)
+
+    assert response.status_code == 200
+    assert fake_service.profile_updates is not None
+    assert "search_term_auto_sync_enabled" in fake_service.profile_updates["updates"]
+    assert fake_service.profile_updates["updates"]["search_term_auto_sync_enabled"] is False
+
+
 def test_list_sync_runs_uses_generic_sync_run_service(monkeypatch):
     fake_sync_service = _FakeSyncRunService()
     monkeypatch.setattr(wbr, "_get_sync_run_service", lambda: fake_sync_service)

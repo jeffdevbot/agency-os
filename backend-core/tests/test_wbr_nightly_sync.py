@@ -18,6 +18,7 @@ def test_run_pending_is_idle_before_scheduled_time():
     )
 
     svc._amazon_ads = SimpleNamespace(process_pending_runs=AsyncMock(return_value={"runs_processed": 0, "results": []}))
+    svc._search_terms = SimpleNamespace(process_pending_runs=AsyncMock(return_value={"runs_processed": 0, "results": []}))
 
     result = asyncio.run(svc.run_pending())
 
@@ -36,9 +37,14 @@ def test_run_pending_executes_enabled_sources(monkeypatch):
     )
     windsor_run = AsyncMock(return_value={"ok": True})
     ads_run = AsyncMock(return_value={"ok": True})
+    search_terms_run = AsyncMock(return_value={"ok": True})
     svc._windsor = SimpleNamespace(run_daily_refresh=windsor_run)
     svc._amazon_ads = SimpleNamespace(
         run_daily_refresh=ads_run,
+        process_pending_runs=AsyncMock(return_value={"runs_processed": 0, "results": []}),
+    )
+    svc._search_terms = SimpleNamespace(
+        run_daily_refresh=search_terms_run,
         process_pending_runs=AsyncMock(return_value={"runs_processed": 0, "results": []}),
     )
     monkeypatch.setattr(
@@ -49,6 +55,7 @@ def test_run_pending_executes_enabled_sources(monkeypatch):
                 "id": "profile-1",
                 "sp_api_auto_sync_enabled": True,
                 "ads_api_auto_sync_enabled": True,
+                "search_term_auto_sync_enabled": True,
             }
         ],
     )
@@ -58,10 +65,12 @@ def test_run_pending_executes_enabled_sources(monkeypatch):
 
     windsor_run.assert_awaited_once_with(profile_id="profile-1", user_id="worker-user")
     ads_run.assert_awaited_once_with(profile_id="profile-1", user_id="worker-user")
+    search_terms_run.assert_awaited_once_with(profile_id="profile-1", user_id="worker-user")
     assert result["status"] == "ok"
-    assert result["runs_attempted"] == 2
+    assert result["runs_attempted"] == 3
     assert all(item["status"] == "success" for item in result["results"])
     assert result["pending_amazon_ads"]["runs_processed"] == 0
+    assert result["pending_search_terms"]["runs_processed"] == 0
 
 
 def test_run_pending_skips_sources_already_started_today(monkeypatch):
@@ -74,9 +83,14 @@ def test_run_pending_skips_sources_already_started_today(monkeypatch):
     )
     windsor_run = AsyncMock(return_value={"ok": True})
     ads_run = AsyncMock(return_value={"ok": True})
+    search_terms_run = AsyncMock(return_value={"ok": True})
     svc._windsor = SimpleNamespace(run_daily_refresh=windsor_run)
     svc._amazon_ads = SimpleNamespace(
         run_daily_refresh=ads_run,
+        process_pending_runs=AsyncMock(return_value={"runs_processed": 0, "results": []}),
+    )
+    svc._search_terms = SimpleNamespace(
+        run_daily_refresh=search_terms_run,
         process_pending_runs=AsyncMock(return_value={"runs_processed": 0, "results": []}),
     )
     monkeypatch.setattr(
@@ -87,19 +101,21 @@ def test_run_pending_skips_sources_already_started_today(monkeypatch):
                 "id": "profile-1",
                 "sp_api_auto_sync_enabled": True,
                 "ads_api_auto_sync_enabled": True,
+                "search_term_auto_sync_enabled": True,
             }
         ],
     )
     monkeypatch.setattr(
         svc,
         "_already_started_today",
-        lambda *, source_type, **_: source_type == "windsor_business",
+        lambda *, source_type, **_: source_type in {"windsor_business", "amazon_ads_search_terms"},
     )
 
     result = asyncio.run(svc.run_pending())
 
     windsor_run.assert_not_awaited()
     ads_run.assert_awaited_once()
+    search_terms_run.assert_not_awaited()
     assert result["runs_attempted"] == 1
     assert result["results"][0]["source_type"] == "amazon_ads"
 
@@ -113,13 +129,17 @@ def test_run_pending_processes_pending_ads_before_schedule(monkeypatch):
         now_provider=lambda: datetime(2026, 3, 14, 12, 30, tzinfo=UTC),
     )
     pending_runs = AsyncMock(return_value={"runs_processed": 1, "results": [{"run_id": "run-1", "status": "running"}]})
+    pending_search_terms = AsyncMock(return_value={"runs_processed": 1, "results": [{"run_id": "run-2", "status": "running"}]})
     svc._amazon_ads = SimpleNamespace(process_pending_runs=pending_runs, run_daily_refresh=AsyncMock())
+    svc._search_terms = SimpleNamespace(process_pending_runs=pending_search_terms, run_daily_refresh=AsyncMock())
     svc._windsor = SimpleNamespace(run_daily_refresh=AsyncMock())
     monkeypatch.setattr(svc, "_list_profiles_for_nightly_sync", lambda: [])
 
     result = asyncio.run(svc.run_pending())
 
     pending_runs.assert_awaited_once()
+    pending_search_terms.assert_awaited_once()
     assert result["status"] == "ok"
     assert result["reason"] == "before_schedule"
     assert result["pending_amazon_ads"]["runs_processed"] == 1
+    assert result["pending_search_terms"]["runs_processed"] == 1

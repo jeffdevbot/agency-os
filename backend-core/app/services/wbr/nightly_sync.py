@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 from supabase import Client
 
 from .amazon_ads_sync import AmazonAdsSyncService
+from .amazon_ads_search_terms import AmazonAdsSearchTermSyncService
 from .windsor_business_sync import WindsorBusinessSyncService
 
 
@@ -37,19 +38,22 @@ class WBRNightlySyncService:
         self._now_provider = now_provider or (lambda: datetime.now(UTC))
         self._windsor = WindsorBusinessSyncService(db)
         self._amazon_ads = AmazonAdsSyncService(db)
+        self._search_terms = AmazonAdsSearchTermSyncService(db)
 
     async def run_pending(self) -> dict[str, Any]:
         now_utc = self._normalize_now(self._now_provider())
         local_now = now_utc.astimezone(self.timezone)
         pending_ads = await self._amazon_ads.process_pending_runs()
+        pending_search_terms = await self._search_terms.process_pending_runs()
         if local_now.timetz().replace(tzinfo=None) < self.run_at:
-            if pending_ads.get("runs_processed", 0) > 0:
+            if pending_ads.get("runs_processed", 0) > 0 or pending_search_terms.get("runs_processed", 0) > 0:
                 return {
                     "status": "ok",
                     "reason": "before_schedule",
                     "scheduled_time": self.run_at.strftime("%H:%M"),
                     "timezone": self.timezone.key,
                     "pending_amazon_ads": pending_ads,
+                    "pending_search_terms": pending_search_terms,
                     "profiles_considered": 0,
                     "runs_attempted": 0,
                     "results": [],
@@ -93,6 +97,18 @@ class WBRNightlySyncService:
                     )
                 )
 
+            if profile.get("search_term_auto_sync_enabled") and not self._already_started_today(
+                profile_id=profile_id,
+                source_type="amazon_ads_search_terms",
+                local_now=local_now,
+            ):
+                results.append(
+                    await self._run_source(
+                        profile_id=profile_id,
+                        source_type="amazon_ads_search_terms",
+                    )
+                )
+
         return {
             "status": "ok",
             "timezone": self.timezone.key,
@@ -100,6 +116,7 @@ class WBRNightlySyncService:
             "profiles_considered": len(profiles),
             "runs_attempted": len(results),
             "pending_amazon_ads": pending_ads,
+            "pending_search_terms": pending_search_terms,
             "results": [result.__dict__ for result in results],
         }
 
@@ -107,6 +124,11 @@ class WBRNightlySyncService:
         try:
             if source_type == "windsor_business":
                 await self._windsor.run_daily_refresh(
+                    profile_id=profile_id,
+                    user_id=self.worker_user_id,
+                )
+            elif source_type == "amazon_ads_search_terms":
+                await self._search_terms.run_daily_refresh(
                     profile_id=profile_id,
                     user_id=self.worker_user_id,
                 )
@@ -129,7 +151,7 @@ class WBRNightlySyncService:
             self.db.table("wbr_profiles")
             .select(
                 "id, status, windsor_account_id, amazon_ads_profile_id, "
-                "sp_api_auto_sync_enabled, ads_api_auto_sync_enabled"
+                "sp_api_auto_sync_enabled, ads_api_auto_sync_enabled, search_term_auto_sync_enabled"
             )
             .eq("status", "active")
             .order("created_at")

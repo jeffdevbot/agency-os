@@ -150,18 +150,17 @@ Global active-row audit:
 
 ### Important architecture gap
 
-The existing WBR campaign mapping is **not** enough for automated negation.
+Raw search-term facts alone are not enough for automated negation.
 
-Today `wbr_pacvue_campaign_map` maps:
+The system still needs a way to understand campaign intent:
 
-1. `campaign_name -> WBR row_id`
+1. what product or product family the campaign is meant to represent
+2. whether a query is irrelevant versus merely low performing
+3. whether a mismatch is a product mismatch, a targeting mismatch, or a
+   campaign-structure problem
 
-That is enough for WBR rollups, but not enough to answer:
-
-1. which child ASINs a campaign is really promoting
-2. which queries are irrelevant versus merely low performing
-3. whether a search term mismatch is a catalog mismatch or a campaign-structure
-   problem
+For MVP, the fastest context path should come from campaign-name parsing and
+existing naming conventions, not from coupling this workflow to WBR rollups.
 
 ## Recommended architecture
 
@@ -290,29 +289,27 @@ Important clarification:
 4. bullets should therefore be treated as an unverified enrichment target, not
    as a guaranteed field we simply forgot to request
 
-### Campaign-product context dependency
+### Campaign-intent context dependency
 
-The AI layer also needs a way to know what a campaign is for.
+The AI layer still needs a way to know what a campaign is for, but the MVP
+should not depend on WBR/Pacvue-derived scope.
 
-Recommended addition:
+Recommended order of precedence:
 
-1. create a small campaign-product context layer that links campaigns or ad
-   groups to intended child ASINs / row scope
-2. do not overload `wbr_pacvue_campaign_map` for this
-3. treat this as distinct from campaign filtering / exclusion policy
+1. campaign-name parsing from existing naming conventions
+2. Amazon-native context from:
+   - `Advertised product`
+   - `Targeting`
+   - `Purchased product`
+3. optional fallback/manual overrides later if real accounts need them
 
-Possible inputs:
+Important decision:
 
-1. existing WBR row mappings
-2. Amazon Ads entity data / bulk data
-3. manual override when a campaign intentionally spans multiple products
-
-Suggested purpose of `search_term_campaign_scope`:
-
-1. represent the intended promoted product scope of a campaign or ad group
-2. support recommendation relevance decisions
-3. support later review UI explanations
-4. not act as a generic exclusion table for legacy campaign-name filters
+1. do **not** treat WBR row mappings or Pacvue tags as a required dependency
+   for the MVP STR path
+2. do **not** treat `search_term_campaign_scope` as a required MVP table
+3. if campaign-scope tables are revisited later, they should be additive
+   fallback context, not the primary source of truth
 
 ## Phase 1: STR ingestion
 
@@ -329,6 +326,8 @@ Recommended priority:
 
 1. `Search term`
    - core fact source for N-Gram / N-PAT replacement
+   - must be evaluated for SP / SB / SD coverage rather than assumed to be
+     Sponsored Products only
 2. `Advertised product`
    - high-value product-context source for understanding what was actually being
      promoted
@@ -369,11 +368,31 @@ Current recommendation:
 
 ### Phase 1 outputs
 
-1. programmatic STR fetch and storage
+1. programmatic search-term and adjacent report fetch/storage
 2. profile / marketplace scoping
 3. date-window selection
 4. campaign/ad-product source tagging
-5. parity checks against current Pacvue-based tool inputs
+5. campaign-name-derived intent parsing for MVP context
+6. parity checks against current Pacvue-based tool inputs
+
+### Ad-type coverage requirement
+
+This workflow should not silently collapse into Sponsored Products only.
+
+The implementation should explicitly account for:
+
+1. Sponsored Products (`SP`)
+2. Sponsored Brands (`SB`), including patterns such as `SBV`
+3. Sponsored Display (`SD`)
+
+Important note:
+
+1. the exact report surface and fact grain may differ by ad type
+2. the product goal is still coverage across SP / SB / SD where the report
+   families support it
+3. if one ad type requires an adjacent report instead of the exact same
+   search-term grain, the plan should still treat that as in scope rather than
+   dropping the ad type entirely
 
 ### Suggested data model
 
@@ -381,7 +400,7 @@ Suggested working tables:
 
 1. `search_term_import_batches`
 2. `search_term_daily_facts`
-3. `search_term_campaign_scope`
+3. optional context/support tables only if later needed by the review layer
 
 Suggested daily-fact grain:
 
@@ -499,9 +518,13 @@ review-first workflow where AI proposes candidates and the human approves them.
 
 1. STR facts from Phase 1
 2. catalog context from the dependency phase
-3. campaign-product scope context
-4. historical exclusions / prior negatives when available
-5. performance heuristics
+3. campaign-name-derived intent context
+4. Amazon-native context from:
+   - `Advertised product`
+   - `Targeting`
+   - `Purchased product`
+5. historical exclusions / prior negatives when available
+6. performance heuristics
 
 ### Recommendation model
 
@@ -602,8 +625,11 @@ Suggested working tables:
 Recommended order:
 
 1. dependency phase: richer catalog context expansion
-2. dependency phase: campaign-product context layer
-3. Phase 1 STR ingestion
+2. Phase 1 STR ingestion with campaign-name parsing and SP / SB / SD coverage
+3. Phase 1 adjacent Amazon-native context ingestion:
+   - `Advertised product`
+   - `Targeting`
+   - `Purchased product`
 4. Phase 2 recommendation + review workspace
 5. Phase 3 direct Amazon writeback
 
@@ -621,7 +647,9 @@ Those are the safety net during rollout.
    one
 2. Windsor listing data may be too shallow for high-confidence relevance
    decisions without enrichment
-3. campaign-to-product context may be harder than STR ingestion itself
+3. campaign-name-derived intent context may be noisier across clients than it
+   first appears, pushing more value into Amazon-native context reports sooner
+   than expected
 4. direct writeback has the highest trust and safety burden
 
 ## Recommended next implementation slice
@@ -638,11 +666,12 @@ Specifically:
    - keep `item_description` optional / nullable
    - do not promote `image_url`, `item_note`, or `browse_path` yet
 2. expand WBR listing ingestion into richer structured catalog context
-3. design the campaign-product context layer with a sharper definition of
-   `search_term_campaign_scope`
-4. lock the Phase 1 STR schema around the decided MVP grain:
+3. lock the Phase 1 STR schema around the decided MVP grain:
    - campaign + search term natural key
    - nullable `ad_group_id` / `ad_group_name` columns for forward compatibility
-5. only then build the first STR ingestion slice
+4. build the first STR ingestion slice around:
+   - campaign-name parsing for MVP context
+   - explicit SP / SB / SD coverage goals
+   - Amazon-native context reports as the next strengthening layer
 
 That sequence reduces rework in the later AI recommendation phase.

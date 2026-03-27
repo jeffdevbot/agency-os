@@ -197,6 +197,25 @@ class TestCreateProfile:
 
         assert payload["status"] == "active"
 
+    def test_enabling_search_term_auto_sync_on_create_promotes_draft_to_active(self):
+        created = {"id": "p1", "status": "active", "search_term_auto_sync_enabled": True}
+        db = _rotating_db(
+            "wbr_profiles",
+            _chain_table([]),
+            _chain_table([created]),
+        )
+        svc = WBRProfileService(db)
+        payload = {
+            "client_id": "c1",
+            "marketplace_code": "US",
+            "display_name": "US",
+            "search_term_auto_sync_enabled": True,
+        }
+
+        svc.create_profile(payload)
+
+        assert payload["status"] == "active"
+
 
 class TestUpdateProfile:
     def test_updates_and_returns(self):
@@ -248,6 +267,20 @@ class TestUpdateProfile:
         )
         svc = WBRProfileService(db)
         updates = {"ads_api_auto_sync_enabled": True}
+
+        result = svc.update_profile("p1", updates)
+
+        assert updates["status"] == "active"
+        assert result["status"] == "active"
+
+    def test_enabling_search_term_auto_sync_promotes_draft_profile_to_active(self):
+        db = _rotating_db(
+            "wbr_profiles",
+            _chain_table([{"id": "p1", "status": "draft"}]),
+            _chain_table([{"id": "p1", "status": "active", "search_term_auto_sync_enabled": True}]),
+        )
+        svc = WBRProfileService(db)
+        updates = {"search_term_auto_sync_enabled": True}
 
         result = svc.update_profile("p1", updates)
 

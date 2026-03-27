@@ -20,6 +20,7 @@ from ..services.wbr.amazon_ads_auth import (
     refresh_access_token,
 )
 from ..services.wbr.amazon_ads_sync import AmazonAdsSyncService
+from ..services.wbr.amazon_ads_search_terms import AmazonAdsSearchTermSyncService
 from ..services.wbr.asin_mappings import AsinMappingService
 from ..services.wbr.campaign_exclusions import CampaignExclusionService
 from ..config import settings
@@ -97,6 +98,10 @@ def _get_amazon_ads_sync_service() -> AmazonAdsSyncService:
     return AmazonAdsSyncService(_get_supabase())
 
 
+def _get_amazon_ads_search_term_sync_service() -> AmazonAdsSearchTermSyncService:
+    return AmazonAdsSearchTermSyncService(_get_supabase())
+
+
 def _get_wbr_workbook_export_service() -> WbrWorkbookExportService:
     return WbrWorkbookExportService(_get_supabase())
 
@@ -130,6 +135,7 @@ class CreateProfileRequest(BaseModel):
     daily_rewrite_days: int = Field(14, ge=1, le=60)
     sp_api_auto_sync_enabled: bool = False
     ads_api_auto_sync_enabled: bool = False
+    search_term_auto_sync_enabled: bool = False
 
 
 class UpdateProfileRequest(BaseModel):
@@ -146,6 +152,7 @@ class UpdateProfileRequest(BaseModel):
     daily_rewrite_days: Optional[int] = Field(None, ge=1, le=60)
     sp_api_auto_sync_enabled: Optional[bool] = None
     ads_api_auto_sync_enabled: Optional[bool] = None
+    search_term_auto_sync_enabled: Optional[bool] = None
 
 
 class CreateRowRequest(BaseModel):
@@ -754,6 +761,49 @@ async def run_amazon_ads_daily_refresh(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception:
         raise HTTPException(status_code=500, detail="Failed to run Amazon Ads daily refresh")
+
+
+@router.post("/profiles/{profile_id}/sync-runs/search-terms/backfill")
+async def run_search_term_backfill(
+    profile_id: str,
+    request: RunAmazonAdsBackfillRequest,
+    user=Depends(require_admin_user),
+):
+    svc = _get_amazon_ads_search_term_sync_service()
+    try:
+        result = await svc.run_backfill(
+            profile_id=profile_id,
+            date_from=date.fromisoformat(request.date_from),
+            date_to=date.fromisoformat(request.date_to),
+            chunk_days=request.chunk_days,
+            user_id=_user_id(user),
+        )
+        return {"ok": True, **result}
+    except ValueError:
+        raise HTTPException(status_code=400, detail="date_from and date_to must be YYYY-MM-DD")
+    except WBRNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except WBRValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to run search-term backfill")
+
+
+@router.post("/profiles/{profile_id}/sync-runs/search-terms/daily-refresh")
+async def run_search_term_daily_refresh(
+    profile_id: str,
+    user=Depends(require_admin_user),
+):
+    svc = _get_amazon_ads_search_term_sync_service()
+    try:
+        result = await svc.run_daily_refresh(profile_id=profile_id, user_id=_user_id(user))
+        return {"ok": True, **result}
+    except WBRNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except WBRValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to run search-term daily refresh")
 
 
 @router.get("/profiles/{profile_id}/section1-report")

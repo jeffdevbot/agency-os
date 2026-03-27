@@ -13,12 +13,14 @@ VALID_WBR_SYNC_SOURCE_TYPES = {
     "windsor_inventory",
     "windsor_returns",
     "amazon_ads",
+    "amazon_ads_search_terms",
     "pacvue_import",
     "listing_import",
 }
 
 VALID_WBR_COVERAGE_SOURCE_TYPES = {
     "amazon_ads",
+    "amazon_ads_search_terms",
     "windsor_business",
 }
 WINDSOR_BUSINESS_COVERAGE_LOOKBACK_DAYS = 180
@@ -189,7 +191,7 @@ class WBRSyncRunService:
         today: date,
     ) -> tuple[date, str]:
         configured_start = _parse_iso_date(profile.get("backfill_start_date"))
-        if source_type == "amazon_ads":
+        if source_type in {"amazon_ads", "amazon_ads_search_terms"}:
             base_start = today - timedelta(days=OBSERVED_REPORT_RETENTION_DAYS - 1)
             if configured_start is not None:
                 return max(base_start, configured_start), "Current Amazon Ads retention window"

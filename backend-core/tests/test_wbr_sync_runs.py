@@ -96,6 +96,27 @@ def test_get_sync_coverage_clips_amazon_ads_runs_to_retention_window(monkeypatch
     ]
 
 
+def test_get_sync_coverage_supports_search_term_source_type(monkeypatch):
+    monkeypatch.setattr(sync_runs_module, "datetime", _FakeDateTime)
+    db = _db_with_tables(
+        wbr_profiles=_chain_table([{"id": "profile-1", "backfill_start_date": "2025-01-01"}]),
+        wbr_sync_runs=_chain_table(
+            [
+                {"status": "success", "date_from": "2026-02-01", "date_to": "2026-02-10"},
+                {"status": "running", "date_from": "2026-03-20", "date_to": "2026-03-25"},
+            ]
+        ),
+    )
+    svc = WBRSyncRunService(db)
+
+    coverage = svc.get_sync_coverage("profile-1", source_type="amazon_ads_search_terms")
+
+    assert coverage["window_start"] == "2026-01-25"
+    assert coverage["window_label"] == "Current Amazon Ads retention window"
+    assert coverage["covered_ranges"] == [{"date_from": "2026-02-01", "date_to": "2026-02-10"}]
+    assert coverage["in_flight_ranges"] == [{"date_from": "2026-03-20", "date_to": "2026-03-25"}]
+
+
 def test_get_sync_coverage_rejects_unsupported_source_type():
     db = _db_with_tables(wbr_profiles=_chain_table([{"id": "profile-1"}]))
     svc = WBRSyncRunService(db)
