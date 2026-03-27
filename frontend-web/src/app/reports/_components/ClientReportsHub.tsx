@@ -74,7 +74,7 @@ export default function ClientReportsHub({ clientSlug }: Props) {
             href="/reports/api-access"
             className="rounded-2xl bg-[#0f172a] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#1e293b]"
           >
-            API Access
+            Client Data Access
           </Link>
           <Link
             href="/reports/wbr/setup"

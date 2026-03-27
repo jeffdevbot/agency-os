@@ -18,6 +18,7 @@ import {
   type SpApiFinanceSmokeResult,
   type SpApiValidateResult,
 } from "../_lib/reportApiAccessApi";
+import { slugifyClientName } from "../_lib/reportClientData";
 
 const formatTimestamp = (value: string | null): string => {
   if (!value) return "Not recorded";
@@ -63,6 +64,12 @@ const formatSpApiAuthError = (error: string, description: string | null): string
   const title = normalizedError ? normalizedError.charAt(0).toUpperCase() + normalizedError.slice(1) : "Authorization failed";
   return description ? `${title}: ${description}` : title;
 };
+
+const buildClientHubHref = (clientName: string): string =>
+  `/reports/${slugifyClientName(clientName)}`;
+
+const buildWbrSyncHref = (clientName: string, marketplaceCode: string): string =>
+  `/reports/${slugifyClientName(clientName)}/${marketplaceCode.toLowerCase()}/wbr/sync`;
 
 export default function ReportApiAccessScreen() {
   const supabase = useMemo(() => getBrowserSupabaseClient(), []);
@@ -247,11 +254,11 @@ export default function ReportApiAccessScreen() {
   return (
     <main className="space-y-4">
       <div className="rounded-3xl bg-white/95 p-8 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur">
-        <h1 className="text-2xl font-semibold text-[#0f172a]">Reports / API Access</h1>
+        <h1 className="text-2xl font-semibold text-[#0f172a]">Reports / Client Data Access</h1>
         <p className="mt-2 max-w-4xl text-sm text-[#4c576f]">
-          Shared connection management for reporting surfaces. Amazon Ads remains tied to WBR
-          profile selection for sync behavior, while Amazon Seller API connections are managed here
-          with explicit regional routing.
+          Client-level setup hub for reporting connections and onboarding readiness. Use this page
+          to verify auth state, then jump into WBR Sync or WBR Settings to run backfills, enable
+          nightly jobs, and finish profile setup.
         </p>
 
         <div className="mt-6 flex flex-wrap gap-3">
@@ -281,6 +288,41 @@ export default function ReportApiAccessScreen() {
             {actionErrorMessage}
           </p>
         ) : null}
+
+        <section className="mt-8 grid gap-4 xl:grid-cols-2">
+          <div className="rounded-2xl border border-[#dbe4f0] bg-[#f7faff] p-5">
+            <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[#0a6fd6]">
+              How To Use This Page
+            </p>
+            <p className="mt-3 text-base font-semibold text-[#0f172a]">Client setup sequence</p>
+            <ol className="mt-3 space-y-2 text-sm text-[#4c576f]">
+              <li>1. Confirm the client has the required Amazon Ads and/or Seller API connection.</li>
+              <li>2. Open the client’s WBR Sync page to run initial backfills.</li>
+              <li>3. Enable nightly sync only after the first backfills complete cleanly.</li>
+              <li>4. Use WBR Settings for Windsor account id, listing import, and profile setup.</li>
+            </ol>
+          </div>
+
+          <div className="rounded-2xl border border-[#eadfcb] bg-[#fff8ed] p-5">
+            <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[#9a3412]">
+              What Lives Where
+            </p>
+            <div className="mt-3 space-y-3 text-sm text-[#4c576f]">
+              <p>
+                <span className="font-semibold text-[#0f172a]">Client Data Access:</span> connection
+                status, onboarding readiness, and jump-off links by client.
+              </p>
+              <p>
+                <span className="font-semibold text-[#0f172a]">WBR Sync:</span> backfills, nightly
+                toggles, coverage checks, and sync troubleshooting.
+              </p>
+              <p>
+                <span className="font-semibold text-[#0f172a]">WBR Settings:</span> Windsor account
+                id, listings import, and core profile configuration.
+              </p>
+            </div>
+          </div>
+        </section>
 
         <section className="mt-8 space-y-4">
           <div className="flex items-start justify-between gap-4">
@@ -332,9 +374,17 @@ export default function ReportApiAccessScreen() {
                         Client status: {summary.client_status} • Source: {sourceLabel}
                       </p>
                     </div>
-                    <span className={`rounded-full px-3 py-1 text-xs font-semibold ${badge.className}`}>
-                      {badge.label}
-                    </span>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Link
+                        href={buildClientHubHref(summary.client_name)}
+                        className="rounded-full bg-[#e8eefc] px-3 py-1 text-xs font-semibold text-[#0a6fd6] transition hover:bg-[#d7e1fb]"
+                      >
+                        Client Hub
+                      </Link>
+                      <span className={`rounded-full px-3 py-1 text-xs font-semibold ${badge.className}`}>
+                        {badge.label}
+                      </span>
+                    </div>
                   </div>
 
                   <div className="mt-5 grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
@@ -396,6 +446,20 @@ export default function ReportApiAccessScreen() {
                                   <p className="mt-1 text-xs text-[#6b7280]">
                                     Status: {profile.status} • Ads profile: {profile.amazon_ads_profile_id ?? "Not selected"}
                                   </p>
+                                  <div className="mt-2 flex flex-wrap gap-3 text-xs font-semibold">
+                                    <Link
+                                      href={buildWbrSyncHref(summary.client_name, profile.marketplace_code)}
+                                      className="text-[#0a6fd6] hover:underline"
+                                    >
+                                      Open WBR Sync
+                                    </Link>
+                                    <Link
+                                      href={`${buildWbrSyncHref(summary.client_name, profile.marketplace_code)}/ads-api`}
+                                      className="text-[#7c3aed] hover:underline"
+                                    >
+                                      Open Ads API Sync
+                                    </Link>
+                                  </div>
                                 </div>
                                 <button
                                   onClick={() => void handleConnect(profile.profile_id)}
@@ -517,11 +581,19 @@ export default function ReportApiAccessScreen() {
                         Client status: {summary.client_status} • Region: {formatRegionLabel(conn?.region_code ?? null)}
                       </p>
                     </div>
-                    <span
-                      className={`rounded-full px-3 py-1 text-xs font-semibold ${badge.className}`}
-                    >
-                      {badge.label}
-                    </span>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Link
+                        href={buildClientHubHref(summary.client_name)}
+                        className="rounded-full bg-[#e8eefc] px-3 py-1 text-xs font-semibold text-[#0a6fd6] transition hover:bg-[#d7e1fb]"
+                      >
+                        Client Hub
+                      </Link>
+                      <span
+                        className={`rounded-full px-3 py-1 text-xs font-semibold ${badge.className}`}
+                      >
+                        {badge.label}
+                      </span>
+                    </div>
                   </div>
 
                   <div className="mt-5 grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">

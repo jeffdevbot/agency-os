@@ -45,6 +45,12 @@ export default function WbrSyncOverviewScreen({ clientSlug, marketplaceCode }: P
 
         <div className="mt-6 flex flex-wrap gap-3">
           <Link
+            href="/reports/api-access"
+            className="rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-[#0a6fd6] shadow transition hover:-translate-y-0.5 hover:shadow-lg"
+          >
+            Client Data Access
+          </Link>
+          <Link
             href={`/reports/${clientSlug}/${normalizedMarketplace}/wbr`}
             className="rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-[#0a6fd6] shadow transition hover:-translate-y-0.5 hover:shadow-lg"
           >
