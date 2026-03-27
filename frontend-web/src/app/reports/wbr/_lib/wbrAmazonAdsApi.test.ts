@@ -28,6 +28,8 @@ describe("wbrAmazonAdsApi", () => {
             id: "run-1",
             profile_id: "profile-1",
             source_type: "amazon_ads",
+            ad_product: "SPONSORED_PRODUCTS",
+            report_type_id: "spCampaigns",
             job_type: "backfill",
             date_from: "2026-03-01",
             date_to: "2026-03-14",
@@ -77,6 +79,8 @@ describe("wbrAmazonAdsApi", () => {
     const runs = await listAmazonAdsSyncRuns(TOKEN, "profile-1");
 
     expect(runs).toHaveLength(1);
+    expect(runs[0].ad_product).toBe("SPONSORED_PRODUCTS");
+    expect(runs[0].report_type_id).toBe("spCampaigns");
     expect(runs[0].request_meta?.async_reports_v1).toBe(true);
     expect(runs[0].request_meta?.report_progress?.phase).toBe("polling");
     expect(runs[0].request_meta?.report_jobs[0].campaign_type).toBe("sponsored_products");
@@ -101,6 +105,8 @@ describe("wbrAmazonAdsApi", () => {
               id: "run-1",
               profile_id: "profile-1",
               source_type: "amazon_ads",
+              ad_product: "SPONSORED_PRODUCTS",
+              report_type_id: "spCampaigns",
               job_type: "backfill",
               date_from: "2026-03-01",
               date_to: "2026-03-14",
@@ -138,6 +144,8 @@ describe("wbrAmazonAdsApi", () => {
     });
 
     expect(result.chunks).toHaveLength(1);
+    expect(result.chunks[0].run.ad_product).toBe("SPONSORED_PRODUCTS");
+    expect(result.chunks[0].run.report_type_id).toBe("spCampaigns");
     expect(result.chunks[0].run.request_meta?.report_progress?.phase).toBe("queued");
     expect(result.chunks[0].run.request_meta?.report_progress?.total_jobs).toBe(3);
   });

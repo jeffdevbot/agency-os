@@ -141,6 +141,8 @@ class CreateProfileRequest(BaseModel):
     sp_api_auto_sync_enabled: bool = False
     ads_api_auto_sync_enabled: bool = False
     search_term_auto_sync_enabled: bool = False
+    search_term_sb_auto_sync_enabled: bool = False
+    search_term_sd_auto_sync_enabled: bool = False
 
 
 class UpdateProfileRequest(BaseModel):
@@ -158,6 +160,8 @@ class UpdateProfileRequest(BaseModel):
     sp_api_auto_sync_enabled: Optional[bool] = None
     ads_api_auto_sync_enabled: Optional[bool] = None
     search_term_auto_sync_enabled: Optional[bool] = None
+    search_term_sb_auto_sync_enabled: Optional[bool] = None
+    search_term_sd_auto_sync_enabled: Optional[bool] = None
 
 
 class CreateRowRequest(BaseModel):
@@ -650,11 +654,12 @@ async def import_campaign_exclusions_csv(
 async def list_sync_runs(
     profile_id: str,
     source_type: str = Query("windsor_business"),
+    ad_product: str | None = Query(None),
     user=Depends(require_admin_user),
 ):
     svc = _get_sync_run_service()
     try:
-        runs = svc.list_sync_runs(profile_id, source_type=source_type)
+        runs = svc.list_sync_runs(profile_id, source_type=source_type, ad_product=ad_product)
         return {"ok": True, "runs": runs}
     except WBRNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -668,11 +673,12 @@ async def list_sync_runs(
 async def get_sync_coverage(
     profile_id: str,
     source_type: str = Query("windsor_business"),
+    ad_product: str | None = Query(None),
     user=Depends(require_admin_user),
 ):
     svc = _get_sync_run_service()
     try:
-        coverage = svc.get_sync_coverage(profile_id, source_type=source_type)
+        coverage = svc.get_sync_coverage(profile_id, source_type=source_type, ad_product=ad_product)
         return {"ok": True, **coverage}
     except WBRNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -685,6 +691,7 @@ async def get_sync_coverage(
 @router.get("/profiles/{profile_id}/search-term-facts")
 async def list_search_term_facts(
     profile_id: str,
+    ad_product: str | None = Query(None),
     date_from: str | None = Query(None),
     date_to: str | None = Query(None),
     campaign_type: str | None = Query(None),
@@ -698,6 +705,7 @@ async def list_search_term_facts(
     try:
         result = svc.list_facts(
             profile_id,
+            ad_product=ad_product,
             date_from=date_from,
             date_to=date_to,
             campaign_type=campaign_type,

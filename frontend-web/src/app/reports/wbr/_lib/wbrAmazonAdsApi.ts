@@ -69,6 +69,8 @@ export type WbrSyncRun = {
   id: string;
   profile_id: string;
   source_type: string;
+  ad_product: string | null;
+  report_type_id: string | null;
   job_type: WbrSyncJobType;
   date_from: string | null;
   date_to: string | null;
@@ -90,6 +92,7 @@ export type WbrCoverageRange = {
 
 export type WbrSyncCoverage = {
   source_type: string;
+  ad_product: string | null;
   window_start: string;
   window_end: string;
   window_label: string;
@@ -274,6 +277,8 @@ const parseSyncRun = (value: unknown): WbrSyncRun => {
     id: asString(value.id),
     profile_id: asString(value.profile_id),
     source_type: asString(value.source_type),
+    ad_product: asNullableString(value.ad_product),
+    report_type_id: asNullableString(value.report_type_id),
     job_type:
       jobType === "daily_refresh" || jobType === "manual_rerun" || jobType === "import"
         ? jobType
@@ -318,6 +323,7 @@ const parseSyncCoverage = (payload: unknown): WbrSyncCoverage => {
   }
   return {
     source_type: asString(payload.source_type),
+    ad_product: asNullableString(payload.ad_product),
     window_start: asString(payload.window_start),
     window_end: asString(payload.window_end),
     window_label: asString(payload.window_label),
@@ -486,8 +492,10 @@ export const runAmazonAdsDailyRefresh = async (
 export const listSearchTermSyncRuns = async (
   token: string,
   profileId: string,
+  adProduct?: string | null,
 ): Promise<WbrSyncRun[]> => {
   const query = new URLSearchParams({ source_type: "amazon_ads_search_terms" });
+  if (adProduct) query.set("ad_product", adProduct);
   const payload = await requestJson<unknown>(
     token,
     `/admin/wbr/profiles/${profileId}/sync-runs?${query.toString()}`,
@@ -550,8 +558,10 @@ export const runSearchTermDailyRefresh = async (
 export const getSearchTermSyncCoverage = async (
   token: string,
   profileId: string,
+  adProduct?: string | null,
 ): Promise<WbrSyncCoverage> => {
   const query = new URLSearchParams({ source_type: "amazon_ads_search_terms" });
+  if (adProduct) query.set("ad_product", adProduct);
   const payload = await requestJson<unknown>(
     token,
     `/admin/wbr/profiles/${profileId}/sync-coverage?${query.toString()}`,

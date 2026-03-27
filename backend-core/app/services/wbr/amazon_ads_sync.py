@@ -1147,6 +1147,7 @@ class AmazonAdsSyncService:
         date_from: date,
         date_to: date,
         request_meta: dict[str, Any],
+        extra_payload: dict[str, Any] | None = None,
         user_id: str | None,
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -1158,6 +1159,8 @@ class AmazonAdsSyncService:
             "status": "running",
             "request_meta": request_meta,
         }
+        if extra_payload:
+            payload.update(extra_payload)
         if user_id:
             payload["initiated_by"] = user_id
         response = self.db.table("wbr_sync_runs").insert(payload).execute()

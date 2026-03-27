@@ -99,24 +99,38 @@ class WBRSyncRunService:
         self.db = db
         self._profiles = WBRProfileService(db)
 
-    def list_sync_runs(self, profile_id: str, *, source_type: str) -> list[dict[str, Any]]:
+    def list_sync_runs(
+        self,
+        profile_id: str,
+        *,
+        source_type: str,
+        ad_product: str | None = None,
+    ) -> list[dict[str, Any]]:
         self._profiles.get_profile(profile_id)
         if source_type not in VALID_WBR_SYNC_SOURCE_TYPES:
             allowed = ", ".join(sorted(VALID_WBR_SYNC_SOURCE_TYPES))
             raise WBRValidationError(f"source_type must be one of: {allowed}")
 
-        response = (
+        query = (
             self.db.table("wbr_sync_runs")
             .select("*")
             .eq("profile_id", profile_id)
             .eq("source_type", source_type)
             .order("created_at", desc=True)
             .limit(50)
-            .execute()
         )
+        if ad_product:
+            query = query.eq("ad_product", ad_product)
+        response = query.execute()
         return response.data if isinstance(response.data, list) else []
 
-    def get_sync_coverage(self, profile_id: str, *, source_type: str) -> dict[str, Any]:
+    def get_sync_coverage(
+        self,
+        profile_id: str,
+        *,
+        source_type: str,
+        ad_product: str | None = None,
+    ) -> dict[str, Any]:
         profile = self._profiles.get_profile(profile_id)
         if source_type not in VALID_WBR_COVERAGE_SOURCE_TYPES:
             allowed = ", ".join(sorted(VALID_WBR_COVERAGE_SOURCE_TYPES))
@@ -128,7 +142,7 @@ class WBRSyncRunService:
         if window_start > window_end:
             window_start = window_end
 
-        response = (
+        query = (
             self.db.table("wbr_sync_runs")
             .select("status,date_from,date_to")
             .eq("profile_id", profile_id)
@@ -136,8 +150,10 @@ class WBRSyncRunService:
             .in_("status", ["success", "running"])
             .order("date_from")
             .limit(1000)
-            .execute()
         )
+        if ad_product:
+            query = query.eq("ad_product", ad_product)
+        response = query.execute()
         rows = response.data if isinstance(response.data, list) else []
 
         success_ranges: list[tuple[date, date]] = []
@@ -166,6 +182,7 @@ class WBRSyncRunService:
 
         return {
             "source_type": source_type,
+            "ad_product": ad_product,
             "window_start": window_start.isoformat(),
             "window_end": window_end.isoformat(),
             "window_label": window_label,

@@ -380,6 +380,8 @@ def _promote_draft_to_active_for_auto_sync(
         payload.get("sp_api_auto_sync_enabled") is True
         or payload.get("ads_api_auto_sync_enabled") is True
         or payload.get("search_term_auto_sync_enabled") is True
+        or payload.get("search_term_sb_auto_sync_enabled") is True
+        or payload.get("search_term_sd_auto_sync_enabled") is True
     )
     if not enabling_auto_sync:
         return

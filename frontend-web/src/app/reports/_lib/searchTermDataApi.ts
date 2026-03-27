@@ -41,6 +41,8 @@ const requestJson = async <T>(token: string, path: string, init?: RequestInit): 
 export type SearchTermFact = {
   id: string;
   report_date: string;
+  ad_product: string | null;
+  report_type_id: string | null;
   campaign_type: string;
   campaign_name: string;
   campaign_name_head: string | null;
@@ -56,6 +58,7 @@ export type SearchTermFact = {
 };
 
 export type SearchTermFactsParams = {
+  ad_product?: string;
   date_from?: string;
   date_to?: string;
   campaign_type?: string;
@@ -84,6 +87,7 @@ export const listSearchTermFacts = async (
   const query = new URLSearchParams();
   if (params.date_from) query.set("date_from", params.date_from);
   if (params.date_to) query.set("date_to", params.date_to);
+  if (params.ad_product) query.set("ad_product", params.ad_product);
   if (params.campaign_type) query.set("campaign_type", params.campaign_type);
   if (params.campaign_name_contains) query.set("campaign_name_contains", params.campaign_name_contains);
   if (params.search_term_contains) query.set("search_term_contains", params.search_term_contains);

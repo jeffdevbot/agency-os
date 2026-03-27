@@ -151,7 +151,8 @@ class WBRNightlySyncService:
             self.db.table("wbr_profiles")
             .select(
                 "id, status, windsor_account_id, amazon_ads_profile_id, "
-                "sp_api_auto_sync_enabled, ads_api_auto_sync_enabled, search_term_auto_sync_enabled"
+                "sp_api_auto_sync_enabled, ads_api_auto_sync_enabled, search_term_auto_sync_enabled, "
+                "search_term_sb_auto_sync_enabled, search_term_sd_auto_sync_enabled"
             )
             .eq("status", "active")
             .order("created_at")

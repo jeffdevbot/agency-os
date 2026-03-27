@@ -1,6 +1,6 @@
 # Current Handoffs
 
-_Last updated: 2026-03-26 (ET)_
+_Last updated: 2026-03-27 (ET)_
 
 Use this file to decide which restart/handoff docs are current versus merely
 historical reference.
@@ -51,8 +51,8 @@ historical reference.
      re-auth.
 11. [Search term automation plan](/Users/jeff/code/agency-os/docs/search_term_automation_plan.md)
    - Current phased planning doc for richer catalog context expansion plus the
-     future STR ingestion / AI review / direct Amazon writeback roadmap for the
-     current N-Gram / N-PAT workflow.
+     current STR implementation / AI review / direct Amazon writeback roadmap
+     for the current N-Gram / N-PAT workflow.
 12. [Claude tool budget plan](/Users/jeff/code/agency-os/docs/claude_tool_budget_plan.md)
    - Current sizing reference for the live MCP tool surface, Claude Project
      file bundle, and the recommended safe expansion budget for future analyst
@@ -92,6 +92,51 @@ historical reference.
    - the tracked upgrade follow-up should not require mass re-auth of Amazon
      Ads or Windsor accounts because those credentials are stored in database
      rows
+5. Search Term Automation current state as of 2026-03-27 (ET):
+   - Stage 1 `Search Term Automation` controls are live on
+     `/reports/client-data-access/[clientSlug]`
+   - Stage 2 `Search Term Data` is live on
+     `/reports/search-term-data/[clientSlug]`
+   - STR ingestion was refactored away from inherited WBR campaign-sync
+     assumptions and now uses an Amazon Ads-native contract for the verified
+     `spSearchTerm` path
+   - current supported scope is **Sponsored Products only**; SB / SD remain
+     intentionally unverified / unsupported until their exact report contracts
+     are confirmed
+   - `search_term_daily_facts` now preserves `keyword_id`, `keyword`,
+     `keyword_type`, and `targeting`
+   - STR UI now auto-refreshes every 15 seconds while runs are in `running`
+     state, mirroring the WBR Ads sync experience
+   - post-worker-redeploy live validation is now confirmed on a real Whoosh US
+     Sponsored Products backfill:
+     - three successful chunks covering `2026-03-01` through `2026-03-26`
+     - `search_term_daily_facts` loaded `10,436` SP rows with the expected
+       keyword/targeting shape
+     - a real Amazon Ads Sponsored Products search-term CSV for
+       `2026-03-01` through `2026-03-10` matched the stored DB totals
+       essentially exactly (`410,267` export impressions vs `410,261` in DB;
+       clicks / spend / orders / sales matched)
+   - do not compare STR facts to broader Sponsored Products Campaign Manager
+     totals when validating impressions:
+     - Amazon search-term exports appear to include only search terms that
+       generated at least one click
+     - broader SP console totals can therefore show materially higher
+       impressions than STR facts while clicks / spend / sales still line up
+   - legacy Pacvue "search term report" files can contain mixed `SP`, `SB`,
+     and `SD` rows in one export:
+     - that mixed Pacvue shape is useful for understanding the old workflow
+     - it is **not** evidence that Amazon-native `SP`, `SB`, and `SD` use the
+       same report family or should share one implementation contract
+   - pre-worker-redeploy STR runs remain untrustworthy validation evidence
+6. Supabase MCP local auth restart note:
+   - if Supabase MCP tools are unavailable in a Codex session, run:
+     `codex mcp logout supabase`
+   - then:
+     `codex mcp login supabase`
+   - confirm with:
+     `codex mcp list`
+   - then start a fresh Codex session if the current one still behaves as if
+     Supabase auth is missing
 
 ## Historical/reference docs
 

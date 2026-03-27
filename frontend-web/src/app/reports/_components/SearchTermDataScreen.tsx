@@ -19,6 +19,7 @@ import {
   type SearchTermFact,
   type SearchTermFactsParams,
 } from "../_lib/searchTermDataApi";
+import { LIVE_SEARCH_TERM_AD_PRODUCT } from "../_lib/searchTermProducts";
 
 // ------------------------------------------------------------------
 // Helpers
@@ -415,8 +416,8 @@ export default function SearchTermDataScreen({ clientSlug }: Props) {
       try {
         const token = await getToken();
         const [runs, cov] = await Promise.all([
-          listSearchTermSyncRuns(token, selectedProfile.id),
-          getSearchTermSyncCoverage(token, selectedProfile.id),
+          listSearchTermSyncRuns(token, selectedProfile.id, LIVE_SEARCH_TERM_AD_PRODUCT.amazonAdsAdProduct),
+          getSearchTermSyncCoverage(token, selectedProfile.id, LIVE_SEARCH_TERM_AD_PRODUCT.amazonAdsAdProduct),
         ]);
         setLatestRun(runs[0] ?? null);
         setCoverage(cov);
@@ -450,6 +451,7 @@ export default function SearchTermDataScreen({ clientSlug }: Props) {
 
   const handleApply = useCallback(() => {
     const params: SearchTermFactsParams = {
+      ad_product: LIVE_SEARCH_TERM_AD_PRODUCT.amazonAdsAdProduct ?? undefined,
       date_from: dateFrom || undefined,
       date_to: dateTo || undefined,
       campaign_type: campaignType || undefined,
@@ -475,6 +477,7 @@ export default function SearchTermDataScreen({ clientSlug }: Props) {
     if (selectedProfile && !didInitialLoad && !loadingClient) {
       setDidInitialLoad(true);
       const params: SearchTermFactsParams = {
+        ad_product: LIVE_SEARCH_TERM_AD_PRODUCT.amazonAdsAdProduct ?? undefined,
         date_from: defaultFrom,
         date_to: defaultTo,
         limit: PAGE_SIZE,
@@ -506,7 +509,8 @@ export default function SearchTermDataScreen({ clientSlug }: Props) {
           <h1 className="mt-1 text-2xl font-bold text-[#0f172a]">{clientName}</h1>
           <p className="mt-1 text-sm text-[#4c576f]">
             Inspect Sponsored Products search-term data from Amazon Ads. Use the filters below to
-            slice by date, campaign, or search term.
+            slice by date, campaign, or search term. Sponsored Brands and Sponsored Display are
+            not yet live on this surface.
           </p>
         </div>
         <Link

@@ -7,6 +7,10 @@ import { updateWbrProfile, type WbrProfile } from "../wbr/_lib/wbrApi";
 import type { WbrSyncRun } from "../wbr/_lib/wbrAmazonAdsApi";
 import { useSearchTermSync } from "../_lib/useSearchTermSync";
 import type { ClientMarketplaceReportSurface } from "../_lib/reportSurfaceSummary";
+import {
+  FUTURE_SEARCH_TERM_AD_PRODUCTS,
+  LIVE_SEARCH_TERM_AD_PRODUCT,
+} from "../_lib/searchTermProducts";
 
 const statusClasses: Record<string, string> = {
   running: "border-sky-200 bg-sky-50 text-sky-800",
@@ -58,8 +62,37 @@ type CardProps = {
   onProfileUpdated: () => void;
 };
 
+function FutureAdProductCard({
+  label,
+  summary,
+  availabilityNote,
+}: {
+  label: string;
+  summary: string;
+  availabilityNote: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-[#0f172a]">{label}</p>
+          <p className="mt-1 text-sm text-[#4c576f]">{summary}</p>
+        </div>
+        <span className="inline-flex rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600">
+          Not Yet Verified
+        </span>
+      </div>
+      <p className="mt-3 text-sm text-[#64748b]">{availabilityNote}</p>
+      <p className="mt-2 text-xs text-[#64748b]">
+        Separate latest-run, backfill, daily refresh, and nightly-sync controls will appear here
+        after the native report contract is validated.
+      </p>
+    </div>
+  );
+}
+
 function SearchTermSyncCard({ profile, onProfileUpdated }: CardProps) {
-  const sync = useSearchTermSync(profile);
+  const sync = useSearchTermSync(profile, LIVE_SEARCH_TERM_AD_PRODUCT.amazonAdsAdProduct);
   const supabase = useMemo(() => getBrowserSupabaseClient(), []);
   const [toggleSaving, setToggleSaving] = useState(false);
   const [toggleMessage, setToggleMessage] = useState<string | null>(null);
@@ -116,7 +149,8 @@ function SearchTermSyncCard({ profile, onProfileUpdated }: CardProps) {
               : "border-slate-200 bg-slate-50 text-slate-700"
           }`}
         >
-          Nightly: {profile.search_term_auto_sync_enabled ? "On" : "Off"}
+          {LIVE_SEARCH_TERM_AD_PRODUCT.shortLabel} Nightly:{" "}
+          {profile.search_term_auto_sync_enabled ? "On" : "Off"}
         </span>
       </div>
 
@@ -153,54 +187,73 @@ function SearchTermSyncCard({ profile, onProfileUpdated }: CardProps) {
 
       {/* Latest run */}
       <div className="mt-4 rounded-2xl border border-[#dbe4f0] bg-[#f7faff] p-4">
-        <p className="text-xs font-semibold uppercase tracking-wide text-[#4c576f]">
-          Latest STR Sync Run
-        </p>
-        {sync.loadingRuns ? (
-          <p className="mt-2 text-sm text-[#64748b]">Loading...</p>
-        ) : !sync.latestRun ? (
-          <p className="mt-2 text-sm text-[#64748b]">No STR sync runs yet for this profile.</p>
-        ) : (
-          <div className="mt-2 space-y-2 text-sm">
-            <div className="flex flex-wrap items-center gap-3">
-              <span
-                className={`inline-flex rounded-full border px-2 py-1 text-xs font-semibold ${statusClasses[sync.latestRun.status] ?? ""}`}
-              >
-                {runPhaseLabel(sync.latestRun)}
-              </span>
-              <span className="text-[#4c576f]">{formatTimestamp(sync.latestRun.started_at)}</span>
-              {sync.latestRun.date_from && sync.latestRun.date_to ? (
-                <span className="text-[#4c576f]">
-                  {sync.latestRun.date_from} to {sync.latestRun.date_to}
-                </span>
-              ) : null}
-              <span className="text-[#64748b]">
-                {sync.latestRun.rows_loaded.toLocaleString()} rows loaded
-              </span>
-            </div>
-            <p className="text-[#4c576f]">{runProgressSummary(sync.latestRun)}</p>
-            {runNextPollText(sync.latestRun) ? (
-              <p className="text-xs text-[#64748b]">{runNextPollText(sync.latestRun)}</p>
-            ) : null}
-            {sync.latestRun.error_message ? (
-              <p className="text-sm text-rose-700">{sync.latestRun.error_message}</p>
-            ) : null}
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-[#0f172a]">{LIVE_SEARCH_TERM_AD_PRODUCT.label}</p>
+            <p className="mt-1 text-sm text-[#4c576f]">
+              Validated Amazon-native search-term ingestion path for the current rollout.
+            </p>
           </div>
-        )}
+          <span className="inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800">
+            Live
+          </span>
+        </div>
+
+        <div className="mt-4 rounded-2xl border border-[#dbe4f0] bg-white/70 p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-[#4c576f]">
+            Latest {LIVE_SEARCH_TERM_AD_PRODUCT.label} Sync Run
+          </p>
+          {sync.loadingRuns ? (
+            <p className="mt-2 text-sm text-[#64748b]">Loading...</p>
+          ) : !sync.latestRun ? (
+            <p className="mt-2 text-sm text-[#64748b]">
+              No {LIVE_SEARCH_TERM_AD_PRODUCT.shortLabel} sync runs yet for this profile.
+            </p>
+          ) : (
+            <div className="mt-2 space-y-2 text-sm">
+              <div className="flex flex-wrap items-center gap-3">
+                <span
+                  className={`inline-flex rounded-full border px-2 py-1 text-xs font-semibold ${statusClasses[sync.latestRun.status] ?? ""}`}
+                >
+                  {runPhaseLabel(sync.latestRun)}
+                </span>
+                <span className="text-[#4c576f]">{formatTimestamp(sync.latestRun.started_at)}</span>
+                {sync.latestRun.date_from && sync.latestRun.date_to ? (
+                  <span className="text-[#4c576f]">
+                    {sync.latestRun.date_from} to {sync.latestRun.date_to}
+                  </span>
+                ) : null}
+                <span className="text-[#64748b]">
+                  {sync.latestRun.rows_loaded.toLocaleString()} rows loaded
+                </span>
+              </div>
+              <p className="text-[#4c576f]">{runProgressSummary(sync.latestRun)}</p>
+              {runNextPollText(sync.latestRun) ? (
+                <p className="text-xs text-[#64748b]">{runNextPollText(sync.latestRun)}</p>
+              ) : null}
+              {sync.latestRun.error_message ? (
+                <p className="text-sm text-rose-700">{sync.latestRun.error_message}</p>
+              ) : null}
+            </div>
+          )}
+        </div>
       </div>
 
       {sync.hasRunningRuns ? (
         <p className="mt-3 text-xs font-medium text-[#4c576f]">
-          Auto-refreshing every 15 seconds while STR jobs are still running.
+          Auto-refreshing every 15 seconds while {LIVE_SEARCH_TERM_AD_PRODUCT.shortLabel} STR jobs
+          are still running.
         </p>
       ) : null}
 
       {/* Backfill controls */}
       <div className="mt-4 rounded-2xl border border-slate-200 p-4">
-        <p className="text-sm font-semibold text-[#0f172a]">Backfill</p>
+        <p className="text-sm font-semibold text-[#0f172a]">
+          {LIVE_SEARCH_TERM_AD_PRODUCT.label} Backfill
+        </p>
         <p className="mt-1 text-sm text-[#4c576f]">
-          Import STR data for a date range. Amazon Ads retains approximately{" "}
-          {sync.observedRetentionDays} days.
+          Import {LIVE_SEARCH_TERM_AD_PRODUCT.label} STR data for a date range. Amazon Ads retains
+          approximately {sync.observedRetentionDays} days.
         </p>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           <label className="text-sm">
@@ -229,7 +282,9 @@ function SearchTermSyncCard({ profile, onProfileUpdated }: CardProps) {
           disabled={!hasAdsProfile || isBusy}
           className="mt-3 rounded-2xl bg-[#0a6fd6] px-4 py-3 text-sm font-semibold text-white shadow-[0_15px_30px_rgba(10,111,214,0.35)] transition hover:bg-[#0959ab] disabled:cursor-not-allowed disabled:bg-[#b7cbea]"
         >
-          {sync.runningBackfill ? "Running Backfill..." : "Run Backfill"}
+          {sync.runningBackfill
+            ? `Running ${LIVE_SEARCH_TERM_AD_PRODUCT.shortLabel} Backfill...`
+            : `Run ${LIVE_SEARCH_TERM_AD_PRODUCT.shortLabel} Backfill`}
         </button>
       </div>
 
@@ -240,7 +295,9 @@ function SearchTermSyncCard({ profile, onProfileUpdated }: CardProps) {
           disabled={!hasAdsProfile || isBusy}
           className="rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-[#0a6fd6] shadow transition hover:-translate-y-0.5 hover:shadow-lg disabled:cursor-not-allowed disabled:text-slate-400"
         >
-          {sync.runningDailyRefresh ? "Running Refresh..." : "Run Daily Refresh Now"}
+          {sync.runningDailyRefresh
+            ? `Running ${LIVE_SEARCH_TERM_AD_PRODUCT.shortLabel} Refresh...`
+            : `Run ${LIVE_SEARCH_TERM_AD_PRODUCT.shortLabel} Daily Refresh`}
         </button>
         <button
           onClick={() => void handleToggleNightlySync()}
@@ -250,9 +307,20 @@ function SearchTermSyncCard({ profile, onProfileUpdated }: CardProps) {
           {toggleSaving
             ? "Saving..."
             : profile.search_term_auto_sync_enabled
-              ? "Disable Nightly Sync"
-              : "Enable Nightly Sync"}
+              ? `Disable ${LIVE_SEARCH_TERM_AD_PRODUCT.shortLabel} Nightly Sync`
+              : `Enable ${LIVE_SEARCH_TERM_AD_PRODUCT.shortLabel} Nightly Sync`}
         </button>
+      </div>
+
+      <div className="mt-5 grid gap-3 lg:grid-cols-2">
+        {FUTURE_SEARCH_TERM_AD_PRODUCTS.map((product) => (
+          <FutureAdProductCard
+            key={product.key}
+            label={product.label}
+            summary={product.summary}
+            availabilityNote={product.availabilityNote}
+          />
+        ))}
       </div>
     </div>
   );
@@ -276,10 +344,10 @@ export default function SearchTermSyncSection({ clientSlug, marketplaces, loadin
             Search Term Automation
           </p>
           <p className="mt-2 max-w-2xl text-sm text-[#4c576f]">
-            Setup and sync control surface for Sponsored Products search-term ingestion from
-            Amazon Ads. This controls what data is collected — the Search Term Data inspection
-            surface and action tools come in later stages. STR sync is separate from the
-            existing Ads campaign sync.
+            Setup and sync control surface for Amazon Ads search-term ingestion by ad product.
+            Sponsored Products is the current validated live path. Sponsored Brands and
+            Sponsored Display remain separate future lanes until their native contracts are
+            verified. STR sync is separate from the existing Ads campaign sync.
           </p>
         </div>
         <Link
@@ -297,20 +365,18 @@ export default function SearchTermSyncSection({ clientSlug, marketplaces, loadin
         </p>
         <div className="mt-3 space-y-2 text-sm text-[#4c576f]">
           <p>
-            <span className="font-semibold text-[#0f172a]">Backfill:</span> Imports Sponsored
-            Products search-term data across a custom date range using the Amazon Ads API.
-            Observed retention is approximately 60 days — deeper history still requires a
-            Pacvue export.
+            <span className="font-semibold text-[#0f172a]">Sponsored Products:</span> The
+            current live controls below are for the validated SP search-term path only.
           </p>
           <p>
-            <span className="font-semibold text-[#0f172a]">Daily Refresh:</span> Imports the
-            trailing window for recent days. Use this to top-up after a gap without running a
-            full backfill.
+            <span className="font-semibold text-[#0f172a]">Backfill:</span> Imports SP
+            search-term data across a custom date range using the Amazon Ads API. Observed
+            retention is approximately 60 days — deeper history still requires a Pacvue export.
           </p>
           <p>
-            <span className="font-semibold text-[#0f172a]">Nightly Sync:</span> Enables
-            worker-sync to run a daily refresh automatically each night. This is independent of
-            the WBR Ads campaign sync — both can be enabled without interfering.
+            <span className="font-semibold text-[#0f172a]">Daily Refresh / Nightly Sync:</span>{" "}
+            The current refresh controls are SP-only. Future SB and SD controls will appear as
+            separate operational sections once their native report contracts are validated.
           </p>
         </div>
       </div>

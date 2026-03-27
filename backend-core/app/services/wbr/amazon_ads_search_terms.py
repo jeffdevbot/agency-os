@@ -72,6 +72,8 @@ STR_SP_OBSERVED_RETENTION_DAYS = 60
 @dataclass(frozen=True)
 class SearchTermDailyFact:
     report_date: date
+    ad_product: str | None
+    report_type_id: str | None
     campaign_type: str
     campaign_id: str | None
     campaign_name: str
@@ -96,6 +98,8 @@ class SearchTermDailyFact:
 
 class AmazonAdsSearchTermSyncService(AmazonAdsSyncService):
     source_type = "amazon_ads_search_terms"
+    primary_ad_product = "SPONSORED_PRODUCTS"
+    primary_report_type_id = "spSearchTerm"
 
     def list_sync_runs(self, profile_id: str, *, source_type: str = source_type) -> list[dict[str, Any]]:
         return super().list_sync_runs(profile_id, source_type=source_type)
@@ -141,6 +145,8 @@ class AmazonAdsSearchTermSyncService(AmazonAdsSyncService):
             date_to=date_to,
             request_meta={
                 "amazon_ads_profile_id": amazon_ads_profile_id,
+                "ad_product": self.primary_ad_product,
+                "report_type_id": self.primary_report_type_id,
                 "report_definitions": [
                     {
                         "ad_product": definition.ad_product,
@@ -156,6 +162,10 @@ class AmazonAdsSearchTermSyncService(AmazonAdsSyncService):
                 "report_jobs": report_jobs,
                 "report_progress": self._build_report_progress(report_jobs),
                 "queued_at": queued_at,
+            },
+            extra_payload={
+                "ad_product": self.primary_ad_product,
+                "report_type_id": self.primary_report_type_id,
             },
             user_id=user_id,
         )
@@ -233,7 +243,7 @@ class AmazonAdsSearchTermSyncService(AmazonAdsSyncService):
         #     expressions are also stored as separate rows
         # Both match Amazon report semantics for spSearchTerm.
         by_key: dict[
-            tuple[date, str, str, str | None, str | None, str | None, str, str | None],
+            tuple[date, str | None, str, str, str | None, str | None, str | None, str, str | None],
             SearchTermDailyFact,
         ] = {}
 
@@ -250,6 +260,8 @@ class AmazonAdsSearchTermSyncService(AmazonAdsSyncService):
                 raise WBRValidationError(f'Invalid Amazon Ads report date "{date_text}"') from exc
 
             campaign_type = str(row.get("__campaign_type") or "sponsored_products").strip() or "sponsored_products"
+            ad_product = str(row.get("__ad_product") or "").strip() or None
+            report_type_id = str(row.get("__report_type_id") or "").strip() or None
             campaign_id = self._extract_campaign_id(row)
             ad_group_id = self._extract_ad_group_id(row)
             ad_group_name = self._extract_ad_group_name(row)
@@ -271,6 +283,8 @@ class AmazonAdsSearchTermSyncService(AmazonAdsSyncService):
             campaign_head, campaign_parts = self._parse_campaign_name_context(campaign_name)
             fact = SearchTermDailyFact(
                 report_date=report_date,
+                ad_product=ad_product,
+                report_type_id=report_type_id,
                 campaign_type=campaign_type,
                 campaign_id=campaign_id,
                 campaign_name=campaign_name,
@@ -316,6 +330,7 @@ class AmazonAdsSearchTermSyncService(AmazonAdsSyncService):
 
             key = (
                 report_date,
+                ad_product,
                 campaign_type,
                 campaign_name,
                 ad_group_name,
@@ -344,6 +359,8 @@ class AmazonAdsSearchTermSyncService(AmazonAdsSyncService):
             }
             by_key[key] = SearchTermDailyFact(
                 report_date=existing.report_date,
+                ad_product=self._merge_optional_text(existing.ad_product, fact.ad_product),
+                report_type_id=self._merge_optional_text(existing.report_type_id, fact.report_type_id),
                 campaign_type=existing.campaign_type,
                 campaign_id=self._merge_optional_id(existing.campaign_id, fact.campaign_id),
                 campaign_name=existing.campaign_name,
@@ -403,6 +420,8 @@ class AmazonAdsSearchTermSyncService(AmazonAdsSyncService):
                 "profile_id": profile_id,
                 "sync_run_id": sync_run_id,
                 "report_date": fact.report_date.isoformat(),
+                "ad_product": fact.ad_product,
+                "report_type_id": fact.report_type_id,
                 "campaign_type": fact.campaign_type,
                 "campaign_id": fact.campaign_id,
                 "campaign_name": fact.campaign_name,

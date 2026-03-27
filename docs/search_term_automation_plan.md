@@ -50,6 +50,17 @@ The existing file-based tools already have a clean processing split:
    - `SDI`
    - `SDV`
 
+Important clarification about the legacy file source:
+
+1. the current Pacvue-export workflow is a unified analyst-facing report shape,
+   not proof of one-to-one Amazon-native report-family parity
+2. a Pacvue "search term report" can contain mixed `SP`, `SB`, and `SD` rows
+   in one file
+3. this does **not** prove that Amazon exposes `SP`, `SB`, and `SD` through
+   the same native report family or contract
+4. future native ingestion should therefore validate each ad product against
+   Amazon's own report contracts, not infer support from the Pacvue export
+
 ### What is missing today
 
 The manual workflow still depends on:
@@ -569,6 +580,9 @@ Important note:
 4. if one ad type requires an adjacent report instead of the exact same
    search-term grain, that should still count toward eventual product scope
 5. unsupported ad products should fail clearly, not masquerade as supported
+6. the current Pacvue mixed export should be treated as a legacy convenience
+   layer, not as evidence that Amazon-native `SB` and `SD` support can be
+   implemented by copying the `SP` contract
 
 ### Suggested data model
 
@@ -723,6 +737,11 @@ Recommended responsibilities:
 4. display filterable imported search-term facts
 5. make it easy to spot obvious ingestion/report-shape issues
 6. make it obvious which report families / ad products are actually supported
+7. make the currently supported ad product explicit in the setup/sync surface:
+   - the existing live controls should be labeled as `Sponsored Products`
+   - future `Sponsored Brands` / `Sponsored Display` controls should appear as
+     separate ad-product sections, not as silent behavior hidden behind the
+     same generic STR label
 
 Recommended non-goals:
 
@@ -869,14 +888,16 @@ Recommended order:
 3. refactor STR ingestion into an Amazon Ads-native report-contract system
 4. rebuild Phase 1 on documented SP search-term support
 5. Stage 2 `Search Term Data` under `reports`
-6. Phase 1 adjacent Amazon-native context ingestion:
+6. validate and add `Sponsored Brands` support only after the real report
+   contract is proven
+7. validate and add `Sponsored Display` support only after the real report
+   contract is proven
+8. Phase 1 adjacent Amazon-native context ingestion:
    - `Advertised product`
    - `Targeting`
    - `Purchased product`
-7. expand ad-product support only where the official report contracts are
-   verified
-8. Stage 3 recommendation/action tools
-9. Phase 4 direct Amazon writeback
+9. Stage 3 recommendation/action tools
+10. Phase 4 direct Amazon writeback
 
 ## What should stay untouched for now
 
@@ -903,59 +924,154 @@ Those are the safety net during rollout.
 
 ## Recommended next implementation slice
 
-Stage 1 UI is shipped (2026-03-27) and Stage 2 `Search Term Data` is now
-shipped as well.
+Current shipped state as of 2026-03-27 (ET):
 
-Current shipped surfaces:
-
-1. `Client Data Access` / `Search Term Automation`
-   - per-marketplace WBR profile cards with:
-   - latest STR sync run status
-   - backfill date-range controls + Run Backfill button
-   - Run Daily Refresh Now button
-   - Enable/Disable Nightly Sync toggle (bound to `search_term_auto_sync_enabled`)
-2. `Search Term Data`
-   - latest sync state
-   - coverage
-   - profile/date/type/text filters
-   - raw fact inspection without SQL
-
-However, the current ingestion implementation needs a refactor before it should
-be treated as trusted.
-
-Reason:
-
-1. the initial STR ingestion path reused campaign-sync assumptions from WBR
-2. the first live run failed because `spSearchTerm` requires
-   `groupBy=["searchTerm"]`, while the inherited implementation sent
-   `groupBy=["campaign"]`
-3. SB / SD support was also assumed before the official contract was verified
-
-The next active build slice should therefore be:
-
-1. refactor STR ingestion away from WBR campaign-sync abstractions
-2. introduce explicit per-report Amazon Ads contracts:
-   - `reportTypeId`
-   - `adProduct`
-   - `groupBy`
-   - `columns`
-   - `filters`
-   - `timeUnit`
-   - retention/window rules
-3. rebuild the Phase 1 path around documented `spSearchTerm` support first
-4. update the schema/model to preserve:
-   - `keyword_type`
-   - `keyword`
+1. Stage 1 `Search Term Automation` is live in `Client Data Access`
+2. Stage 2 `Search Term Data` is live under `reports`
+3. the STR ingestion layer has been refactored away from inherited WBR
+   campaign-sync assumptions
+4. the current verified implementation target is Sponsored Products
+   `spSearchTerm`
+5. persisted STR facts now preserve:
    - `keyword_id`
+   - `keyword`
+   - `keyword_type`
    - `targeting`
-5. update Stage 1/2 UI copy so support scope and retention claims match the
-   real Amazon contract
-6. treat SB / SD as unverified / unsupported until the exact official contract
-   is confirmed
+6. STR sync UI now auto-refreshes every 15 seconds while jobs are still
+   running and surfaces worker polling progress
+
+Live validation result:
+
+1. a real Sponsored Products STR backfill completed successfully after the
+   worker-sync redeploy
+2. `Search Term Data` now shows real SP coverage for Whoosh US across
+   `2026-03-01` through `2026-03-26`
+3. the stored row shape is now validated as trustworthy enough to support
+   Stage 3 tools
+4. live stored facts matched a real Amazon Ads Sponsored Products search-term
+   CSV for `2026-03-01` through `2026-03-10` at effectively exact totals:
+   - export: `410,267` impressions, `5,382` clicks, `$7,395.89` spend,
+     `1,701` orders, `$31,347.02` sales
+   - DB: `410,261` impressions, `5,382` clicks, `$7,395.89` spend,
+     `1,701` purchases, `$31,347.02` sales
+5. the remaining broader-console impression discrepancy was resolved as a
+   validation-surface mismatch, not an ingestion bug:
+   - compare STR facts to Amazon `Search term` exports
+   - do not compare STR facts to broader Sponsored Products Campaign Manager
+     totals
+   - impression-only queries can exist in broader SP totals without appearing
+     in the search-term export, while clicks / spend / sales remain aligned
+
+Important note:
+
+1. do not treat STR runs queued before the worker-sync redeploy as valid
+   evidence for the refactored implementation
+2. current supported scope remains **Sponsored Products only**
+3. SB / SD remain intentionally unverified / unsupported until their exact
+   report contracts are confirmed
+
+If live validation succeeds, the next active build slice should be:
+
+1. keep the current validated SP path stable and clearly label it as
+   `Sponsored Products` in the setup/sync surface
+2. run a narrow `Sponsored Brands` report-contract validation slice:
+   - confirm the exact Amazon report family / `reportTypeId`
+   - confirm allowed `groupBy`
+   - confirm allowed columns
+   - confirm download payload field names and row grain
+   - validate a real SB export against stored DB totals on one live account
+3. only after SB is proven, run the same validation slice for
+   `Sponsored Display`
+4. add each ad product as its own operational sync area:
+   - separate latest run state
+   - separate backfill action
+   - separate daily refresh action
+   - separate nightly toggle
+5. keep unsupported ad products visibly disabled / unverified rather than
+   pretending the generic STR controls cover all ad products
+6. only once SP + desired additional ad products are validated, define the
+   first Stage 3 action tool on top of the trusted corpus
 
 That sequence keeps the rollout understandable:
 
-1. first control the ingestion ✓
-2. then inspect the data ✓
-3. then correct the ingestion boundary so the data is truly trustworthy
-4. then build action tools on top of trusted data
+1. control the ingestion ✓
+2. inspect the data ✓
+3. validate the live Amazon-native pipeline in a real account ✓
+4. validate additional ad products one by one ⏳
+5. then build action tools on top of trusted data
+
+## SB / SD validation plan
+
+### Goal
+
+Expand beyond Sponsored Products without repeating the original mistake of
+assuming ad-product parity.
+
+### Principles
+
+1. treat `SB` and `SD` as separate Amazon report-contract projects
+2. do not infer their contract from `SP`
+3. do not enable their sync controls just because the UI already exists
+4. validate each one against a real export before claiming support
+
+### Sponsored Brands plan
+
+1. identify the exact Amazon Ads report family intended to represent SB search
+   term performance for this workflow
+2. confirm the live request contract:
+   - `adProduct`
+   - `reportTypeId`
+   - `groupBy`
+   - allowed `columns`
+   - retention/window behavior
+3. run a minimal API smoke test against one live profile with real SB activity
+4. inspect the raw payload and confirm whether the returned grain matches the
+   planned fact model or requires ad-product-specific handling
+5. if the payload is compatible, add SB ingestion as a separate report
+   definition and sync path
+6. backfill one narrow live date window and validate against an Amazon SB
+   search-term export
+7. only then mark SB as supported and enable its controls
+
+### Sponsored Display plan
+
+1. repeat the same contract-validation path independently for SD
+2. assume the highest chance of shape/semantic drift:
+   - target semantics may differ
+   - the closest useful report may not map 1:1 to SP/SB search-term grain
+3. if SD requires adjacent-but-not-identical facts, model that explicitly
+   instead of forcing it into the SP mental model
+4. validate one live SD export against stored results before enabling support
+
+### Pacvue parity note
+
+The legacy Pacvue export can still be a useful parity target, but only with
+careful interpretation:
+
+1. a mixed Pacvue "search term report" may contain `SP`, `SB`, and `SD` rows
+   in one file
+2. for `SP` and likely `SB`, native Amazon search-term reporting is the
+   intended replacement path
+3. for `SD`, parity may require a reconstruction from different Amazon-native
+   report families such as `matched target` and/or `targeting`
+4. therefore "match the Pacvue file eventually" is still a valid product goal,
+   but it should not collapse the implementation plan into a false assumption
+   of identical native report contracts
+
+### UI/ops implication after validation
+
+Once an ad product is validated, the sync surface should expose it separately
+under each marketplace:
+
+1. `Sponsored Products`
+2. `Sponsored Brands`
+3. `Sponsored Display`
+
+Each section should own:
+
+1. its own latest run card
+2. its own backfill controls
+3. its own run-daily-refresh action
+4. its own nightly sync toggle
+
+This keeps operational truth aligned with the actual Amazon report contracts.

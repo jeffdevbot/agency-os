@@ -31,7 +31,7 @@ const previousDay = (today: Date): Date => {
   return prev;
 };
 
-export function useSearchTermSync(profile: WbrProfile | null) {
+export function useSearchTermSync(profile: WbrProfile | null, adProduct: string | null = null) {
   const supabase = useMemo(() => getBrowserSupabaseClient(), []);
   const today = useMemo(() => new Date(), []);
   const todayIso = useMemo(() => formatDateInput(today), [today]);
@@ -88,7 +88,7 @@ export function useSearchTermSync(profile: WbrProfile | null) {
 
       try {
         const token = await getAccessToken();
-        const nextRuns = await listSearchTermSyncRuns(token, profile.id);
+        const nextRuns = await listSearchTermSyncRuns(token, profile.id, adProduct);
         setRuns(nextRuns);
       } catch (error) {
         setRuns([]);
@@ -103,7 +103,7 @@ export function useSearchTermSync(profile: WbrProfile | null) {
         }
       }
     },
-    [getAccessToken, profile],
+    [adProduct, getAccessToken, profile],
   );
 
   useEffect(() => {

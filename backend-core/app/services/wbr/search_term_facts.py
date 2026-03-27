@@ -5,7 +5,7 @@ from typing import Any
 from supabase import Client
 
 _SELECT_COLUMNS = (
-    "id,report_date,campaign_type,campaign_name,campaign_name_head,"
+    "id,report_date,ad_product,report_type_id,campaign_type,campaign_name,campaign_name_head,"
     "ad_group_name,keyword_id,keyword,keyword_type,targeting,"
     "search_term,match_type,impressions,clicks,spend,"
     "orders,sales,currency_code"
@@ -23,6 +23,7 @@ class SearchTermFactsService:
         self,
         profile_id: str,
         *,
+        ad_product: str | None = None,
         date_from: str | None = None,
         date_to: str | None = None,
         campaign_type: str | None = None,
@@ -47,6 +48,8 @@ class SearchTermFactsService:
             query = query.gte("report_date", date_from)
         if date_to:
             query = query.lte("report_date", date_to)
+        if ad_product:
+            query = query.eq("ad_product", ad_product)
         if campaign_type:
             query = query.eq("campaign_type", campaign_type)
         if campaign_name_contains:

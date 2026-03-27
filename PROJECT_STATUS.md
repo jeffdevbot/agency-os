@@ -1,10 +1,15 @@
 # Changelog — Ecomlabs Tools
 
-_Last updated: 2026-03-25 (ET)_
+_Last updated: 2026-03-27 (ET)_
 
 > Development history for the project. For setup instructions and project overview, see [AGENTS.md](AGENTS.md).
 
 ---
+
+## 2026-03-27 (ET)
+- **Search Term Automation SP-only ingestion is now live-validated end to end:** A real post-worker-redeploy Sponsored Products backfill for Whoosh US completed successfully across three chunks covering `2026-03-01` through `2026-03-26`, and `search_term_daily_facts` now holds `10,436` stored SP rows for that account with the Amazon-native keyword dimensions preserved.
+- **The new STR row shape is confirmed against a real Amazon export, not just internal expectations:** A Whoosh US Amazon Ads Sponsored Products search-term CSV for `2026-03-01` through `2026-03-10` matched the stored DB totals essentially exactly (`410,267` export impressions vs `410,261` in DB, with clicks / spend / orders / sales matching), validating both the ingestion contract and the new dedup key that preserves distinct `keyword_id` / `targeting` rows.
+- **The remaining STR impression discrepancy was explained and is not a pipeline bug:** Broader Sponsored Products Campaign Manager totals can show materially higher impressions than the search-term export because Amazon’s search-term reporting surface appears limited to search terms that generated at least one click. Future STR validation should therefore compare against Amazon `Search term` exports, not broader SP console totals.
 
 ## 2026-03-25 (ET)
 - **Claude/Agency OS ClickUp MCP can now edit existing mapped tasks, not just inspect or create them:** Added `update_clickup_task` to the shared Claude tool belt so the pilot surface can safely fetch a mapped task by id/URL, scope-check it against allowed Agency OS backlog destinations, and update title, description, or assignee through the same local assignee-resolution rules already used for creates.
