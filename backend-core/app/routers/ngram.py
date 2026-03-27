@@ -16,8 +16,7 @@ from ..config import settings
 from ..usage_logging import usage_logger
 from ..services.ngram import (
     read_backview_path,
-    build_ngram,
-    derive_category,
+    build_campaign_items,
     build_workbook,
     NativeNgramWorkbookService,
 )
@@ -87,47 +86,8 @@ async def process_report(
 
     os.unlink(tmp_path)
 
-    campaign_items = []
-    for camp, sub in df.groupby("Campaign Name"):
-        cname = str(camp)
-        if any(x in cname for x in ["Ex.", "SDI", "SDV"]):
-            continue
-
-        category_raw, category_key, cat_notes = derive_category(cname)
-
-        mono = build_ngram(sub, 1)
-        bi = build_ngram(sub, 2)
-        tri = build_ngram(sub, 3)
-
-        raw = sub.rename(columns={"Query": "Search Term"})[
-            ["Search Term", "Impression", "Click", "Spend", "Order 14d", "Sales 14d"]
-        ].copy()
-        raw["NE/NP"] = ""
-        raw["Comments"] = ""
-        raw = raw.sort_values(["Click", "Sales 14d"], ascending=[False, False]).reset_index(drop=True)
-
-        notes = list(cat_notes)
-        if mono.empty:
-            notes.append("Monogram table has no rows.")
-        if bi.empty:
-            notes.append("Bigram table has no rows.")
-        if tri.empty:
-            notes.append("Trigram table has no rows.")
-        if raw.empty:
-            notes.append("Search Term table has no rows.")
-
-        campaign_items.append(
-            {
-                "campaign_name": cname,
-                "category_raw": category_raw,
-                "category_key": category_key,
-                "mono": mono,
-                "bi": bi,
-                "tri": tri,
-                "raw": raw,
-                "notes": notes,
-            }
-        )
+    build_result = build_campaign_items(df, respect_legacy_exclusions=True)
+    campaign_items = build_result.campaign_items
 
     if not campaign_items:
         raise HTTPException(status_code=400, detail="No eligible campaigns after filters (Ex./SD*).")
