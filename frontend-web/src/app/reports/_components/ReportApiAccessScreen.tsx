@@ -23,6 +23,7 @@ import {
   slugifyClientName,
   type ClientReportSurfaceSummary,
 } from "../_lib/reportClientData";
+import SearchTermSyncSection from "./SearchTermSyncSection";
 
 const formatTimestamp = (value: string | null): string => {
   if (!value) return "Not recorded";
@@ -815,6 +816,12 @@ export default function ReportApiAccessScreen({ clientSlug }: Props) {
             })
           )}
         </section>
+
+        <SearchTermSyncSection
+          marketplaces={clientSummary?.marketplaces ?? []}
+          loading={loading}
+          onProfileUpdated={() => void loadSummaries()}
+        />
       </div>
     </main>
   );

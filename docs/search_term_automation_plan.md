@@ -11,12 +11,23 @@ This plan covers:
 
 1. richer catalog context ingestion needed for AI-quality recommendations
 2. STR ingestion from Amazon Ads-connected data
-3. AI-assisted recommendation and review
+3. a staged operator-facing rollout:
+   - setup controls
+   - Search Term Data inspection
+   - later action tools
 4. eventual direct writeback to Amazon with explicit approval and audit
 
 It does **not** assume the existing `/ngram` and `/npat` routes should be
 rewired in place. The preferred product direction is a new surface that can
 ship alongside the legacy upload flow until the replacement is trusted.
+
+It also does **not** assume every STR-related surface is a "tool".
+
+The rollout should distinguish clearly between:
+
+1. operational setup/control surfaces
+2. data inspection surfaces
+3. true action/workflow tools
 
 ## Current state
 
@@ -172,6 +183,92 @@ Treat this as a new workflow with four layers:
 4. execution layer
 
 The catalog context layer is the dependency for the rest of the roadmap.
+
+## Product staging plan
+
+### Stage 1: Setup + sync controls
+
+Purpose:
+
+1. let an operator enable and control STR ingestion per client
+2. keep setup close to the existing ingestion/admin surfaces
+3. make backfill and nightly behavior explicit and user-controlled
+
+Recommended location:
+
+1. `Client Data Access`
+2. specifically the per-client surface, not a global all-client status page
+
+Recommended Stage 1 responsibilities:
+
+1. show STR connection/readiness state for the client
+2. allow manual backfill by date range
+3. allow "run daily refresh now"
+4. allow enabling/disabling nightly STR sync
+5. show latest STR sync run status
+6. link forward to the Search Term Data surface
+
+Important note:
+
+1. this is not the eventual replacement for N-Gram / N-PAT
+2. this is an operational setup/control surface
+
+### Stage 2: Search Term Data
+
+Purpose:
+
+1. give operators a place to verify that STR ingestion worked
+2. inspect the imported data before any action tools depend on it
+3. provide coverage/status confidence during rollout
+
+Recommended location:
+
+1. under `reports`
+2. recommended name: `Search Term Data`
+
+Recommended Stage 2 responsibilities:
+
+1. show ingestion status
+2. show coverage window
+3. show latest sync runs / failures
+4. show row counts and simple health checks
+5. allow filters by:
+   - profile / marketplace
+   - date range
+   - campaign type
+   - campaign name
+   - search term
+6. show lightweight row inspection for QA
+
+Important note:
+
+1. this is not a classic dashboard like WBR or PnL
+2. this is a data inspection / verification surface
+3. it is also not yet a decisioning tool
+
+### Stage 3: Action tools
+
+Purpose:
+
+1. turn the ingested/searchable STR corpus into workflows that produce decisions
+2. replace or supersede legacy N-Gram / N-PAT behaviors with better tooling
+
+Recommended location:
+
+1. separate routes/tools
+2. not inside `reports`
+
+Examples:
+
+1. a new N-Gram successor
+2. a new N-PAT successor
+3. future search-term recommendation / review tools
+
+Important note:
+
+1. these are true product tools
+2. they should have their own names and workflow identity
+3. they should consume Stage 1/2 data plumbing, not be mixed into setup pages
 
 ## Dependency Phase: Higher-value catalog context expansion
 
@@ -357,14 +454,17 @@ Lower priority for this roadmap:
 
 ### Product shape
 
-Build a new search-term workspace entrypoint rather than mutating the current
-legacy `/ngram` and `/npat` flow.
+Do **not** start by building a single monolithic "search-term workspace".
+
+Instead, stage the rollout by surface type.
 
 Current recommendation:
 
 1. keep `/ngram` and `/npat` working exactly as they are
-2. build a new reports/automation surface for imported STR data
-3. allow fallback to legacy file upload during rollout
+2. build Stage 1 setup/sync controls in `Client Data Access`
+3. build Stage 2 `Search Term Data` under `reports`
+4. build Stage 3 action tools separately from `reports`
+5. allow fallback to legacy file upload during rollout
 
 ### Phase 1 outputs
 
@@ -507,12 +607,58 @@ So Phase 1 should assume:
 2. parity sample checks against Pacvue export are within agreed tolerance
 3. import pipeline is stable enough to run without analyst file export
 
-## Phase 2: AI recommendation + review workspace
+## Phase 2: Search Term Data surface
 
 ### Goal
 
-Turn the current “analyst reads workbook and decides negatives” step into a
-review-first workflow where AI proposes candidates and the human approves them.
+Provide a lightweight operational/data inspection surface that proves the STR
+pipeline is healthy before action tooling depends on it.
+
+### Surface shape
+
+This should be a `reports` surface, not a standalone workflow tool.
+
+Recommended name:
+
+1. `Search Term Data`
+
+Recommended responsibilities:
+
+1. display latest sync state
+2. display sync coverage
+3. display row counts and sample rows
+4. display filterable imported search-term facts
+5. make it easy to spot obvious ingestion/report-shape issues
+
+Recommended non-goals:
+
+1. do not turn this into an AI recommendation workspace yet
+2. do not turn this into a WBR/PnL-style dashboard
+3. do not add publish/writeback actions here
+
+### Acceptance criteria
+
+1. an operator can confirm data landed correctly without using SQL
+2. sync failures and coverage gaps are visible
+3. the surface is useful for QA during rollout without pretending to be a full tool
+
+## Phase 3: Recommendation + review tools
+
+### Goal
+
+Turn the current “analyst reads workbook and decides negatives” step into
+dedicated action tools where AI and deterministic logic propose candidates and
+the human approves them.
+
+### Product shape
+
+These should be separate tools, not `reports` pages.
+
+Examples:
+
+1. a new N-Gram successor
+2. a new N-PAT successor
+3. other targeted search-term action tools as the corpus matures
 
 ### Inputs to the model/recommendation layer
 
@@ -580,7 +726,7 @@ Examples:
 2. low-confidence cases are obvious, not hidden
 3. the review surface is trusted enough to replace most manual triage
 
-## Phase 3: Direct Amazon writeback with approval/audit
+## Phase 4: Direct Amazon writeback with approval/audit
 
 ### Goal
 
@@ -625,13 +771,15 @@ Suggested working tables:
 Recommended order:
 
 1. dependency phase: richer catalog context expansion
-2. Phase 1 STR ingestion with campaign-name parsing and SP / SB / SD coverage
-3. Phase 1 adjacent Amazon-native context ingestion:
+2. Stage 1 setup/sync controls in `Client Data Access`
+3. Phase 1 STR ingestion with campaign-name parsing and SP / SB / SD coverage
+4. Stage 2 `Search Term Data` under `reports`
+5. Phase 1 adjacent Amazon-native context ingestion:
    - `Advertised product`
    - `Targeting`
    - `Purchased product`
-4. Phase 2 recommendation + review workspace
-5. Phase 3 direct Amazon writeback
+6. Stage 3 recommendation/action tools
+7. Phase 4 direct Amazon writeback
 
 ## What should stay untouched for now
 
@@ -654,24 +802,30 @@ Those are the safety net during rollout.
 
 ## Recommended next implementation slice
 
-The next active build slice should be the dependency phase, not direct STR
-ingestion by itself.
+Stage 1 UI is now shipped (2026-03-27).
+
+The `Search Term Automation` section is live on the per-client Client Data Access page
+(`/reports/client-data-access/[clientSlug]`). It includes:
+
+1. Per-marketplace WBR profile cards with:
+   - latest STR sync run status
+   - backfill date-range controls + Run Backfill button
+   - Run Daily Refresh Now button
+   - Enable/Disable Nightly Sync toggle (bound to `search_term_auto_sync_enabled`)
+2. Guidance block (what backfill / daily refresh / nightly sync each do)
+3. Disabled "Open Search Term Data" forward link pointing to Stage 2
+
+The next active build slice should be Stage 2: `Search Term Data` under `reports`.
 
 Specifically:
 
-1. use the completed live `raw_payload` audit to finalize promoted catalog
-   fields:
-   - promote `status`, `price`, `quantity`, `merchant_shipping_group`, and
-     `item_condition`
-   - keep `item_description` optional / nullable
-   - do not promote `image_url`, `item_note`, or `browse_path` yet
-2. expand WBR listing ingestion into richer structured catalog context
-3. lock the Phase 1 STR schema around the decided MVP grain:
-   - campaign + search term natural key
-   - nullable `ad_group_id` / `ad_group_name` columns for forward compatibility
-4. build the first STR ingestion slice around:
-   - campaign-name parsing for MVP context
-   - explicit SP / SB / SD coverage goals
-   - Amazon-native context reports as the next strengthening layer
+1. build `Search Term Data` as a new surface under `reports`
+2. show ingestion status, coverage window, row counts, sample rows
+3. allow filters by profile / date range / campaign type / search term
+4. make it easy to spot ingestion issues without SQL
 
-That sequence reduces rework in the later AI recommendation phase.
+That sequence keeps the rollout understandable:
+
+1. first control the ingestion ✓ (Stage 1 shipped)
+2. then inspect the data (Stage 2 next)
+3. then build action tools on top of trusted data

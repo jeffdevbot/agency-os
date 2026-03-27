@@ -18,6 +18,7 @@ export type WbrProfile = {
   daily_rewrite_days: number;
   sp_api_auto_sync_enabled: boolean;
   ads_api_auto_sync_enabled: boolean;
+  search_term_auto_sync_enabled: boolean;
   created_at: string | null;
   updated_at: string | null;
 };
@@ -131,6 +132,7 @@ export type UpdateWbrProfileRequest = {
   daily_rewrite_days?: number | null;
   sp_api_auto_sync_enabled?: boolean | null;
   ads_api_auto_sync_enabled?: boolean | null;
+  search_term_auto_sync_enabled?: boolean | null;
 };
 
 export type CreateWbrRowRequest = {
@@ -233,6 +235,7 @@ const parseProfile = (value: unknown): WbrProfile => {
     daily_rewrite_days: asNumber(value.daily_rewrite_days),
     sp_api_auto_sync_enabled: asBoolean(value.sp_api_auto_sync_enabled),
     ads_api_auto_sync_enabled: asBoolean(value.ads_api_auto_sync_enabled),
+    search_term_auto_sync_enabled: asBoolean(value.search_term_auto_sync_enabled),
     created_at: asNullableString(value.created_at),
     updated_at: asNullableString(value.updated_at),
   };

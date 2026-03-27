@@ -482,3 +482,67 @@ export const runAmazonAdsDailyRefresh = async (
     chunk: parseChunkResult(payload.chunk),
   };
 };
+
+export const listSearchTermSyncRuns = async (
+  token: string,
+  profileId: string,
+): Promise<WbrSyncRun[]> => {
+  const query = new URLSearchParams({ source_type: "amazon_ads_search_terms" });
+  const payload = await requestJson<unknown>(
+    token,
+    `/admin/wbr/profiles/${profileId}/sync-runs?${query.toString()}`,
+    { method: "GET" },
+  );
+  return parseSyncRunList(payload);
+};
+
+export const runSearchTermBackfill = async (
+  token: string,
+  profileId: string,
+  request: RunAmazonAdsBackfillRequest,
+): Promise<RunAmazonAdsBackfillResult> => {
+  const payload = await requestJson<unknown>(
+    token,
+    `/admin/wbr/profiles/${profileId}/sync-runs/search-terms/backfill`,
+    {
+      method: "POST",
+      body: JSON.stringify(request),
+    },
+  );
+
+  if (!isRecord(payload) || !Array.isArray(payload.chunks)) {
+    throw new Error("Invalid search term backfill response");
+  }
+
+  return {
+    profile_id: asString(payload.profile_id),
+    job_type: "backfill",
+    chunk_days: asNumber(payload.chunk_days),
+    date_from: asString(payload.date_from),
+    date_to: asString(payload.date_to),
+    chunks: payload.chunks.map(parseChunkResult),
+  };
+};
+
+export const runSearchTermDailyRefresh = async (
+  token: string,
+  profileId: string,
+): Promise<RunAmazonAdsDailyRefreshResult> => {
+  const payload = await requestJson<unknown>(
+    token,
+    `/admin/wbr/profiles/${profileId}/sync-runs/search-terms/daily-refresh`,
+    { method: "POST" },
+  );
+
+  if (!isRecord(payload) || !isRecord(payload.chunk)) {
+    throw new Error("Invalid search term daily refresh response");
+  }
+
+  return {
+    profile_id: asString(payload.profile_id),
+    job_type: "daily_refresh",
+    date_from: asString(payload.date_from),
+    date_to: asString(payload.date_to),
+    chunk: parseChunkResult(payload.chunk),
+  };
+};
