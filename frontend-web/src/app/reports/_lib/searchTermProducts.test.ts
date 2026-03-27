@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  ACTIVE_SEARCH_TERM_AD_PRODUCTS,
   FUTURE_SEARCH_TERM_AD_PRODUCTS,
   LIVE_SEARCH_TERM_AD_PRODUCT,
   SEARCH_TERM_AD_PRODUCTS,
@@ -17,8 +18,9 @@ describe("searchTermProducts", () => {
     expect(LIVE_SEARCH_TERM_AD_PRODUCT.amazonAdsAdProduct).toBe("SPONSORED_PRODUCTS");
   });
 
-  it("marks Sponsored Brands and Sponsored Display as future lanes", () => {
-    expect(FUTURE_SEARCH_TERM_AD_PRODUCTS.map((product) => product.key)).toEqual(["sb", "sd"]);
+  it("exposes Sponsored Brands as the controlled beta lane and keeps Display planned", () => {
+    expect(ACTIVE_SEARCH_TERM_AD_PRODUCTS.map((product) => product.key)).toEqual(["sp", "sb"]);
+    expect(FUTURE_SEARCH_TERM_AD_PRODUCTS.map((product) => product.key)).toEqual(["sd"]);
     expect(FUTURE_SEARCH_TERM_AD_PRODUCTS.every((product) => product.status === "planned")).toBe(
       true,
     );

@@ -8,8 +8,10 @@ import type { WbrSyncRun } from "../wbr/_lib/wbrAmazonAdsApi";
 import { useSearchTermSync } from "../_lib/useSearchTermSync";
 import type { ClientMarketplaceReportSurface } from "../_lib/reportSurfaceSummary";
 import {
+  ACTIVE_SEARCH_TERM_AD_PRODUCTS,
   FUTURE_SEARCH_TERM_AD_PRODUCTS,
-  LIVE_SEARCH_TERM_AD_PRODUCT,
+  getSearchTermAutoSyncEnabled,
+  type SearchTermAdProductConfig,
 } from "../_lib/searchTermProducts";
 
 const statusClasses: Record<string, string> = {
@@ -47,8 +49,8 @@ const runProgressSummary = (run: WbrSyncRun): string => {
   const progress = run.request_meta?.report_progress;
   if (progress?.summary) return progress.summary;
   if (run.status === "running") return "Background worker is processing this STR sync run.";
-  if (run.status === "success") return "Sponsored Products search-term sync finished successfully.";
-  return "Sponsored Products search-term sync failed.";
+  if (run.status === "success") return "Search-term sync finished successfully.";
+  return "Search-term sync failed.";
 };
 
 const runNextPollText = (run: WbrSyncRun): string | null => {
@@ -91,12 +93,22 @@ function FutureAdProductCard({
   );
 }
 
-function SearchTermSyncCard({ profile, onProfileUpdated }: CardProps) {
-  const sync = useSearchTermSync(profile, LIVE_SEARCH_TERM_AD_PRODUCT.amazonAdsAdProduct);
+const productBadgeClasses: Record<Exclude<SearchTermAdProductConfig["status"], "planned">, string> = {
+  live: "border-emerald-200 bg-emerald-50 text-emerald-800",
+  beta: "border-amber-200 bg-amber-50 text-amber-800",
+};
+
+function ActiveAdProductCard({
+  profile,
+  product,
+  onProfileUpdated,
+}: CardProps & { product: SearchTermAdProductConfig }) {
+  const sync = useSearchTermSync(profile, product.amazonAdsAdProduct);
   const supabase = useMemo(() => getBrowserSupabaseClient(), []);
   const [toggleSaving, setToggleSaving] = useState(false);
   const [toggleMessage, setToggleMessage] = useState<string | null>(null);
   const [toggleError, setToggleError] = useState<string | null>(null);
+  const nightlyEnabled = getSearchTermAutoSyncEnabled(profile, product);
 
   const handleToggleNightlySync = useCallback(async () => {
     setToggleSaving(true);
@@ -107,59 +119,54 @@ function SearchTermSyncCard({ profile, onProfileUpdated }: CardProps) {
         data: { session },
       } = await supabase.auth.getSession();
       if (!session?.access_token) throw new Error("Please sign in again.");
-      const nextEnabled = !profile.search_term_auto_sync_enabled;
+      const nextEnabled = !nightlyEnabled;
       await updateWbrProfile(session.access_token, profile.id, {
-        search_term_auto_sync_enabled: nextEnabled,
+        [product.autoSyncField]: nextEnabled,
       });
       onProfileUpdated();
       setToggleMessage(
-        nextEnabled ? "Nightly STR sync enabled." : "Nightly STR sync disabled.",
+        nextEnabled
+          ? `${product.shortLabel} nightly STR sync enabled.`
+          : `${product.shortLabel} nightly STR sync disabled.`,
       );
     } catch (error) {
       setToggleError(
-        error instanceof Error ? error.message : "Failed to update nightly STR sync",
+        error instanceof Error ? error.message : `Failed to update ${product.shortLabel} nightly STR sync`,
       );
     } finally {
       setToggleSaving(false);
     }
-  }, [profile, supabase, onProfileUpdated]);
+  }, [nightlyEnabled, onProfileUpdated, product, profile, supabase]);
 
   const hasAdsProfile = !!profile.amazon_ads_profile_id;
   const isBusy = sync.runningBackfill || sync.runningDailyRefresh || toggleSaving;
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5">
-      {/* Card header */}
+    <div className="rounded-2xl border border-[#dbe4f0] bg-[#f7faff] p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-sm font-semibold text-[#0f172a]">
-            {profile.marketplace_code} Marketplace
-          </p>
-          <p className="mt-1 text-xs text-[#64748b]">
-            {profile.display_name}
-            {profile.amazon_ads_profile_id
-              ? ` · Ads profile: ${profile.amazon_ads_profile_id}`
-              : " · No Ads profile configured"}
-          </p>
+          <p className="text-sm font-semibold text-[#0f172a]">{product.label}</p>
+          <p className="mt-1 text-sm text-[#4c576f]">{product.availabilityNote}</p>
         </div>
-        <span
-          className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${
-            profile.search_term_auto_sync_enabled
-              ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-              : "border-slate-200 bg-slate-50 text-slate-700"
-          }`}
-        >
-          {LIVE_SEARCH_TERM_AD_PRODUCT.shortLabel} Nightly:{" "}
-          {profile.search_term_auto_sync_enabled ? "On" : "Off"}
-        </span>
+        <div className="flex flex-wrap items-center gap-2">
+          <span
+            className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${
+              product.status === "beta" ? productBadgeClasses.beta : productBadgeClasses.live
+            }`}
+          >
+            {product.status === "live" ? "Live" : "Beta"}
+          </span>
+          <span
+            className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${
+              nightlyEnabled
+                ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                : "border-slate-200 bg-slate-50 text-slate-700"
+            }`}
+          >
+            {product.shortLabel} Nightly: {nightlyEnabled ? "On" : "Off"}
+          </span>
+        </div>
       </div>
-
-      {/* Warnings */}
-      {!hasAdsProfile ? (
-        <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          Set up an Amazon Ads profile in WBR Sync / Ads API before running STR sync.
-        </p>
-      ) : null}
 
       {toggleError ? (
         <p className="mt-3 rounded-xl border border-[#f87171]/40 bg-[#fee2e2] px-4 py-3 text-sm text-[#991b1b]">
@@ -185,29 +192,16 @@ function SearchTermSyncCard({ profile, onProfileUpdated }: CardProps) {
         </p>
       ) : null}
 
-      {/* Latest run */}
-      <div className="mt-4 rounded-2xl border border-[#dbe4f0] bg-[#f7faff] p-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <p className="text-sm font-semibold text-[#0f172a]">{LIVE_SEARCH_TERM_AD_PRODUCT.label}</p>
-            <p className="mt-1 text-sm text-[#4c576f]">
-              Validated Amazon-native search-term ingestion path for the current rollout.
-            </p>
-          </div>
-          <span className="inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800">
-            Live
-          </span>
-        </div>
-
+      <div className="mt-4 rounded-2xl border border-[#dbe4f0] bg-white/70 p-4">
+        <p className="text-xs font-semibold uppercase tracking-wide text-[#4c576f]">
+          Latest {product.label} Sync Run
+        </p>
         <div className="mt-4 rounded-2xl border border-[#dbe4f0] bg-white/70 p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-[#4c576f]">
-            Latest {LIVE_SEARCH_TERM_AD_PRODUCT.label} Sync Run
-          </p>
           {sync.loadingRuns ? (
             <p className="mt-2 text-sm text-[#64748b]">Loading...</p>
           ) : !sync.latestRun ? (
             <p className="mt-2 text-sm text-[#64748b]">
-              No {LIVE_SEARCH_TERM_AD_PRODUCT.shortLabel} sync runs yet for this profile.
+              No {product.shortLabel} sync runs yet for this profile.
             </p>
           ) : (
             <div className="mt-2 space-y-2 text-sm">
@@ -223,9 +217,7 @@ function SearchTermSyncCard({ profile, onProfileUpdated }: CardProps) {
                     {sync.latestRun.date_from} to {sync.latestRun.date_to}
                   </span>
                 ) : null}
-                <span className="text-[#64748b]">
-                  {sync.latestRun.rows_loaded.toLocaleString()} rows loaded
-                </span>
+                <span className="text-[#64748b]">{sync.latestRun.rows_loaded.toLocaleString()} rows loaded</span>
               </div>
               <p className="text-[#4c576f]">{runProgressSummary(sync.latestRun)}</p>
               {runNextPollText(sync.latestRun) ? (
@@ -241,19 +233,15 @@ function SearchTermSyncCard({ profile, onProfileUpdated }: CardProps) {
 
       {sync.hasRunningRuns ? (
         <p className="mt-3 text-xs font-medium text-[#4c576f]">
-          Auto-refreshing every 15 seconds while {LIVE_SEARCH_TERM_AD_PRODUCT.shortLabel} STR jobs
-          are still running.
+          Auto-refreshing every 15 seconds while {product.shortLabel} STR jobs are still running.
         </p>
       ) : null}
 
-      {/* Backfill controls */}
       <div className="mt-4 rounded-2xl border border-slate-200 p-4">
-        <p className="text-sm font-semibold text-[#0f172a]">
-          {LIVE_SEARCH_TERM_AD_PRODUCT.label} Backfill
-        </p>
+        <p className="text-sm font-semibold text-[#0f172a]">{product.label} Backfill</p>
         <p className="mt-1 text-sm text-[#4c576f]">
-          Import {LIVE_SEARCH_TERM_AD_PRODUCT.label} STR data for a date range. Amazon Ads retains
-          approximately {sync.observedRetentionDays} days.
+          Import {product.label} STR data for a date range. Amazon Ads retains approximately{" "}
+          {sync.observedRetentionDays} days.
         </p>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           <label className="text-sm">
@@ -283,12 +271,11 @@ function SearchTermSyncCard({ profile, onProfileUpdated }: CardProps) {
           className="mt-3 rounded-2xl bg-[#0a6fd6] px-4 py-3 text-sm font-semibold text-white shadow-[0_15px_30px_rgba(10,111,214,0.35)] transition hover:bg-[#0959ab] disabled:cursor-not-allowed disabled:bg-[#b7cbea]"
         >
           {sync.runningBackfill
-            ? `Running ${LIVE_SEARCH_TERM_AD_PRODUCT.shortLabel} Backfill...`
-            : `Run ${LIVE_SEARCH_TERM_AD_PRODUCT.shortLabel} Backfill`}
+            ? `Running ${product.shortLabel} Backfill...`
+            : `Run ${product.shortLabel} Backfill`}
         </button>
       </div>
 
-      {/* Daily refresh + nightly sync toggle */}
       <div className="mt-4 flex flex-wrap gap-3">
         <button
           onClick={() => void sync.handleRunDailyRefresh()}
@@ -296,20 +283,57 @@ function SearchTermSyncCard({ profile, onProfileUpdated }: CardProps) {
           className="rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-[#0a6fd6] shadow transition hover:-translate-y-0.5 hover:shadow-lg disabled:cursor-not-allowed disabled:text-slate-400"
         >
           {sync.runningDailyRefresh
-            ? `Running ${LIVE_SEARCH_TERM_AD_PRODUCT.shortLabel} Refresh...`
-            : `Run ${LIVE_SEARCH_TERM_AD_PRODUCT.shortLabel} Daily Refresh`}
+            ? `Running ${product.shortLabel} Refresh...`
+            : `Run ${product.shortLabel} Daily Refresh`}
         </button>
         <button
           onClick={() => void handleToggleNightlySync()}
-          disabled={(!hasAdsProfile && !profile.search_term_auto_sync_enabled) || isBusy}
+          disabled={(!hasAdsProfile && !nightlyEnabled) || isBusy}
           className="rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-[#0a6fd6] shadow transition hover:-translate-y-0.5 hover:shadow-lg disabled:cursor-not-allowed disabled:text-slate-400"
         >
           {toggleSaving
             ? "Saving..."
-            : profile.search_term_auto_sync_enabled
-              ? `Disable ${LIVE_SEARCH_TERM_AD_PRODUCT.shortLabel} Nightly Sync`
-              : `Enable ${LIVE_SEARCH_TERM_AD_PRODUCT.shortLabel} Nightly Sync`}
+            : nightlyEnabled
+              ? `Disable ${product.shortLabel} Nightly Sync`
+              : `Enable ${product.shortLabel} Nightly Sync`}
         </button>
+      </div>
+    </div>
+  );
+}
+
+function SearchTermSyncCard({ profile, onProfileUpdated }: CardProps) {
+  const hasAdsProfile = !!profile.amazon_ads_profile_id;
+
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-[#0f172a]">{profile.marketplace_code} Marketplace</p>
+          <p className="mt-1 text-xs text-[#64748b]">
+            {profile.display_name}
+            {profile.amazon_ads_profile_id
+              ? ` · Ads profile: ${profile.amazon_ads_profile_id}`
+              : " · No Ads profile configured"}
+          </p>
+        </div>
+      </div>
+
+      {!hasAdsProfile ? (
+        <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          Set up an Amazon Ads profile in WBR Sync / Ads API before running STR sync.
+        </p>
+      ) : null}
+
+      <div className="mt-5 grid gap-3">
+        {ACTIVE_SEARCH_TERM_AD_PRODUCTS.map((product) => (
+          <ActiveAdProductCard
+            key={product.key}
+            profile={profile}
+            product={product}
+            onProfileUpdated={onProfileUpdated}
+          />
+        ))}
       </div>
 
       <div className="mt-5 grid gap-3 lg:grid-cols-2">
@@ -345,9 +369,10 @@ export default function SearchTermSyncSection({ clientSlug, marketplaces, loadin
           </p>
           <p className="mt-2 max-w-2xl text-sm text-[#4c576f]">
             Setup and sync control surface for Amazon Ads search-term ingestion by ad product.
-            Sponsored Products is the current validated live path. Sponsored Brands and
-            Sponsored Display remain separate future lanes until their native contracts are
-            verified. STR sync is separate from the existing Ads campaign sync.
+            Sponsored Products is the validated live path, Sponsored Brands is now
+            available for controlled live validation, and Sponsored Display remains a
+            separate future lane until its native contract is verified. STR sync is
+            separate from the existing Ads campaign sync.
           </p>
         </div>
         <Link
@@ -365,18 +390,20 @@ export default function SearchTermSyncSection({ clientSlug, marketplaces, loadin
         </p>
         <div className="mt-3 space-y-2 text-sm text-[#4c576f]">
           <p>
-            <span className="font-semibold text-[#0f172a]">Sponsored Products:</span> The
-            current live controls below are for the validated SP search-term path only.
+            <span className="font-semibold text-[#0f172a]">Sponsored Products / Sponsored Brands:</span>{" "}
+            SP is validated. SB is now wired for controlled live backfills and export
+            parity testing.
           </p>
           <p>
-            <span className="font-semibold text-[#0f172a]">Backfill:</span> Imports SP
-            search-term data across a custom date range using the Amazon Ads API. Observed
-            retention is approximately 60 days — deeper history still requires a Pacvue export.
+            <span className="font-semibold text-[#0f172a]">Backfill:</span> Imports
+            native search-term data across a custom date range using the Amazon Ads API.
+            Observed retention is approximately 60 days — deeper history still requires a
+            Pacvue export.
           </p>
           <p>
             <span className="font-semibold text-[#0f172a]">Daily Refresh / Nightly Sync:</span>{" "}
-            The current refresh controls are SP-only. Future SB and SD controls will appear as
-            separate operational sections once their native report contracts are validated.
+            SP and SB now have separate operational controls. SD remains disabled until
+            its native report family is modeled correctly.
           </p>
         </div>
       </div>

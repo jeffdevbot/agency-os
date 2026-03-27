@@ -160,7 +160,7 @@ export function useSearchTermSync(profile: WbrProfile | null, adProduct: string 
         date_from: backfillDateFrom,
         date_to: backfillDateTo,
         chunk_days: 14,
-      });
+      }, adProduct);
       setSuccessMessage(
         `STR backfill queued across ${result.chunks.length} chunk(s). Worker-sync will poll Amazon and finalize in the background.`,
       );
@@ -173,6 +173,7 @@ export function useSearchTermSync(profile: WbrProfile | null, adProduct: string 
       setRunningBackfill(false);
     }
   }, [
+    adProduct,
     backfillDateFrom,
     backfillDateTo,
     getAccessToken,
@@ -194,7 +195,7 @@ export function useSearchTermSync(profile: WbrProfile | null, adProduct: string 
 
     try {
       const token = await getAccessToken();
-      const result = await runSearchTermDailyRefresh(token, profile.id);
+      const result = await runSearchTermDailyRefresh(token, profile.id, adProduct);
       setSuccessMessage(
         `STR daily refresh queued for ${result.date_from} to ${result.date_to}. Worker-sync will finalize in the background.`,
       );
@@ -206,7 +207,7 @@ export function useSearchTermSync(profile: WbrProfile | null, adProduct: string 
     } finally {
       setRunningDailyRefresh(false);
     }
-  }, [getAccessToken, loadRuns, profile]);
+  }, [adProduct, getAccessToken, loadRuns, profile]);
 
   const latestRun = runs[0] ?? null;
 

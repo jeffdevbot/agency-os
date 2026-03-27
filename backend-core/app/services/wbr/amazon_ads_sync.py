@@ -228,6 +228,7 @@ class AmazonAdsSyncService:
         profile_id: str,
         date_from: date,
         date_to: date,
+        ad_product: str | None = None,
         chunk_days: int = DEFAULT_CHUNK_DAYS,
         user_id: str | None = None,
     ) -> dict[str, Any]:
@@ -257,6 +258,7 @@ class AmazonAdsSyncService:
                     marketplace_code=str(profile.get("marketplace_code") or ""),
                     date_from=chunk_start,
                     date_to=chunk_end,
+                    ad_product=ad_product,
                     job_type="backfill",
                     user_id=user_id,
                 )
@@ -282,6 +284,7 @@ class AmazonAdsSyncService:
         self,
         *,
         profile_id: str,
+        ad_product: str | None = None,
         user_id: str | None = None,
     ) -> dict[str, Any]:
         profile = self._get_profile(profile_id)
@@ -298,6 +301,7 @@ class AmazonAdsSyncService:
             marketplace_code=str(profile.get("marketplace_code") or ""),
             date_from=date_from,
             date_to=date_to,
+            ad_product=ad_product,
             job_type="daily_refresh",
             user_id=user_id,
         )
@@ -319,6 +323,7 @@ class AmazonAdsSyncService:
         marketplace_code: str,
         date_from: date,
         date_to: date,
+        ad_product: str | None = None,
         job_type: str,
         user_id: str | None,
     ) -> dict[str, Any]:

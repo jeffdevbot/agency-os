@@ -108,6 +108,7 @@ export type RunAmazonAdsBackfillRequest = {
   date_from: string;
   date_to: string;
   chunk_days: number;
+  ad_product?: string | null;
 };
 
 export type RunAmazonAdsChunkResult = {
@@ -508,13 +509,17 @@ export const runSearchTermBackfill = async (
   token: string,
   profileId: string,
   request: RunAmazonAdsBackfillRequest,
+  adProduct?: string | null,
 ): Promise<RunAmazonAdsBackfillResult> => {
   const payload = await requestJson<unknown>(
     token,
     `/admin/wbr/profiles/${profileId}/sync-runs/search-terms/backfill`,
     {
       method: "POST",
-      body: JSON.stringify(request),
+      body: JSON.stringify({
+        ...request,
+        ad_product: adProduct ?? request.ad_product ?? null,
+      }),
     },
   );
 
@@ -535,10 +540,13 @@ export const runSearchTermBackfill = async (
 export const runSearchTermDailyRefresh = async (
   token: string,
   profileId: string,
+  adProduct?: string | null,
 ): Promise<RunAmazonAdsDailyRefreshResult> => {
+  const query = new URLSearchParams();
+  if (adProduct) query.set("ad_product", adProduct);
   const payload = await requestJson<unknown>(
     token,
-    `/admin/wbr/profiles/${profileId}/sync-runs/search-terms/daily-refresh`,
+    `/admin/wbr/profiles/${profileId}/sync-runs/search-terms/daily-refresh${query.size ? `?${query.toString()}` : ""}`,
     { method: "POST" },
   );
 

@@ -76,6 +76,7 @@ class WBRNightlySyncService:
             if profile.get("sp_api_auto_sync_enabled") and not self._already_started_today(
                 profile_id=profile_id,
                 source_type="windsor_business",
+                ad_product=None,
                 local_now=local_now,
             ):
                 results.append(
@@ -88,6 +89,7 @@ class WBRNightlySyncService:
             if profile.get("ads_api_auto_sync_enabled") and not self._already_started_today(
                 profile_id=profile_id,
                 source_type="amazon_ads",
+                ad_product=None,
                 local_now=local_now,
             ):
                 results.append(
@@ -100,12 +102,28 @@ class WBRNightlySyncService:
             if profile.get("search_term_auto_sync_enabled") and not self._already_started_today(
                 profile_id=profile_id,
                 source_type="amazon_ads_search_terms",
+                ad_product="SPONSORED_PRODUCTS",
                 local_now=local_now,
             ):
                 results.append(
                     await self._run_source(
                         profile_id=profile_id,
                         source_type="amazon_ads_search_terms",
+                        ad_product="SPONSORED_PRODUCTS",
+                    )
+                )
+
+            if profile.get("search_term_sb_auto_sync_enabled") and not self._already_started_today(
+                profile_id=profile_id,
+                source_type="amazon_ads_search_terms",
+                ad_product="SPONSORED_BRANDS",
+                local_now=local_now,
+            ):
+                results.append(
+                    await self._run_source(
+                        profile_id=profile_id,
+                        source_type="amazon_ads_search_terms",
+                        ad_product="SPONSORED_BRANDS",
                     )
                 )
 
@@ -120,7 +138,13 @@ class WBRNightlySyncService:
             "results": [result.__dict__ for result in results],
         }
 
-    async def _run_source(self, *, profile_id: str, source_type: str) -> NightlySyncResult:
+    async def _run_source(
+        self,
+        *,
+        profile_id: str,
+        source_type: str,
+        ad_product: str | None = None,
+    ) -> NightlySyncResult:
         try:
             if source_type == "windsor_business":
                 await self._windsor.run_daily_refresh(
@@ -130,6 +154,7 @@ class WBRNightlySyncService:
             elif source_type == "amazon_ads_search_terms":
                 await self._search_terms.run_daily_refresh(
                     profile_id=profile_id,
+                    ad_product=ad_product,
                     user_id=self.worker_user_id,
                 )
             else:
@@ -137,11 +162,15 @@ class WBRNightlySyncService:
                     profile_id=profile_id,
                     user_id=self.worker_user_id,
                 )
-            return NightlySyncResult(profile_id=profile_id, source_type=source_type, status="success")
+            return NightlySyncResult(
+                profile_id=profile_id,
+                source_type=f"{source_type}:{ad_product}" if ad_product else source_type,
+                status="success",
+            )
         except Exception as exc:  # noqa: BLE001
             return NightlySyncResult(
                 profile_id=profile_id,
-                source_type=source_type,
+                source_type=f"{source_type}:{ad_product}" if ad_product else source_type,
                 status="error",
                 detail=str(exc),
             )
@@ -166,6 +195,7 @@ class WBRNightlySyncService:
         *,
         profile_id: str,
         source_type: str,
+        ad_product: str | None,
         local_now: datetime,
     ) -> bool:
         local_day_start = datetime.combine(local_now.date(), time.min, tzinfo=self.timezone)
@@ -180,9 +210,10 @@ class WBRNightlySyncService:
             .eq("job_type", "daily_refresh")
             .gte("started_at", started_after)
             .lte("started_at", started_before)
-            .limit(1)
-            .execute()
         )
+        if ad_product:
+            response = response.eq("ad_product", ad_product)
+        response = response.limit(1).execute()
         rows = response.data if isinstance(response.data, list) else []
         return len(rows) > 0
 

@@ -193,6 +193,7 @@ class RunAmazonAdsBackfillRequest(BaseModel):
     date_from: str
     date_to: str
     chunk_days: int = Field(14, ge=1, le=31)
+    ad_product: Optional[str] = None
 
 
 # ------------------------------------------------------------------
@@ -817,6 +818,7 @@ async def run_search_term_backfill(
             profile_id=profile_id,
             date_from=date.fromisoformat(request.date_from),
             date_to=date.fromisoformat(request.date_to),
+            ad_product=request.ad_product,
             chunk_days=request.chunk_days,
             user_id=_user_id(user),
         )
@@ -834,11 +836,16 @@ async def run_search_term_backfill(
 @router.post("/profiles/{profile_id}/sync-runs/search-terms/daily-refresh")
 async def run_search_term_daily_refresh(
     profile_id: str,
+    ad_product: str | None = Query(None),
     user=Depends(require_admin_user),
 ):
     svc = _get_amazon_ads_search_term_sync_service()
     try:
-        result = await svc.run_daily_refresh(profile_id=profile_id, user_id=_user_id(user))
+        result = await svc.run_daily_refresh(
+            profile_id=profile_id,
+            ad_product=ad_product,
+            user_id=_user_id(user),
+        )
         return {"ok": True, **result}
     except WBRNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))

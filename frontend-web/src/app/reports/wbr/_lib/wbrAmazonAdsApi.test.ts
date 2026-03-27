@@ -2,7 +2,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 process.env.NEXT_PUBLIC_BACKEND_URL = "http://localhost:8000";
 
-import { listAmazonAdsSyncRuns, runAmazonAdsBackfill } from "./wbrAmazonAdsApi";
+import {
+  listAmazonAdsSyncRuns,
+  runAmazonAdsBackfill,
+  runSearchTermBackfill,
+  runSearchTermDailyRefresh,
+} from "./wbrAmazonAdsApi";
 
 const TOKEN = "test-jwt-token";
 
@@ -148,5 +153,71 @@ describe("wbrAmazonAdsApi", () => {
     expect(result.chunks[0].run.report_type_id).toBe("spCampaigns");
     expect(result.chunks[0].run.request_meta?.report_progress?.phase).toBe("queued");
     expect(result.chunks[0].run.request_meta?.report_progress?.total_jobs).toBe(3);
+  });
+
+  it("sends the SB ad_product through search-term backfill and daily refresh requests", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      json: () =>
+        Promise.resolve({
+          ok: true,
+          profile_id: "profile-1",
+          job_type: "backfill",
+          chunk_days: 14,
+          date_from: "2026-03-25",
+          date_to: "2026-03-26",
+          chunks: [
+            {
+              rows_fetched: 0,
+              rows_loaded: 0,
+              run: {
+                id: "run-sb-1",
+                profile_id: "profile-1",
+                source_type: "amazon_ads_search_terms",
+                ad_product: "SPONSORED_BRANDS",
+                report_type_id: "sbSearchTerm",
+                job_type: "backfill",
+                date_from: "2026-03-25",
+                date_to: "2026-03-26",
+                status: "running",
+                rows_fetched: 0,
+                rows_loaded: 0,
+                error_message: null,
+                started_at: "2026-03-27T14:00:00+00:00",
+                finished_at: null,
+                created_at: "2026-03-27T14:00:00+00:00",
+                updated_at: "2026-03-27T14:00:00+00:00",
+                request_meta: { report_progress: { phase: "queued" } },
+              },
+            },
+          ],
+        }),
+      text: () => Promise.resolve(""),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await runSearchTermBackfill(
+      TOKEN,
+      "profile-1",
+      {
+        date_from: "2026-03-25",
+        date_to: "2026-03-26",
+        chunk_days: 14,
+      },
+      "SPONSORED_BRANDS",
+    );
+
+    await runSearchTermDailyRefresh(TOKEN, "profile-1", "SPONSORED_BRANDS").catch(() => undefined);
+
+    const [backfillUrl, backfillInit] = fetchSpy.mock.calls[0];
+    expect(String(backfillUrl)).toContain("/sync-runs/search-terms/backfill");
+    expect(JSON.parse(String(backfillInit?.body)).ad_product).toBe("SPONSORED_BRANDS");
+
+    const [refreshUrl] = fetchSpy.mock.calls[1];
+    expect(String(refreshUrl)).toContain(
+      "/sync-runs/search-terms/daily-refresh?ad_product=SPONSORED_BRANDS",
+    );
   });
 });

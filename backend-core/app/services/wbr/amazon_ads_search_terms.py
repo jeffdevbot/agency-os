@@ -9,6 +9,7 @@ from typing import Any
 from .amazon_ads_sync import (
     AmazonAdsReportDefinition,
     AmazonAdsSyncService,
+    DEFAULT_CHUNK_DAYS,
     WBRValidationError,
     _default_currency_code,
     _extract_first_present,
@@ -20,53 +21,72 @@ from .amazon_ads_sync import (
 # ------------------------------------------------------------------
 # Report definitions
 #
-# Only Sponsored Products (spSearchTerm) is active.
-# The Amazon Ads v3 reporting API requires groupBy=["searchTerm"] for
-# search-term reports — NOT "campaign" (which is correct for spCampaigns
-# but is rejected for spSearchTerm with:
-#   "configuration invalid groupBy values: (campaign). Allowed values: (searchTerm)").
+# The Amazon Ads v3 reporting API requires groupBy=["searchTerm"] for both
+# current live STR products:
+#   - spSearchTerm
+#   - sbSearchTerm
 #
-# SB (sbSearchTerm) and SD (sdSearchTerm) search-term support is intentionally
-# disabled here until their exact report contracts are verified:
-#   - allowed groupBy values
-#   - allowed columns
-#   - retention window
-#   - response field names
-# Do not re-enable SB/SD without confirming the live API contract.
+# SB was verified against the live API on 2026-03-27. SD remains intentionally
+# disabled here until its native contract is modeled correctly.
 # ------------------------------------------------------------------
 
-SEARCH_TERM_REPORT_DEFINITIONS: list[AmazonAdsReportDefinition] = [
-    AmazonAdsReportDefinition(
-        ad_product="SPONSORED_PRODUCTS",
-        report_type_id="spSearchTerm",
-        campaign_type="sponsored_products",
-        group_by=["searchTerm"],
-        columns=[
-            "date",
-            "campaignId",
-            "campaignName",
-            "adGroupId",
-            "adGroupName",
-            "keywordId",
-            "keyword",
-            "keywordType",
-            "targeting",
-            "searchTerm",
-            "matchType",
-            "impressions",
-            "clicks",
-            "cost",
-            "purchases7d",
-            "sales7d",
-        ],
-    ),
-    # SB and SD search-term definitions are omitted here intentionally.
-    # See comment above before re-enabling.
-]
+SEARCH_TERM_REPORT_DEFINITIONS_BY_PRODUCT: dict[str, list[AmazonAdsReportDefinition]] = {
+    "SPONSORED_PRODUCTS": [
+        AmazonAdsReportDefinition(
+            ad_product="SPONSORED_PRODUCTS",
+            report_type_id="spSearchTerm",
+            campaign_type="sponsored_products",
+            group_by=["searchTerm"],
+            columns=[
+                "date",
+                "campaignId",
+                "campaignName",
+                "adGroupId",
+                "adGroupName",
+                "keywordId",
+                "keyword",
+                "keywordType",
+                "targeting",
+                "searchTerm",
+                "matchType",
+                "impressions",
+                "clicks",
+                "cost",
+                "purchases7d",
+                "sales7d",
+            ],
+        )
+    ],
+    "SPONSORED_BRANDS": [
+        AmazonAdsReportDefinition(
+            ad_product="SPONSORED_BRANDS",
+            report_type_id="sbSearchTerm",
+            campaign_type="sponsored_brands",
+            group_by=["searchTerm"],
+            columns=[
+                "date",
+                "campaignId",
+                "campaignName",
+                "adGroupId",
+                "adGroupName",
+                "keywordId",
+                "keywordText",
+                "keywordType",
+                "matchType",
+                "searchTerm",
+                "impressions",
+                "clicks",
+                "cost",
+                "purchases",
+                "sales",
+                "adKeywordStatus",
+            ],
+        )
+    ],
+}
 
-# Observed retention window for spSearchTerm reports (calendar days inclusive).
-# This matches the live Amazon Ads API behaviour seen in testing.
-STR_SP_OBSERVED_RETENTION_DAYS = 60
+DEFAULT_SEARCH_TERM_AD_PRODUCT = "SPONSORED_PRODUCTS"
+SEARCH_TERM_OBSERVED_RETENTION_DAYS = 60
 
 
 @dataclass(frozen=True)
@@ -98,13 +118,52 @@ class SearchTermDailyFact:
 
 class AmazonAdsSearchTermSyncService(AmazonAdsSyncService):
     source_type = "amazon_ads_search_terms"
-    primary_ad_product = "SPONSORED_PRODUCTS"
+    primary_ad_product = DEFAULT_SEARCH_TERM_AD_PRODUCT
     primary_report_type_id = "spSearchTerm"
 
     def list_sync_runs(self, profile_id: str, *, source_type: str = source_type) -> list[dict[str, Any]]:
         return super().list_sync_runs(profile_id, source_type=source_type)
 
-    def _build_initial_report_jobs(self, *, queued_at: str) -> list[dict[str, Any]]:
+    async def run_backfill(
+        self,
+        *,
+        profile_id: str,
+        date_from: date,
+        date_to: date,
+        ad_product: str | None = None,
+        chunk_days: int = DEFAULT_CHUNK_DAYS,
+        user_id: str | None = None,
+    ) -> dict[str, Any]:
+        resolved_ad_product = self._normalize_ad_product(ad_product)
+        return await super().run_backfill(
+            profile_id=profile_id,
+            date_from=date_from,
+            date_to=date_to,
+            chunk_days=chunk_days,
+            user_id=user_id,
+            ad_product=resolved_ad_product,  # type: ignore[call-arg]
+        )
+
+    async def run_daily_refresh(
+        self,
+        *,
+        profile_id: str,
+        ad_product: str | None = None,
+        user_id: str | None = None,
+    ) -> dict[str, Any]:
+        resolved_ad_product = self._normalize_ad_product(ad_product)
+        return await super().run_daily_refresh(
+            profile_id=profile_id,
+            user_id=user_id,
+            ad_product=resolved_ad_product,  # type: ignore[call-arg]
+        )
+
+    def _build_initial_report_jobs(
+        self,
+        *,
+        queued_at: str,
+        definitions: list[AmazonAdsReportDefinition],
+    ) -> list[dict[str, Any]]:
         return [
             {
                 "report_id": None,
@@ -120,8 +179,22 @@ class AmazonAdsSearchTermSyncService(AmazonAdsSyncService):
                 "group_by": definition.group_by,
                 "columns": definition.columns,
             }
-            for definition in SEARCH_TERM_REPORT_DEFINITIONS
+            for definition in definitions
         ]
+
+    def _normalize_ad_product(self, ad_product: str | None) -> str:
+        normalized = str(ad_product or self.primary_ad_product).strip().upper()
+        if normalized in SEARCH_TERM_REPORT_DEFINITIONS_BY_PRODUCT:
+            return normalized
+        allowed = ", ".join(sorted(SEARCH_TERM_REPORT_DEFINITIONS_BY_PRODUCT))
+        raise WBRValidationError(f"Unsupported search-term ad_product. Expected one of: {allowed}")
+
+    def _report_definitions_for_ad_product(self, ad_product: str | None) -> list[AmazonAdsReportDefinition]:
+        normalized = self._normalize_ad_product(ad_product)
+        definitions = SEARCH_TERM_REPORT_DEFINITIONS_BY_PRODUCT.get(normalized) or []
+        if not definitions:
+            raise WBRValidationError(f"No search-term report definitions configured for {normalized}")
+        return definitions
 
     async def _enqueue_chunk(
         self,
@@ -132,11 +205,14 @@ class AmazonAdsSearchTermSyncService(AmazonAdsSyncService):
         marketplace_code: str,
         date_from: date,
         date_to: date,
+        ad_product: str,
         job_type: str,
         user_id: str | None,
     ) -> dict[str, Any]:
         queued_at = datetime.now(UTC).isoformat()
-        report_jobs = self._build_initial_report_jobs(queued_at=queued_at)
+        definitions = self._report_definitions_for_ad_product(ad_product)
+        primary_definition = definitions[0]
+        report_jobs = self._build_initial_report_jobs(queued_at=queued_at, definitions=definitions)
         run = self._create_sync_run(
             profile_id=profile_id,
             source_type=self.source_type,
@@ -145,8 +221,8 @@ class AmazonAdsSearchTermSyncService(AmazonAdsSyncService):
             date_to=date_to,
             request_meta={
                 "amazon_ads_profile_id": amazon_ads_profile_id,
-                "ad_product": self.primary_ad_product,
-                "report_type_id": self.primary_report_type_id,
+                "ad_product": primary_definition.ad_product,
+                "report_type_id": primary_definition.report_type_id,
                 "report_definitions": [
                     {
                         "ad_product": definition.ad_product,
@@ -155,7 +231,7 @@ class AmazonAdsSearchTermSyncService(AmazonAdsSyncService):
                         "group_by": definition.group_by,
                         "columns": definition.columns,
                     }
-                    for definition in SEARCH_TERM_REPORT_DEFINITIONS
+                    for definition in definitions
                 ],
                 "async_reports_v1": True,
                 "marketplace_code": marketplace_code,
@@ -164,8 +240,8 @@ class AmazonAdsSearchTermSyncService(AmazonAdsSyncService):
                 "queued_at": queued_at,
             },
             extra_payload={
-                "ad_product": self.primary_ad_product,
-                "report_type_id": self.primary_report_type_id,
+                "ad_product": primary_definition.ad_product,
+                "report_type_id": primary_definition.report_type_id,
             },
             user_id=user_id,
         )
