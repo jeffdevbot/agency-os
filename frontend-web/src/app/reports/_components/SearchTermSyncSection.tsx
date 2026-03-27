@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useMemo, useState } from "react";
 import { getBrowserSupabaseClient } from "@/lib/supabaseClient";
 import { updateWbrProfile, type WbrProfile } from "../wbr/_lib/wbrApi";
+import type { WbrSyncRun } from "../wbr/_lib/wbrAmazonAdsApi";
 import { useSearchTermSync } from "../_lib/useSearchTermSync";
 import type { ClientMarketplaceReportSurface } from "../_lib/reportSurfaceSummary";
 
@@ -24,6 +25,32 @@ const formatTimestamp = (value: string | null): string => {
     hour: "numeric",
     minute: "2-digit",
   }).format(parsed);
+};
+
+const runPhaseLabel = (run: WbrSyncRun): string => {
+  const phase = run.request_meta?.report_progress?.phase;
+  if (run.status === "success") return "completed";
+  if (run.status === "error") return phase === "failed" ? "worker error" : "failed";
+  if (phase === "queued") return "queued";
+  if (phase === "polling") return "polling Amazon";
+  if (phase === "ready_to_finalize") return "downloading reports";
+  if (phase === "completed") return "completed";
+  if (phase === "failed") return "failed";
+  return "running";
+};
+
+const runProgressSummary = (run: WbrSyncRun): string => {
+  const progress = run.request_meta?.report_progress;
+  if (progress?.summary) return progress.summary;
+  if (run.status === "running") return "Background worker is processing this STR sync run.";
+  if (run.status === "success") return "Sponsored Products search-term sync finished successfully.";
+  return "Sponsored Products search-term sync failed.";
+};
+
+const runNextPollText = (run: WbrSyncRun): string | null => {
+  const nextPollAt = run.request_meta?.report_progress?.next_poll_at;
+  if (!nextPollAt || run.status !== "running") return null;
+  return `Next poll ${formatTimestamp(nextPollAt)}`;
 };
 
 type CardProps = {
@@ -134,27 +161,39 @@ function SearchTermSyncCard({ profile, onProfileUpdated }: CardProps) {
         ) : !sync.latestRun ? (
           <p className="mt-2 text-sm text-[#64748b]">No STR sync runs yet for this profile.</p>
         ) : (
-          <div className="mt-2 flex flex-wrap items-center gap-3 text-sm">
-            <span
-              className={`inline-flex rounded-full border px-2 py-1 text-xs font-semibold ${statusClasses[sync.latestRun.status] ?? ""}`}
-            >
-              {sync.latestRun.status}
-            </span>
-            <span className="text-[#4c576f]">{formatTimestamp(sync.latestRun.started_at)}</span>
-            {sync.latestRun.date_from && sync.latestRun.date_to ? (
-              <span className="text-[#4c576f]">
-                {sync.latestRun.date_from} to {sync.latestRun.date_to}
+          <div className="mt-2 space-y-2 text-sm">
+            <div className="flex flex-wrap items-center gap-3">
+              <span
+                className={`inline-flex rounded-full border px-2 py-1 text-xs font-semibold ${statusClasses[sync.latestRun.status] ?? ""}`}
+              >
+                {runPhaseLabel(sync.latestRun)}
               </span>
+              <span className="text-[#4c576f]">{formatTimestamp(sync.latestRun.started_at)}</span>
+              {sync.latestRun.date_from && sync.latestRun.date_to ? (
+                <span className="text-[#4c576f]">
+                  {sync.latestRun.date_from} to {sync.latestRun.date_to}
+                </span>
+              ) : null}
+              <span className="text-[#64748b]">
+                {sync.latestRun.rows_loaded.toLocaleString()} rows loaded
+              </span>
+            </div>
+            <p className="text-[#4c576f]">{runProgressSummary(sync.latestRun)}</p>
+            {runNextPollText(sync.latestRun) ? (
+              <p className="text-xs text-[#64748b]">{runNextPollText(sync.latestRun)}</p>
             ) : null}
-            <span className="text-[#64748b]">
-              {sync.latestRun.rows_loaded.toLocaleString()} rows loaded
-            </span>
             {sync.latestRun.error_message ? (
-              <span className="text-rose-700">{sync.latestRun.error_message}</span>
+              <p className="text-sm text-rose-700">{sync.latestRun.error_message}</p>
             ) : null}
           </div>
         )}
       </div>
+
+      {sync.hasRunningRuns ? (
+        <p className="mt-3 text-xs font-medium text-[#4c576f]">
+          Auto-refreshing every 15 seconds while STR jobs are still running.
+        </p>
+      ) : null}
 
       {/* Backfill controls */}
       <div className="mt-4 rounded-2xl border border-slate-200 p-4">

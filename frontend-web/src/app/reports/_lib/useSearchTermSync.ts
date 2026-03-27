@@ -110,6 +110,22 @@ export function useSearchTermSync(profile: WbrProfile | null) {
     void loadRuns(false);
   }, [loadRuns]);
 
+  const hasRunningRuns = runs.some((run) => run.status === "running");
+
+  useEffect(() => {
+    if (!profile?.id || !hasRunningRuns) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      void loadRuns(true);
+    }, 15000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [hasRunningRuns, loadRuns, profile?.id]);
+
   const handleRunBackfill = useCallback(async () => {
     if (!profile?.id) {
       setErrorMessage("WBR profile not found.");
@@ -199,6 +215,7 @@ export function useSearchTermSync(profile: WbrProfile | null) {
     latestRun,
     loadingRuns,
     refreshingRuns,
+    hasRunningRuns,
     runningBackfill,
     runningDailyRefresh,
     errorMessage,
