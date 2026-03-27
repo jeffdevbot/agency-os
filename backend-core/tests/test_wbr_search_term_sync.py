@@ -144,7 +144,18 @@ def test_run_backfill_chunks_requested_range(monkeypatch):
 
     calls: list[tuple[date, date, str]] = []
 
-    async def fake_enqueue_chunk(*, profile_id, amazon_ads_profile_id, refresh_token, marketplace_code, date_from, date_to, job_type, user_id):
+    async def fake_enqueue_chunk(
+        *,
+        profile_id,
+        amazon_ads_profile_id,
+        refresh_token,
+        marketplace_code,
+        date_from,
+        date_to,
+        ad_product,
+        job_type,
+        user_id,
+    ):
         calls.append((date_from, date_to, job_type))
         return {"run": {"id": f"{date_from.isoformat()}-{date_to.isoformat()}"}, "rows_fetched": 0, "rows_loaded": 0}
 
@@ -193,7 +204,18 @@ def test_run_daily_refresh_uses_profile_rewrite_window(monkeypatch):
 
     observed: dict[str, date] = {}
 
-    async def fake_enqueue_chunk(*, profile_id, amazon_ads_profile_id, refresh_token, marketplace_code, date_from, date_to, job_type, user_id):
+    async def fake_enqueue_chunk(
+        *,
+        profile_id,
+        amazon_ads_profile_id,
+        refresh_token,
+        marketplace_code,
+        date_from,
+        date_to,
+        ad_product,
+        job_type,
+        user_id,
+    ):
         observed["date_from"] = date_from
         observed["date_to"] = date_to
         observed["job_type"] = job_type
@@ -223,16 +245,111 @@ def test_run_backfill_requires_selected_ads_profile(monkeypatch):
         )
 
 
+def test_replace_fact_window_deletes_only_selected_ad_product():
+    db = MagicMock()
+    delete_query = db.table.return_value.delete.return_value
+    delete_query.eq.return_value = delete_query
+    delete_query.gte.return_value = delete_query
+    delete_query.lte.return_value = delete_query
+
+    svc = AmazonAdsSearchTermSyncService(db)
+
+    svc._replace_fact_window(
+        profile_id="profile-1",
+        sync_run_id="run-1",
+        date_from=date(2026, 3, 25),
+        date_to=date(2026, 3, 26),
+        ad_product="SPONSORED_PRODUCTS",
+        facts=[],
+    )
+
+    db.table.assert_called_once_with("search_term_daily_facts")
+    delete_query.eq.assert_any_call("profile_id", "profile-1")
+    delete_query.eq.assert_any_call("ad_product", "SPONSORED_PRODUCTS")
+    delete_query.gte.assert_called_once_with("report_date", "2026-03-25")
+    delete_query.lte.assert_called_once_with("report_date", "2026-03-26")
+    delete_query.execute.assert_called_once()
+
+
+def test_finalize_completed_run_scopes_fact_replacement_to_requested_ad_product(monkeypatch):
+    svc = AmazonAdsSearchTermSyncService(MagicMock())
+
+    async def fake_download_report_rows(location: str):
+        assert location == "https://example.test/report.json"
+        return [
+            {
+                "date": "2026-03-25",
+                "campaignName": "Screen Shine - 90ct Wipes | SPA | Los. | Rsrch",
+                "searchTerm": "screen cleaner",
+                "impressions": "100",
+                "clicks": "10",
+                "cost": "12.34",
+                "purchases7d": "2",
+                "sales7d": "44.56",
+            }
+        ]
+
+    monkeypatch.setattr(svc, "_download_report_rows", fake_download_report_rows)
+
+    observed: dict[str, object] = {}
+
+    def fake_replace_fact_window(*, profile_id, sync_run_id, date_from, date_to, ad_product, facts):
+        observed["profile_id"] = profile_id
+        observed["sync_run_id"] = sync_run_id
+        observed["date_from"] = date_from
+        observed["date_to"] = date_to
+        observed["ad_product"] = ad_product
+        observed["facts"] = facts
+
+    monkeypatch.setattr(svc, "_replace_fact_window", fake_replace_fact_window)
+    monkeypatch.setattr(svc, "_update_sync_run_request_meta", lambda **kwargs: None)
+    monkeypatch.setattr(
+        svc,
+        "_finalize_sync_run",
+        lambda **kwargs: {"id": kwargs["run_id"], "status": kwargs["status"], "rows_loaded": kwargs["rows_loaded"]},
+    )
+
+    run = {
+        "id": "run-1",
+        "profile_id": "profile-1",
+        "date_from": "2026-03-25",
+        "date_to": "2026-03-26",
+    }
+    request_meta = {"marketplace_code": "US", "ad_product": "SPONSORED_BRANDS"}
+    report_jobs = [
+        {
+            "location": "https://example.test/report.json",
+            "campaign_type": "sponsored_brands",
+            "ad_product": "SPONSORED_BRANDS",
+            "report_type_id": "sbSearchTerm",
+        }
+    ]
+
+    result = asyncio.run(svc._finalize_completed_run(run, request_meta, report_jobs))
+
+    assert result["status"] == "success"
+    assert observed["profile_id"] == "profile-1"
+    assert observed["sync_run_id"] == "run-1"
+    assert observed["date_from"] == date(2026, 3, 25)
+    assert observed["date_to"] == date(2026, 3, 26)
+    assert observed["ad_product"] == "SPONSORED_BRANDS"
+    facts = observed["facts"]
+    assert isinstance(facts, list)
+    assert len(facts) == 1
+    assert facts[0].ad_product == "SPONSORED_BRANDS"
+
+
 class _FakeSearchTermSyncService:
     def __init__(self):
         self.last_backfill = None
         self.last_daily_refresh = None
 
-    async def run_backfill(self, *, profile_id, date_from, date_to, chunk_days, user_id):
+    async def run_backfill(self, *, profile_id, date_from, date_to, ad_product=None, chunk_days, user_id):
         self.last_backfill = {
             "profile_id": profile_id,
             "date_from": date_from,
             "date_to": date_to,
+            "ad_product": ad_product,
             "chunk_days": chunk_days,
             "user_id": user_id,
         }
@@ -245,8 +362,8 @@ class _FakeSearchTermSyncService:
             "chunks": [],
         }
 
-    async def run_daily_refresh(self, *, profile_id, user_id):
-        self.last_daily_refresh = {"profile_id": profile_id, "user_id": user_id}
+    async def run_daily_refresh(self, *, profile_id, ad_product=None, user_id=None):
+        self.last_daily_refresh = {"profile_id": profile_id, "ad_product": ad_product, "user_id": user_id}
         return {
             "profile_id": profile_id,
             "job_type": "daily_refresh",

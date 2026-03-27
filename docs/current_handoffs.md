@@ -187,9 +187,67 @@ historical reference.
        - `purchases`
        - `sales`
        - `adKeywordStatus`
+   - the first productized live SB backfill also ran on Whoosh US for
+     `2026-03-25` through `2026-03-26`:
+     - run id: `7d7c5a55-538a-4d6c-a959-5d08ce314af4`
+     - DB totals landed as:
+       - `283` rows
+       - `28,829` impressions
+       - `474` clicks
+       - `$989.97` spend
+       - `128` orders
+       - `$2,158.26` sales
+   - manual Amazon `Sponsored Brands > Search term > Daily` export for the
+     same Whoosh US window did **not** fully match the DB:
+     - export totals:
+       - `305` rows
+       - `29,433` impressions
+       - `550` clicks
+       - `$1,066.07` spend
+       - `176` orders
+       - `$2,985.96` sales
+     - exact delta versus DB:
+       - `+22` rows
+       - `+604` impressions
+       - `+76` clicks
+       - `+$76.10` spend
+       - `+48` orders
+       - `+$827.70` sales
+   - that delta localizes exactly to one missing campaign:
+     - `Screen Shine - Pro | Brand | SB | PC-Store | MKW | Br.M | Mix. | Def`
+   - raw Amazon `sbSearchTerm` payload was checked directly for the successful
+     Whoosh US run and the campaign was absent there too:
+     - raw row count: `283`
+     - matching raw rows for that campaign: `0`
+   - conclusion as of March 27, 2026:
+     - this is **not** currently an ingest/parser bug in our SB path
+     - the native `sbSearchTerm` API payload appears narrower than the Amazon
+       console/export surface for at least one SB campaign family
+     - SB should remain **not yet validated**
+   - current best hypothesis:
+     - the missing campaign is a branded defensive SB family
+     - likely manual-keyword-targeted, store-destination / product-collection-
+       style creative (`PC-Store` in internal naming)
+     - this specific SB family may be omitted from the current native
+       `sbSearchTerm` API surface, or Amazon may have an API freshness/report
+       inconsistency
+   - screenshots/export inspection confirmed:
+     - campaign type is `Sponsored Brands`
+     - campaign targeting is `MANUAL`
+     - campaign is not video
+     - search-term export rows for the missing campaign show:
+       - `Targeting = whoosh`
+       - `Match Type = EXACT`
+       - `Customer Search Term = whoosh`
+   - overnight follow-up plan:
+     - Whoosh US and CA now have nightly sync enabled for both `SP` and `SB`
+     - re-check tomorrow whether the same SB campaign remains absent from the
+       native API while still present in the Amazon export
+     - if still absent, treat this as a real Amazon-side contract/surface gap,
+       not a one-day freshness lag
    - product framing update:
      - the next operator-facing milestone should not be a generic search-term
-       dashboard or Pacvue clone
+     dashboard or Pacvue clone
      - the preferred direction is a native replacement of the current N-Gram
        workflow:
        - native data selection instead of Pacvue export/upload

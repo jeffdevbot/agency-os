@@ -2,9 +2,12 @@ import os
 import tempfile
 import itertools
 import time
+from datetime import date
 
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
 from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
+from supabase import Client, create_client
 
 import tempfile
 
@@ -16,6 +19,7 @@ from ..services.ngram import (
     build_ngram,
     derive_category,
     build_workbook,
+    NativeNgramWorkbookService,
 )
 from openpyxl import load_workbook
 import xlsxwriter
@@ -29,6 +33,27 @@ def health():
 
 
 MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "40"))
+
+
+def _get_supabase() -> Client:
+    if not settings.supabase_url or not settings.supabase_service_role:
+        raise HTTPException(status_code=500, detail="Supabase credentials not configured")
+    try:
+        return create_client(settings.supabase_url, settings.supabase_service_role)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="Failed to initialize Supabase client") from exc
+
+
+def _get_native_service() -> NativeNgramWorkbookService:
+    return NativeNgramWorkbookService(_get_supabase())
+
+
+class NativeWorkbookRequest(BaseModel):
+    profile_id: str = Field(..., min_length=1)
+    ad_product: str = Field(..., min_length=1)
+    date_from: date
+    date_to: date
+    respect_legacy_exclusions: bool = True
 
 
 @router.post("/process", response_class=FileResponse)
@@ -133,6 +158,57 @@ async def process_report(
         workbook_path,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         filename=dl_name,
+    )
+
+
+@router.post("/native-workbook", response_class=FileResponse)
+async def build_native_workbook(
+    request: NativeWorkbookRequest,
+    service: NativeNgramWorkbookService = Depends(_get_native_service),
+    user=Depends(require_user),
+):
+    if request.date_from > request.date_to:
+        raise HTTPException(status_code=400, detail="date_from must be on or before date_to")
+
+    started = time.time()
+
+    try:
+        result = service.build_workbook_from_search_term_facts(
+            profile_id=request.profile_id,
+            ad_product=request.ad_product,
+            date_from=request.date_from,
+            date_to=request.date_to,
+            respect_legacy_exclusions=request.respect_legacy_exclusions,
+            app_version=settings.app_version,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="Failed to generate native N-Gram workbook") from exc
+
+    usage_logger.log(
+        {
+            "user_id": user.get("sub"),
+            "user_email": user.get("email"),
+            "tool": "ngram",
+            "action": "native_workbook",
+            "profile_id": request.profile_id,
+            "ad_product": result.ad_product,
+            "date_from": request.date_from.isoformat(),
+            "date_to": request.date_to.isoformat(),
+            "rows_processed": result.rows_processed,
+            "campaigns": result.campaigns_included,
+            "campaigns_skipped": result.campaigns_skipped,
+            "status": "success",
+            "duration_ms": int((time.time() - started) * 1000),
+            "app_version": settings.app_version,
+        }
+    )
+
+    return FileResponse(
+        result.workbook_path,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        filename=result.filename,
     )
 
 

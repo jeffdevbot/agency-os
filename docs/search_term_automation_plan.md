@@ -1029,6 +1029,51 @@ Important note:
      - `purchases`
      - `sales`
      - `adKeywordStatus`
+5. the first productized SB backfill/export comparison did **not** yet fully
+   validate `SB`:
+   - Whoosh US live SB backfill for `2026-03-25` through `2026-03-26` loaded:
+     - `283` rows
+     - `28,829` impressions
+     - `474` clicks
+     - `$989.97` spend
+     - `128` orders
+     - `$2,158.26` sales
+   - matching Amazon `Sponsored Brands > Search term > Daily` export for the
+     same window showed:
+     - `305` rows
+     - `29,433` impressions
+     - `550` clicks
+     - `$1,066.07` spend
+     - `176` orders
+     - `$2,985.96` sales
+   - the entire delta localizes to one missing campaign:
+     - `Screen Shine - Pro | Brand | SB | PC-Store | MKW | Br.M | Mix. | Def`
+   - raw Amazon `sbSearchTerm` payload for the successful Whoosh US run was
+     checked directly and that campaign was absent from the raw API rows too
+   - therefore:
+     - current SB ingest logic is behaving consistently with the native
+       `sbSearchTerm` API response
+     - the mismatch appears to be between Amazon's native API surface and the
+       Amazon console/export surface for at least one SB campaign family
+     - SB remains **unvalidated**
+6. current working hypothesis for the SB gap:
+   - the missing campaign is a branded defensive SB family
+   - campaign screenshots/export inspection show it is:
+     - `Sponsored Brands`
+     - `MANUAL` targeting
+     - not video
+     - likely a store-destination / product-collection-style campaign
+       (`PC-Store` in internal naming)
+   - either:
+     - Amazon's `sbSearchTerm` API omits this SB family, or
+     - Amazon has a freshness/reporting inconsistency between API and export
+       surfaces
+7. immediate follow-up:
+   - Whoosh US and CA nightly sync is now enabled for both `SP` and `SB`
+   - re-check the next nightly cycle before concluding the gap is permanent
+   - if the same branded-defensive SB campaign is still absent from API while
+     present in export, treat the issue as an Amazon-side contract/surface gap
+     rather than an ingest bug
 
 If live validation succeeds, the next active build slice should be:
 

@@ -477,16 +477,19 @@ class AmazonAdsSearchTermSyncService(AmazonAdsSyncService):
         sync_run_id: str,
         date_from: date,
         date_to: date,
+        ad_product: str | None,
         facts: list[SearchTermDailyFact],
     ) -> None:
-        (
+        delete_query = (
             self.db.table("search_term_daily_facts")
             .delete()
             .eq("profile_id", profile_id)
             .gte("report_date", date_from.isoformat())
             .lte("report_date", date_to.isoformat())
-            .execute()
         )
+        if ad_product:
+            delete_query = delete_query.eq("ad_product", ad_product)
+        delete_query.execute()
 
         if not facts:
             return
@@ -578,6 +581,7 @@ class AmazonAdsSearchTermSyncService(AmazonAdsSyncService):
             sync_run_id=run_id,
             date_from=date.fromisoformat(str(run.get("date_from"))),
             date_to=date.fromisoformat(str(run.get("date_to"))),
+            ad_product=str(request_meta.get("ad_product") or "").strip() or None,
             facts=facts,
         )
         self._update_sync_run_request_meta(
