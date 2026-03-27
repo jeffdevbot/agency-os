@@ -58,14 +58,31 @@ export function buildReportsHeaderState(pathname: string): ReportsHeaderState {
     };
   }
 
-  if (segments[0] === "reports" && segments[1] === "api-access") {
+  if (segments[0] === "reports" && segments[1] === "client-data-access" && segments[2]) {
+    return {
+      title: "Reports",
+      subtitle: `Client Data Access / ${formatSlugLabel(segments[2])}`,
+      surfaceLinks: [],
+      actionLinks: [
+        { href: "/reports", label: "Clients" },
+        { href: "/reports/client-data-access", label: "Client Data Access" },
+        { href: `/reports/${segments[2]}`, label: "Client Hub" },
+        { href: "/", label: "Back to Tools" },
+      ],
+    };
+  }
+
+  if (
+    segments[0] === "reports" &&
+    (segments[1] === "api-access" || segments[1] === "client-data-access")
+  ) {
     return {
       title: "Reports",
       subtitle: "Client Data Access",
       surfaceLinks: [],
       actionLinks: [
         { href: "/reports", label: "Clients" },
-        { href: "/reports/api-access", label: "Client Data Access", active: true },
+        { href: "/reports/client-data-access", label: "Client Data Access", active: true },
         { href: "/", label: "Back to Tools" },
       ],
     };
@@ -78,7 +95,7 @@ export function buildReportsHeaderState(pathname: string): ReportsHeaderState {
       surfaceLinks: [],
       actionLinks: [
         { href: "/reports", label: "Clients" },
-        { href: "/reports/api-access", label: "Client Data Access" },
+        { href: "/reports/client-data-access", label: "Client Data Access" },
         { href: "/", label: "Back to Tools" },
       ],
     };
@@ -90,7 +107,11 @@ export function buildReportsHeaderState(pathname: string): ReportsHeaderState {
     surfaceLinks: [],
     actionLinks: [
       { href: "/reports", label: "Clients", active: segments[0] === "reports" },
-      { href: "/reports/api-access", label: "Client Data Access", active: segments[1] === "api-access" },
+      {
+        href: "/reports/client-data-access",
+        label: "Client Data Access",
+        active: segments[1] === "api-access" || segments[1] === "client-data-access",
+      },
       { href: "/", label: "Back to Tools" },
     ],
   };

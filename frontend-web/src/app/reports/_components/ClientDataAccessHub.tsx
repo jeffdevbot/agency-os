@@ -6,7 +6,7 @@ import { loadActiveClients, slugifyClientName, type Client } from "../_lib/repor
 
 const sortClients = (a: Client, b: Client): number => a.name.localeCompare(b.name);
 
-export default function ReportsClientHub() {
+export default function ClientDataAccessHub() {
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
@@ -20,7 +20,7 @@ export default function ReportsClientHub() {
       setClients(nextClients.sort(sortClients));
     } catch (error) {
       setClients([]);
-      setErrorMessage(error instanceof Error ? error.message : "Unable to load report clients");
+      setErrorMessage(error instanceof Error ? error.message : "Unable to load clients");
     } finally {
       setLoading(false);
     }
@@ -33,9 +33,11 @@ export default function ReportsClientHub() {
   return (
     <main className="space-y-4">
       <div className="rounded-3xl bg-white/95 p-8 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur">
-        <h1 className="text-2xl font-semibold text-[#0f172a]">Reports</h1>
-        <p className="mt-2 text-sm text-[#4c576f]">
-          Start with the client, then open the marketplace reporting surface you need.
+        <h1 className="text-2xl font-semibold text-[#0f172a]">Reports / Client Data Access</h1>
+        <p className="mt-2 max-w-4xl text-sm text-[#4c576f]">
+          Start with the client. The detail page is where you verify connection state, jump into
+          WBR Settings to enter Windsor account information, and open WBR Sync to run backfills or
+          nightly sync setup.
         </p>
 
         <div className="mt-6 flex flex-wrap gap-3">
@@ -47,11 +49,23 @@ export default function ReportsClientHub() {
             {loading ? "Refreshing..." : "Refresh"}
           </button>
           <Link
-            href="/reports/client-data-access"
-            className="rounded-2xl bg-[#0f172a] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#1e293b]"
+            href="/reports"
+            className="rounded-2xl bg-[#e8eefc] px-4 py-3 text-sm font-semibold text-[#0f172a] transition hover:bg-[#d7e1fb]"
           >
-            Client Data Access
+            Back to Reports
           </Link>
+        </div>
+
+        <div className="mt-8 rounded-2xl border border-[#dbe4f0] bg-[#f7faff] p-5">
+          <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[#0a6fd6]">
+            Setup Reminder
+          </p>
+          <ol className="mt-3 space-y-2 text-sm text-[#4c576f]">
+            <li>1. Open the client you want to set up.</li>
+            <li>2. Use WBR Settings to enter Windsor account id and import listings.</li>
+            <li>3. Use WBR Sync to run SP-API and Ads API backfills and enable nightly sync.</li>
+            <li>4. Return here later if you need to reauthorize Amazon Ads or Seller API.</li>
+          </ol>
         </div>
 
         {errorMessage ? (
@@ -73,12 +87,14 @@ export default function ReportsClientHub() {
             clients.map((client) => (
               <Link
                 key={client.id}
-                href={`/reports/${slugifyClientName(client.name)}`}
+                href={`/reports/client-data-access/${slugifyClientName(client.name)}`}
                 className="rounded-2xl border border-slate-200 bg-white p-5 shadow transition hover:-translate-y-0.5 hover:shadow-lg"
               >
                 <p className="text-lg font-semibold text-[#0f172a]">{client.name}</p>
-                <p className="mt-1 text-sm text-[#4c576f]">Open marketplace reports for this client.</p>
-                <p className="mt-4 text-sm font-semibold text-[#0a6fd6]">Open Client Reports</p>
+                <p className="mt-1 text-sm text-[#4c576f]">
+                  Open this client’s data access and setup controls.
+                </p>
+                <p className="mt-4 text-sm font-semibold text-[#0a6fd6]">Open Client Data Access</p>
               </Link>
             ))
           )}

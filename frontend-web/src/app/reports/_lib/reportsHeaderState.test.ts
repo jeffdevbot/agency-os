@@ -28,4 +28,16 @@ describe("buildReportsHeaderState", () => {
       { href: "/", label: "Back to Tools" },
     ]);
   });
+
+  it("builds the client data access header for a specific client", () => {
+    const state = buildReportsHeaderState("/reports/client-data-access/acme");
+
+    expect(state.subtitle).toBe("Client Data Access / Acme");
+    expect(state.actionLinks).toEqual([
+      { href: "/reports", label: "Clients" },
+      { href: "/reports/client-data-access", label: "Client Data Access" },
+      { href: "/reports/acme", label: "Client Hub" },
+      { href: "/", label: "Back to Tools" },
+    ]);
+  });
 });

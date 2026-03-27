@@ -18,7 +18,11 @@ import {
   type SpApiFinanceSmokeResult,
   type SpApiValidateResult,
 } from "../_lib/reportApiAccessApi";
-import { slugifyClientName } from "../_lib/reportClientData";
+import {
+  loadClientReportSurfaceSummaryBySlug,
+  slugifyClientName,
+  type ClientReportSurfaceSummary,
+} from "../_lib/reportClientData";
 
 const formatTimestamp = (value: string | null): string => {
   if (!value) return "Not recorded";
@@ -71,7 +75,11 @@ const buildClientHubHref = (clientName: string): string =>
 const buildWbrSyncHref = (clientName: string, marketplaceCode: string): string =>
   `/reports/${slugifyClientName(clientName)}/${marketplaceCode.toLowerCase()}/wbr/sync`;
 
-export default function ReportApiAccessScreen() {
+type Props = {
+  clientSlug: string;
+};
+
+export default function ReportApiAccessScreen({ clientSlug }: Props) {
   const supabase = useMemo(() => getBrowserSupabaseClient(), []);
   const searchParams = useSearchParams();
   const [loading, setLoading] = useState(true);
@@ -82,10 +90,13 @@ export default function ReportApiAccessScreen() {
   const [redirectErrorMessage, setRedirectErrorMessage] = useState<string | null>(null);
   const [summaries, setSummaries] = useState<AmazonAdsApiAccessSummary[]>([]);
   const [spApiSummaries, setSpApiSummaries] = useState<SpApiConnectionSummary[]>([]);
+  const [clientSummary, setClientSummary] = useState<ClientReportSurfaceSummary | null>(null);
   const [spApiConnectRegions, setSpApiConnectRegions] = useState<Record<string, SpApiRegionCode | "">>({});
   const [lastValidation, setLastValidation] = useState<SpApiValidateResult | null>(null);
   const [smokeTesting, setSmokeTesting] = useState<string | null>(null);
   const [smokeResult, setSmokeResult] = useState<SpApiFinanceSmokeResult | null>(null);
+  const clientDataAccessHref = `/reports/client-data-access/${clientSlug}`;
+  const clientName = clientSummary?.client.name ?? "Client";
 
   const loadSummaries = useCallback(async () => {
     setLoading(true);
@@ -100,32 +111,41 @@ export default function ReportApiAccessScreen() {
         throw new Error("Please sign in again.");
       }
 
-      const [adsData, spApiData] = await Promise.all([
+      const [adsData, spApiData, surfaceSummary] = await Promise.all([
         listAmazonAdsApiAccess(session.access_token),
         listSpApiConnections(session.access_token),
+        loadClientReportSurfaceSummaryBySlug(session.access_token, clientSlug),
       ]);
-      setSummaries(adsData);
-      setSpApiSummaries(spApiData);
+      setSummaries(
+        adsData.filter((summary) => slugifyClientName(summary.client_name) === clientSlug),
+      );
+      setSpApiSummaries(
+        spApiData.filter((summary) => slugifyClientName(summary.client_name) === clientSlug),
+      );
+      setClientSummary(surfaceSummary);
       setSpApiConnectRegions((current) => {
         const next: Record<string, SpApiRegionCode | ""> = { ...current };
-        spApiData.forEach((summary) => {
-          if (!next[summary.client_id] && summary.connection?.region_code) {
-            next[summary.client_id] = summary.connection.region_code;
-          }
-          if (!next[summary.client_id]) {
-            next[summary.client_id] = "";
-          }
-        });
+        spApiData
+          .filter((summary) => slugifyClientName(summary.client_name) === clientSlug)
+          .forEach((summary) => {
+            if (!next[summary.client_id] && summary.connection?.region_code) {
+              next[summary.client_id] = summary.connection.region_code;
+            }
+            if (!next[summary.client_id]) {
+              next[summary.client_id] = "";
+            }
+          });
         return next;
       });
     } catch (error) {
       setSummaries([]);
       setSpApiSummaries([]);
+      setClientSummary(null);
       setActionErrorMessage(error instanceof Error ? error.message : "Unable to load API access");
     } finally {
       setLoading(false);
     }
-  }, [supabase]);
+  }, [clientSlug, supabase]);
 
   useEffect(() => {
     void loadSummaries();
@@ -154,14 +174,18 @@ export default function ReportApiAccessScreen() {
           throw new Error("Please sign in again.");
         }
 
-        const url = await createAmazonAdsAuthorizationUrl(session.access_token, profileId);
+        const url = await createAmazonAdsAuthorizationUrl(
+          session.access_token,
+          profileId,
+          clientDataAccessHref,
+        );
         window.location.assign(url);
       } catch (error) {
         setLaunchingProfileId(null);
         setActionErrorMessage(error instanceof Error ? error.message : "Unable to start Amazon Ads connection");
       }
     },
-    [supabase],
+    [clientDataAccessHref, supabase],
   );
 
   const handleSpApiConnect = useCallback(
@@ -184,6 +208,7 @@ export default function ReportApiAccessScreen() {
           session.access_token,
           clientId,
           regionCode,
+          clientDataAccessHref,
         );
         window.location.assign(url);
       } catch (error) {
@@ -193,7 +218,7 @@ export default function ReportApiAccessScreen() {
         );
       }
     },
-    [supabase],
+    [clientDataAccessHref, supabase],
   );
 
   const handleFinanceSmokeTest = useCallback(
@@ -254,11 +279,10 @@ export default function ReportApiAccessScreen() {
   return (
     <main className="space-y-4">
       <div className="rounded-3xl bg-white/95 p-8 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur">
-        <h1 className="text-2xl font-semibold text-[#0f172a]">Reports / Client Data Access</h1>
+        <h1 className="text-2xl font-semibold text-[#0f172a]">{clientName} / Client Data Access</h1>
         <p className="mt-2 max-w-4xl text-sm text-[#4c576f]">
-          Client-level setup hub for reporting connections and onboarding readiness. Use this page
-          to verify auth state, then jump into WBR Sync or WBR Settings to run backfills, enable
-          nightly jobs, and finish profile setup.
+          Use this page to verify this client’s connection state, then jump into WBR Settings to
+          enter Windsor account information and WBR Sync to run backfills or enable nightly jobs.
         </p>
 
         <div className="mt-6 flex flex-wrap gap-3">
@@ -270,10 +294,16 @@ export default function ReportApiAccessScreen() {
             {loading ? "Refreshing..." : "Refresh"}
           </button>
           <Link
-            href="/reports"
+            href="/reports/client-data-access"
             className="rounded-2xl bg-[#e8eefc] px-4 py-3 text-sm font-semibold text-[#0f172a] transition hover:bg-[#d7e1fb]"
           >
-            Back to Reports
+            Back to Client Data Access
+          </Link>
+          <Link
+            href={`/reports/${clientSlug}`}
+            className="rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-[#0a6fd6] shadow transition hover:-translate-y-0.5 hover:shadow-lg"
+          >
+            Client Hub
           </Link>
         </div>
 
@@ -296,10 +326,11 @@ export default function ReportApiAccessScreen() {
             </p>
             <p className="mt-3 text-base font-semibold text-[#0f172a]">Client setup sequence</p>
             <ol className="mt-3 space-y-2 text-sm text-[#4c576f]">
-              <li>1. Confirm the client has the required Amazon Ads and/or Seller API connection.</li>
-              <li>2. Open the client’s WBR Sync page to run initial backfills.</li>
-              <li>3. Enable nightly sync only after the first backfills complete cleanly.</li>
-              <li>4. Use WBR Settings for Windsor account id, listing import, and profile setup.</li>
+              <li>1. Check whether Seller API and Amazon Ads are already authorized for this client.</li>
+              <li>2. Open WBR Settings for the marketplace to save the Windsor account id and import listings.</li>
+              <li>3. Open WBR Sync to run initial backfills.</li>
+              <li>4. Enable nightly sync only after the first backfills complete cleanly.</li>
+              <li>5. Return here later if either OAuth connection needs to be refreshed.</li>
             </ol>
           </div>
 
@@ -322,6 +353,98 @@ export default function ReportApiAccessScreen() {
               </p>
             </div>
           </div>
+        </section>
+
+        <section className="mt-8 space-y-4">
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[#0a6fd6]">
+              Marketplace Setup
+            </p>
+            <p className="mt-2 text-sm text-[#4c576f]">
+              Use these WBR surfaces to enter Windsor settings, run syncs, and manage marketplace-specific setup.
+            </p>
+          </div>
+
+          {loading ? (
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 text-sm text-[#64748b]">
+              Loading marketplace setup...
+            </div>
+          ) : !clientSummary ? (
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 text-sm text-[#64748b]">
+              Client setup details are not available.
+            </div>
+          ) : clientSummary.marketplaces.length === 0 ? (
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 text-sm text-[#64748b]">
+              No WBR marketplace exists for this client yet.
+              <div className="mt-3">
+                <Link href="/reports/wbr/setup" className="text-sm font-semibold text-[#0a6fd6] hover:underline">
+                  Create WBR Profile
+                </Link>
+              </div>
+            </div>
+          ) : (
+            <div className="grid gap-4 xl:grid-cols-2">
+              {clientSummary.marketplaces.map((marketplace) => {
+                const marketplaceSlug = marketplace.marketplace_code.toLowerCase();
+                const wbrProfile = marketplace.wbr_profile;
+                return (
+                  <div
+                    key={marketplace.marketplace_code}
+                    className="rounded-2xl border border-slate-200 bg-white p-5 shadow transition hover:-translate-y-0.5 hover:shadow-lg"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-lg font-semibold text-[#0f172a]">
+                          {marketplace.marketplace_code} Marketplace
+                        </p>
+                        <p className="mt-1 text-sm text-[#4c576f]">
+                          {wbrProfile
+                            ? `${wbrProfile.display_name} • Windsor: ${wbrProfile.windsor_account_id ?? "Not set"}`
+                            : "Create a WBR profile before marketplace-specific setup is available."}
+                        </p>
+                      </div>
+                      <span
+                        className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                          wbrProfile ? "bg-[#e8eefc] text-[#0a6fd6]" : "bg-[#f8fafc] text-[#475569]"
+                        }`}
+                      >
+                        {wbrProfile ? "Configured" : "Needs WBR"}
+                      </span>
+                    </div>
+
+                    {wbrProfile ? (
+                      <div className="mt-4 flex flex-wrap gap-3">
+                        <Link
+                          href={`/reports/${clientSlug}/${marketplaceSlug}/wbr/settings`}
+                          className="rounded-xl bg-[#0a6fd6] px-4 py-2 text-sm font-semibold text-white shadow-[0_15px_30px_rgba(10,111,214,0.2)] transition hover:bg-[#0959ab]"
+                        >
+                          WBR Settings
+                        </Link>
+                        <Link
+                          href={`/reports/${clientSlug}/${marketplaceSlug}/wbr/sync`}
+                          className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-[#0a6fd6] shadow transition hover:-translate-y-0.5 hover:shadow-lg"
+                        >
+                          WBR Sync
+                        </Link>
+                        <Link
+                          href={`/reports/${clientSlug}/${marketplaceSlug}/wbr`}
+                          className="text-sm font-semibold text-[#0a6fd6] hover:underline"
+                        >
+                          Open WBR
+                        </Link>
+                      </div>
+                    ) : (
+                      <div className="mt-4">
+                        <Link href="/reports/wbr/setup" className="text-sm font-semibold text-[#0a6fd6] hover:underline">
+                          Create WBR Profile
+                        </Link>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </section>
 
         <section className="mt-8 space-y-4">

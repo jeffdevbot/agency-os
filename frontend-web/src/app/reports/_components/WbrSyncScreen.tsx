@@ -122,7 +122,7 @@ export default function WbrSyncScreen({ clientSlug, marketplaceCode }: Props) {
             {sync.refreshingRuns ? "Refreshing..." : "Refresh Runs"}
           </button>
           <Link
-            href="/reports/api-access"
+            href={`/reports/client-data-access/${clientSlug}`}
             className="rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-[#0a6fd6] shadow transition hover:-translate-y-0.5 hover:shadow-lg"
           >
             Client Data Access

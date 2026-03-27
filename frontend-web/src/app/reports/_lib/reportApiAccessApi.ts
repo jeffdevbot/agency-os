@@ -213,7 +213,7 @@ export const createSpApiAuthorizationUrl = async (
   token: string,
   clientId: string,
   regionCode: SpApiRegionCode,
-  returnPath = "/reports/api-access",
+  returnPath = "/reports/client-data-access",
 ): Promise<string> => {
   const response = await fetch(
     `${getBackendUrl()}/admin/reports/api-access/amazon-spapi/connect`,
@@ -309,7 +309,7 @@ export const runSpApiFinanceSmokeTest = async (
 export const createAmazonAdsAuthorizationUrl = async (
   token: string,
   profileId: string,
-  returnPath = "/reports/api-access",
+  returnPath = "/reports/client-data-access",
 ): Promise<string> => {
   const response = await fetch(`${getBackendUrl()}/admin/reports/api-access/amazon-ads/connect`, {
     method: "POST",
