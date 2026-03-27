@@ -17,17 +17,40 @@ from .amazon_ads_sync import (
 )
 
 
-SEARCH_TERM_REPORT_DEFINITIONS = [
+# ------------------------------------------------------------------
+# Report definitions
+#
+# Only Sponsored Products (spSearchTerm) is active.
+# The Amazon Ads v3 reporting API requires groupBy=["searchTerm"] for
+# search-term reports — NOT "campaign" (which is correct for spCampaigns
+# but is rejected for spSearchTerm with:
+#   "configuration invalid groupBy values: (campaign). Allowed values: (searchTerm)").
+#
+# SB (sbSearchTerm) and SD (sdSearchTerm) search-term support is intentionally
+# disabled here until their exact report contracts are verified:
+#   - allowed groupBy values
+#   - allowed columns
+#   - retention window
+#   - response field names
+# Do not re-enable SB/SD without confirming the live API contract.
+# ------------------------------------------------------------------
+
+SEARCH_TERM_REPORT_DEFINITIONS: list[AmazonAdsReportDefinition] = [
     AmazonAdsReportDefinition(
         ad_product="SPONSORED_PRODUCTS",
         report_type_id="spSearchTerm",
         campaign_type="sponsored_products",
+        group_by=["searchTerm"],
         columns=[
             "date",
             "campaignId",
             "campaignName",
             "adGroupId",
             "adGroupName",
+            "keywordId",
+            "keyword",
+            "keywordType",
+            "targeting",
             "searchTerm",
             "matchType",
             "impressions",
@@ -37,41 +60,13 @@ SEARCH_TERM_REPORT_DEFINITIONS = [
             "sales7d",
         ],
     ),
-    AmazonAdsReportDefinition(
-        ad_product="SPONSORED_BRANDS",
-        report_type_id="sbSearchTerm",
-        campaign_type="sponsored_brands",
-        columns=[
-            "date",
-            "campaignId",
-            "campaignName",
-            "searchTerm",
-            "impressions",
-            "clicks",
-            "cost",
-            "purchases",
-            "sales",
-        ],
-    ),
-    AmazonAdsReportDefinition(
-        ad_product="SPONSORED_DISPLAY",
-        report_type_id="sdSearchTerm",
-        campaign_type="sponsored_display",
-        columns=[
-            "date",
-            "campaignId",
-            "campaignName",
-            "adGroupId",
-            "adGroupName",
-            "searchTerm",
-            "impressions",
-            "clicks",
-            "cost",
-            "purchases",
-            "sales",
-        ],
-    ),
+    # SB and SD search-term definitions are omitted here intentionally.
+    # See comment above before re-enabling.
 ]
+
+# Observed retention window for spSearchTerm reports (calendar days inclusive).
+# This matches the live Amazon Ads API behaviour seen in testing.
+STR_SP_OBSERVED_RETENTION_DAYS = 60
 
 
 @dataclass(frozen=True)
@@ -84,6 +79,10 @@ class SearchTermDailyFact:
     campaign_name_parts: list[str]
     ad_group_id: str | None
     ad_group_name: str | None
+    keyword_id: str | None
+    keyword: str | None
+    keyword_type: str | None
+    targeting: str | None
     search_term: str
     match_type: str | None
     impressions: int
@@ -114,6 +113,7 @@ class AmazonAdsSearchTermSyncService(AmazonAdsSyncService):
                 "campaign_type": definition.campaign_type,
                 "ad_product": definition.ad_product,
                 "report_type_id": definition.report_type_id,
+                "group_by": definition.group_by,
                 "columns": definition.columns,
             }
             for definition in SEARCH_TERM_REPORT_DEFINITIONS
@@ -146,6 +146,7 @@ class AmazonAdsSearchTermSyncService(AmazonAdsSyncService):
                         "ad_product": definition.ad_product,
                         "report_type_id": definition.report_type_id,
                         "campaign_type": definition.campaign_type,
+                        "group_by": definition.group_by,
                         "columns": definition.columns,
                     }
                     for definition in SEARCH_TERM_REPORT_DEFINITIONS
@@ -225,7 +226,13 @@ class AmazonAdsSearchTermSyncService(AmazonAdsSyncService):
         *,
         marketplace_code: str,
     ) -> list[SearchTermDailyFact]:
-        by_key: dict[tuple[date, str, str, str | None, str, str | None], SearchTermDailyFact] = {}
+        # Dedup key includes keyword_id so that the same search term triggered
+        # by different keywords in the same campaign/ad group is stored as
+        # separate rows — which matches the Amazon report semantics.
+        by_key: dict[
+            tuple[date, str, str, str | None, str | None, str, str | None],
+            SearchTermDailyFact,
+        ] = {}
 
         for row in rows:
             date_text = self._extract_report_date_text(row)
@@ -243,6 +250,10 @@ class AmazonAdsSearchTermSyncService(AmazonAdsSyncService):
             campaign_id = self._extract_campaign_id(row)
             ad_group_id = self._extract_ad_group_id(row)
             ad_group_name = self._extract_ad_group_name(row)
+            keyword_id = self._extract_keyword_id(row)
+            keyword = self._extract_keyword(row)
+            keyword_type = self._extract_keyword_type(row)
+            targeting = self._extract_targeting(row)
             match_type = self._extract_match_type(row)
             currency_code = (
                 str(
@@ -264,6 +275,10 @@ class AmazonAdsSearchTermSyncService(AmazonAdsSyncService):
                 campaign_name_parts=campaign_parts,
                 ad_group_id=ad_group_id,
                 ad_group_name=ad_group_name,
+                keyword_id=keyword_id,
+                keyword=keyword,
+                keyword_type=keyword_type,
+                targeting=targeting,
                 search_term=search_term,
                 match_type=match_type,
                 impressions=_parse_int(row.get("impressions")),
@@ -301,6 +316,7 @@ class AmazonAdsSearchTermSyncService(AmazonAdsSyncService):
                 campaign_type,
                 campaign_name,
                 ad_group_name,
+                keyword_id,
                 search_term,
                 match_type,
             )
@@ -331,6 +347,10 @@ class AmazonAdsSearchTermSyncService(AmazonAdsSyncService):
                 campaign_name_parts=existing.campaign_name_parts,
                 ad_group_id=self._merge_optional_id(existing.ad_group_id, fact.ad_group_id),
                 ad_group_name=self._merge_optional_text(existing.ad_group_name, fact.ad_group_name),
+                keyword_id=self._merge_optional_id(existing.keyword_id, fact.keyword_id),
+                keyword=self._merge_optional_text(existing.keyword, fact.keyword),
+                keyword_type=self._merge_optional_text(existing.keyword_type, fact.keyword_type),
+                targeting=self._merge_optional_text(existing.targeting, fact.targeting),
                 search_term=existing.search_term,
                 match_type=self._merge_optional_text(existing.match_type, fact.match_type),
                 impressions=existing.impressions + fact.impressions,
@@ -386,6 +406,10 @@ class AmazonAdsSearchTermSyncService(AmazonAdsSyncService):
                 "campaign_name_parts": fact.campaign_name_parts,
                 "ad_group_id": fact.ad_group_id,
                 "ad_group_name": fact.ad_group_name,
+                "keyword_id": fact.keyword_id,
+                "keyword": fact.keyword,
+                "keyword_type": fact.keyword_type,
+                "targeting": fact.targeting,
                 "search_term": fact.search_term,
                 "match_type": fact.match_type,
                 "impressions": fact.impressions,
@@ -479,6 +503,10 @@ class AmazonAdsSearchTermSyncService(AmazonAdsSyncService):
             "run": finished,
         }
 
+    # ------------------------------------------------------------------
+    # Field extractors
+    # ------------------------------------------------------------------
+
     @staticmethod
     def _extract_search_term(row: dict[str, Any]) -> str:
         for value in (
@@ -486,13 +514,6 @@ class AmazonAdsSearchTermSyncService(AmazonAdsSyncService):
             row.get("customerSearchTerm"),
             row.get("customer_search_term"),
             row.get("query"),
-            row.get("keywordText"),
-            row.get("targeting"),
-            row.get("target"),
-            row.get("targetingExpression"),
-            row.get("resolvedTargetingExpression"),
-            row.get("resolvedProductTargetingExpression"),
-            row.get("matchedTarget"),
             AmazonAdsSearchTermSyncService._nested_static_get(row, "dimensionValues", "searchTerm"),
             AmazonAdsSearchTermSyncService._nested_static_get(row, "dimensions", "searchTerm"),
             AmazonAdsSearchTermSyncService._nested_static_get(row, "dimensionValues", "query"),
@@ -502,6 +523,59 @@ class AmazonAdsSearchTermSyncService(AmazonAdsSyncService):
             if text:
                 return text
         return ""
+
+    @staticmethod
+    def _extract_keyword_id(row: dict[str, Any]) -> str | None:
+        for value in (
+            row.get("keywordId"),
+            row.get("keyword_id"),
+            AmazonAdsSearchTermSyncService._nested_static_get(row, "dimensionValues", "keywordId"),
+            AmazonAdsSearchTermSyncService._nested_static_get(row, "dimensions", "keywordId"),
+        ):
+            text = str(value or "").strip()
+            if text:
+                return text
+        return None
+
+    @staticmethod
+    def _extract_keyword(row: dict[str, Any]) -> str | None:
+        for value in (
+            row.get("keyword"),
+            row.get("keywordText"),
+            AmazonAdsSearchTermSyncService._nested_static_get(row, "dimensionValues", "keyword"),
+            AmazonAdsSearchTermSyncService._nested_static_get(row, "dimensions", "keyword"),
+        ):
+            text = str(value or "").strip()
+            if text:
+                return text
+        return None
+
+    @staticmethod
+    def _extract_keyword_type(row: dict[str, Any]) -> str | None:
+        for value in (
+            row.get("keywordType"),
+            row.get("keyword_type"),
+            AmazonAdsSearchTermSyncService._nested_static_get(row, "dimensionValues", "keywordType"),
+            AmazonAdsSearchTermSyncService._nested_static_get(row, "dimensions", "keywordType"),
+        ):
+            text = str(value or "").strip()
+            if text:
+                return text
+        return None
+
+    @staticmethod
+    def _extract_targeting(row: dict[str, Any]) -> str | None:
+        for value in (
+            row.get("targeting"),
+            row.get("targetingExpression"),
+            row.get("resolvedTargetingExpression"),
+            AmazonAdsSearchTermSyncService._nested_static_get(row, "dimensionValues", "targeting"),
+            AmazonAdsSearchTermSyncService._nested_static_get(row, "dimensions", "targeting"),
+        ):
+            text = str(value or "").strip()
+            if text:
+                return text
+        return None
 
     @staticmethod
     def _extract_ad_group_id(row: dict[str, Any]) -> str | None:
@@ -538,8 +612,6 @@ class AmazonAdsSearchTermSyncService(AmazonAdsSyncService):
         for value in (
             row.get("matchType"),
             row.get("match_type"),
-            row.get("keywordType"),
-            row.get("targetingType"),
             AmazonAdsSearchTermSyncService._nested_static_get(row, "dimensionValues", "matchType"),
             AmazonAdsSearchTermSyncService._nested_static_get(row, "dimensions", "matchType"),
         ):
@@ -575,6 +647,7 @@ class AmazonAdsSearchTermSyncService(AmazonAdsSyncService):
                 return None
             current = current.get(key)
         return current
+
     async def _refresh_access_token(self, refresh_token: str) -> str:
         from .amazon_ads_auth import refresh_access_token
 

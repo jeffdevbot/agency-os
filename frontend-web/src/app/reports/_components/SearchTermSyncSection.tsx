@@ -237,9 +237,10 @@ export default function SearchTermSyncSection({ clientSlug, marketplaces, loadin
             Search Term Automation
           </p>
           <p className="mt-2 max-w-2xl text-sm text-[#4c576f]">
-            Setup and sync control surface for STR ingestion from Amazon Ads. This controls
-            what data is collected — the Search Term Data inspection surface and action tools
-            come in later stages. STR sync is separate from the existing Ads campaign sync.
+            Setup and sync control surface for Sponsored Products search-term ingestion from
+            Amazon Ads. This controls what data is collected — the Search Term Data inspection
+            surface and action tools come in later stages. STR sync is separate from the
+            existing Ads campaign sync.
           </p>
         </div>
         <Link
@@ -257,9 +258,10 @@ export default function SearchTermSyncSection({ clientSlug, marketplaces, loadin
         </p>
         <div className="mt-3 space-y-2 text-sm text-[#4c576f]">
           <p>
-            <span className="font-semibold text-[#0f172a]">Backfill:</span> Imports STR data
-            across a custom date range using the Amazon Ads API. Retention is approximately 60
-            days — deeper history still requires a Pacvue export.
+            <span className="font-semibold text-[#0f172a]">Backfill:</span> Imports Sponsored
+            Products search-term data across a custom date range using the Amazon Ads API.
+            Observed retention is approximately 60 days — deeper history still requires a
+            Pacvue export.
           </p>
           <p>
             <span className="font-semibold text-[#0f172a]">Daily Refresh:</span> Imports the

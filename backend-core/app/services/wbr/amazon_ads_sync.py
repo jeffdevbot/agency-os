@@ -34,6 +34,10 @@ class AmazonAdsReportDefinition:
     report_type_id: str
     campaign_type: str
     columns: list[str]
+    # group_by controls the Amazon Ads report API "groupBy" field.
+    # Campaign reports group by "campaign"; search-term reports group by "searchTerm".
+    # Each definition must specify this explicitly — do not rely on a hardcoded default.
+    group_by: list[str]
 
 
 AMAZON_ADS_REPORT_DEFINITIONS = [
@@ -41,6 +45,7 @@ AMAZON_ADS_REPORT_DEFINITIONS = [
         ad_product="SPONSORED_PRODUCTS",
         report_type_id="spCampaigns",
         campaign_type="sponsored_products",
+        group_by=["campaign"],
         columns=[
             "date",
             "campaignId",
@@ -56,6 +61,7 @@ AMAZON_ADS_REPORT_DEFINITIONS = [
         ad_product="SPONSORED_BRANDS",
         report_type_id="sbCampaigns",
         campaign_type="sponsored_brands",
+        group_by=["campaign"],
         columns=[
             "date",
             "campaignId",
@@ -71,6 +77,7 @@ AMAZON_ADS_REPORT_DEFINITIONS = [
         ad_product="SPONSORED_DISPLAY",
         report_type_id="sdCampaigns",
         campaign_type="sponsored_display",
+        group_by=["campaign"],
         columns=[
             "date",
             "campaignId",
@@ -433,16 +440,22 @@ class AmazonAdsSyncService:
                 "campaign_type": definition.campaign_type,
                 "ad_product": definition.ad_product,
                 "report_type_id": definition.report_type_id,
+                "group_by": definition.group_by,
                 "columns": definition.columns,
             }
             for definition in AMAZON_ADS_REPORT_DEFINITIONS
         ]
 
     def _report_definition_from_job(self, job: dict[str, Any]) -> AmazonAdsReportDefinition:
+        # Default group_by to ["campaign"] for backward compatibility with jobs
+        # stored before group_by was added to the job dict.
+        stored_group_by = job.get("group_by")
+        group_by = [str(g) for g in stored_group_by if str(g).strip()] if isinstance(stored_group_by, list) else ["campaign"]
         return AmazonAdsReportDefinition(
             ad_product=str(job.get("ad_product") or "").strip(),
             report_type_id=str(job.get("report_type_id") or "").strip(),
             campaign_type=str(job.get("campaign_type") or "").strip(),
+            group_by=group_by,
             columns=[str(column) for column in job.get("columns") or [] if str(column).strip()],
         )
 
@@ -694,7 +707,7 @@ class AmazonAdsSyncService:
             "endDate": date_to.isoformat(),
             "configuration": {
                 "adProduct": report_definition.ad_product,
-                "groupBy": ["campaign"],
+                "groupBy": report_definition.group_by,
                 "columns": report_definition.columns,
                 "reportTypeId": report_definition.report_type_id,
                 "timeUnit": "DAILY",

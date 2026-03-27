@@ -507,8 +507,8 @@ export default function SearchTermDataScreen({ clientSlug }: Props) {
           </p>
           <h1 className="mt-1 text-2xl font-bold text-[#0f172a]">{clientName}</h1>
           <p className="mt-1 text-sm text-[#4c576f]">
-            Inspect raw STR data from Amazon Ads. Use the filters below to slice by date, campaign
-            type, or keyword.
+            Inspect Sponsored Products search-term data from Amazon Ads. Use the filters below to
+            slice by date, campaign, or search term.
           </p>
         </div>
         <Link

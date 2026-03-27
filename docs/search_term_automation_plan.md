@@ -10,7 +10,7 @@ N-Gram / N-PAT workflow while keeping the legacy tool untouched during rollout.
 This plan covers:
 
 1. richer catalog context ingestion needed for AI-quality recommendations
-2. STR ingestion from Amazon Ads-connected data
+2. Amazon Ads-native STR and adjacent report ingestion
 3. a staged operator-facing rollout:
    - setup controls
    - Search Term Data inspection
@@ -173,16 +173,70 @@ The system still needs a way to understand campaign intent:
 For MVP, the fastest context path should come from campaign-name parsing and
 existing naming conventions, not from coupling this workflow to WBR rollups.
 
+### Important implementation correction
+
+The first shipped STR ingestion slice reused too much of the existing WBR
+Amazon Ads sync abstraction.
+
+That was the wrong boundary.
+
+Why:
+
+1. Amazon Ads report creation is report-type-specific:
+   - `reportTypeId`
+   - `adProduct`
+   - `groupBy`
+   - allowed `columns`
+   - allowed `filters`
+   - `timeUnit`
+   - max window / retention
+2. search-term reporting is **not** just "campaign sync with different columns"
+3. the generic WBR Amazon Ads sync path hardcoded campaign-report assumptions
+   that do not apply to search-term reports
+
+Concrete failure we already observed:
+
+1. the initial STR implementation inherited `groupBy: ["campaign"]`
+2. Amazon rejected the request for `spSearchTerm`
+3. the official v3 search-term contract requires `groupBy: ["searchTerm"]`
+
+This plan should therefore treat STR ingestion as a separate Amazon Ads
+reporting subsystem, not as a small extension of WBR campaign sync.
+
 ## Recommended architecture
 
 Treat this as a new workflow with four layers:
 
 1. catalog context layer
-2. STR fact layer
+2. Amazon Ads report-ingestion layer
 3. recommendation + review layer
 4. execution layer
 
-The catalog context layer is the dependency for the rest of the roadmap.
+The Amazon Ads report-ingestion layer must be driven by the Amazon Ads report
+spec, not by WBR sync conventions.
+
+The catalog context layer is still an important dependency for later review
+quality, but it should not dictate how Amazon report ingestion is modeled.
+
+### Amazon Ads-native ingestion principles
+
+The ingestion layer should follow these principles:
+
+1. define report contracts per report type, not per legacy sync family
+2. make `groupBy` explicit in the contract
+3. make allowed columns explicit in the contract
+4. make allowed filters explicit in the contract
+5. make retention and max date window explicit in the contract
+6. preserve Amazon-native row semantics first
+7. derive app-specific interpretations later
+
+In practice this means:
+
+1. no inherited hardcoded `groupBy`
+2. no assumption that SP / SB / SD all expose the same report family
+3. no assumption that campaign-level WBR sync patterns map cleanly to
+   search-term or adjacent report ingestion
+4. no schema design driven first by legacy N-Gram or WBR convenience
 
 ## Product staging plan
 
@@ -415,6 +469,19 @@ Important decision:
 Replace the manual Pacvue export dependency with programmatic STR ingestion
 while keeping the legacy file upload flow untouched.
 
+### Phase 1 reset
+
+The first attempt at Phase 1 proved that the implementation boundary was wrong.
+
+Going forward:
+
+1. Phase 1 must be rebuilt around official Amazon Ads report contracts
+2. the initial verified path should be **Sponsored Products search-term v3**
+3. any SB / SD support must be added only after the exact official contract is
+   verified
+4. Stage 1 and Stage 2 UI can remain, but the ingestion underneath them should
+   be treated as an Amazon-native reporting system, not a WBR sync variant
+
 ### Amazon report priority
 
 For this project, not every Amazon Ads console report matters equally.
@@ -423,8 +490,8 @@ Recommended priority:
 
 1. `Search term`
    - core fact source for N-Gram / N-PAT replacement
-   - must be evaluated for SP / SB / SD coverage rather than assumed to be
-     Sponsored Products only
+   - start with documented SP support
+   - do not assume SB / SD parity until verified in the official docs/API
 2. `Advertised product`
    - high-value product-context source for understanding what was actually being
      promoted
@@ -468,18 +535,26 @@ Current recommendation:
 
 ### Phase 1 outputs
 
-1. programmatic search-term and adjacent report fetch/storage
+1. programmatic Amazon Ads report fetch/storage driven by explicit report contracts
 2. profile / marketplace scoping
 3. date-window selection
-4. campaign/ad-product source tagging
+4. report-type / ad-product source tagging
 5. campaign-name-derived intent parsing for MVP context
 6. parity checks against current Pacvue-based tool inputs
+7. preservation of Amazon-native dimensions needed for later tools
 
 ### Ad-type coverage requirement
 
-This workflow should not silently collapse into Sponsored Products only.
+The product goal should not silently collapse into Sponsored Products only.
 
-The implementation should explicitly account for:
+But the engineering path must be evidence-driven.
+
+Immediate rule:
+
+1. do **not** implement or claim support for an ad product unless the exact
+   report contract has been verified from the official Amazon Ads docs/API
+
+Desired eventual coverage:
 
 1. Sponsored Products (`SP`)
 2. Sponsored Brands (`SB`), including patterns such as `SBV`
@@ -488,19 +563,23 @@ The implementation should explicitly account for:
 Important note:
 
 1. the exact report surface and fact grain may differ by ad type
-2. the product goal is still coverage across SP / SB / SD where the report
-   families support it
-3. if one ad type requires an adjacent report instead of the exact same
-   search-term grain, the plan should still treat that as in scope rather than
-   dropping the ad type entirely
+2. the implementation should start with the verified SP path
+3. SB / SD should be marked unsupported / unverified until the real report
+   contracts are confirmed
+4. if one ad type requires an adjacent report instead of the exact same
+   search-term grain, that should still count toward eventual product scope
+5. unsupported ad products should fail clearly, not masquerade as supported
 
 ### Suggested data model
 
 Suggested working tables:
 
-1. `search_term_import_batches`
+1. `amazon_ads_report_batches`
 2. `search_term_daily_facts`
-3. optional context/support tables only if later needed by the review layer
+3. later adjacent Amazon-native context tables:
+   - advertised product facts
+   - targeting facts
+   - purchased product facts
 
 Suggested daily-fact grain:
 
@@ -512,13 +591,18 @@ Suggested daily-fact grain:
 6. `ad_group_id`
 7. `ad_group_name`
 8. `search_term`
-9. `match_type`
-10. `impressions`
-11. `clicks`
-12. `spend`
-13. `orders`
-14. `sales`
-15. `source_payload`
+9. `keyword_type`
+10. `keyword`
+11. `keyword_id`
+12. `targeting`
+13. `match_type`
+14. `impressions`
+15. `clicks`
+16. `spend`
+17. `orders`
+18. `sales`
+19. `currency_code`
+20. `source_payload`
 
 Recommended natural key at this grain:
 
@@ -526,80 +610,89 @@ Recommended natural key at this grain:
 2. `report_date`
 3. `campaign_id`
 4. `search_term`
-5. `match_type`
+5. `keyword_type`
+6. `match_type`
 
-Deduplicate at that persisted fact grain, not by heuristic text cleanup.
+Important note:
+
+1. if Amazon returns both keyword-backed and targeting-expression-backed rows,
+   `keyword_type` is part of the business meaning and should not be discarded
+2. preserve Amazon-native row identity first; only collapse rows later if a
+   downstream tool explicitly wants that
+3. deduplicate at the persisted fact grain, not by heuristic text cleanup
 
 Important implementation note:
 
-1. the current WBR Amazon Ads sync is campaign-level only with
-   `groupBy: ["campaign"]`
-2. search-term ingestion will require a separate report definition / request
-   path
-3. ad-group-level STR support should be treated as an explicit design choice,
-   not assumed "for free"
-4. ad-group-aware ingestion should be treated as an explicit upgrade decision,
-   not bundled implicitly into the first STR sync
-5. if ad-group grain is required for review quality, that should be called out
-   as added implementation complexity rather than an incidental extension of
-   the current ads sync
+1. the current WBR Amazon Ads sync is campaign-level and should not be treated
+   as the base abstraction for STR or adjacent report ingestion
+2. each Amazon Ads report family should carry its own:
+   - `reportTypeId`
+   - `adProduct`
+   - `groupBy`
+   - `columns`
+   - `filters`
+   - `timeUnit`
+   - retention/window rules
+3. the ingestion service should be organized around those report contracts
+4. ad-group-level population should come from the actual report payload, not
+   from assumption
+5. if ad-group context is absent for a supported report, the schema should
+   tolerate nulls rather than inventing structure
 
 Recommended MVP decision:
 
-1. campaign + search term grain is sufficient for Phase 1 parity with the
-   current Pacvue-driven N-Gram / N-PAT workflow
-2. ad-group-aware grain becomes important when a single campaign contains
-   materially different ad groups targeting different products
-3. treat ad-group-aware ingestion as a Phase 2 enhancement unless Phase 1
-   source testing shows that campaign-level grain is too coarse for reliable
-   recommendation review
+1. MVP should start with documented SP search-term reporting only
+2. the stored grain should preserve the Amazon dimensions returned by that
+   report, including keyword/targeting context
+3. later tool views can still project to campaign + search term where useful
+4. do not throw away dimensions at ingest time just because the legacy tools
+   did not use them
 
 ### Phase 1 grain decision
 
-Campaign + search-term grain is sufficient for MVP parity with the current
-N-Gram / N-PAT tools:
-
-1. the existing Pacvue export format is campaign + search-term with no
-   ad-group column
-2. the current N-Gram and N-PAT tools do not use ad-group identity
-3. ad-group grain adds implementation complexity without parity benefit at this
-   stage
+Legacy parity still matters, but ingestion should not be flattened down to
+legacy tool grain at write time.
 
 Decision:
 
-1. MVP `search_term_daily_facts` grain is: `(profile_id, report_date,
-   campaign_id, search_term, match_type)`
-2. `ad_group_id` and `ad_group_name` columns should still exist in the schema
-   as nullable, populated when the report source provides them
-3. making them nullable from day one preserves the upgrade path without
-   requiring a schema migration when Phase 2 relevance classification needs
-   ad-group context
-4. do not lock `ad_group_id` into the natural key until ad-group-aware MVP is
-   an explicit requirement
+1. MVP ingest should preserve documented Amazon row dimensions
+2. MVP tooling may still read that data at campaign + search term grain when
+   helpful for parity
+3. `ad_group_id` and `ad_group_name` should remain nullable, populated only
+   when the report actually provides them
+4. `keyword_type`, `keyword`, `keyword_id`, and `targeting` should not be
+   treated as optional luxury fields; they are part of the source semantics
 
 ### Rules
 
 1. keep campaign names exactly as sourced
 2. preserve raw payload for QA
-3. dedupe at the persisted fact grain, not by heuristic text cleanup
-4. support backfill plus trailing daily refresh
-5. treat Pacvue upload as fallback until parity is proven
-6. assume API backfill is retention-limited
-7. keep `ad_group_id` and `ad_group_name` nullable until ad-group-aware grain is
-   an explicit requirement
+3. preserve Amazon-native dimensions even if the first tools do not render all
+   of them
+4. dedupe at the persisted fact grain, not by heuristic text cleanup
+5. support backfill plus trailing daily refresh
+6. treat Pacvue upload as fallback until parity is proven
+7. assume API backfill is retention-limited
+8. keep unsupported/unverified report families explicitly out of scope until
+   confirmed
 
 ### Retention / backfill note
 
-The current Amazon Ads WBR sync already documents an observed retention window
-of about 60 days:
+Do not let the WBR Ads sync retention constant define STR behavior.
 
-1. `OBSERVED_REPORT_RETENTION_DAYS = 60` in `amazon_ads_sync.py`
+Phase 1 retention assumptions should come from the report contract for the
+specific Amazon report family.
+
+Current documented assumption:
+
+1. `spSearchTerm` v3 retention is 95 days
 
 So Phase 1 should assume:
 
-1. live API backfill will likely be capped to roughly 60 days
-2. if a deeper historical STR corpus is needed initially, Pacvue exports may
-   still be required as bootstrap input
+1. live API backfill for documented SP search-term should use the documented
+   retention window, not the older WBR sync constant
+2. if a deeper historical corpus is needed initially, Pacvue exports may still
+   be required as bootstrap input
 
 ### Acceptance criteria
 
@@ -629,6 +722,7 @@ Recommended responsibilities:
 3. display row counts and sample rows
 4. display filterable imported search-term facts
 5. make it easy to spot obvious ingestion/report-shape issues
+6. make it obvious which report families / ad products are actually supported
 
 Recommended non-goals:
 
@@ -772,14 +866,17 @@ Recommended order:
 
 1. dependency phase: richer catalog context expansion
 2. Stage 1 setup/sync controls in `Client Data Access`
-3. Phase 1 STR ingestion with campaign-name parsing and SP / SB / SD coverage
-4. Stage 2 `Search Term Data` under `reports`
-5. Phase 1 adjacent Amazon-native context ingestion:
+3. refactor STR ingestion into an Amazon Ads-native report-contract system
+4. rebuild Phase 1 on documented SP search-term support
+5. Stage 2 `Search Term Data` under `reports`
+6. Phase 1 adjacent Amazon-native context ingestion:
    - `Advertised product`
    - `Targeting`
    - `Purchased product`
-6. Stage 3 recommendation/action tools
-7. Phase 4 direct Amazon writeback
+7. expand ad-product support only where the official report contracts are
+   verified
+8. Stage 3 recommendation/action tools
+9. Phase 4 direct Amazon writeback
 
 ## What should stay untouched for now
 
@@ -791,41 +888,74 @@ Those are the safety net during rollout.
 
 ## Biggest risks
 
-1. Amazon Ads report shape may not match Pacvue exports exactly enough on day
+1. over-reusing WBR campaign-sync abstractions may keep distorting Amazon Ads
+   ingestion unless we explicitly separate the boundaries now
+2. Amazon Ads report families may differ more sharply by ad product than the
+   product vision assumes, requiring staged support instead of one uniform path
+3. Amazon Ads report shape may not match Pacvue exports exactly enough on day
    one
-2. Windsor listing data may be too shallow for high-confidence relevance
+4. Windsor listing data may be too shallow for high-confidence relevance
    decisions without enrichment
-3. campaign-name-derived intent context may be noisier across clients than it
+5. campaign-name-derived intent context may be noisier across clients than it
    first appears, pushing more value into Amazon-native context reports sooner
    than expected
-4. direct writeback has the highest trust and safety burden
+6. direct writeback has the highest trust and safety burden
 
 ## Recommended next implementation slice
 
-Stage 1 UI is now shipped (2026-03-27).
+Stage 1 UI is shipped (2026-03-27) and Stage 2 `Search Term Data` is now
+shipped as well.
 
-The `Search Term Automation` section is live on the per-client Client Data Access page
-(`/reports/client-data-access/[clientSlug]`). It includes:
+Current shipped surfaces:
 
-1. Per-marketplace WBR profile cards with:
+1. `Client Data Access` / `Search Term Automation`
+   - per-marketplace WBR profile cards with:
    - latest STR sync run status
    - backfill date-range controls + Run Backfill button
    - Run Daily Refresh Now button
    - Enable/Disable Nightly Sync toggle (bound to `search_term_auto_sync_enabled`)
-2. Guidance block (what backfill / daily refresh / nightly sync each do)
-3. Disabled "Open Search Term Data" forward link pointing to Stage 2
+2. `Search Term Data`
+   - latest sync state
+   - coverage
+   - profile/date/type/text filters
+   - raw fact inspection without SQL
 
-The next active build slice should be Stage 2: `Search Term Data` under `reports`.
+However, the current ingestion implementation needs a refactor before it should
+be treated as trusted.
 
-Specifically:
+Reason:
 
-1. build `Search Term Data` as a new surface under `reports`
-2. show ingestion status, coverage window, row counts, sample rows
-3. allow filters by profile / date range / campaign type / search term
-4. make it easy to spot ingestion issues without SQL
+1. the initial STR ingestion path reused campaign-sync assumptions from WBR
+2. the first live run failed because `spSearchTerm` requires
+   `groupBy=["searchTerm"]`, while the inherited implementation sent
+   `groupBy=["campaign"]`
+3. SB / SD support was also assumed before the official contract was verified
+
+The next active build slice should therefore be:
+
+1. refactor STR ingestion away from WBR campaign-sync abstractions
+2. introduce explicit per-report Amazon Ads contracts:
+   - `reportTypeId`
+   - `adProduct`
+   - `groupBy`
+   - `columns`
+   - `filters`
+   - `timeUnit`
+   - retention/window rules
+3. rebuild the Phase 1 path around documented `spSearchTerm` support first
+4. update the schema/model to preserve:
+   - `keyword_type`
+   - `keyword`
+   - `keyword_id`
+   - `targeting`
+5. update Stage 1/2 UI copy so support scope and retention claims match the
+   real Amazon contract
+6. treat SB / SD as unverified / unsupported until the exact official contract
+   is confirmed
 
 That sequence keeps the rollout understandable:
 
-1. first control the ingestion ✓ (Stage 1 shipped)
-2. then inspect the data (Stage 2 next)
-3. then build action tools on top of trusted data
+1. first control the ingestion ✓
+2. then inspect the data ✓
+3. then correct the ingestion boundary so the data is truly trustworthy
+4. then build action tools on top of trusted data

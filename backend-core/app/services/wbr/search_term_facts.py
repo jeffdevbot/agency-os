@@ -6,7 +6,8 @@ from supabase import Client
 
 _SELECT_COLUMNS = (
     "id,report_date,campaign_type,campaign_name,campaign_name_head,"
-    "ad_group_name,search_term,match_type,impressions,clicks,spend,"
+    "ad_group_name,keyword_id,keyword,keyword_type,targeting,"
+    "search_term,match_type,impressions,clicks,spend,"
     "orders,sales,currency_code"
 )
 
