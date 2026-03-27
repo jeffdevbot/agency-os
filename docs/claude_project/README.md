@@ -103,6 +103,34 @@ docs.
 - [ ] add additional narrow Claude Project files only when a workflow is stable
 - [ ] decide when to move from Jeff-only Claude Pro usage to a broader Claude Team rollout
 
+## Operational Notes
+
+### Supabase MCP Local Re-Auth
+
+If a local Codex session reports Supabase MCP auth problems:
+
+1. run `codex mcp logout supabase`
+2. run `codex mcp login supabase`
+3. run `codex mcp list` and confirm `supabase` shows `Auth = OAuth`
+4. if the current Codex session still behaves as unauthenticated, start a
+   fresh Codex session
+
+### Search Term Automation Status
+
+Search Term Automation is currently an internal build thread, not a Claude
+Project bundle workflow.
+
+Current shipped state in the app:
+
+1. Stage 1 `Search Term Automation` controls are live in `Client Data Access`
+2. Stage 2 `Search Term Data` is live under `reports`
+3. ingestion is currently verified only for Sponsored Products
+4. the implementation/current-state source of truth is
+   [search_term_automation_plan.md](/Users/jeff/code/agency-os/docs/search_term_automation_plan.md)
+
+Do not upload the full STR implementation/planning docs to Claude Project Files
+unless and until that workflow becomes a stable Claude-facing surface.
+
 ## What To Add To Claude
 
 ### Instructions
