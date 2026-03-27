@@ -58,6 +58,20 @@ export function buildReportsHeaderState(pathname: string): ReportsHeaderState {
     };
   }
 
+  if (segments[0] === "reports" && segments[1] === "search-term-data" && segments[2]) {
+    const clientSlug = segments[2];
+    return {
+      title: "Reports",
+      subtitle: `Search Term Data / ${formatSlugLabel(clientSlug)}`,
+      surfaceLinks: [],
+      actionLinks: [
+        { href: `/reports/client-data-access/${clientSlug}`, label: "Client Data Access" },
+        { href: `/reports/${clientSlug}`, label: "Client Hub" },
+        { href: "/", label: "Back to Tools" },
+      ],
+    };
+  }
+
   if (segments[0] === "reports" && segments[1] === "client-data-access" && segments[2]) {
     return {
       title: "Reports",

@@ -32,6 +32,7 @@ from ..services.wbr.report_snapshots import WBRSnapshotService
 from ..services.wbr.section1_report import Section1ReportService
 from ..services.wbr.section2_report import Section2ReportService
 from ..services.wbr.section3_report import Section3ReportService
+from ..services.wbr.search_term_facts import SearchTermFactsService
 from ..services.wbr.sync_runs import WBRSyncRunService
 from ..services.wbr.workbook import WbrWorkbookExportService
 from ..services.wbr.windsor_business_sync import WindsorBusinessSyncService
@@ -100,6 +101,10 @@ def _get_amazon_ads_sync_service() -> AmazonAdsSyncService:
 
 def _get_amazon_ads_search_term_sync_service() -> AmazonAdsSearchTermSyncService:
     return AmazonAdsSearchTermSyncService(_get_supabase())
+
+
+def _get_search_term_facts_service() -> SearchTermFactsService:
+    return SearchTermFactsService(_get_supabase())
 
 
 def _get_wbr_workbook_export_service() -> WbrWorkbookExportService:
@@ -675,6 +680,35 @@ async def get_sync_coverage(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception:
         raise HTTPException(status_code=500, detail="Failed to load WBR sync coverage")
+
+
+@router.get("/profiles/{profile_id}/search-term-facts")
+async def list_search_term_facts(
+    profile_id: str,
+    date_from: str | None = Query(None),
+    date_to: str | None = Query(None),
+    campaign_type: str | None = Query(None),
+    campaign_name_contains: str | None = Query(None),
+    search_term_contains: str | None = Query(None),
+    limit: int = Query(500, ge=1, le=2000),
+    offset: int = Query(0, ge=0),
+    user=Depends(require_admin_user),
+):
+    svc = _get_search_term_facts_service()
+    try:
+        result = svc.list_facts(
+            profile_id,
+            date_from=date_from,
+            date_to=date_to,
+            campaign_type=campaign_type,
+            campaign_name_contains=campaign_name_contains,
+            search_term_contains=search_term_contains,
+            limit=limit,
+            offset=offset,
+        )
+        return {"ok": True, **result}
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to list search term facts")
 
 
 @router.post("/profiles/{profile_id}/sync-runs/windsor-business/backfill")

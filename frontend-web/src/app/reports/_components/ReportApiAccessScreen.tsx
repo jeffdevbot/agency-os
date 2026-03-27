@@ -818,6 +818,7 @@ export default function ReportApiAccessScreen({ clientSlug }: Props) {
         </section>
 
         <SearchTermSyncSection
+          clientSlug={clientSlug}
           marketplaces={clientSummary?.marketplaces ?? []}
           loading={loading}
           onProfileUpdated={() => void loadSummaries()}

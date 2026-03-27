@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useMemo, useState } from "react";
 import { getBrowserSupabaseClient } from "@/lib/supabaseClient";
 import { updateWbrProfile, type WbrProfile } from "../wbr/_lib/wbrApi";
@@ -219,12 +220,13 @@ function SearchTermSyncCard({ profile, onProfileUpdated }: CardProps) {
 }
 
 type Props = {
+  clientSlug: string;
   marketplaces: ClientMarketplaceReportSurface[];
   loading: boolean;
   onProfileUpdated: () => void;
 };
 
-export default function SearchTermSyncSection({ marketplaces, loading, onProfileUpdated }: Props) {
+export default function SearchTermSyncSection({ clientSlug, marketplaces, loading, onProfileUpdated }: Props) {
   const profiledMarketplaces = marketplaces.filter((m) => m.wbr_profile !== null);
 
   return (
@@ -240,14 +242,12 @@ export default function SearchTermSyncSection({ marketplaces, loading, onProfile
             come in later stages. STR sync is separate from the existing Ads campaign sync.
           </p>
         </div>
-        <button
-          type="button"
-          disabled
-          aria-label="Open Search Term Data — coming in Stage 2"
-          className="cursor-not-allowed rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-400"
+        <Link
+          href={`/reports/search-term-data/${clientSlug}`}
+          className="rounded-2xl border border-[#c7d8f5] bg-white px-4 py-2 text-sm font-semibold text-[#0a6fd6] transition hover:bg-[#f7faff]"
         >
           Open Search Term Data
-        </button>
+        </Link>
       </div>
 
       {/* Guidance block */}

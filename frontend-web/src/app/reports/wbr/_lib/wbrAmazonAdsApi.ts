@@ -546,3 +546,16 @@ export const runSearchTermDailyRefresh = async (
     chunk: parseChunkResult(payload.chunk),
   };
 };
+
+export const getSearchTermSyncCoverage = async (
+  token: string,
+  profileId: string,
+): Promise<WbrSyncCoverage> => {
+  const query = new URLSearchParams({ source_type: "amazon_ads_search_terms" });
+  const payload = await requestJson<unknown>(
+    token,
+    `/admin/wbr/profiles/${profileId}/sync-coverage?${query.toString()}`,
+    { method: "GET" },
+  );
+  return parseSyncCoverage(payload);
+};
