@@ -108,6 +108,21 @@ Current scope of this milestone:
    surface still does not fully match the Amazon console/export surface
 3. `SD` remains out of scope for the current N-Gram 2.0 replacement path
 
+### Recommended next slice
+
+The next build slice should stay narrow and operator-facing:
+
+1. keep the current `/ngram-2` route separate from legacy `/ngram`
+2. improve the native `SP` path before expanding the AI workflow:
+   - stronger pre-generation validation summary
+   - clearer Step 1 replacement messaging
+   - cleaner operator guidance around date range / client / marketplace
+3. treat `SB` as visible but nuanced:
+   - validated on at least one modern live account
+   - not guaranteed complete for legacy Sponsored Brands campaign families
+4. do **not** let unresolved legacy `SB` parity block incremental `SP`
+   productization
+
 ## Old vs new
 
 ### Step 1: getting the data

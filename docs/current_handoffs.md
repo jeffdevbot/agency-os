@@ -1,6 +1,6 @@
 # Current Handoffs
 
-_Last updated: 2026-03-27 (ET)_
+_Last updated: 2026-03-28 (ET)_
 
 Use this file to decide which restart/handoff docs are current versus merely
 historical reference.
@@ -16,6 +16,9 @@ historical reference.
    - Current shared reporting auth/source-of-truth planning reference.
 4. [PROJECT_STATUS.md](/Users/jeff/code/agency-os/PROJECT_STATUS.md)
    - Fastest high-level snapshot of what is already shipped.
+5. [Search term automation resume prompt](/Users/jeff/code/agency-os/docs/search_term_automation_resume_prompt.md)
+   - Current restart prompt if the next session returns specifically to the
+     STR / N-Gram 2.0 workstream.
 
 ## Current operational/reference docs
 
@@ -293,6 +296,11 @@ historical reference.
        Amazon reporting limitation than a broad SB parser/storage issue
      - this materially strengthens the current hypothesis that the missing
        Whoosh campaign is legacy Sponsored Brands inventory
+   - current recommended next-session priority:
+     - keep productizing the trusted `SP` path in `/ngram-2`
+     - do not block the operator rollout on full legacy `SB` parity
+     - continue `SB` validation opportunistically on modern accounts while
+       messaging legacy caveats clearly
    - product framing update:
      - the next operator-facing milestone should not be a generic search-term
      dashboard or Pacvue clone
