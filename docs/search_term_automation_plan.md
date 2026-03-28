@@ -1064,16 +1064,74 @@ Important note:
      - not video
      - likely a store-destination / product-collection-style campaign
        (`PC-Store` in internal naming)
-   - either:
-     - Amazon's `sbSearchTerm` API omits this SB family, or
-     - Amazon has a freshness/reporting inconsistency between API and export
-       surfaces
+   - stronger hypothesis after external research:
+     - the campaign appears to be a **legacy Sponsored Brands campaign**
+     - screenshot evidence shows the campaign was created on
+       `2019-12-04`, which predates Amazon's newer SB reporting model
+     - multiple third-party Amazon Ads integrators document that v3
+       Sponsored Brands reporting does **not** fully support legacy /
+       single-ad-group SB campaigns
+     - current best interpretation is therefore:
+       - this campaign family may be absent from the native
+         `sbSearchTerm` API because it is legacy SB inventory, while still
+         appearing in Amazon console/export surfaces
+   - this does not yet prove all SB gaps are legacy-only, but it is now the
+     leading explanation for the repeated Whoosh US mismatch
 7. immediate follow-up:
    - Whoosh US and CA nightly sync is now enabled for both `SP` and `SB`
    - re-check the next nightly cycle before concluding the gap is permanent
    - if the same branded-defensive SB campaign is still absent from API while
      present in export, treat the issue as an Amazon-side contract/surface gap
      rather than an ingest bug
+8. post-redeploy overnight stability check on March 28, 2026:
+   - the requested overnight STR runs were checked against persisted facts, not
+     just UI run cards
+   - verified healthy persistence for the latest completed runs on:
+     - Whoosh US `SP`
+     - Whoosh US `SB`
+     - Whoosh CA `SP`
+     - Whoosh CA `SB`
+     - Ahimsa US `SP`
+     - Ahimsa US `SB`
+     - Distex CA `SP`
+   - for each of those runs:
+     - `wbr_sync_runs.status = success`
+     - `rows_loaded` matched the exact number of
+       `search_term_daily_facts` rows written under that `sync_run_id`
+     - fact dates landed through `2026-03-27`, which is expected for an
+       early-morning March 28 refresh window ending at `2026-03-28`
+   - practical conclusion:
+     - the earlier “successful run but zero persisted facts” incident is now
+       best understood as a stale `worker-sync` deployment problem, not a
+       standing storage bug in the current STR code
+9. Ahimsa US now provides a strong SB validation counterexample on
+   `2026-03-15` through `2026-03-21`:
+   - Amazon `Sponsored Brands > Search term > Daily` CSV matched the stored DB
+     totals exactly
+   - exact matched totals:
+     - `567` rows
+     - `69,544` impressions
+     - `809` clicks
+     - `$805.81` spend
+     - `64` orders
+     - `$3,048.50` sales
+   - campaign-level spot checks also matched exactly, including:
+     - `Mealtime Sets - Balanced Bites-$P | Brand | SB | PC-Store | MKW | Ph. | Mix. | Def`
+     - `22` rows / `7,140` impressions / `39` clicks / `$31.64` spend /
+       `11` orders / `$593.66` sales
+   - implication:
+     - the SB path can validate cleanly on a different live account
+     - the repeated Whoosh US mismatch is now better explained as a
+       campaign-specific Amazon reporting limitation
+     - this materially strengthens the "legacy Sponsored Brands campaign"
+       hypothesis for the missing Whoosh family
+10. current SB support read after the Ahimsa validation:
+   - `SB` is no longer best described as generically unvalidated
+   - better description:
+     - validated on at least one modern live account/window
+     - not guaranteed complete for legacy Sponsored Brands campaign families
+   - operator-facing messaging should reflect that nuance rather than claiming
+     universal SB parity
 
 If live validation succeeds, the next active build slice should be:
 

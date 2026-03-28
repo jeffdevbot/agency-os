@@ -78,6 +78,36 @@ The first-generation native replacement should therefore feel like:
 It should **not** require analysts to abandon the workbook process just to
 prove that native ingestion works.
 
+## Milestone status
+
+### 2026-03-27 (ET): Step 1 native replacement is now proven for SP
+
+The first real native replacement loop is now working for the current
+Sponsored Products N-Gram workflow:
+
+1. native SP search-term data was ingested into Agency OS
+2. `/ngram-2` generated a native workbook for a selected client/marketplace
+   and date range
+3. that workbook was then uploaded into **Step 2 of the existing `/ngram`
+   tool**
+4. the legacy Step 2 flow accepted the file successfully and returned the
+   expected workbook output
+
+This is an important milestone because it proves:
+
+1. native data can now replace the Pacvue export for the first step of the
+   workflow
+2. the generated workbook is compatible with the team's current downstream
+   N-Gram review/export flow
+3. team adoption does not require abandoning the legacy process immediately
+
+Current scope of this milestone:
+
+1. validated for `SP` only
+2. `SB` remains not yet validated because the native `sbSearchTerm` API
+   surface still does not fully match the Amazon console/export surface
+3. `SD` remains out of scope for the current N-Gram 2.0 replacement path
+
 ## Old vs new
 
 ### Step 1: getting the data
