@@ -172,6 +172,88 @@ async def build_native_workbook(
     )
 
 
+@router.post("/native-summary")
+async def build_native_summary(
+    request: NativeWorkbookRequest,
+    service: NativeNgramWorkbookService = Depends(_get_native_service),
+    user=Depends(require_user),
+):
+    if request.date_from > request.date_to:
+        raise HTTPException(status_code=400, detail="date_from must be on or before date_to")
+
+    started = time.time()
+
+    try:
+        result = service.build_summary_from_search_term_facts(
+            profile_id=request.profile_id,
+            ad_product=request.ad_product,
+            date_from=request.date_from,
+            date_to=request.date_to,
+            respect_legacy_exclusions=request.respect_legacy_exclusions,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="Failed to build native N-Gram summary") from exc
+
+    usage_logger.log(
+        {
+            "user_id": user.get("sub"),
+            "user_email": user.get("email"),
+            "tool": "ngram",
+            "action": "native_summary",
+            "profile_id": request.profile_id,
+            "ad_product": result.ad_product,
+            "date_from": request.date_from.isoformat(),
+            "date_to": request.date_to.isoformat(),
+            "rows_processed": result.eligible_rows,
+            "campaigns": result.campaigns_included,
+            "campaigns_skipped": result.campaigns_skipped,
+            "status": "success",
+            "duration_ms": int((time.time() - started) * 1000),
+            "app_version": settings.app_version,
+        }
+    )
+
+    return {
+        "ok": True,
+        "summary": {
+            "ad_product": result.ad_product,
+            "profile_id": result.profile_id,
+            "profile_display_name": result.profile_display_name,
+            "marketplace_code": result.marketplace_code,
+            "date_from": result.date_from,
+            "date_to": result.date_to,
+            "raw_rows": result.raw_rows,
+            "eligible_rows": result.eligible_rows,
+            "excluded_asin_rows": result.excluded_asin_rows,
+            "excluded_incomplete_rows": result.excluded_incomplete_rows,
+            "unique_campaigns": result.unique_campaigns,
+            "unique_search_terms": result.unique_search_terms,
+            "campaigns_included": result.campaigns_included,
+            "campaigns_skipped": result.campaigns_skipped,
+            "report_dates_present": result.report_dates_present,
+            "coverage_start": result.coverage_start,
+            "coverage_end": result.coverage_end,
+            "imported_totals": {
+                "impressions": result.imported_totals.impressions,
+                "clicks": result.imported_totals.clicks,
+                "spend": result.imported_totals.spend,
+                "orders": result.imported_totals.orders,
+                "sales": result.imported_totals.sales,
+            },
+            "workbook_input_totals": {
+                "impressions": result.workbook_input_totals.impressions,
+                "clicks": result.workbook_input_totals.clicks,
+                "spend": result.workbook_input_totals.spend,
+                "orders": result.workbook_input_totals.orders,
+                "sales": result.workbook_input_totals.sales,
+            },
+            "warnings": result.warnings,
+        },
+    }
+
+
 @router.post("/collect", response_class=FileResponse)
 async def collect_negatives(
     file: UploadFile = File(...),

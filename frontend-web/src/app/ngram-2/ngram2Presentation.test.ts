@@ -116,6 +116,7 @@ describe("ngram2Presentation", () => {
         clientName: "Alpha",
         displayName: "Alpha CA",
         marketplaceCode: "CA",
+        currencyCode: "CAD",
         profileStatus: "active",
         hasAmazonAdsConnection: true,
         hasSearchTermSync: true,

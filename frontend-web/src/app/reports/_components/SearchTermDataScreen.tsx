@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getBrowserSupabaseClient } from "@/lib/supabaseClient";
 import {
@@ -340,6 +341,7 @@ type Props = {
 
 export default function SearchTermDataScreen({ clientSlug }: Props) {
   const supabase = useMemo(() => getBrowserSupabaseClient(), []);
+  const searchParams = useSearchParams();
 
   // Client + marketplace data
   const [summary, setSummary] = useState<ClientReportSurfaceSummary | null>(null);
@@ -354,7 +356,13 @@ export default function SearchTermDataScreen({ clientSlug }: Props) {
         .filter((p): p is WbrProfile => p !== null),
     [summary],
   );
-  const [selectedProfileId, setSelectedProfileId] = useState<string>("");
+  const requestedProfileId = searchParams.get("profile_id") ?? "";
+  const requestedDateFrom = searchParams.get("date_from");
+  const requestedDateTo = searchParams.get("date_to");
+  const requestedCampaignType = searchParams.get("campaign_type");
+  const requestedCampaignNameContains = searchParams.get("campaign_name_contains");
+  const requestedSearchTermContains = searchParams.get("search_term_contains");
+  const [selectedProfileId, setSelectedProfileId] = useState<string>(requestedProfileId);
   const selectedProfile = useMemo(
     () => wbrProfiles.find((p) => p.id === selectedProfileId) ?? wbrProfiles[0] ?? null,
     [wbrProfiles, selectedProfileId],
@@ -368,11 +376,11 @@ export default function SearchTermDataScreen({ clientSlug }: Props) {
   // Filters
   const defaultFrom = useMemo(() => daysAgoIso(30), []);
   const defaultTo = useMemo(() => daysAgoIso(1), []);
-  const [dateFrom, setDateFrom] = useState(defaultFrom);
-  const [dateTo, setDateTo] = useState(defaultTo);
-  const [campaignType, setCampaignType] = useState("");
-  const [campaignNameContains, setCampaignNameContains] = useState("");
-  const [searchTermContains, setSearchTermContains] = useState("");
+  const [dateFrom, setDateFrom] = useState(requestedDateFrom ?? defaultFrom);
+  const [dateTo, setDateTo] = useState(requestedDateTo ?? defaultTo);
+  const [campaignType, setCampaignType] = useState(requestedCampaignType ?? "");
+  const [campaignNameContains, setCampaignNameContains] = useState(requestedCampaignNameContains ?? "");
+  const [searchTermContains, setSearchTermContains] = useState(requestedSearchTermContains ?? "");
 
   // Facts data
   const [facts, setFacts] = useState<SearchTermFact[]>([]);

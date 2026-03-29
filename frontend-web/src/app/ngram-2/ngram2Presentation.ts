@@ -14,6 +14,7 @@ export type NativeNgramProfileOption = {
   clientName: string;
   displayName: string;
   marketplaceCode: string;
+  currencyCode: string | null;
   profileStatus: string;
   hasAmazonAdsConnection: boolean;
   hasSearchTermSync: boolean;
@@ -49,6 +50,7 @@ export const buildNativeNgramProfileOptions = (
       clientName: summary.client.name,
       displayName: profile.display_name,
       marketplaceCode: profile.marketplace_code,
+      currencyCode: profile.amazon_ads_currency_code,
       profileStatus: profile.status,
       hasAmazonAdsConnection: Boolean(profile.amazon_ads_profile_id),
       hasSearchTermSync:

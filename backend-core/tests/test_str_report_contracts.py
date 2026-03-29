@@ -3,7 +3,7 @@ Tests for the STR ingestion report-contract refactor.
 
 These tests validate the specific behaviors changed in the refactor:
   1. spSearchTerm uses groupBy=["searchTerm"], NOT "campaign"
-  2. Only SP is in the active SEARCH_TERM_REPORT_DEFINITIONS (SB/SD disabled)
+  2. Current live STR definitions cover SP + SB, while SD remains disabled
   3. _build_initial_report_jobs includes group_by in each job dict
   4. _report_definition_from_job reads group_by correctly (and falls back safely)
   5. AmazonAdsReportDefinition carries group_by through _create_campaign_report
@@ -25,7 +25,7 @@ import pytest
 
 from app.services.wbr.amazon_ads_search_terms import (
     AmazonAdsSearchTermSyncService,
-    SEARCH_TERM_REPORT_DEFINITIONS,
+    SEARCH_TERM_REPORT_DEFINITIONS_BY_PRODUCT,
     SearchTermDailyFact,
 )
 from app.services.wbr.amazon_ads_sync import (
@@ -35,8 +35,15 @@ from app.services.wbr.amazon_ads_sync import (
 )
 
 
+SEARCH_TERM_REPORT_DEFINITIONS = [
+    definition
+    for definitions in SEARCH_TERM_REPORT_DEFINITIONS_BY_PRODUCT.values()
+    for definition in definitions
+]
+
+
 # ------------------------------------------------------------------
-# 1 + 2 — SP-only definitions, correct groupBy
+# 1 + 2 — current STR definitions, correct groupBy
 # ------------------------------------------------------------------
 
 def test_sp_search_term_definition_uses_search_term_group_by():
@@ -48,15 +55,24 @@ def test_sp_search_term_definition_uses_search_term_group_by():
     )
 
 
-def test_only_sp_is_active_in_search_term_report_definitions():
-    """SB and SD are intentionally disabled — only SP should be present."""
+def test_sb_search_term_definition_uses_search_term_group_by():
+    """The sbSearchTerm report definition must also use groupBy=['searchTerm'].""" 
+    sb_defs = [d for d in SEARCH_TERM_REPORT_DEFINITIONS if d.report_type_id == "sbSearchTerm"]
+    assert len(sb_defs) == 1, "Expected exactly one sbSearchTerm definition"
+    assert sb_defs[0].group_by == ["searchTerm"], (
+        f"sbSearchTerm must use groupBy=['searchTerm'], got {sb_defs[0].group_by!r}"
+    )
+
+
+def test_sp_and_sb_are_active_in_search_term_report_definitions():
+    """SP and SB are active; SD stays disabled until its native contract is modeled."""
     ad_products = {d.ad_product for d in SEARCH_TERM_REPORT_DEFINITIONS}
-    assert ad_products == {"SPONSORED_PRODUCTS"}, (
-        f"Expected only SPONSORED_PRODUCTS, got {ad_products!r}. "
-        "SB/SD must not be re-enabled until their API contracts are verified."
+    assert ad_products == {"SPONSORED_PRODUCTS", "SPONSORED_BRANDS"}, (
+        f"Expected SPONSORED_PRODUCTS + SPONSORED_BRANDS, got {ad_products!r}. "
+        "SD must not be enabled until its native contract is verified."
     )
     report_type_ids = {d.report_type_id for d in SEARCH_TERM_REPORT_DEFINITIONS}
-    assert "sbSearchTerm" not in report_type_ids, "sbSearchTerm must not be active"
+    assert "sbSearchTerm" in report_type_ids, "sbSearchTerm should be active in the current service definitions"
     assert "sdSearchTerm" not in report_type_ids, "sdSearchTerm must not be active"
 
 
@@ -74,13 +90,22 @@ def test_campaign_report_definitions_still_use_campaign_group_by():
 
 def test_build_initial_report_jobs_includes_group_by():
     svc = AmazonAdsSearchTermSyncService(MagicMock())
-    jobs = svc._build_initial_report_jobs(queued_at="2026-03-27T00:00:00+00:00")
+    sp_jobs = svc._build_initial_report_jobs(
+        queued_at="2026-03-27T00:00:00+00:00",
+        definitions=SEARCH_TERM_REPORT_DEFINITIONS_BY_PRODUCT["SPONSORED_PRODUCTS"],
+    )
+    sb_jobs = svc._build_initial_report_jobs(
+        queued_at="2026-03-27T00:00:00+00:00",
+        definitions=SEARCH_TERM_REPORT_DEFINITIONS_BY_PRODUCT["SPONSORED_BRANDS"],
+    )
+
+    jobs = [*sp_jobs, *sb_jobs]
 
     assert len(jobs) == len(SEARCH_TERM_REPORT_DEFINITIONS)
     for job in jobs:
         assert "group_by" in job, "Each job dict must include group_by"
         assert job["group_by"] == ["searchTerm"], (
-            f"SP search-term job must have group_by=['searchTerm'], got {job['group_by']!r}"
+            f"Search-term job must have group_by=['searchTerm'], got {job['group_by']!r}"
         )
 
 
