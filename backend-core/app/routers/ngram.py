@@ -55,6 +55,17 @@ class NativeWorkbookRequest(BaseModel):
     respect_legacy_exclusions: bool = True
 
 
+class CampaignScratchpadPrefill(BaseModel):
+    campaign_name: str = Field(..., min_length=1)
+    mono: list[str] = Field(default_factory=list)
+    bi: list[str] = Field(default_factory=list)
+    tri: list[str] = Field(default_factory=list)
+
+
+class NativePrefilledWorkbookRequest(NativeWorkbookRequest):
+    campaign_prefills: list[CampaignScratchpadPrefill] = Field(default_factory=list)
+
+
 @router.post("/process", response_class=FileResponse)
 async def process_report(
     file: UploadFile = File(...),
@@ -159,6 +170,70 @@ async def build_native_workbook(
             "rows_processed": result.rows_processed,
             "campaigns": result.campaigns_included,
             "campaigns_skipped": result.campaigns_skipped,
+            "status": "success",
+            "duration_ms": int((time.time() - started) * 1000),
+            "app_version": settings.app_version,
+        }
+    )
+
+    return FileResponse(
+        result.workbook_path,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        filename=result.filename,
+    )
+
+
+@router.post("/native-workbook-prefilled", response_class=FileResponse)
+async def build_native_prefilled_workbook(
+    request: NativePrefilledWorkbookRequest,
+    service: NativeNgramWorkbookService = Depends(_get_native_service),
+    user=Depends(require_user),
+):
+    if request.date_from > request.date_to:
+        raise HTTPException(status_code=400, detail="date_from must be on or before date_to")
+
+    started = time.time()
+    ai_prefills = {
+        item.campaign_name: {
+            "mono": item.mono,
+            "bi": item.bi,
+            "tri": item.tri,
+        }
+        for item in request.campaign_prefills
+    }
+
+    try:
+        result = service.build_workbook_from_search_term_facts(
+            profile_id=request.profile_id,
+            ad_product=request.ad_product,
+            date_from=request.date_from,
+            date_to=request.date_to,
+            respect_legacy_exclusions=request.respect_legacy_exclusions,
+            app_version=settings.app_version,
+            ai_prefills=ai_prefills,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="Failed to generate AI-prefilled N-Gram workbook") from exc
+
+    usage_logger.log(
+        {
+            "user_id": user.get("sub"),
+            "user_email": user.get("email"),
+            "tool": "ngram",
+            "action": "native_prefilled_workbook",
+            "profile_id": request.profile_id,
+            "ad_product": result.ad_product,
+            "date_from": request.date_from.isoformat(),
+            "date_to": request.date_to.isoformat(),
+            "rows_processed": result.rows_processed,
+            "campaigns": result.campaigns_included,
+            "campaigns_skipped": result.campaigns_skipped,
+            "prefill_campaigns": len(ai_prefills),
+            "prefill_mono": sum(len(item.get("mono", [])) for item in ai_prefills.values()),
+            "prefill_bi": sum(len(item.get("bi", [])) for item in ai_prefills.values()),
+            "prefill_tri": sum(len(item.get("tri", [])) for item in ai_prefills.values()),
             "status": "success",
             "duration_ms": int((time.time() - started) * 1000),
             "app_version": settings.app_version,

@@ -13,6 +13,8 @@ from pandas.api.types import is_categorical_dtype, is_object_dtype, is_string_dt
 from .analytics import color_for_category
 
 START_ROW = 3
+SCRATCHPAD_HEADERS = ["Monogram", "Bigram", "Trigram"]
+SCRATCHPAD_BASE_COL = 49
 
 
 def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
@@ -78,7 +80,26 @@ def make_unique_sheet_name(name: str, used_lower: set[str]) -> str:
     return candidate
 
 
-def build_workbook(campaign_items: List[Dict], app_version: str):
+def _normalize_prefill_values(values: list[str] | None) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for value in values or []:
+        text = str(value or "").strip()
+        if not text:
+            continue
+        lowered = text.lower()
+        if lowered in seen:
+            continue
+        seen.add(lowered)
+        out.append(text)
+    return out
+
+
+def build_workbook(
+    campaign_items: List[Dict],
+    app_version: str,
+    ai_prefills: Dict[str, Dict[str, List[str]]] | None = None,
+):
     with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as out_tmp:
         out_path = out_tmp.name
 
@@ -206,10 +227,13 @@ def build_workbook(campaign_items: List[Dict], app_version: str):
             trigram_start_col = 26
             write_pretty_table(ws, col, "Search Term", item["raw"])
 
-            placeholder_base_col = 49
-            placeholder_headers = ["Monogram", "Bigram", "Trigram"]
-            for offset, label in enumerate(placeholder_headers):
-                ws.write_string(START_ROW + 2, placeholder_base_col + offset, label, bold_fmt)
+            for offset, label in enumerate(SCRATCHPAD_HEADERS):
+                ws.write_string(START_ROW + 2, SCRATCHPAD_BASE_COL + offset, label, bold_fmt)
+
+            campaign_prefills = ai_prefills.get(item["campaign_name"], {}) if ai_prefills else {}
+            for offset, key in enumerate(("mono", "bi", "tri")):
+                for row_offset, gram in enumerate(_normalize_prefill_values(campaign_prefills.get(key))):
+                    ws.write_string(START_ROW + 3 + row_offset, SCRATCHPAD_BASE_COL + offset, gram)
 
             first_data_excel_row = START_ROW + 4
             for r_i in range(len(item["mono"])):
