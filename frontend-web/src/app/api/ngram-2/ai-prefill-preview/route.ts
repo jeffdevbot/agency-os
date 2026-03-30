@@ -283,12 +283,18 @@ export async function POST(request: Request) {
       respectLegacyExclusions,
     });
 
-    const previewCampaigns = candidateCampaigns.slice(0, AI_PREFILL_PREVIEW_MAX_CAMPAIGNS);
+    const runnableCampaigns = candidateCampaigns.filter((campaign) => {
+      const productIdentifier = parseCampaignProductIdentifier(campaign.campaignName);
+      return Boolean(productIdentifier) && !isIntentionallySkippedCampaign(campaign.campaignName);
+    });
+    const intentionallySkippedCampaigns =
+      candidateCampaigns.length - runnableCampaigns.length;
+    const previewCampaigns = runnableCampaigns.slice(0, AI_PREFILL_PREVIEW_MAX_CAMPAIGNS);
 
     const warnings: string[] = [];
-    if (candidateCampaigns.length > AI_PREFILL_PREVIEW_MAX_CAMPAIGNS) {
+    if (runnableCampaigns.length > AI_PREFILL_PREVIEW_MAX_CAMPAIGNS) {
       warnings.push(
-        `Preview is limited to the top ${AI_PREFILL_PREVIEW_MAX_CAMPAIGNS} campaigns by eligible spend.`,
+        `Preview is limited to the top ${AI_PREFILL_PREVIEW_MAX_CAMPAIGNS} runnable campaigns by eligible spend.`,
       );
     }
 
@@ -299,7 +305,6 @@ export async function POST(request: Request) {
 
     const previewResults: CampaignPreview[] = [];
     let ambiguousCampaigns = 0;
-    let intentionallySkippedCampaigns = 0;
     let aiLowConfidenceCampaigns = 0;
 
     for (const campaign of previewCampaigns) {
@@ -309,36 +314,11 @@ export async function POST(request: Request) {
       ).length;
       const productIdentifier = parseCampaignProductIdentifier(campaign.campaignName);
       const theme = parseCampaignTheme(campaign.campaignName);
-      const intentionallySkipped = isIntentionallySkippedCampaign(campaign.campaignName);
 
       if (campaign.terms.length > AI_PREFILL_PREVIEW_MAX_TERMS_PER_CAMPAIGN) {
         warnings.push(
           `${campaign.campaignName}: preview only evaluates the top ${AI_PREFILL_PREVIEW_MAX_TERMS_PER_CAMPAIGN} terms by spend.`,
         );
-      }
-
-      if (!productIdentifier || intentionallySkipped) {
-        intentionallySkippedCampaigns += 1;
-        previewResults.push({
-          campaignName: campaign.campaignName,
-          totalSpend: Number(campaign.totalSpend.toFixed(2)),
-          eligibleSpend: Number(terms.reduce((sum, term) => sum + term.spend, 0).toFixed(2)),
-          totalTerms: aggregatedTerms.filter((term) => term.campaignName === campaign.campaignName).length,
-          eligibleTerms: terms.length,
-          skippedBelowThresholdTerms,
-          productIdentifier,
-          theme,
-          matchStatus: "intentionally_skipped",
-          matchSource: "none",
-          skipReason: intentionallySkipped ? "brand_mix_defensive" : "missing_identifier",
-          matchedTitle: null,
-          category: null,
-          itemDescription: null,
-          matchScore: null,
-          synthesizedPrefills: { mono: [], bi: [], tri: [] },
-          evaluations: [],
-        });
-        continue;
       }
 
       const result = await createChatCompletion(buildCampaignPrompt(campaign, catalogProducts, terms), {
@@ -410,7 +390,11 @@ export async function POST(request: Request) {
     }
 
     if (previewResults.length === 0) {
-      warnings.push("No eligible campaigns were found above the selected spend threshold.");
+      warnings.push(
+        candidateCampaigns.length > 0
+          ? "No runnable campaigns were found after skipping brand/mix/defensive lanes."
+          : "No eligible campaigns were found above the selected spend threshold.",
+      );
     }
 
     if (intentionallySkippedCampaigns > 0) {
