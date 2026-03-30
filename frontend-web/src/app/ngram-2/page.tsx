@@ -257,8 +257,7 @@ export default function NgramTwoPage() {
         { mono: 0, bi: 0, tri: 0 },
       )
     : { mono: 0, bi: 0, tri: 0 };
-  const hasAiScratchpads = aiScratchpadCounts.mono + aiScratchpadCounts.bi + aiScratchpadCounts.tri > 0;
-  const canGenerateAiWorkbook = canGenerateWorkbook && !aiWorkbookGenerating && Boolean(aiPreview) && hasAiScratchpads;
+  const canGenerateAiWorkbook = canGenerateWorkbook && !aiWorkbookGenerating && Boolean(aiPreview);
 
   const runStateClasses =
     runState.tone === "ready"
