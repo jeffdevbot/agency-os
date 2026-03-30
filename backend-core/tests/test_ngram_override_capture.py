@@ -95,12 +95,6 @@ def test_build_override_payload_compares_ai_recommendations_to_reviewed_workbook
     )
 
     try:
-        wb = load_workbook(workbook_path)
-        ws = wb[wb.sheetnames[1]]
-        ws["AT7"] = "NE"
-        ws["X7"] = "NP"
-        wb.save(workbook_path)
-
         reviewed_wb = load_workbook(workbook_path, data_only=True)
         payload = _build_override_payload(
             reviewed_wb,
@@ -150,7 +144,7 @@ def test_build_override_payload_compares_ai_recommendations_to_reviewed_workbook
         )
 
         assert laptop_diff["analyst_outcome"] == "negated"
-        assert laptop_diff["analyst_source"] == "exact"
+        assert laptop_diff["analyst_source"] == "gram"
         assert laptop_diff["decision_status"] == "matched"
         assert keep_diff["analyst_outcome"] == "not_negated"
         assert keep_diff["decision_status"] == "matched"
@@ -294,5 +288,88 @@ def test_persist_ai_override_capture_uses_python_client_insert_shape():
         assert result["preview_run_id"] == "preview-run-456"
         assert fake_db.inserted
         assert fake_db.inserted[0]["prompt_version"] == "ngram_step3_calibrated_v2026_03_30"
+    finally:
+        os.unlink(workbook_path)
+
+
+def test_build_override_payload_treats_direct_negate_prefills_as_ai_prefills():
+    campaign_name = "Screen Shine - Duo | SPA | Cls. | Rsrch"
+    workbook_path = build_workbook(
+        [
+            {
+                "campaign_name": campaign_name,
+                "category_raw": "Duo",
+                "category_key": "duo",
+                "mono": _make_ngram_df([]),
+                "bi": _make_ngram_df(["laptop cloth"]),
+                "tri": _make_ngram_df([]),
+                "raw": pd.DataFrame(
+                    [
+                        {
+                            "Search Term": "laptop cloth",
+                            "Impression": 100,
+                            "Click": 10,
+                            "Spend": 8.5,
+                            "Order 14d": 0,
+                            "Sales 14d": 0,
+                            "NE/NP": "",
+                            "Comments": "",
+                        }
+                    ]
+                ),
+                "notes": [],
+            }
+        ],
+        "test-version",
+        ai_term_reviews={
+            campaign_name: {
+                "laptop cloth": {
+                    "recommendation": "NEGATE",
+                    "confidence": "HIGH",
+                    "reason_tag": "cloth_primary_intent",
+                }
+            }
+        },
+        ai_summary={
+            "preview_run_id": "preview-run-789",
+            "model": "gpt-5.4-2026-03-05",
+            "prompt_version": "ngram_step3_calibrated_v2026_03_30",
+            "spend_threshold": "1.0",
+        },
+    )
+
+    try:
+        reviewed_wb = load_workbook(workbook_path, data_only=True)
+        payload = _build_override_payload(
+            reviewed_wb,
+            {
+                "id": "preview-run-789",
+                "profile_id": "profile-1",
+                "model": "gpt-5.4-2026-03-05",
+                "prompt_version": "ngram_step3_calibrated_v2026_03_30",
+                "preview_payload": {
+                    "campaigns": [
+                        {
+                            "campaignName": campaign_name,
+                            "synthesizedPrefills": {"mono": [], "bi": [], "tri": []},
+                            "evaluations": [
+                                {
+                                    "search_term": "laptop cloth",
+                                    "recommendation": "NEGATE",
+                                    "confidence": "HIGH",
+                                    "reason_tag": "cloth_primary_intent",
+                                }
+                            ],
+                        }
+                    ]
+                },
+            },
+        )
+
+        assert payload is not None
+        bi_diff = next(item for item in payload["campaigns"][0]["gram_diffs"]["bi"] if item["gram"] == "laptop cloth")
+        assert bi_diff["ai_present"] is True
+        assert bi_diff["analyst_present"] is True
+        assert bi_diff["status"] == "matched"
     finally:
         os.unlink(workbook_path)

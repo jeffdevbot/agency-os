@@ -21,6 +21,9 @@ BI_GRAM_COLUMN = "N"
 BI_FLAG_COLUMN = "X"
 TRI_GRAM_COLUMN = "AA"
 TRI_FLAG_COLUMN = "AK"
+SCRATCHPAD_MONO_COLUMN = "AZ"
+SCRATCHPAD_BI_COLUMN = "BA"
+SCRATCHPAD_TRI_COLUMN = "BB"
 
 
 def _to_text(value: Any) -> str:
@@ -102,6 +105,18 @@ def _read_sheet_state(sheet) -> dict[str, Any]:
             if flag in {"NE", "NP"} and gram:
                 final_grams[bucket].add(clean_query_str(gram))
 
+    scratchpad_specs = (
+        ("mono", SCRATCHPAD_MONO_COLUMN),
+        ("bi", SCRATCHPAD_BI_COLUMN),
+        ("tri", SCRATCHPAD_TRI_COLUMN),
+    )
+    for bucket, gram_col in scratchpad_specs:
+        last_row = _last_non_empty(sheet, gram_col, 7)
+        for row_idx in range(7, last_row + 1):
+            gram = _to_text(sheet[f"{gram_col}{row_idx}"].value)
+            if gram:
+                final_grams[bucket].add(clean_query_str(gram))
+
     return {
         "exact_negatives": exact_negatives,
         "reviewed_terms": reviewed_terms,
@@ -117,6 +132,26 @@ def _build_term_ngrams(search_term: str) -> dict[str, set[str]]:
             continue
         out[key] = {" ".join(tokens[idx : idx + n]) for idx in range(len(tokens) - n + 1)}
     return out
+
+
+def _build_direct_negate_prefills(evaluations: list[Any]) -> dict[str, set[str]]:
+    prefills: dict[str, set[str]] = {"mono": set(), "bi": set(), "tri": set()}
+
+    for evaluation in evaluations:
+        if not isinstance(evaluation, dict):
+            continue
+        if _to_text(evaluation.get("recommendation")).upper() != "NEGATE":
+            continue
+        search_term = clean_query_str(_to_text(evaluation.get("search_term")))
+        tokens = [token for token in search_term.split(" ") if token]
+        if len(tokens) == 1:
+            prefills["mono"].add(search_term)
+        elif len(tokens) == 2:
+            prefills["bi"].add(search_term)
+        elif len(tokens) == 3:
+            prefills["tri"].add(search_term)
+
+    return prefills
 
 
 def _build_override_payload(workbook: Workbook, preview_run: dict[str, Any]) -> dict[str, Any] | None:
@@ -154,21 +189,38 @@ def _build_override_payload(workbook: Workbook, preview_run: dict[str, Any]) -> 
             if isinstance(values, list)
         }
         ai_prefills_raw = campaign.get("synthesizedPrefills") if isinstance(campaign.get("synthesizedPrefills"), dict) else {}
+        evaluations = campaign.get("evaluations") if isinstance(campaign.get("evaluations"), list) else []
+        direct_negate_prefills = _build_direct_negate_prefills(evaluations)
         ai_prefills = {
             "mono": sorted(
-                clean_query_str(_to_text(item.get("gram")))
-                for item in ai_prefills_raw.get("mono", [])
-                if isinstance(item, dict) and _to_text(item.get("gram"))
+                {
+                    *{
+                        clean_query_str(_to_text(item.get("gram")))
+                        for item in ai_prefills_raw.get("mono", [])
+                        if isinstance(item, dict) and _to_text(item.get("gram"))
+                    },
+                    *direct_negate_prefills["mono"],
+                }
             ),
             "bi": sorted(
-                clean_query_str(_to_text(item.get("gram")))
-                for item in ai_prefills_raw.get("bi", [])
-                if isinstance(item, dict) and _to_text(item.get("gram"))
+                {
+                    *{
+                        clean_query_str(_to_text(item.get("gram")))
+                        for item in ai_prefills_raw.get("bi", [])
+                        if isinstance(item, dict) and _to_text(item.get("gram"))
+                    },
+                    *direct_negate_prefills["bi"],
+                }
             ),
             "tri": sorted(
-                clean_query_str(_to_text(item.get("gram")))
-                for item in ai_prefills_raw.get("tri", [])
-                if isinstance(item, dict) and _to_text(item.get("gram"))
+                {
+                    *{
+                        clean_query_str(_to_text(item.get("gram")))
+                        for item in ai_prefills_raw.get("tri", [])
+                        if isinstance(item, dict) and _to_text(item.get("gram"))
+                    },
+                    *direct_negate_prefills["tri"],
+                }
             ),
         }
 
@@ -176,7 +228,7 @@ def _build_override_payload(workbook: Workbook, preview_run: dict[str, Any]) -> 
         reviewed_terms = sheet_state.get("reviewed_terms") or {}
         exact_negatives = sheet_state.get("exact_negatives") or set()
 
-        for evaluation in campaign.get("evaluations", []):
+        for evaluation in evaluations:
             if not isinstance(evaluation, dict):
                 continue
             search_term = _to_text(evaluation.get("search_term"))
