@@ -302,24 +302,24 @@ def persist_ai_override_capture(
     if not payload:
         return None
 
-    insert_response = (
-        db.table("ngram_ai_override_runs")
-        .insert(
-            {
-                "preview_run_id": preview_rows[0]["id"],
-                "profile_id": preview_rows[0]["profile_id"],
-                "collected_by_auth_user_id": collected_by_auth_user_id,
-                "source_filename": _to_text(source_filename) or None,
-                "model": payload.get("model"),
-                "prompt_version": payload.get("prompt_version"),
-                "override_payload": payload,
-            }
-        )
-        .select("id,created_at")
-        .single()
-        .execute()
-    )
-    data = insert_response.data if isinstance(insert_response.data, dict) else {}
+    insert_response = db.table("ngram_ai_override_runs").insert(
+        {
+            "preview_run_id": preview_rows[0]["id"],
+            "profile_id": preview_rows[0]["profile_id"],
+            "collected_by_auth_user_id": collected_by_auth_user_id,
+            "source_filename": _to_text(source_filename) or None,
+            "model": payload.get("model"),
+            "prompt_version": payload.get("prompt_version"),
+            "override_payload": payload,
+        }
+    ).execute()
+    raw_data = insert_response.data
+    if isinstance(raw_data, list) and raw_data and isinstance(raw_data[0], dict):
+        data = raw_data[0]
+    elif isinstance(raw_data, dict):
+        data = raw_data
+    else:
+        data = {}
     return {
         "id": data.get("id"),
         "created_at": data.get("created_at"),
