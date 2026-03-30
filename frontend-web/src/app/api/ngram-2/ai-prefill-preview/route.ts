@@ -8,6 +8,7 @@ import {
   aggregateSearchTerms,
   AI_PREFILL_PREVIEW_MAX_CAMPAIGNS,
   AI_PREFILL_PREVIEW_MAX_TERMS_PER_CAMPAIGN,
+  buildPreparedListingCatalog,
   buildCampaignAggregates,
   chooseBestListingMatch,
   isAsinQuery,
@@ -66,8 +67,9 @@ type CampaignPreview = {
   skippedBelowThresholdTerms: number;
   productIdentifier: string | null;
   theme: string | null;
-  matchStatus: "matched" | "ambiguous";
-  expectedAmbiguous: boolean;
+  matchStatus: "matched" | "ambiguous" | "intentionally_skipped";
+  matchSource: "deterministic" | "ai_fallback" | "none";
+  skipReason: "brand_mix_defensive" | "missing_identifier" | null;
   matchedTitle: string | null;
   category: string | null;
   itemDescription: string | null;
@@ -110,6 +112,24 @@ Rules:
 - Use REVIEW instead of forcing a weak NEGATE.
 - Prefer compact reason tags like competitor_brand, wrong_category, travel_size_mismatch, accessories_intent, core_use_case, foreign_language.
 - Return one evaluation for every input search term and preserve the exact search_term text.
+- Do not include markdown or explanation outside the JSON object.`;
+
+const PRODUCT_MATCH_SYSTEM_PROMPT = `You disambiguate Amazon Ads campaign product identifiers against a short candidate list of listing titles.
+
+Return strict JSON with this shape:
+{
+  "selected_title": "exact candidate title or null",
+  "confidence": "HIGH" | "MEDIUM" | "LOW",
+  "ambiguous": true | false,
+  "rationale": "one short sentence"
+}
+
+Rules:
+- Choose only from the provided candidate titles.
+- Use the campaign identifier segment as the primary anchor.
+- Prefer exact family-level resolution, not loose semantic similarity.
+- If the best choice is uncertain, set ambiguous=true and selected_title=null.
+- Do not invent a title that is not in the candidate list.
 - Do not include markdown or explanation outside the JSON object.`;
 
 const normalizeRecommendation = (value: unknown): NormalizedRecommendation => {
@@ -168,6 +188,27 @@ const buildCampaignPrompt = (
           keyword_type: term.keywordType,
           targeting: term.targeting,
           match_type: term.matchType,
+        })),
+      },
+      null,
+      2,
+    ),
+  },
+];
+
+const buildProductMatchPrompt = (
+  _campaignName: string,
+  match: ReturnType<typeof chooseBestListingMatch>,
+): ChatMessage[] => [
+  { role: "system", content: PRODUCT_MATCH_SYSTEM_PROMPT },
+  {
+    role: "user",
+    content: JSON.stringify(
+      {
+        campaign_identifier_segment: match.identifier,
+        candidates: match.candidates.slice(0, 3).map((candidate) => ({
+          title: candidate.title,
+          item_description: candidate.itemDescription,
         })),
       },
       null,
@@ -260,6 +301,79 @@ const coerceRequest = async (request: Request): Promise<{
   };
 };
 
+const applyProductMatchFallback = async (
+  campaignName: string,
+  match: ReturnType<typeof chooseBestListingMatch>,
+): Promise<{
+  match: ReturnType<typeof chooseBestListingMatch>;
+  usage: { tokensIn: number; tokensOut: number; tokensTotal: number; model: string };
+}> => {
+  if (match.status !== "ambiguous" || match.candidates.length < 2) {
+    return {
+      match,
+      usage: { tokensIn: 0, tokensOut: 0, tokensTotal: 0, model: "" },
+    };
+  }
+
+  const result = await createChatCompletion(buildProductMatchPrompt(campaignName, match), {
+    temperature: 0,
+    maxTokens: 300,
+  });
+
+  const parsed = parseJSONResponse<{
+    selected_title?: string | null;
+    confidence?: string | null;
+    ambiguous?: boolean | null;
+  }>(result.content || "{}");
+
+  const ambiguous = Boolean(parsed.ambiguous);
+  const selectedTitle = String(parsed.selected_title || "").trim();
+  const confidence = normalizeConfidence(parsed.confidence);
+
+  if (ambiguous || !selectedTitle || confidence === "LOW") {
+    return {
+      match,
+      usage: {
+        tokensIn: result.tokensIn,
+        tokensOut: result.tokensOut,
+        tokensTotal: result.tokensTotal,
+        model: result.model,
+      },
+    };
+  }
+
+  const candidate = match.candidates.find((item) => item.title === selectedTitle);
+  if (!candidate) {
+    return {
+      match,
+      usage: {
+        tokensIn: result.tokensIn,
+        tokensOut: result.tokensOut,
+        tokensTotal: result.tokensTotal,
+        model: result.model,
+      },
+    };
+  }
+
+  return {
+    match: {
+      ...match,
+      status: "matched",
+      matchedTitle: candidate.title,
+      category: candidate.category,
+      itemDescription: candidate.itemDescription,
+      score: candidate.score,
+      matchSource: "ai_fallback",
+    },
+    usage: {
+      tokensIn: result.tokensIn,
+      tokensOut: result.tokensOut,
+      tokensTotal: result.tokensTotal,
+      model: result.model,
+    },
+  };
+};
+
 export async function POST(request: Request) {
   const supabase = await createSupabaseRouteClient();
   const {
@@ -278,6 +392,7 @@ export async function POST(request: Request) {
       loadAllFactRows(profileId, adProduct, dateFrom, dateTo),
       loadListings(profileId),
     ]);
+    const listingCatalog = buildPreparedListingCatalog(listings);
 
     const usableRows = rows.filter((row) => {
       const campaignName = String(row.campaign_name || "").trim();
@@ -310,9 +425,11 @@ export async function POST(request: Request) {
 
     const previewResults: CampaignPreview[] = [];
     let ambiguousCampaigns = 0;
+    let intentionallySkippedCampaigns = 0;
+    let aiMatchFallbackCalls = 0;
 
     for (const campaign of previewCampaigns) {
-      const match = chooseBestListingMatch(campaign.campaignName, listings);
+      let match = chooseBestListingMatch(campaign.campaignName, listingCatalog);
       const terms = campaign.terms.slice(0, AI_PREFILL_PREVIEW_MAX_TERMS_PER_CAMPAIGN);
       const skippedBelowThresholdTerms = aggregatedTerms.filter(
         (term) => term.campaignName === campaign.campaignName && term.spend < spendThreshold,
@@ -324,8 +441,22 @@ export async function POST(request: Request) {
         );
       }
 
+      if (match.status === "ambiguous" && match.candidates.length >= 2) {
+        aiMatchFallbackCalls += 1;
+        const fallback = await applyProductMatchFallback(campaign.campaignName, match);
+        match = fallback.match;
+        tokensIn += fallback.usage.tokensIn;
+        tokensOut += fallback.usage.tokensOut;
+        tokensTotal += fallback.usage.tokensTotal;
+        model = fallback.usage.model || model;
+      }
+
       if (match.status !== "matched") {
-        ambiguousCampaigns += 1;
+        if (match.status === "intentionally_skipped") {
+          intentionallySkippedCampaigns += 1;
+        } else {
+          ambiguousCampaigns += 1;
+        }
         previewResults.push({
           campaignName: campaign.campaignName,
           totalSpend: Number(campaign.totalSpend.toFixed(2)),
@@ -336,7 +467,8 @@ export async function POST(request: Request) {
           productIdentifier: match.identifier,
           theme: match.theme,
           matchStatus: match.status,
-          expectedAmbiguous: match.expectedAmbiguous,
+          matchSource: match.matchSource,
+          skipReason: match.skipReason,
           matchedTitle: match.matchedTitle,
           category: match.category,
           itemDescription: match.itemDescription,
@@ -403,7 +535,8 @@ export async function POST(request: Request) {
         productIdentifier: match.identifier,
         theme: match.theme,
         matchStatus: match.status,
-        expectedAmbiguous: match.expectedAmbiguous,
+        matchSource: match.matchSource,
+        skipReason: match.skipReason,
         matchedTitle: match.matchedTitle,
         category: match.category,
         itemDescription: match.itemDescription,
@@ -417,9 +550,15 @@ export async function POST(request: Request) {
       warnings.push("No eligible campaigns were found above the selected spend threshold.");
     }
 
+    if (intentionallySkippedCampaigns > 0) {
+      warnings.push(
+        `${intentionallySkippedCampaigns} preview campaign(s) were intentionally skipped because they are brand/mix/defensive.`,
+      );
+    }
+
     if (ambiguousCampaigns > 0) {
       warnings.push(
-        `${ambiguousCampaigns} preview campaign(s) were skipped because product mapping was ambiguous or intentionally brand/mix/defensive.`,
+        `${ambiguousCampaigns} preview campaign(s) remain unresolved after deterministic and fallback product matching.`,
       );
     }
 
@@ -449,6 +588,8 @@ export async function POST(request: Request) {
         spend_threshold: spendThreshold,
         preview_campaigns: previewResults.length,
         ambiguous_campaigns: ambiguousCampaigns,
+        intentionally_skipped_campaigns: intentionallySkippedCampaigns,
+        ai_match_fallback_calls: aiMatchFallbackCalls,
         evaluated_terms: recommendationCounts.keep + recommendationCounts.negate + recommendationCounts.review,
       },
     });
@@ -468,6 +609,7 @@ export async function POST(request: Request) {
         candidate_campaigns: candidateCampaigns.length,
         preview_campaigns: previewResults.length,
         ambiguous_campaigns: ambiguousCampaigns,
+        intentionally_skipped_campaigns: intentionallySkippedCampaigns,
         recommendation_counts: recommendationCounts,
         model: model || null,
         campaigns: previewResults,

@@ -473,6 +473,153 @@ the existing `logUsage(...)` pattern used by Scribe and Debrief.
 If the execution lives deeper in the backend async/runtime path, follow the
 best-effort `log_ai_token_usage(...)` pattern used by The Claw.
 
+## Empirical model evaluation
+
+On `2026-03-28`, the team ran a head-to-head evaluation on the core
+`N-Gram 2.0` AI-prefill task using one real campaign and `285` search terms.
+
+Test setup summary:
+
+1. campaign:
+   - `Screen Shine - Pro | SPM | MKW | Br.M | 2 - computer | Perf`
+2. inputs:
+   - campaign name
+   - All Listings Report
+   - `285` search terms
+3. required output:
+   - structured JSON
+   - `KEEP / NEGATE / REVIEW`
+   - confidence
+   - controlled reason tag
+4. important nuance:
+   - models were **not** given product context directly
+   - they had to infer product context from the listing data and campaign name
+
+Models evaluated:
+
+1. Claude Sonnet 4.6
+2. Claude Haiku 4.5
+3. ChatGPT fast
+4. ChatGPT thinking
+5. Gemini fast
+6. Gemini thinking
+
+### Main result
+
+`Claude Sonnet 4.6` was the strongest model by a meaningful margin.
+
+Observed strengths:
+
+1. correctly inferred product context from listing data
+2. correctly parsed campaign theme
+3. strong competitor-brand detection
+4. strong foreign-language negation
+5. strong wrong-category / wrong-size detection
+6. clean structured JSON
+7. strong confidence calibration
+
+### Observed model ranking
+
+Best overall quality in the experiment:
+
+1. `Claude Sonnet 4.6`
+2. `ChatGPT thinking`
+3. `Claude Haiku 4.5` and `Gemini fast` as cheaper but weaker bulk evaluators
+
+Explicit non-recommendation from the experiment:
+
+1. `Gemini thinking` is not suitable for first production use because it
+   silently degrades when output length is exceeded
+2. fast / lightweight models without prompt reinforcement are weak on the two
+   most important negative categories:
+   - competitor brands
+   - foreign-language terms
+
+### Consistent blind spots outside Sonnet
+
+Across non-Sonnet models, two failure patterns repeated:
+
+1. competitor-brand detection
+   - examples: `Invisible Glass`, `Monoprice`, `AudioQuest`, `Staples`,
+     `Screen Doctor`, `E-Cloth`
+2. foreign-language negation
+   - especially Spanish search terms
+
+This means general instruction alone is not enough. If a cheaper or faster
+model is used, the prompt should include concrete few-shot examples for these
+cases.
+
+### Recommended production architecture from the experiment
+
+The experiment's recommended operating model was:
+
+1. `Haiku-first` bulk pass
+2. escalate `REVIEW` or `LOW` confidence terms to `Sonnet`
+3. add explicit few-shot examples for:
+   - competitor brands
+   - foreign-language terms
+
+Why this architecture is attractive:
+
+1. lower cost than `Sonnet-only`
+2. materially better quality than `Haiku-only`
+3. preserves a high-quality escalation path for the tricky terms
+
+Alternative if the stack remains OpenAI-only for now:
+
+1. use a stronger reasoning-tier OpenAI model as the initial production
+   fallback
+2. do **not** rely on a nano-class general default for this workflow
+3. still add few-shot reinforcement for competitor-brand and foreign-language
+   cases
+
+### Product implication
+
+`N-Gram 2.0` AI prefill is unusually sensitive to model quality.
+
+This is **not** a good place to reuse a generic global “cheap default” model
+lane without explicit validation.
+
+The current implementation path inherits the shared frontend OpenAI adapter
+default behavior. In practice that means:
+
+1. if no explicit model is set for `N-Gram 2.0`, it uses whatever
+   `OPENAI_MODEL_PRIMARY` is set to for the environment
+2. if that env var is absent, the frontend adapter falls back to
+   `gpt-5.1-nano`
+
+That is an implementation convenience, not a product recommendation.
+
+### Design recommendation
+
+For `N-Gram 2.0`, model selection should become tool-specific rather than
+implicitly inherited from the global default.
+
+Recommended direction:
+
+1. add an explicit `N-Gram` model lane or route-level override
+2. keep the chosen model configurable per environment
+3. treat Sonnet-quality behavior as the quality bar
+4. do not assume that the same model used for cheaper chat / routing / prose
+   tasks is suitable for PPC negation judgment
+
+### Immediate practical takeaway
+
+If the active environment is currently using a nano-class or otherwise
+lightweight default model for this workflow, that is likely the wrong primary
+model choice for launch.
+
+At minimum before broader rollout:
+
+1. pin `N-Gram 2.0` to a stronger model than the generic default
+2. add few-shot examples for competitor-brand and foreign-language terms
+3. validate on more campaign types:
+   - `MKW`
+   - `SKW`
+   - `PT`
+4. validate on more products where the same query should flip by campaign
+   context
+
 ## What this design is not
 
 This design does **not** include:

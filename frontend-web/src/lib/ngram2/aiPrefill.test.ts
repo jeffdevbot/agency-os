@@ -5,6 +5,7 @@ import {
   buildNgramsForQuery,
   buildCampaignAggregates,
   chooseBestListingMatch,
+  isIntentionallySkippedCampaign,
   isExpectedAmbiguousCampaign,
   isLegacyExcludedCampaign,
   parseCampaignProductIdentifier,
@@ -22,6 +23,7 @@ describe("ngram2 aiPrefill helpers", () => {
 
   it("treats brand or defensive lanes as expected ambiguous", () => {
     expect(isExpectedAmbiguousCampaign("Brand | SPM | MKW | Br. | Mix. | Def")).toBe(true);
+    expect(isIntentionallySkippedCampaign("Brand | SPM | MKW | Br. | Mix. | Def")).toBe(true);
     expect(isExpectedAmbiguousCampaign("Screen Shine - Pro | SPM | MKW | Br.M | 2 - computer | Perf")).toBe(
       false,
     );
@@ -47,6 +49,95 @@ describe("ngram2 aiPrefill helpers", () => {
 
     expect(match.status).toBe("matched");
     expect(match.matchedTitle).toContain("Screen Shine Duo");
+  });
+
+  it("classifies brand or mix campaigns as intentionally skipped instead of ambiguous", () => {
+    const match = chooseBestListingMatch("Brand | SPM | MKW | Br. | Mix. | Def", [
+      {
+        child_asin: "A1",
+        child_product_name: "WHOOSH! Screen Shine Pro 16.9 fl oz",
+        parent_title: null,
+        category: "electronics cleaner",
+        item_description: "large spray",
+      },
+    ]);
+
+    expect(match.status).toBe("intentionally_skipped");
+    expect(match.skipReason).toBe("brand_mix_defensive");
+  });
+
+  it("matches normalized family variants for a whoosh-like client without aliases", () => {
+    const listings = [
+      {
+        child_asin: "A1",
+        child_product_name: "WHOOSH! Screen Shine Pro 16.9 fl oz",
+        parent_title: null,
+        category: "electronics cleaner",
+        item_description: "large spray",
+      },
+      {
+        child_asin: "A2",
+        child_product_name: "WHOOSH! Screen Shine Go XL 3.4 fl oz",
+        parent_title: null,
+        category: "electronics cleaner",
+        item_description: "travel spray",
+      },
+      {
+        child_asin: "A3",
+        child_product_name: "WHOOSH! Screen Shine Duo 3.4 + 0.3 fl oz",
+        parent_title: null,
+        category: "electronics cleaner",
+        item_description: "duo kit",
+      },
+    ];
+
+    const proMatch = chooseBestListingMatch("Screen Shine - Pro 2 | SPM | MKW | Br.M | 6 - tv | Perf", listings);
+    const goMatch = chooseBestListingMatch("Screen Shine - Go XL | SPM | MKW | Br. | 3 - gen | Perf", listings);
+
+    expect(proMatch.status).toBe("matched");
+    expect(proMatch.matchedTitle).toContain("Screen Shine Pro");
+    expect(goMatch.status).toBe("matched");
+    expect(goMatch.matchedTitle).toContain("Screen Shine Go XL");
+  });
+
+  it("uses the same matcher logic for a different client structure with no code changes", () => {
+    const listings = [
+      {
+        child_asin: "B1",
+        child_product_name: "Glow Labs Hydrating Serum Night Repair 30 ml",
+        parent_title: null,
+        category: "skin care",
+        item_description: "overnight serum",
+      },
+      {
+        child_asin: "B2",
+        child_product_name: "Glow Labs Hydrating Serum Day Defense 30 ml",
+        parent_title: null,
+        category: "skin care",
+        item_description: "day serum",
+      },
+      {
+        child_asin: "B3",
+        child_product_name: "Glow Labs Vitamin C Gel Cleanser 120 ml",
+        parent_title: null,
+        category: "skin care",
+        item_description: "face wash",
+      },
+    ];
+
+    const serumMatch = chooseBestListingMatch(
+      "Hydrating Serum - Night Repair | SPM | MKW | Br. | 4 - overnight | Perf",
+      listings,
+    );
+    const cleanserMatch = chooseBestListingMatch(
+      "Vitamin C Gel Cleanser | SPM | MKW | Br. | 1 - face wash | Perf",
+      listings,
+    );
+
+    expect(serumMatch.status).toBe("matched");
+    expect(serumMatch.matchedTitle).toContain("Night Repair");
+    expect(cleanserMatch.status).toBe("matched");
+    expect(cleanserMatch.matchedTitle).toContain("Vitamin C Gel Cleanser");
   });
 
   it("aggregates rows and builds campaign totals with threshold and legacy exclusion filters", () => {

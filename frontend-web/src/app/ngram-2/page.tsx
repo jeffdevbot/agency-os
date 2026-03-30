@@ -86,8 +86,9 @@ type AIPrefillCampaignPreview = {
   skippedBelowThresholdTerms: number;
   productIdentifier: string | null;
   theme: string | null;
-  matchStatus: "matched" | "ambiguous";
-  expectedAmbiguous: boolean;
+  matchStatus: "matched" | "ambiguous" | "intentionally_skipped";
+  matchSource: "deterministic" | "ai_fallback" | "none";
+  skipReason: "brand_mix_defensive" | "missing_identifier" | null;
   matchedTitle: string | null;
   category: string | null;
   itemDescription: string | null;
@@ -113,6 +114,7 @@ type AIPrefillPreview = {
   candidate_campaigns: number;
   preview_campaigns: number;
   ambiguous_campaigns: number;
+  intentionally_skipped_campaigns: number;
   recommendation_counts: {
     keep: number;
     negate: number;
@@ -986,14 +988,20 @@ export default function NgramTwoPage() {
                           <p className="text-base font-semibold text-[#0f172a]">{campaign.campaignName}</p>
                           <p className="mt-1 text-sm text-[#4c576f]">
                             {campaign.matchedTitle
-                              ? `${campaign.matchedTitle}${campaign.theme ? ` • theme: ${campaign.theme}` : ""}`
-                              : campaign.expectedAmbiguous
-                                ? "Expected ambiguous campaign (brand / mix / defensive)."
-                                : "Product mapping was ambiguous."}
+                              ? `${campaign.matchedTitle}${campaign.theme ? ` • theme: ${campaign.theme}` : ""}${campaign.matchSource === "ai_fallback" ? " • AI disambiguated" : ""}`
+                              : campaign.matchStatus === "intentionally_skipped"
+                                ? "Intentionally skipped campaign (brand / mix / defensive)."
+                                : "Product mapping remains ambiguous."}
                           </p>
                         </div>
                         <div className="rounded-full border border-[#dbe4f0] bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-[#64748b]">
-                          {campaign.matchStatus === "matched" ? "matched" : "ambiguous"}
+                          {campaign.matchStatus === "matched"
+                            ? campaign.matchSource === "ai_fallback"
+                              ? "ai match"
+                              : "matched"
+                            : campaign.matchStatus === "intentionally_skipped"
+                              ? "skipped"
+                              : "ambiguous"}
                         </div>
                       </div>
 
@@ -1002,7 +1010,7 @@ export default function NgramTwoPage() {
                           Eligible spend: <span className="font-semibold text-[#0f172a]">{formatCurrency(campaign.eligibleSpend, selectedProfile?.currencyCode)}</span>
                         </div>
                         <div className="rounded-xl border border-[#e3ebf6] bg-white px-4 py-3 text-sm text-[#4c576f]">
-                          Evaluated terms: <span className="font-semibold text-[#0f172a]">{formatNumber(campaign.eligibleTerms)}</span>
+                          Terms above threshold: <span className="font-semibold text-[#0f172a]">{formatNumber(campaign.eligibleTerms)}</span>
                         </div>
                         <div className="rounded-xl border border-[#e3ebf6] bg-white px-4 py-3 text-sm text-[#4c576f]">
                           Skipped below threshold: <span className="font-semibold text-[#0f172a]">{formatNumber(campaign.skippedBelowThresholdTerms)}</span>
