@@ -156,6 +156,7 @@ export default function NgramTwoPage() {
   const [aiPreviewLoading, setAiPreviewLoading] = useState(false);
   const [aiPreviewError, setAiPreviewError] = useState<string | null>(null);
   const [aiPreview, setAiPreview] = useState<AIPrefillPreview | null>(null);
+  const [aiPreviewRunId, setAiPreviewRunId] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
   useEffect(() => {
@@ -357,6 +358,7 @@ export default function NgramTwoPage() {
           date_from: dateFrom,
           date_to: dateTo,
           respect_legacy_exclusions: legacyExclusions,
+          preview_run_id: aiPreviewRunId,
           campaign_prefills: aiPreview.campaigns
             .map((campaign) => ({
               campaign_name: campaign.campaignName,
@@ -365,6 +367,17 @@ export default function NgramTwoPage() {
               tri: campaign.synthesizedPrefills.tri.map((item) => item.gram),
             }))
             .filter((campaign) => campaign.mono.length + campaign.bi.length + campaign.tri.length > 0),
+          campaign_term_reviews: Object.fromEntries(
+            aiPreview.campaigns.map((campaign) => [
+              campaign.campaignName,
+              campaign.evaluations.map((evaluation) => ({
+                search_term: evaluation.search_term,
+                recommendation: evaluation.recommendation,
+                confidence: evaluation.confidence,
+                reason_tag: evaluation.reason_tag,
+              })),
+            ]),
+          ),
         }),
       });
 
@@ -411,6 +424,7 @@ export default function NgramTwoPage() {
     setAiPreviewLoading(true);
     setAiPreviewError(null);
     setAiPreview(null);
+    setAiPreviewRunId(null);
 
     try {
       const response = await fetch("/api/ngram-2/ai-prefill-preview", {
@@ -433,8 +447,12 @@ export default function NgramTwoPage() {
         throw new Error(detail?.detail || "AI prefill preview failed");
       }
 
-      const payload = (await response.json()) as { preview?: AIPrefillPreview };
+      const payload = (await response.json()) as {
+        preview?: AIPrefillPreview;
+        preview_run_id?: string | null;
+      };
       setAiPreview(payload.preview ?? null);
+      setAiPreviewRunId(payload.preview_run_id ?? null);
     } catch (previewError) {
       setAiPreviewError(
         previewError instanceof Error ? previewError.message : "AI prefill preview failed",
@@ -547,6 +565,7 @@ export default function NgramTwoPage() {
 
   useEffect(() => {
     setAiPreview(null);
+    setAiPreviewRunId(null);
     setAiPreviewError(null);
     setAiWorkbookError(null);
   }, [selectedProfile?.profileId, selectedProduct, dateFrom, dateTo, legacyExclusions]);

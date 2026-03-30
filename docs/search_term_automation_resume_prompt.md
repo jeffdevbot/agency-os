@@ -34,6 +34,8 @@ Read first, in this order:
      evaluation in one call** using Windsor child-ASIN catalog context
    - preview responses are validated strictly before gram synthesis
    - successful preview payloads now persist in `ngram_ai_preview_runs`
+   - preview responses now return `preview_run_id`, and the AI-prefilled
+     workbook path can reuse that exact saved run
    - `reason_tag` is now a strict enum and must be exactly one of:
      - `core_use_case`
      - `wrong_category`
@@ -47,6 +49,9 @@ Read first, in this order:
      - `ambiguous_intent`
    - intentionally skipped brand/mix/defensive campaigns no longer consume the
      top-6 preview budget
+   - AI-prefilled workbook sheets now keep the legacy workbook layout while
+     appending compact `AI Recommendation`, `AI Confidence`, and `AI Reason`
+     columns to the search-term table
 
 ## Important validation findings
 

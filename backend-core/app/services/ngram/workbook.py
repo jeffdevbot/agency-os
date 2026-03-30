@@ -14,7 +14,8 @@ from .analytics import color_for_category
 
 START_ROW = 3
 SCRATCHPAD_HEADERS = ["Monogram", "Bigram", "Trigram"]
-SCRATCHPAD_BASE_COL = 49
+SCRATCHPAD_BASE_COL = 50
+AI_REVIEW_HEADERS = ["AI Recommendation", "AI Confidence", "AI Reason"]
 
 
 def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
@@ -46,9 +47,9 @@ def _build_ne_summary_formula(sheet_infos: list[tuple[str, str]]) -> str:
         # Bounded ranges to avoid Excel repair issues with full-column spills
         ne_term_range = f"{sheet_ref}!AN$6:AN$5000"
         ne_flag_range = f"{sheet_ref}!AT$6:AT$5000"
-        mono_range = f"{sheet_ref}!AX$6:AX$5000"
-        bi_range = f"{sheet_ref}!AY$6:AY$5000"
-        tri_range = f"{sheet_ref}!AZ$6:AZ$5000"
+        mono_range = f"{sheet_ref}!AY$6:AY$5000"
+        bi_range = f"{sheet_ref}!AZ$6:AZ$5000"
+        tri_range = f"{sheet_ref}!BA$6:BA$5000"
         parts.append(
             f"FILTER(CHOOSE({{1,2,3,4,5}},"
             f"{camp_literal},{ne_term_range},\"\",\"\",\"\"),"
@@ -95,10 +96,16 @@ def _normalize_prefill_values(values: list[str] | None) -> list[str]:
     return out
 
 
+def _normalize_search_term_key(value: str | None) -> str:
+    return str(value or "").strip().casefold()
+
+
 def build_workbook(
     campaign_items: List[Dict],
     app_version: str,
     ai_prefills: Dict[str, Dict[str, List[str]]] | None = None,
+    ai_term_reviews: Dict[str, Dict[str, Dict[str, str | None]]] | None = None,
+    ai_summary: Dict[str, str | float | None] | None = None,
 ):
     with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as out_tmp:
         out_path = out_tmp.name
@@ -120,7 +127,7 @@ def build_workbook(
             cols = list(dfx.columns)
             text_columns: set[str] = set()
             for j, col in enumerate(cols):
-                fmt = grey_hdr_fmt if col in ("NE/NP", "Comments") else header_fmt
+                fmt = grey_hdr_fmt if col in ("NE/NP", "Comments", *AI_REVIEW_HEADERS) else header_fmt
                 ws.write_string(START_ROW + 2, start_col + j, col, fmt)
                 series = dfx[col]
                 if (
@@ -178,6 +185,13 @@ def build_workbook(
         runinfo_fmt = book.add_format({"italic": True, "font_color": "#666666"})
         summary_ws.write_string(0, 9, f"Generated: {datetime.now():%Y-%m-%d %H:%M}", runinfo_fmt)
         summary_ws.write_string(1, 9, f"Version: {app_version}", runinfo_fmt)
+        if ai_summary:
+            if ai_summary.get("preview_run_id"):
+                summary_ws.write_string(2, 9, f"AI Preview Run: {ai_summary['preview_run_id']}", runinfo_fmt)
+            if ai_summary.get("model"):
+                summary_ws.write_string(3, 9, f"AI Model: {ai_summary['model']}", runinfo_fmt)
+            if ai_summary.get("spend_threshold") is not None:
+                summary_ws.write_string(4, 9, f"AI Threshold: {ai_summary['spend_threshold']}", runinfo_fmt)
 
         row = 1
         sheet_name_map: Dict[str, str] = {}
@@ -225,7 +239,24 @@ def build_workbook(
             bigram_start_col = 13
             col = write_pretty_table(ws, col, "Trigram", item["tri"])
             trigram_start_col = 26
-            write_pretty_table(ws, col, "Search Term", item["raw"])
+            raw_with_ai = item["raw"].copy()
+            campaign_review_lookup = ai_term_reviews.get(item["campaign_name"], {}) if ai_term_reviews else {}
+            if campaign_review_lookup:
+                search_terms = raw_with_ai["Search Term"].map(lambda value: _normalize_search_term_key(str(value)))
+                raw_with_ai["AI Recommendation"] = search_terms.map(
+                    lambda key: str(campaign_review_lookup.get(key, {}).get("recommendation") or "")
+                )
+                raw_with_ai["AI Confidence"] = search_terms.map(
+                    lambda key: str(campaign_review_lookup.get(key, {}).get("confidence") or "")
+                )
+                raw_with_ai["AI Reason"] = search_terms.map(
+                    lambda key: str(campaign_review_lookup.get(key, {}).get("reason_tag") or "")
+                )
+            else:
+                raw_with_ai["AI Recommendation"] = ""
+                raw_with_ai["AI Confidence"] = ""
+                raw_with_ai["AI Reason"] = ""
+            write_pretty_table(ws, col, "Search Term", raw_with_ai)
 
             for offset, label in enumerate(SCRATCHPAD_HEADERS):
                 ws.write_string(START_ROW + 2, SCRATCHPAD_BASE_COL + offset, label, bold_fmt)
@@ -241,21 +272,21 @@ def build_workbook(
                 ws.write_formula(
                     (START_ROW + 3) + r_i,
                     mono_start_col + 10,
-                    f'=IF(ISNUMBER(MATCH(A{excel_row},AX:AX,0)),"NP","")',
+                    f'=IF(ISNUMBER(MATCH(A{excel_row},AY:AY,0)),"NP","")',
                 )
             for r_i in range(len(item["bi"])):
                 excel_row = first_data_excel_row + r_i
                 ws.write_formula(
                     (START_ROW + 3) + r_i,
                     bigram_start_col + 10,
-                    f'=IF(ISNUMBER(MATCH(N{excel_row},AY:AY,0)),"NP","")',
+                    f'=IF(ISNUMBER(MATCH(N{excel_row},AZ:AZ,0)),"NP","")',
                 )
             for r_i in range(len(item["tri"])):
                 excel_row = first_data_excel_row + r_i
                 ws.write_formula(
                     (START_ROW + 3) + r_i,
                     trigram_start_col + 10,
-                    f'=IF(ISNUMBER(MATCH(AA{excel_row},AZ:AZ,0)),"NP","")',
+                    f'=IF(ISNUMBER(MATCH(AA{excel_row},BA:BA,0)),"NP","")',
                 )
 
             ws.set_zoom(110)

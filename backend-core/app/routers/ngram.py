@@ -3,6 +3,7 @@ import tempfile
 import itertools
 import time
 from datetime import date
+from typing import Any
 
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
 from fastapi.responses import FileResponse
@@ -62,8 +63,150 @@ class CampaignScratchpadPrefill(BaseModel):
     tri: list[str] = Field(default_factory=list)
 
 
+class CampaignTermReviewPrefill(BaseModel):
+    search_term: str = Field(..., min_length=1)
+    recommendation: str = Field(..., min_length=1)
+    confidence: str = Field(..., min_length=1)
+    reason_tag: str = Field(..., min_length=1)
+
+
 class NativePrefilledWorkbookRequest(NativeWorkbookRequest):
+    preview_run_id: str | None = None
     campaign_prefills: list[CampaignScratchpadPrefill] = Field(default_factory=list)
+    campaign_term_reviews: dict[str, list[CampaignTermReviewPrefill]] = Field(default_factory=dict)
+
+
+def _to_non_empty_text(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def _normalize_search_term_key(value: Any) -> str:
+    return _to_non_empty_text(value).casefold()
+
+
+def _build_prefill_context_from_request(
+    request: NativePrefilledWorkbookRequest,
+) -> tuple[dict[str, dict[str, list[str]]], dict[str, dict[str, dict[str, str | None]]], dict[str, str | float | None] | None]:
+    ai_prefills = {
+        item.campaign_name: {
+            "mono": item.mono,
+            "bi": item.bi,
+            "tri": item.tri,
+        }
+        for item in request.campaign_prefills
+    }
+    ai_term_reviews = {
+        campaign_name: {
+            _normalize_search_term_key(review.search_term): {
+                "recommendation": review.recommendation,
+                "confidence": review.confidence,
+                "reason_tag": review.reason_tag,
+            }
+            for review in reviews
+            if _normalize_search_term_key(review.search_term)
+        }
+        for campaign_name, reviews in request.campaign_term_reviews.items()
+        if _to_non_empty_text(campaign_name)
+    }
+    return ai_prefills, ai_term_reviews, None
+
+
+def _build_prefill_context_from_saved_preview(
+    request: NativePrefilledWorkbookRequest,
+    preview_run: dict[str, Any],
+) -> tuple[dict[str, dict[str, list[str]]], dict[str, dict[str, dict[str, str | None]]], dict[str, str | float | None]]:
+    if str(preview_run.get("profile_id") or "") != request.profile_id:
+        raise HTTPException(status_code=400, detail="Saved AI preview run does not match the selected profile.")
+    if _to_non_empty_text(preview_run.get("ad_product")).upper() != request.ad_product.strip().upper():
+        raise HTTPException(status_code=400, detail="Saved AI preview run does not match the selected ad product.")
+    if _to_non_empty_text(preview_run.get("date_from")) != request.date_from.isoformat():
+        raise HTTPException(status_code=400, detail="Saved AI preview run does not match the selected start date.")
+    if _to_non_empty_text(preview_run.get("date_to")) != request.date_to.isoformat():
+        raise HTTPException(status_code=400, detail="Saved AI preview run does not match the selected end date.")
+    if bool(preview_run.get("respect_legacy_exclusions")) != request.respect_legacy_exclusions:
+        raise HTTPException(
+            status_code=400,
+            detail="Saved AI preview run does not match the selected legacy-exclusion setting.",
+        )
+
+    preview_payload = preview_run.get("preview_payload")
+    if not isinstance(preview_payload, dict):
+        raise HTTPException(status_code=400, detail="Saved AI preview run is missing a valid preview payload.")
+
+    campaigns = preview_payload.get("campaigns")
+    if not isinstance(campaigns, list):
+        raise HTTPException(status_code=400, detail="Saved AI preview run payload is missing campaigns.")
+
+    ai_prefills: dict[str, dict[str, list[str]]] = {}
+    ai_term_reviews: dict[str, dict[str, dict[str, str | None]]] = {}
+
+    for campaign in campaigns:
+        if not isinstance(campaign, dict):
+            continue
+        campaign_name = _to_non_empty_text(campaign.get("campaignName"))
+        if not campaign_name:
+            continue
+
+        synthesized_prefills = campaign.get("synthesizedPrefills")
+        if isinstance(synthesized_prefills, dict):
+            ai_prefills[campaign_name] = {
+                "mono": [
+                    _to_non_empty_text(item.get("gram"))
+                    for item in synthesized_prefills.get("mono", [])
+                    if isinstance(item, dict) and _to_non_empty_text(item.get("gram"))
+                ],
+                "bi": [
+                    _to_non_empty_text(item.get("gram"))
+                    for item in synthesized_prefills.get("bi", [])
+                    if isinstance(item, dict) and _to_non_empty_text(item.get("gram"))
+                ],
+                "tri": [
+                    _to_non_empty_text(item.get("gram"))
+                    for item in synthesized_prefills.get("tri", [])
+                    if isinstance(item, dict) and _to_non_empty_text(item.get("gram"))
+                ],
+            }
+
+        evaluations = campaign.get("evaluations")
+        if isinstance(evaluations, list):
+            review_lookup: dict[str, dict[str, str | None]] = {}
+            for evaluation in evaluations:
+                if not isinstance(evaluation, dict):
+                    continue
+                search_term_key = _normalize_search_term_key(evaluation.get("search_term"))
+                if not search_term_key:
+                    continue
+                review_lookup[search_term_key] = {
+                    "recommendation": _to_non_empty_text(evaluation.get("recommendation")),
+                    "confidence": _to_non_empty_text(evaluation.get("confidence")),
+                    "reason_tag": _to_non_empty_text(evaluation.get("reason_tag")),
+                }
+            if review_lookup:
+                ai_term_reviews[campaign_name] = review_lookup
+
+    ai_summary: dict[str, str | float | None] = {
+        "preview_run_id": _to_non_empty_text(preview_run.get("id")) or None,
+        "model": _to_non_empty_text(preview_payload.get("model")) or _to_non_empty_text(preview_run.get("model")) or None,
+        "spend_threshold": float(preview_run.get("spend_threshold")) if preview_run.get("spend_threshold") is not None else None,
+    }
+
+    return ai_prefills, ai_term_reviews, ai_summary
+
+
+def _load_saved_preview_run(service: NativeNgramWorkbookService, preview_run_id: str) -> dict[str, Any]:
+    response = (
+        service.db.table("ngram_ai_preview_runs")
+        .select("id,profile_id,ad_product,date_from,date_to,spend_threshold,respect_legacy_exclusions,model,preview_payload")
+        .eq("id", preview_run_id)
+        .limit(1)
+        .execute()
+    )
+    rows = response.data if isinstance(response.data, list) else []
+    if not rows:
+        raise HTTPException(status_code=400, detail="Saved AI preview run was not found.")
+    if not isinstance(rows[0], dict):
+        raise HTTPException(status_code=400, detail="Saved AI preview run payload is invalid.")
+    return rows[0]
 
 
 @router.post("/process", response_class=FileResponse)
@@ -193,14 +336,15 @@ async def build_native_prefilled_workbook(
         raise HTTPException(status_code=400, detail="date_from must be on or before date_to")
 
     started = time.time()
-    ai_prefills = {
-        item.campaign_name: {
-            "mono": item.mono,
-            "bi": item.bi,
-            "tri": item.tri,
-        }
-        for item in request.campaign_prefills
-    }
+
+    if request.preview_run_id:
+        saved_preview_run = _load_saved_preview_run(service, request.preview_run_id)
+        ai_prefills, ai_term_reviews, ai_summary = _build_prefill_context_from_saved_preview(
+            request,
+            saved_preview_run,
+        )
+    else:
+        ai_prefills, ai_term_reviews, ai_summary = _build_prefill_context_from_request(request)
 
     try:
         result = service.build_workbook_from_search_term_facts(
@@ -211,6 +355,8 @@ async def build_native_prefilled_workbook(
             respect_legacy_exclusions=request.respect_legacy_exclusions,
             app_version=settings.app_version,
             ai_prefills=ai_prefills,
+            ai_term_reviews=ai_term_reviews,
+            ai_summary=ai_summary,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -234,6 +380,7 @@ async def build_native_prefilled_workbook(
             "prefill_mono": sum(len(item.get("mono", [])) for item in ai_prefills.values()),
             "prefill_bi": sum(len(item.get("bi", [])) for item in ai_prefills.values()),
             "prefill_tri": sum(len(item.get("tri", [])) for item in ai_prefills.values()),
+            "preview_run_id": request.preview_run_id,
             "status": "success",
             "duration_ms": int((time.time() - started) * 1000),
             "app_version": settings.app_version,

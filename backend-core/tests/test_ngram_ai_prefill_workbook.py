@@ -69,22 +69,48 @@ def test_build_workbook_writes_ai_prefills_to_scratchpad_columns():
                 "tri": ["travel size screen"],
             }
         },
+        ai_term_reviews={
+            "Screen Shine - Pro | SPM | MKW | Br.M | 2 - computer | Perf": {
+                "travel size screen cleaner": {
+                    "recommendation": "REVIEW",
+                    "confidence": "MEDIUM",
+                    "reason_tag": "ambiguous_intent",
+                }
+            }
+        },
+        ai_summary={
+            "preview_run_id": "preview-run-123",
+            "model": "gpt-5.4-mini-2026-03-17",
+            "spend_threshold": "1.0",
+        },
     )
 
     try:
         wb = load_workbook(workbook_path, data_only=False)
+        summary_ws = wb["Summary"]
         ws = wb[wb.sheetnames[1]]
 
-        assert ws["AX6"].value == "Monogram"
-        assert ws["AY6"].value == "Bigram"
-        assert ws["AZ6"].value == "Trigram"
+        assert summary_ws["J3"].value == "AI Preview Run: preview-run-123"
+        assert summary_ws["J4"].value == "AI Model: gpt-5.4-mini-2026-03-17"
+        assert summary_ws["J5"].value == "AI Threshold: 1.0"
 
-        assert ws["AX7"].value == "travel"
-        assert ws["AX8"].value == "size"
-        assert ws["AY7"].value == "travel size"
-        assert ws["AZ7"].value == "travel size screen"
+        assert ws["AV6"].value == "AI Recommendation"
+        assert ws["AW6"].value == "AI Confidence"
+        assert ws["AX6"].value == "AI Reason"
+        assert ws["AV7"].value == "REVIEW"
+        assert ws["AW7"].value == "MEDIUM"
+        assert ws["AX7"].value == "ambiguous_intent"
+
+        assert ws["AY6"].value == "Monogram"
+        assert ws["AZ6"].value == "Bigram"
+        assert ws["BA6"].value == "Trigram"
+
+        assert ws["AY7"].value == "travel"
+        assert ws["AY8"].value == "size"
+        assert ws["AZ7"].value == "travel size"
+        assert ws["BA7"].value == "travel size screen"
 
         assert isinstance(ws["K7"].value, str)
-        assert "MATCH(A7,AX:AX,0)" in ws["K7"].value
+        assert "MATCH(A7,AY:AY,0)" in ws["K7"].value
     finally:
         os.unlink(workbook_path)

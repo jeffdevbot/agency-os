@@ -545,7 +545,7 @@ export async function POST(request: Request) {
       },
     });
 
-    await persistNgramPreviewRun({
+    const persistedPreviewRun = await persistNgramPreviewRun({
       profileId,
       requestedByAuthUserId: user.id,
       adProduct,
@@ -562,6 +562,8 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       ok: true,
+      preview_run_id: persistedPreviewRun?.id ?? null,
+      preview_created_at: persistedPreviewRun?.createdAt ?? null,
       preview: previewPayload,
     });
   } catch (error) {

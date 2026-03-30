@@ -419,6 +419,15 @@ Why this matters:
    decisions
 3. debugging no longer depends on screenshots or rerunning the same request
 
+Current implemented follow-through:
+
+1. the preview route now returns the persisted `preview_run_id`
+2. the AI-prefilled workbook path can reuse that exact saved preview run
+   instead of depending only on transient browser state
+3. if the selected profile / window / product / exclusion settings do not
+   match the saved run, workbook generation should fail loudly rather than
+   silently drifting to a different context
+
 ## Manual path remains first-class
 
 This AI path must remain optional.
@@ -712,6 +721,16 @@ If the team wants to “jump to v2,” the safest interpretation is:
 
 That gives the team the workbook-prefill experience they want, without making
 unsafe direct gram leaps from single search terms.
+
+Current implemented workbook-writing choice:
+
+1. keep the familiar workbook tabs and primary review flow intact
+2. append only compact search-term AI context in the workbook:
+   - `AI Recommendation`
+   - `AI Confidence`
+   - `AI Reason`
+3. keep fuller rationale and campaign-level preview detail in persisted
+   `ngram_ai_preview_runs` payloads rather than bloating the workbook
 
 ## Suggested phased build order
 

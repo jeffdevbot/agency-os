@@ -74,6 +74,8 @@ class NativeNgramWorkbookService:
         respect_legacy_exclusions: bool,
         app_version: str,
         ai_prefills: dict[str, dict[str, list[str]]] | None = None,
+        ai_term_reviews: dict[str, dict[str, dict[str, str | None]]] | None = None,
+        ai_summary: dict[str, str | float | None] | None = None,
     ) -> NativeNgramWorkbookResult:
         normalized_ad_product = str(ad_product or "").strip().upper()
         if normalized_ad_product != "SPONSORED_PRODUCTS":
@@ -104,7 +106,13 @@ class NativeNgramWorkbookService:
         if not campaign_items:
             raise ValueError("No eligible campaigns remained after native filters were applied.")
 
-        workbook_path = build_workbook(campaign_items, app_version, ai_prefills=ai_prefills)
+        workbook_path = build_workbook(
+            campaign_items,
+            app_version,
+            ai_prefills=ai_prefills,
+            ai_term_reviews=ai_term_reviews,
+            ai_summary=ai_summary,
+        )
         display_name = str(profile.get("display_name") or profile.get("marketplace_code") or "native_ngram").strip()
         safe_name = re.sub(r"[^A-Za-z0-9]+", "_", display_name).strip("_") or "native_ngram"
         filename = f"{safe_name}_{date_from.isoformat()}_{date_to.isoformat()}_native_ngrams.xlsx"

@@ -274,17 +274,25 @@ historical reference.
        runnable campaigns
      - successful Step 3 preview payloads now persist in
        `ngram_ai_preview_runs` instead of existing only in the browser state
-     - both recent `/ngram-2` changes are frontend-service-only because the
-       preview route lives under Next.js at
-       `frontend-web/src/app/api/ngram-2/ai-prefill-preview/route.ts`
+     - the preview route now returns `preview_run_id`, and the AI-prefilled
+       workbook path can reuse that saved run directly instead of depending
+       only on transient browser state
+     - AI-prefilled workbook sheets keep the legacy workbook layout but now
+       append compact search-term review columns:
+       - `AI Recommendation`
+       - `AI Confidence`
+       - `AI Reason`
+     - workbook summary metadata now records the linked preview run id, model,
+       and spend threshold for traceability
+     - the preview route still lives under Next.js at
+       `frontend-web/src/app/api/ngram-2/ai-prefill-preview/route.ts`, but the
+       saved-preview workbook reuse / AI-column write now also touches the
+       backend N-Gram route and workbook writer
      - current read:
        the Step 3 SP validation slice is effectively a pass
      - immediate next-session goal:
-       after fresh Supabase MCP auth and a fresh Codex session, inspect the
-       persisted preview runs and decide whether the next useful slice is
-       workbook-prefill tuning, analyst-review ergonomics, or override logging
-       be omitted from the native `sbSearchTerm` API while still appearing in
-       Amazon console/export surfaces
+       now that workbook prefill is linked to persisted preview runs, the next
+       useful slice is reviewed-workbook override logging and calibration
    - screenshots/export inspection confirmed:
      - campaign type is `Sponsored Brands`
      - campaign targeting is `MANUAL`
