@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { logAppError } from "@/lib/ai/errorLogger";
+import { persistNgramPreviewRun } from "@/lib/ai/ngramPreviewLogger";
 import { logUsage } from "@/lib/ai/usageLogger";
 import { createChatCompletion, parseJSONResponse, type ChatMessage } from "@/lib/composer/ai/openai";
 import {
@@ -501,6 +502,26 @@ export async function POST(request: Request) {
       { keep: 0, negate: 0, review: 0 },
     );
 
+    const previewPayload = {
+      ad_product: adProduct,
+      profile_id: profileId,
+      date_from: dateFrom,
+      date_to: dateTo,
+      spend_threshold: spendThreshold,
+      max_campaigns: AI_PREFILL_PREVIEW_MAX_CAMPAIGNS,
+      max_terms_per_campaign: AI_PREFILL_PREVIEW_MAX_TERMS_PER_CAMPAIGN,
+      raw_rows: rows.length,
+      eligible_rows: usableRows.length,
+      candidate_campaigns: candidateCampaigns.length,
+      preview_campaigns: previewResults.length,
+      ambiguous_campaigns: ambiguousCampaigns,
+      intentionally_skipped_campaigns: intentionallySkippedCampaigns,
+      recommendation_counts: recommendationCounts,
+      model: model || null,
+      campaigns: previewResults,
+      warnings,
+    };
+
     await logUsage({
       tool: "ngram",
       userId: user.id,
@@ -524,27 +545,24 @@ export async function POST(request: Request) {
       },
     });
 
+    await persistNgramPreviewRun({
+      profileId,
+      requestedByAuthUserId: user.id,
+      adProduct,
+      dateFrom,
+      dateTo,
+      spendThreshold,
+      respectLegacyExclusions,
+      model: model || null,
+      promptTokens: tokensIn,
+      completionTokens: tokensOut,
+      totalTokens: tokensTotal,
+      previewPayload,
+    });
+
     return NextResponse.json({
       ok: true,
-      preview: {
-        ad_product: adProduct,
-        profile_id: profileId,
-        date_from: dateFrom,
-        date_to: dateTo,
-        spend_threshold: spendThreshold,
-        max_campaigns: AI_PREFILL_PREVIEW_MAX_CAMPAIGNS,
-        max_terms_per_campaign: AI_PREFILL_PREVIEW_MAX_TERMS_PER_CAMPAIGN,
-        raw_rows: rows.length,
-        eligible_rows: usableRows.length,
-        candidate_campaigns: candidateCampaigns.length,
-        preview_campaigns: previewResults.length,
-        ambiguous_campaigns: ambiguousCampaigns,
-        intentionally_skipped_campaigns: intentionallySkippedCampaigns,
-        recommendation_counts: recommendationCounts,
-        model: model || null,
-        campaigns: previewResults,
-        warnings,
-      },
+      preview: previewPayload,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "AI prefill preview failed";
