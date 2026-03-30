@@ -390,6 +390,29 @@ The analyst experience should become:
 That is a much safer product story than asking analysts to trust an automated
 negative list outright.
 
+## Preview-run persistence
+
+Successful Step 3 preview runs should not live only in transient browser
+state.
+
+Current implemented state:
+
+1. aggregate token/cost telemetry still lands in `ai_token_usage`
+2. the exact successful preview payload now also lands in
+   `ngram_ai_preview_runs`
+3. this stored payload includes:
+   - warnings
+   - campaign-level product matches
+   - term recommendations
+   - synthesized mono/bi/tri scratchpads
+
+Why this matters:
+
+1. operators can verify what the model actually returned on a prior run
+2. product tuning can compare preview output against later reviewed workbook
+   decisions
+3. debugging no longer depends on screenshots or rerunning the same request
+
 ## Manual path remains first-class
 
 This AI path must remain optional.

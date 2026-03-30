@@ -10,7 +10,7 @@ rationale plus the WBR-specific live-state notes in one place.
 
 ## Current implementation status
 
-As of March 27, 2026:
+As of March 30, 2026:
 
 1. The WBR v2 foundation migrations are implemented and applied live:
    - `20260312000001_wbr_profiles_and_rows.sql`
@@ -31,6 +31,7 @@ As of March 27, 2026:
    - `20260327120000_add_str_keyword_fields.sql`
    - `20260327143000_add_str_ad_product_foundation.sql`
    - `20260327204500_harden_str_fact_metadata.sql`
+   - `20260330131500_add_ngram_ai_preview_runs.sql`
 3. The application layer is wired to the full current WBR v2 stack:
    - profiles and row tree
    - Pacvue import and campaign mapping
@@ -57,6 +58,7 @@ As of March 27, 2026:
    - `wbr_email_drafts`
    - `search_term_daily_facts`
    - `search_term_campaign_scope`
+   - `ngram_ai_preview_runs`
 7. Shared external auth for report-level integrations is now centered on:
    - `report_api_connections`
    - WBR still retains `wbr_amazon_ads_connections` as a legacy/compatibility
@@ -99,6 +101,13 @@ As of March 27, 2026:
       directly on both `wbr_sync_runs` and `search_term_daily_facts`
     - a DB trigger now backfills and enforces those fact metadata fields on
       insert/update so future rows cannot silently lose them
+13. `N-Gram 2.0` Step 3 preview payloads are now persisted separately from
+    aggregate token logs:
+    - each successful preview run writes its exact UI payload to
+      `ngram_ai_preview_runs`
+    - `ai_token_usage` remains the lightweight cost/telemetry source of truth
+    - this makes preview outputs auditable without depending on screenshots or
+      rerunning the same request
 
 ## Decision on the old migration
 
@@ -586,7 +595,46 @@ Notes:
 - Live WBR code prefers this shared connection store over the older
   `wbr_amazon_ads_connections` table when shared credentials are present.
 
-### 13. `wbr_report_snapshots`
+### 13. `ngram_ai_preview_runs`
+
+Purpose:
+
+- Persist the exact Step 3 `/ngram-2` AI preview response for auditability,
+  review, and later tuning.
+
+Columns:
+
+- `id uuid primary key default gen_random_uuid()`
+- `profile_id uuid not null references public.wbr_profiles(id) on delete restrict`
+- `requested_by_auth_user_id uuid`
+- `ad_product text not null`
+- `date_from date not null`
+- `date_to date not null`
+- `spend_threshold numeric(12,2) not null check (spend_threshold >= 0)`
+- `respect_legacy_exclusions boolean not null default true`
+- `model text`
+- `prompt_tokens integer not null default 0 check (prompt_tokens >= 0)`
+- `completion_tokens integer not null default 0 check (completion_tokens >= 0)`
+- `total_tokens integer not null default 0 check (total_tokens >= 0)`
+- `preview_payload jsonb not null`
+- `created_at timestamptz not null default now()`
+
+Constraints/indexes:
+
+- Index on `(profile_id, created_at desc)`
+- Index on `(requested_by_auth_user_id, created_at desc)`
+
+Notes:
+
+- This table is intentionally separate from `ai_token_usage`.
+- `ai_token_usage` remains the lightweight token/cost telemetry source.
+- `ngram_ai_preview_runs` stores the exact preview payload returned to the UI:
+  warnings, campaign cards, match metadata, term recommendations, and
+  synthesized mono/bi/tri scratchpads.
+- Current writes are best-effort from the frontend preview route, matching the
+  rest of the shared frontend logging pattern.
+
+### 14. `wbr_report_snapshots`
 
 Purpose:
 
@@ -620,7 +668,7 @@ Notes:
 - It supports downstream drafting, MCP summaries, and audit/debug workflows
   without re-deriving the digest every time.
 
-### 14. `wbr_asin_exclusions`
+### 15. `wbr_asin_exclusions`
 
 Purpose:
 
@@ -644,7 +692,7 @@ Constraints/indexes:
 - Partial unique index on `(profile_id, child_asin)` where `active = true`.
 - Index on `(profile_id, created_at desc)`.
 
-### 15. `wbr_campaign_exclusions`
+### 16. `wbr_campaign_exclusions`
 
 Purpose:
 
@@ -668,7 +716,7 @@ Constraints/indexes:
 - Partial unique index on `(profile_id, campaign_name)` where `active = true`.
 - Index on `(profile_id, created_at desc)`.
 
-### 16. `wbr_email_drafts`
+### 17. `wbr_email_drafts`
 
 Purpose:
 
