@@ -3,7 +3,8 @@ import { NextResponse } from "next/server";
 import { logAppError } from "@/lib/ai/errorLogger";
 import { persistNgramPreviewRun } from "@/lib/ai/ngramPreviewLogger";
 import { logUsage } from "@/lib/ai/usageLogger";
-import { createChatCompletion, parseJSONResponse, type ChatMessage } from "@/lib/composer/ai/openai";
+import { createChatCompletion, parseJSONResponse } from "@/lib/composer/ai/openai";
+import { buildCampaignPrompt } from "@/lib/ngram2/aiPrompt";
 import {
   aggregateSearchTerms,
   AI_PREFILL_PREVIEW_MAX_CAMPAIGNS,
@@ -89,81 +90,6 @@ type CampaignPreview = {
     matchType: string | null;
   }>;
 };
-
-const SYSTEM_PROMPT = `You evaluate Amazon Sponsored Products shopper queries for N-Gram negative recommendation prefill.
-
-Return strict JSON with this shape:
-{
-  "matched_product": {
-    "child_asin": "exact catalog child_asin",
-    "child_sku": "exact catalog child_sku or null",
-    "product_name": "exact catalog product_name"
-  } | null,
-  "match_confidence": "HIGH" | "MEDIUM" | "LOW",
-  "match_reason": "one short sentence",
-  "term_recommendations": [
-    {
-      "search_term": "string",
-      "recommendation": "KEEP" | "NEGATE" | "REVIEW",
-      "confidence": "HIGH" | "MEDIUM" | "LOW",
-      "reason_tag": "one of: core_use_case, wrong_category, wrong_product_form, wrong_size_variant, wrong_audience_theme, competitor_brand, cloth_primary_intent, accessory_only_intent, foreign_language, ambiguous_intent",
-      "rationale": "one short sentence"
-    }
-  ]
-}
-
-Rules:
-- First, identify the best matching product from the provided Windsor catalog rows.
-- If you cannot confidently identify one product, set matched_product to null and match_confidence to LOW.
-- When you select a product, copy the exact child_asin, child_sku, and product_name values from the catalog.
-- Judge each search term in the context of both the product and the campaign theme.
-- KEEP means the term is relevant and should not be prefilled as a negative.
-- NEGATE means the term is clearly irrelevant or wrong-fit for this campaign/product.
-- REVIEW means mixed, ambiguous, low-signal, or context-dependent.
-- Use REVIEW instead of forcing a weak NEGATE.
-- The reason_tag field must be exactly one of these values: core_use_case, wrong_category, wrong_product_form, wrong_size_variant, wrong_audience_theme, competitor_brand, cloth_primary_intent, accessory_only_intent, foreign_language, ambiguous_intent.
-- Return one term_recommendation for every input search term and preserve the exact search_term text.
-- If matched_product is null, return REVIEW / LOW for every term and use reason_tag = ambiguous_intent.
-- Do not include markdown or explanation outside the JSON object.`;
-
-const buildCampaignPrompt = (
-  campaign: AggregatedCampaign,
-  catalogProducts: AIPrefillCatalogProduct[],
-  terms: AggregatedSearchTerm[],
-): ChatMessage[] => [
-  { role: "system", content: SYSTEM_PROMPT },
-  {
-    role: "user",
-    content: JSON.stringify(
-      {
-        campaign_name: campaign.campaignName,
-        campaign_theme: parseCampaignTheme(campaign.campaignName),
-        campaign_identifier: parseCampaignProductIdentifier(campaign.campaignName),
-        catalog_products: catalogProducts.map((product) => ({
-          child_asin: product.childAsin,
-          child_sku: product.childSku,
-          product_name: product.productName,
-          category: product.category,
-          item_description: product.itemDescription,
-        })),
-        search_terms: terms.map((term) => ({
-          search_term: term.searchTerm,
-          impressions: term.impressions,
-          clicks: term.clicks,
-          spend: Number(term.spend.toFixed(2)),
-          orders: term.orders,
-          sales: Number(term.sales.toFixed(2)),
-          keyword: term.keyword,
-          keyword_type: term.keywordType,
-          targeting: term.targeting,
-          match_type: term.matchType,
-        })),
-      },
-      null,
-      2,
-    ),
-  },
-];
 
 const loadAllFactRows = async (
   profileId: string,
@@ -266,6 +192,7 @@ const loadSiblingCatalogCandidates = async (
 const resolveCatalogListings = async (
   profileId: string,
 ): Promise<{
+  profile: CatalogSourceProfile;
   listings: NgramListingRow[];
   warning: string | null;
 }> => {
@@ -278,6 +205,7 @@ const resolveCatalogListings = async (
   const resolved = resolveCatalogSource(profile, requestedListings, siblingCandidates);
 
   return {
+    profile,
     listings: resolved.listings,
     warning: resolved.warning,
   };
@@ -337,7 +265,7 @@ export async function POST(request: Request) {
 
     const warnings: string[] = [];
 
-    const [{ listings, warning: catalogWarning }, rows] = await Promise.all([
+    const [{ profile: catalogProfile, listings, warning: catalogWarning }, rows] = await Promise.all([
       resolveCatalogListings(profileId),
       loadAllFactRows(profileId, adProduct, dateFrom, dateTo),
     ]);
@@ -405,10 +333,13 @@ export async function POST(request: Request) {
         );
       }
 
-      const result = await createChatCompletion(buildCampaignPrompt(campaign, catalogProducts, terms), {
+      const result = await createChatCompletion(
+        buildCampaignPrompt(campaign, catalogProducts, terms, catalogProfile.marketplaceCode),
+        {
         model: NGRAM_MODEL_OVERRIDE || undefined,
         maxTokens: 2200,
-      });
+        },
+      );
 
       tokensIn += result.tokensIn;
       tokensOut += result.tokensOut;

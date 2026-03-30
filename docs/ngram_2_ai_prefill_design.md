@@ -653,7 +653,13 @@ Current implemented state:
    `OPENAI_MODEL_NGRAM`
 2. if that env var is absent, the frontend adapter still falls back to the
    shared default lane (`OPENAI_MODEL_PRIMARY`, then `gpt-5.1-nano`)
-3. preview temperature is pinned to `0` to reduce repeated-run inconsistency
+3. GPT-5-family request-shape handling is centralized in the shared OpenAI
+   adapter, so the Step 3 route does not need a tool-local temperature arg
+4. the Step 3 payload now passes explicit `marketplace_code` into the model
+   input so CA language handling does not rely on campaign-name inference
+5. the Step 3 prompt now explicitly tightens `REVIEW` vs `NEGATE`
+   calibration, especially for cloth-only / accessory-only intent and
+   marketplace-aware foreign-language cases
 
 That is an implementation convenience, not a product recommendation.
 

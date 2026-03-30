@@ -279,8 +279,20 @@ historical reference.
        only on transient browser state
      - Step 3 preview now has a dedicated model env var:
        `OPENAI_MODEL_NGRAM`
-     - preview temperature is now pinned to `0` to reduce repeated-run
-       inconsistency on the same campaign/window
+     - GPT-5-family request-shape handling is now centralized in the shared
+       OpenAI adapter; the Step 3 route no longer passes a redundant
+       temperature arg
+     - the Step 3 prompt now explicitly tightens `REVIEW` vs `NEGATE`
+       calibration:
+       - if the model can write a clear one-sentence wrong-fit rationale, that
+         should be `NEGATE`, not `REVIEW`
+       - cloth-only and other accessory-only terms are now called out as
+         explicit negative-intent cases rather than left to implied judgment
+       - CA French queries are now treated as a marketplace-aware relevance
+         case rather than a generic foreign-language negative
+     - Step 3 user payloads now pass explicit `marketplace_code` into the AI
+       call so the model does not need to infer CA-vs-US language policy from
+       campaign naming alone
      - AI-prefilled workbook sheets keep the legacy workbook layout but now
        append compact search-term review columns:
        - `AI Recommendation`

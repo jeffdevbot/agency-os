@@ -33,11 +33,17 @@ Read first, in this order:
    - AI preview now performs **AI-first product identification + term
      evaluation in one call** using Windsor child-ASIN catalog context
    - AI preview now has a dedicated model env var: `OPENAI_MODEL_NGRAM`
-   - preview temperature is pinned to `0` for more repeatable comparisons
+   - GPT-5-family request-shape handling is centralized in the shared OpenAI
+     adapter, so the Step 3 route no longer passes a redundant temperature arg
    - preview responses are validated strictly before gram synthesis
    - successful preview payloads now persist in `ngram_ai_preview_runs`
    - preview responses now return `preview_run_id`, and the AI-prefilled
      workbook path can reuse that exact saved run
+   - preview user payloads now pass explicit `marketplace_code` into the AI
+     call
+   - the Step 3 prompt now explicitly tightens `REVIEW` vs `NEGATE`
+     calibration, especially for cloth-only / accessory-only intent and
+     CA-French marketplace handling
    - `reason_tag` is now a strict enum and must be exactly one of:
      - `core_use_case`
      - `wrong_category`
