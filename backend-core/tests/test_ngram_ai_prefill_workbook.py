@@ -34,10 +34,20 @@ def test_build_workbook_writes_ai_prefills_to_scratchpad_columns():
     raw = pd.DataFrame(
         [
             {
-                "Search Term": "travel size screen cleaner",
+                "Search Term": "travel size",
                 "Impression": 100,
                 "Click": 10,
                 "Spend": 8.5,
+                "Order 14d": 0,
+                "Sales 14d": 0,
+                "NE/NP": "",
+                "Comments": "",
+            },
+            {
+                "Search Term": "travel size screen cleaner",
+                "Impression": 80,
+                "Click": 8,
+                "Spend": 6.2,
                 "Order 14d": 0,
                 "Sales 14d": 0,
                 "NE/NP": "",
@@ -62,17 +72,15 @@ def test_build_workbook_writes_ai_prefills_to_scratchpad_columns():
     workbook_path = build_workbook(
         campaign_items,
         "test-version",
-        ai_prefills={
-            "Screen Shine - Pro | SPM | MKW | Br.M | 2 - computer | Perf": {
-                "mono": ["travel", "travel", "size"],
-                "bi": ["travel size"],
-                "tri": ["travel size screen"],
-            }
-        },
         ai_term_reviews={
             "Screen Shine - Pro | SPM | MKW | Br.M | 2 - computer | Perf": {
+                "travel size": {
+                    "recommendation": "NEGATE",
+                    "confidence": "HIGH",
+                    "reason_tag": "wrong_size_variant",
+                },
                 "travel size screen cleaner": {
-                    "recommendation": "REVIEW",
+                    "recommendation": "NEGATE",
                     "confidence": "MEDIUM",
                     "reason_tag": "ambiguous_intent",
                 }
@@ -97,20 +105,23 @@ def test_build_workbook_writes_ai_prefills_to_scratchpad_columns():
         assert ws["AV6"].value == "AI Recommendation"
         assert ws["AW6"].value == "AI Confidence"
         assert ws["AX6"].value == "AI Reason"
-        assert ws["AV7"].value == "REVIEW"
-        assert ws["AW7"].value == "MEDIUM"
-        assert ws["AX7"].value == "ambiguous_intent"
+        assert ws["AV7"].value == "NEGATE"
+        assert ws["AW7"].value == "HIGH"
+        assert ws["AX7"].value == "wrong_size_variant"
+        assert ws["AV8"].value == "NEGATE"
+        assert ws["AW8"].value == "MEDIUM"
+        assert ws["AX8"].value == "ambiguous_intent"
+        assert ws["AT8"].value == "NE"
 
-        assert ws["AY6"].value == "Monogram"
-        assert ws["AZ6"].value == "Bigram"
-        assert ws["BA6"].value == "Trigram"
-
-        assert ws["AY7"].value == "travel"
-        assert ws["AY8"].value == "size"
-        assert ws["AZ7"].value == "travel size"
-        assert ws["BA7"].value == "travel size screen"
+        assert ws["AZ6"].value == "Monogram"
+        assert ws["BA6"].value == "Bigram"
+        assert ws["BB6"].value == "Trigram"
+        assert ws["AY6"].value in (None, "")
+        assert ws["BA7"].value == "travel size"
 
         assert isinstance(ws["K7"].value, str)
-        assert "MATCH(A7,AY:AY,0)" in ws["K7"].value
+        assert "MATCH(A7,AZ:AZ,0)" in ws["K7"].value
+        assert isinstance(ws["X7"].value, str)
+        assert "MATCH(N7,BA:BA,0)" in ws["X7"].value
     finally:
         os.unlink(workbook_path)

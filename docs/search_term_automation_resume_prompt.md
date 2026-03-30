@@ -52,6 +52,10 @@ Read first, in this order:
    - AI-prefilled workbook sheets now keep the legacy workbook layout while
      appending compact `AI Recommendation`, `AI Confidence`, and `AI Reason`
      columns to the search-term table
+   - AI-prefilled workbook generation now writes negatives more like a human:
+     - `NEGATE` terms with 1/2/3 cleaned words go directly into scratchpad
+       mono/bi/tri columns
+     - longer `NEGATE` terms prefill the search-term row as exact `NE`
 
 ## Important validation findings
 

@@ -10,11 +10,11 @@ from typing import Dict, List
 import pandas as pd
 from pandas.api.types import is_categorical_dtype, is_object_dtype, is_string_dtype
 
-from .analytics import color_for_category
+from .analytics import clean_query_str, color_for_category
 
 START_ROW = 3
 SCRATCHPAD_HEADERS = ["Monogram", "Bigram", "Trigram"]
-SCRATCHPAD_BASE_COL = 50
+SCRATCHPAD_BASE_COL = 51
 AI_REVIEW_HEADERS = ["AI Recommendation", "AI Confidence", "AI Reason"]
 
 
@@ -47,9 +47,9 @@ def _build_ne_summary_formula(sheet_infos: list[tuple[str, str]]) -> str:
         # Bounded ranges to avoid Excel repair issues with full-column spills
         ne_term_range = f"{sheet_ref}!AN$6:AN$5000"
         ne_flag_range = f"{sheet_ref}!AT$6:AT$5000"
-        mono_range = f"{sheet_ref}!AY$6:AY$5000"
-        bi_range = f"{sheet_ref}!AZ$6:AZ$5000"
-        tri_range = f"{sheet_ref}!BA$6:BA$5000"
+        mono_range = f"{sheet_ref}!AZ$6:AZ$5000"
+        bi_range = f"{sheet_ref}!BA$6:BA$5000"
+        tri_range = f"{sheet_ref}!BB$6:BB$5000"
         parts.append(
             f"FILTER(CHOOSE({{1,2,3,4,5}},"
             f"{camp_literal},{ne_term_range},\"\",\"\",\"\"),"
@@ -98,6 +98,30 @@ def _normalize_prefill_values(values: list[str] | None) -> list[str]:
 
 def _normalize_search_term_key(value: str | None) -> str:
     return str(value or "").strip().casefold()
+
+
+def _derive_review_prefills(
+    campaign_reviews: Dict[str, Dict[str, str | None]] | None,
+) -> tuple[dict[str, list[str]], set[str]]:
+    direct_prefills = {"mono": [], "bi": [], "tri": []}
+    exact_negative_keys: set[str] = set()
+
+    for search_term_key, review in (campaign_reviews or {}).items():
+        if str(review.get("recommendation") or "").strip().upper() != "NEGATE":
+            continue
+
+        cleaned_term = clean_query_str(search_term_key)
+        token_count = len([token for token in cleaned_term.split(" ") if token])
+        if token_count == 1:
+            direct_prefills["mono"].append(cleaned_term)
+        elif token_count == 2:
+            direct_prefills["bi"].append(cleaned_term)
+        elif token_count == 3:
+            direct_prefills["tri"].append(cleaned_term)
+        elif token_count > 3:
+            exact_negative_keys.add(search_term_key)
+
+    return direct_prefills, exact_negative_keys
 
 
 def build_workbook(
@@ -241,6 +265,10 @@ def build_workbook(
             trigram_start_col = 26
             raw_with_ai = item["raw"].copy()
             campaign_review_lookup = ai_term_reviews.get(item["campaign_name"], {}) if ai_term_reviews else {}
+            review_prefills, exact_negative_keys = _derive_review_prefills(campaign_review_lookup)
+            if exact_negative_keys:
+                search_term_keys = raw_with_ai["Search Term"].map(lambda value: _normalize_search_term_key(str(value)))
+                raw_with_ai["NE/NP"] = search_term_keys.map(lambda key: "NE" if key in exact_negative_keys else "")
             if campaign_review_lookup:
                 search_terms = raw_with_ai["Search Term"].map(lambda value: _normalize_search_term_key(str(value)))
                 raw_with_ai["AI Recommendation"] = search_terms.map(
@@ -263,7 +291,10 @@ def build_workbook(
 
             campaign_prefills = ai_prefills.get(item["campaign_name"], {}) if ai_prefills else {}
             for offset, key in enumerate(("mono", "bi", "tri")):
-                for row_offset, gram in enumerate(_normalize_prefill_values(campaign_prefills.get(key))):
+                merged_prefills = _normalize_prefill_values(
+                    [*(campaign_prefills.get(key) or []), *review_prefills.get(key, [])]
+                )
+                for row_offset, gram in enumerate(merged_prefills):
                     ws.write_string(START_ROW + 3 + row_offset, SCRATCHPAD_BASE_COL + offset, gram)
 
             first_data_excel_row = START_ROW + 4
@@ -272,21 +303,21 @@ def build_workbook(
                 ws.write_formula(
                     (START_ROW + 3) + r_i,
                     mono_start_col + 10,
-                    f'=IF(ISNUMBER(MATCH(A{excel_row},AY:AY,0)),"NP","")',
+                    f'=IF(ISNUMBER(MATCH(A{excel_row},AZ:AZ,0)),"NP","")',
                 )
             for r_i in range(len(item["bi"])):
                 excel_row = first_data_excel_row + r_i
                 ws.write_formula(
                     (START_ROW + 3) + r_i,
                     bigram_start_col + 10,
-                    f'=IF(ISNUMBER(MATCH(N{excel_row},AZ:AZ,0)),"NP","")',
+                    f'=IF(ISNUMBER(MATCH(N{excel_row},BA:BA,0)),"NP","")',
                 )
             for r_i in range(len(item["tri"])):
                 excel_row = first_data_excel_row + r_i
                 ws.write_formula(
                     (START_ROW + 3) + r_i,
                     trigram_start_col + 10,
-                    f'=IF(ISNUMBER(MATCH(AA{excel_row},BA:BA,0)),"NP","")',
+                    f'=IF(ISNUMBER(MATCH(AA{excel_row},BB:BB,0)),"NP","")',
                 )
 
             ws.set_zoom(110)

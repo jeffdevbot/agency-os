@@ -427,6 +427,13 @@ Current implemented follow-through:
 3. if the selected profile / window / product / exclusion settings do not
    match the saved run, workbook generation should fail loudly rather than
    silently drifting to a different context
+4. workbook writing now follows the existing human review pattern more
+   closely:
+   - `NEGATE` terms with 1/2/3 cleaned words are written into the scratchpad
+     `Monogram` / `Bigram` / `Trigram` columns so the existing formula-driven
+     gram tables update naturally
+   - longer `NEGATE` terms are prefilled on the search-term row itself as
+     exact `NE`
 
 ## Manual path remains first-class
 
@@ -729,7 +736,9 @@ Current implemented workbook-writing choice:
    - `AI Recommendation`
    - `AI Confidence`
    - `AI Reason`
-3. keep fuller rationale and campaign-level preview detail in persisted
+3. leave a spacer column between `AI Reason` and the scratchpad area to keep
+   the sheet readable
+4. keep fuller rationale and campaign-level preview detail in persisted
    `ngram_ai_preview_runs` payloads rather than bloating the workbook
 
 ## Suggested phased build order

@@ -282,6 +282,12 @@ historical reference.
        - `AI Recommendation`
        - `AI Confidence`
        - `AI Reason`
+     - AI-prefilled workbook output now behaves more like a human-filled
+       sheet:
+       - `NEGATE` terms with 1/2/3 cleaned words are written directly into
+         the scratchpad `Monogram` / `Bigram` / `Trigram` columns
+       - longer `NEGATE` terms are prefilled as exact `NE` on the search-term
+         row
      - workbook summary metadata now records the linked preview run id, model,
        and spend threshold for traceability
      - the preview route still lives under Next.js at
