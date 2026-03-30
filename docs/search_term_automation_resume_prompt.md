@@ -1,6 +1,6 @@
 # Search Term Automation Resume Prompt
 
-_Last updated: 2026-03-28 (ET)_
+_Last updated: 2026-03-30 (ET)_
 
 Use this prompt when returning specifically to the STR / N-Gram 2.0 workstream.
 
@@ -28,6 +28,13 @@ Read first, in this order:
    - generate native workbook from `/ngram-2`
    - upload that workbook into Step 2 of the existing `/ngram`
    - legacy Step 2 accepts it and returns the expected workbook output
+6. `/ngram-2` AI preview is now live behind the new Step 3 path:
+   - native SP preflight summary is already in place
+   - AI preview now performs **AI-first product identification + term
+     evaluation in one call** using Windsor child-ASIN catalog context
+   - preview responses are validated strictly before gram synthesis
+   - intentionally skipped brand/mix/defensive campaigns no longer consume the
+     top-6 preview budget
 
 ## Important validation findings
 
@@ -100,18 +107,23 @@ Read first, in this order:
 
 ## Recommended next-session target
 
-Focus on productizing the trusted `SP` path in `/ngram-2` rather than trying
-to “solve” legacy `SB` immediately.
+Focus on validating and tightening the trusted `SP` AI-preview path in
+`/ngram-2` rather than trying to “solve” legacy `SB` immediately.
 
 Recommended order:
 
-1. improve `/ngram-2` operator clarity for the native `SP` flow:
-   - stronger validation/summary step before workbook generation
-   - clearer messaging that this is the native Step 1 replacement
-   - explicit `SB beta / legacy caveat` messaging where relevant
-2. keep validating `SB` opportunistically on additional modern accounts, but
+1. start a **fresh Codex session** after:
+   - `codex mcp logout supabase`
+   - `codex mcp login supabase`
+   - `codex mcp list`
+2. use the fresh session to inspect live `/ngram-2` AI preview results on real
+   profiles and determine what the next real blocker is:
+   - prompt/model quality
+   - skip taxonomy
+   - workbook-prefill tuning
+3. keep validating `SB` opportunistically on additional modern accounts, but
    do not block `SP` product progress on full legacy SB parity
-3. avoid touching the legacy `/ngram` route unless explicitly asked
+4. avoid touching the legacy `/ngram` route unless explicitly asked
 
 ## Restart prompt for the next session
 
@@ -134,9 +146,14 @@ Current reality:
   legacy Sponsored Brands gap on at least one older Whoosh US campaign family
 - /ngram-2 already proved the first real native Step 1 replacement loop for SP
   by generating a workbook that Step 2 of legacy /ngram accepted
-- the next priority is productizing the trusted SP path in /ngram-2, not
+- /ngram-2 Step 3 AI preview now uses AI-first product identification from the
+  Windsor child-ASIN catalog in the same call as term evaluation
+- AI preview responses are now validated strictly before gram synthesis
+- skipped brand/mix/defensive campaigns no longer burn the top-6 preview slots
+- the next priority is validating the live SP AI-preview path in /ngram-2, not
   blocking on full legacy SB parity
 
-Start by reviewing the current /ngram-2 state and propose the next smallest
-useful SP-focused implementation slice.
+Start by checking that Supabase MCP auth works in this fresh session, then
+review the current live /ngram-2 AI preview behavior and identify the next
+smallest useful SP-focused implementation slice based on real outputs.
 ```

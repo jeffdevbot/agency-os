@@ -1,6 +1,6 @@
 # Current Handoffs
 
-_Last updated: 2026-03-28 (ET)_
+_Last updated: 2026-03-30 (ET)_
 
 Use this file to decide which restart/handoff docs are current versus merely
 historical reference.
@@ -77,13 +77,21 @@ historical reference.
    - if an existing Codex session still reports `Auth required` when using the
      Supabase MCP, treat that as stale session state and start a fresh Codex
      session before concluding the MCP is broken
-2. Monthly P&L active debugging focus as of 2026-03-24 (ET):
+2. Supabase MCP re-auth reminder as of 2026-03-30 (ET):
+   - the current thread ended in the same stale-session pattern again
+   - the intended recovery remains:
+     - `codex mcp logout supabase`
+     - `codex mcp login supabase`
+     - `codex mcp list`
+   - after that, start a **fresh Codex session** rather than trying to reuse
+     the old one
+3. Monthly P&L active debugging focus as of 2026-03-24 (ET):
    - next session should start with the remaining **US P&L unmapped
      transactions**
    - the current Monthly P&L handoff/prompt have been updated to reflect the
      recent Lifestyle CA inbound-carrier rule gap and the exact Supabase MCP
      caveat above
-3. WBR Amazon Ads Lifestyle triage update as of 2026-03-25 (ET):
+4. WBR Amazon Ads Lifestyle triage update as of 2026-03-25 (ET):
    - Lifestyle US remains the confirmed wrong-profile case that was fixed by
      re-selecting the correct advertiser profile
    - Lifestyle CA was rechecked against a March 16 Amazon campaign export, and
@@ -91,7 +99,7 @@ historical reference.
      sales (`267.58 CAD`)
    - that dedicated triage thread is now historical/reference rather than the
      primary active WBR restart path
-4. Supabase Python client warning follow-up as of 2026-03-26 (ET):
+5. Supabase Python client warning follow-up as of 2026-03-26 (ET):
    - the current backend warning is from the older `supabase==2.6.0` Python
      dependency chain still pulling `gotrue`
    - the Claude MCP auth work this week was OAuth/JWKS compatibility, not a
@@ -99,7 +107,7 @@ historical reference.
    - the tracked upgrade follow-up should not require mass re-auth of Amazon
      Ads or Windsor accounts because those credentials are stored in database
      rows
-5. Search Term Automation current state as of 2026-03-27 (ET):
+6. Search Term Automation current state as of 2026-03-30 (ET):
    - Stage 1 `Search Term Automation` controls are live on
      `/reports/client-data-access/[clientSlug]`
    - Stage 2 `Search Term Data` is live on
@@ -237,7 +245,29 @@ historical reference.
      - multiple third-party Amazon Ads integrators document that Amazon v3
        Sponsored Brands reporting does not fully support legacy /
        single-ad-group SB campaigns
-     - current best interpretation is that this specific campaign family may
+   - current best interpretation is that this specific campaign family may
+   - `/ngram-2` current state:
+     - native SP preflight summary is live
+     - page was simplified to a single-column Step 1 / 2 / 3 flow
+     - AI preview now uses **AI-first product matching** from the Windsor child
+       ASIN catalog inside the same call as term evaluation rather than a
+       deterministic pre-match gate
+     - AI preview output is now validated strictly before synthesis:
+       malformed JSON, bad ASINs, missing term rows, duplicate term rows, or
+       contradictory confidence/product states hard-fail instead of silently
+       degrading
+     - the preview-budget bug was fixed:
+       intentionally skipped brand/mix/defensive campaigns no longer consume
+       the top-6 preview slots; the route now walks past them to the next
+       runnable campaigns
+     - both recent `/ngram-2` changes are frontend-service-only because the
+       preview route lives under Next.js at
+       `frontend-web/src/app/api/ngram-2/ai-prefill-preview/route.ts`
+     - immediate next-session goal:
+       after fresh Supabase MCP auth and a fresh Codex session, inspect live
+       `/ngram-2` AI preview behavior on real profiles and decide whether the
+       next issue is prompt/model quality, skip taxonomy, or workbook-prefill
+       tuning
        be omitted from the native `sbSearchTerm` API while still appearing in
        Amazon console/export surfaces
    - screenshots/export inspection confirmed:

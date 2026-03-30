@@ -1,10 +1,17 @@
 # Changelog — Ecomlabs Tools
 
-_Last updated: 2026-03-27 (ET)_
+_Last updated: 2026-03-30 (ET)_
 
 > Development history for the project. For setup instructions and project overview, see [AGENTS.md](AGENTS.md).
 
 ---
+
+## 2026-03-30 (ET)
+- **`/ngram-2` AI preview now uses AI-first product identification instead of a deterministic match gate:** The Step 3 preview path in the Next.js frontend now sends the campaign name, Windsor child-ASIN catalog context, and above-threshold search terms in one AI call, and expects one structured response that contains both the matched product and the term-level recommendations.
+- **N-Gram AI preview now fails loudly on malformed model output instead of silently degrading into bad synthesis:** Added strict validation of the AI response contract before gram synthesis so malformed JSON, catalog mismatches, missing term rows, duplicate term rows, or contradictory confidence/product states stop the preview rather than leaking bad data into workbook prefills.
+- **The `/ngram-2` AI preview budget bug was fixed:** Intentionally skipped brand / mix / defensive campaigns no longer consume the top-6 preview slots; the route now walks past those lanes and uses the highest-spend runnable campaigns for the actual AI preview surface.
+- **Today’s `/ngram-2` AI-preview work was frontend-service-only by design:** The live preview endpoint is implemented under `frontend-web/src/app/api/ngram-2/ai-prefill-preview/route.ts`, so only the `frontend-web` Render service redeployed for these changes.
+- **Current next-session operational need:** Supabase MCP auth hit the known stale-session pattern again, so the next Codex thread should begin with `codex mcp logout supabase`, `codex mcp login supabase`, `codex mcp list`, and then a fresh session before deeper live `/ngram-2` validation.
 
 ## 2026-03-27 (ET)
 - **Sponsored Brands now has a strong live counterexample showing the Whoosh mismatch is likely legacy-campaign-specific, not a general ingestion failure:** Ahimsa US `SB` for `2026-03-15` through `2026-03-21` was validated against a real Amazon `Sponsored Brands > Search term > Daily` export, and the DB matched exactly on rows (`567`), impressions (`69,544`), clicks (`809`), spend (`$805.81`), orders (`64`), and sales (`$3,048.50`), including a branded defensive `SB | PC-Store` campaign. This materially strengthens the theory that the repeated missing Whoosh US campaign is legacy Sponsored Brands inventory omitted by Amazon’s v3 reporting surface rather than a broad SB parser/storage bug.

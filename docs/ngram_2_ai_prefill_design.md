@@ -1,6 +1,6 @@
 # N-Gram 2.0 AI Prefill Design
 
-_Last updated: 2026-03-28 (ET)_
+_Last updated: 2026-03-30 (ET)_
 
 ## Purpose
 
@@ -43,7 +43,7 @@ The proposed AI path is:
 
 1. user selects native `SP` data in `N-Gram 2.0`
 2. user sets a spend threshold
-3. system maps campaigns to product context and targeting theme
+3. system provides campaign context plus Windsor catalog context to AI
 4. AI evaluates qualifying search terms
 5. system converts term-level judgments into **conservative gram prefills**
 6. workbook is generated in the same practical shape as legacy N-Gram
@@ -121,7 +121,8 @@ setting hidden elsewhere in the product.
 
 ### Primary idea
 
-Use the campaign name to infer product context and campaign theme.
+Use the campaign name plus Windsor child-ASIN catalog context to infer product
+context and campaign theme.
 
 The first segment before the first `|` is the product-family candidate.
 
@@ -133,14 +134,18 @@ Examples:
 
 ### Matching strategy
 
-Do **not** rely on fuzzy title match alone.
+Current implemented direction:
 
-Use a layered strategy:
-
-1. explicit alias map / known product-family map
-2. exact normalized title-family match
-3. high-confidence fuzzy fallback
-4. otherwise mark as `ambiguous`
+1. skip clearly non-product-specific brand / mix / defensive lanes up front
+2. for runnable campaigns, send the campaign name and compact Windsor catalog
+   rows to the model in the **same call** as search-term evaluation
+3. ask the model to return:
+   - `matched_product`
+   - `match_confidence`
+   - `match_reason`
+   - `term_recommendations[]`
+4. if product confidence is low, mark the campaign as review/ambiguous rather
+   than forcing prefills
 
 If mapping is ambiguous or missing:
 
@@ -164,6 +169,23 @@ Product families in the same brand can be close enough that fuzzy-only mapping
 will sometimes be wrong.
 
 Wrong product context would poison the entire AI evaluation for the campaign.
+
+### Guardrail now in code
+
+The model output for product match + term recommendations should be treated as
+an explicit contract, not a best-effort suggestion.
+
+Current implementation validates that:
+
+1. the AI response is valid JSON
+2. the matched product references a real catalog row
+3. high/medium confidence cannot be returned without a product
+4. low confidence must not also claim a product
+5. every input search term appears exactly once in the output
+6. missing terms, duplicate terms, or bad enums hard-fail the preview
+
+This was added specifically to prevent malformed model output from silently
+polluting gram synthesis.
 
 ## Step 2: Campaign-theme parsing
 
