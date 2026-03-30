@@ -38,6 +38,15 @@ const getDefaultModel = (): string => {
   return model;
 };
 
+const usesMaxCompletionTokens = (model: string): boolean =>
+  model.trim().toLowerCase().startsWith("gpt-5");
+
+const supportsTemperature = (model: string): boolean =>
+  !model.trim().toLowerCase().startsWith("gpt-5");
+
+const getReasoningEffort = (model: string): string | null =>
+  model.trim().toLowerCase().startsWith("gpt-5") ? "low" : null;
+
 const getApiKey = (): string => {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
@@ -58,9 +67,20 @@ const callOpenAIHttp = async (
   const requestBody: Record<string, unknown> = {
     model,
     messages,
-    temperature,
-    max_tokens: maxTokens,
   };
+
+  if (supportsTemperature(model)) {
+    requestBody.temperature = temperature;
+  }
+
+  const reasoningEffort = getReasoningEffort(model);
+  if (reasoningEffort) {
+    requestBody.reasoning_effort = reasoningEffort;
+  }
+
+  if (typeof maxTokens === "number") {
+    requestBody[usesMaxCompletionTokens(model) ? "max_completion_tokens" : "max_tokens"] = maxTokens;
+  }
 
   if (tools && tools.length > 0) {
     requestBody.tools = tools;

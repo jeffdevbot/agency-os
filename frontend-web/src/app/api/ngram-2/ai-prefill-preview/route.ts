@@ -23,6 +23,7 @@ import {
   type NgramListingRow,
   type SearchTermFactRow,
 } from "@/lib/ngram2/aiPrefill";
+import { resolveCatalogSource, type CatalogSourceCandidate, type CatalogSourceProfile } from "@/lib/ngram2/catalogSource";
 import { createSupabaseRouteClient, createSupabaseServiceClient } from "@/lib/supabase/serverClient";
 
 const FACT_SELECT = [
@@ -51,6 +52,7 @@ const LISTING_SELECT = [
 
 const MAX_BATCH_SIZE = 1000;
 const SUPPORTED_AD_PRODUCT = "SPONSORED_PRODUCTS";
+const PROFILE_SELECT = ["id", "client_id", "display_name", "marketplace_code", "status"].join(",");
 
 type CampaignPreview = {
   campaignName: string;
@@ -207,6 +209,78 @@ const loadListings = async (profileId: string): Promise<NgramListingRow[]> => {
   return rawRows.filter((row): row is NgramListingRow => Boolean(row) && typeof row === "object");
 };
 
+const loadCatalogProfile = async (profileId: string): Promise<CatalogSourceProfile> => {
+  const supabase = createSupabaseServiceClient();
+  const { data, error } = await supabase
+    .from("wbr_profiles")
+    .select(PROFILE_SELECT)
+    .eq("id", profileId)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  if (!data || typeof data !== "object") {
+    throw new Error(`Profile ${profileId} was not found.`);
+  }
+
+  return {
+    profileId: String((data as Record<string, unknown>).id || "").trim(),
+    clientId: String((data as Record<string, unknown>).client_id || "").trim() || null,
+    displayName: String((data as Record<string, unknown>).display_name || "").trim() || null,
+    marketplaceCode: String((data as Record<string, unknown>).marketplace_code || "").trim() || null,
+  };
+};
+
+const loadSiblingCatalogCandidates = async (
+  profile: CatalogSourceProfile,
+): Promise<CatalogSourceCandidate[]> => {
+  if (!profile.clientId) return [];
+
+  const supabase = createSupabaseServiceClient();
+  const { data, error } = await supabase
+    .from("wbr_profiles")
+    .select(PROFILE_SELECT)
+    .eq("client_id", profile.clientId)
+    .neq("id", profile.profileId);
+
+  if (error) throw new Error(error.message);
+
+  const rawRows: unknown[] = Array.isArray(data) ? [...data] : [];
+  const siblingProfiles = rawRows.filter(
+    (row): row is Record<string, unknown> => Boolean(row) && typeof row === "object",
+  );
+
+  return Promise.all(
+    siblingProfiles.map(async (row) => ({
+      profileId: String(row.id || "").trim(),
+      clientId: String(row.client_id || "").trim() || null,
+      displayName: String(row.display_name || "").trim() || null,
+      marketplaceCode: String(row.marketplace_code || "").trim() || null,
+      listings: await loadListings(String(row.id || "").trim()),
+    })),
+  );
+};
+
+const resolveCatalogListings = async (
+  profileId: string,
+): Promise<{
+  listings: NgramListingRow[];
+  warning: string | null;
+}> => {
+  const [profile, requestedListings] = await Promise.all([
+    loadCatalogProfile(profileId),
+    loadListings(profileId),
+  ]);
+
+  const siblingCandidates = requestedListings.length > 0 ? [] : await loadSiblingCatalogCandidates(profile);
+  const resolved = resolveCatalogSource(profile, requestedListings, siblingCandidates);
+
+  return {
+    listings: resolved.listings,
+    warning: resolved.warning,
+  };
+};
+
 const coerceRequest = async (request: Request): Promise<{
   profileId: string;
   adProduct: string;
@@ -259,13 +333,22 @@ export async function POST(request: Request) {
     const { profileId, adProduct, dateFrom, dateTo, spendThreshold, respectLegacyExclusions } =
       await coerceRequest(request);
 
-    const [rows, listings] = await Promise.all([
+    const warnings: string[] = [];
+
+    const [{ listings, warning: catalogWarning }, rows] = await Promise.all([
+      resolveCatalogListings(profileId),
       loadAllFactRows(profileId, adProduct, dateFrom, dateTo),
-      loadListings(profileId),
     ]);
+
+    if (catalogWarning) {
+      warnings.push(catalogWarning);
+    }
+
     const catalogProducts = prepareAIPrefillCatalogProducts(listings);
     if (catalogProducts.length === 0) {
-      throw new Error("No active Windsor child ASIN catalog rows were found for this profile.");
+      throw new Error(
+        "No active Windsor child ASIN catalog rows were found for this profile. Import Windsor listings for this marketplace before running AI preview.",
+      );
     }
 
     const usableRows = rows.filter((row) => {
@@ -291,7 +374,6 @@ export async function POST(request: Request) {
       candidateCampaigns.length - runnableCampaigns.length;
     const previewCampaigns = runnableCampaigns.slice(0, AI_PREFILL_PREVIEW_MAX_CAMPAIGNS);
 
-    const warnings: string[] = [];
     if (runnableCampaigns.length > AI_PREFILL_PREVIEW_MAX_CAMPAIGNS) {
       warnings.push(
         `Preview is limited to the top ${AI_PREFILL_PREVIEW_MAX_CAMPAIGNS} runnable campaigns by eligible spend.`,
