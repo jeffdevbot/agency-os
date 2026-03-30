@@ -526,6 +526,12 @@ async def collect_negatives(
 
     per_campaign: dict[str, dict[str, list[str]]] = {}
 
+    def _append_unique(values: list[str], candidate: object) -> None:
+        text = str(candidate or "").strip()
+        if not text or text in values:
+            return
+        values.append(text)
+
     def _last_non_empty(sheet, col: str, start_row: int) -> int:
         max_row = sheet.max_row
         for i in range(max_row, start_row - 1, -1):
@@ -546,28 +552,42 @@ async def collect_negatives(
         last_mono_row = _last_non_empty(sheet, "K", 7)  # Monogram NE/NP column
         last_bi_row = _last_non_empty(sheet, "X", 7)   # Bigram NE/NP column
         last_tri_row = _last_non_empty(sheet, "AK", 7)  # Trigram NE/NP column
+        last_scratch_mono_row = _last_non_empty(sheet, "AZ", 7)
+        last_scratch_bi_row = _last_non_empty(sheet, "BA", 7)
+        last_scratch_tri_row = _last_non_empty(sheet, "BB", 7)
         # NE keywords from search term table (AN with AT = "NE")
         for i in range(2, last_ne_row + 1):
             flag = sheet[f"AT{i}"].value
             term = sheet[f"AN{i}"].value
             if (flag or "").strip().upper() == "NE" and term not in (None, ""):
-                bucket["ne"].append(str(term))
-        # Monogram/Bigram/Trigram NE/NP column flags
+                _append_unique(bucket["ne"], term)
+        # Monogram/Bigram/Trigram NE/NP column flags.
+        # These can remain blank if the workbook is uploaded before Excel
+        # recalculates formulas, so scratchpad columns are also read below.
         for i in range(7, last_mono_row + 1):
             flag = sheet[f"K{i}"].value
             gram = sheet[f"A{i}"].value
             if (flag or "").strip().upper() in {"NE", "NP"} and gram not in (None, ""):
-                bucket["mono"].append(str(gram))
+                _append_unique(bucket["mono"], gram)
         for i in range(7, last_bi_row + 1):
             flag = sheet[f"X{i}"].value
             gram = sheet[f"N{i}"].value
             if (flag or "").strip().upper() in {"NE", "NP"} and gram not in (None, ""):
-                bucket["bi"].append(str(gram))
+                _append_unique(bucket["bi"], gram)
         for i in range(7, last_tri_row + 1):
             flag = sheet[f"AK{i}"].value
             gram = sheet[f"AA{i}"].value
             if (flag or "").strip().upper() in {"NE", "NP"} and gram not in (None, ""):
-                bucket["tri"].append(str(gram))
+                _append_unique(bucket["tri"], gram)
+        # Scratchpad source columns are the durable source of truth for AI-
+        # prefilled or analyst-entered grams and do not depend on formula
+        # recalculation.
+        for i in range(7, last_scratch_mono_row + 1):
+            _append_unique(bucket["mono"], sheet[f"AZ{i}"].value)
+        for i in range(7, last_scratch_bi_row + 1):
+            _append_unique(bucket["bi"], sheet[f"BA{i}"].value)
+        for i in range(7, last_scratch_tri_row + 1):
+            _append_unique(bucket["tri"], sheet[f"BB{i}"].value)
 
     rows_out = [["Campaign", "NE Keywords", "Monogram", "Bigram", "Trigram"]]
     for campaign_name, data in per_campaign.items():
@@ -618,6 +638,41 @@ async def collect_negatives(
             "app_version": settings.app_version,
         }
     )
+
+    try:
+        override_capture = persist_ai_override_capture(
+            _get_supabase(),
+            wb,
+            collected_by_auth_user_id=_to_non_empty_text(user.get("sub")) or None,
+            source_filename=file.filename,
+        )
+        if override_capture:
+            usage_logger.log(
+                {
+                    "user_id": user.get("sub"),
+                    "user_email": user.get("email"),
+                    "tool": "ngram",
+                    "action": "collect_ai_override_capture",
+                    "file_name": file.filename,
+                    "preview_run_id": override_capture.get("preview_run_id"),
+                    "override_capture_id": override_capture.get("id"),
+                    "status": "success",
+                    "app_version": settings.app_version,
+                }
+            )
+    except Exception as exc:
+        usage_logger.log(
+            {
+                "user_id": user.get("sub"),
+                "user_email": user.get("email"),
+                "tool": "ngram",
+                "action": "collect_ai_override_capture",
+                "file_name": file.filename,
+                "status": "error",
+                "error": str(exc),
+                "app_version": settings.app_version,
+            }
+        )
 
     return FileResponse(
         out_path,
