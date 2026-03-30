@@ -1,0 +1,165 @@
+import { describe, expect, it, vi, afterEach } from "vitest";
+
+vi.mock("server-only", () => ({}));
+
+import { evaluateCampaignWithValidationRetry } from "./aiCampaignEvaluator";
+import type { AIPrefillCatalogProduct, AggregatedCampaign, AggregatedSearchTerm } from "./aiPrefill";
+import * as openaiModule from "@/lib/composer/ai/openai";
+
+describe("evaluateCampaignWithValidationRetry", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("retries when the model returns invalid confidence fields", async () => {
+    const campaign: AggregatedCampaign = {
+      campaignName: "Screen Shine - Duo | SPA | Cls. | Rsrch",
+      totalSpend: 10,
+      termCount: 1,
+      terms: [],
+    };
+    const catalogProducts: AIPrefillCatalogProduct[] = [
+      {
+        childAsin: "A1",
+        childSku: "DUO-1",
+        productName: "WHOOSH! Screen Shine Duo",
+        category: "electronics cleaner",
+        itemDescription: "spray plus cloth",
+      },
+    ];
+    const terms: AggregatedSearchTerm[] = [
+      {
+        campaignName: campaign.campaignName,
+        searchTerm: "laptop cloth",
+        impressions: 100,
+        clicks: 10,
+        spend: 5,
+        orders: 0,
+        sales: 0,
+        keyword: "laptop cloth",
+        keywordType: "BROAD",
+        targeting: null,
+        matchType: "broad",
+      },
+    ];
+
+    vi.spyOn(openaiModule, "createChatCompletion")
+      .mockResolvedValueOnce({
+        content: JSON.stringify({
+          matched_product: {
+            child_asin: "A1",
+            child_sku: "DUO-1",
+            product_name: "WHOOSH! Screen Shine Duo",
+          },
+          match_confidence: "",
+          match_reason: "bad draft",
+          term_recommendations: [
+            {
+              search_term: "laptop cloth",
+              recommendation: "NEGATE",
+              confidence: "",
+              reason_tag: "cloth_primary_intent",
+              rationale: "standalone cloth query",
+            },
+          ],
+        }),
+        tokensIn: 100,
+        tokensOut: 20,
+        tokensTotal: 120,
+        model: "gpt-5.4-2026-03-05",
+        durationMs: 1,
+      })
+      .mockResolvedValueOnce({
+        content: JSON.stringify({
+          matched_product: {
+            child_asin: "A1",
+            child_sku: "DUO-1",
+            product_name: "WHOOSH! Screen Shine Duo",
+          },
+          match_confidence: "HIGH",
+          match_reason: "valid retry",
+          term_recommendations: [
+            {
+              search_term: "laptop cloth",
+              recommendation: "NEGATE",
+              confidence: "HIGH",
+              reason_tag: "cloth_primary_intent",
+              rationale: "standalone cloth query",
+            },
+          ],
+        }),
+        tokensIn: 120,
+        tokensOut: 30,
+        tokensTotal: 150,
+        model: "gpt-5.4-2026-03-05",
+        durationMs: 1,
+      });
+
+    const result = await evaluateCampaignWithValidationRetry({
+      campaign,
+      catalogProducts,
+      terms,
+      marketplaceCode: "CA",
+      model: "gpt-5.4-2026-03-05",
+      maxTokens: 2200,
+    });
+
+    expect(result.attempts).toBe(2);
+    expect(result.tokensIn).toBe(220);
+    expect(result.tokensOut).toBe(50);
+    expect(result.tokensTotal).toBe(270);
+    expect(result.validated.matchConfidence).toBe("HIGH");
+
+    const calls = vi.mocked(openaiModule.createChatCompletion).mock.calls;
+    expect(calls).toHaveLength(2);
+    expect(calls[1]?.[0].at(-1)?.content).toContain("Invalid confidence:");
+  });
+
+  it("fails after exhausting validation retries", async () => {
+    const campaign: AggregatedCampaign = {
+      campaignName: "Screen Shine - Pro | SPM | MKW | Br.M | 2 - computer | Perf",
+      totalSpend: 10,
+      termCount: 1,
+      terms: [],
+    };
+
+    vi.spyOn(openaiModule, "createChatCompletion").mockResolvedValue({
+      content: JSON.stringify({
+        matched_product: null,
+        match_confidence: "",
+        match_reason: "bad draft",
+        term_recommendations: [],
+      }),
+      tokensIn: 10,
+      tokensOut: 5,
+      tokensTotal: 15,
+      model: "gpt-5.4-2026-03-05",
+      durationMs: 1,
+    });
+
+    await expect(
+      evaluateCampaignWithValidationRetry({
+        campaign,
+        catalogProducts: [],
+        terms: [
+          {
+            campaignName: campaign.campaignName,
+            searchTerm: "screen cleaner",
+            impressions: 10,
+            clicks: 1,
+            spend: 1,
+            orders: 0,
+            sales: 0,
+            keyword: null,
+            keywordType: null,
+            targeting: null,
+            matchType: null,
+          },
+        ],
+        marketplaceCode: "CA",
+        model: "gpt-5.4-2026-03-05",
+        maxTokens: 2200,
+      }),
+    ).rejects.toThrow("AI response validation failed after 3 attempts");
+  });
+});
