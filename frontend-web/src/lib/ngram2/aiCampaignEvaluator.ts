@@ -3,6 +3,7 @@ import {
   parseJSONResponse,
   type ChatMessage,
   type ChatCompletionResult,
+  type ResponseFormat,
 } from "@/lib/composer/ai/openai";
 
 import {
@@ -15,6 +16,89 @@ import {
 import { buildCampaignPrompt } from "./aiPrompt";
 
 const MAX_VALIDATION_ATTEMPTS = 3;
+
+const NGRAM_RESPONSE_FORMAT: ResponseFormat = {
+  type: "json_schema",
+  json_schema: {
+    name: "ngram_campaign_prefill_response",
+    strict: true,
+    schema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        matched_product: {
+          anyOf: [
+            {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                child_asin: { type: "string" },
+                child_sku: { anyOf: [{ type: "string" }, { type: "null" }] },
+                product_name: { type: "string" },
+              },
+              required: ["child_asin", "child_sku", "product_name"],
+            },
+            { type: "null" },
+          ],
+        },
+        match_confidence: {
+          type: "string",
+          enum: ["HIGH", "MEDIUM", "LOW"],
+        },
+        match_reason: { type: "string" },
+        term_recommendations: {
+          type: "array",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              search_term: { type: "string" },
+              recommendation: {
+                type: "string",
+                enum: ["KEEP", "NEGATE", "REVIEW"],
+              },
+              confidence: {
+                type: "string",
+                enum: ["HIGH", "MEDIUM", "LOW"],
+              },
+              reason_tag: {
+                type: "string",
+                enum: [
+                  "core_use_case",
+                  "wrong_category",
+                  "wrong_product_form",
+                  "wrong_size_variant",
+                  "wrong_audience_theme",
+                  "competitor_brand",
+                  "cloth_primary_intent",
+                  "accessory_only_intent",
+                  "foreign_language",
+                  "ambiguous_intent",
+                ],
+              },
+              rationale: {
+                anyOf: [{ type: "string" }, { type: "null" }],
+              },
+            },
+            required: [
+              "search_term",
+              "recommendation",
+              "confidence",
+              "reason_tag",
+              "rationale",
+            ],
+          },
+        },
+      },
+      required: [
+        "matched_product",
+        "match_confidence",
+        "match_reason",
+        "term_recommendations",
+      ],
+    },
+  },
+};
 
 const buildValidationRetryMessage = (errorMessage: string): ChatMessage => ({
   role: "user",
@@ -74,7 +158,12 @@ export const evaluateCampaignWithValidationRetry = async ({
     const completion = await createChatCompletion(messages, {
       model,
       maxTokens,
+      responseFormat: NGRAM_RESPONSE_FORMAT,
     });
+
+    if (completion.refusal) {
+      throw new Error(`${campaign.campaignName}: model refused structured output: ${completion.refusal}`);
+    }
 
     tokensIn += completion.tokensIn;
     tokensOut += completion.tokensOut;

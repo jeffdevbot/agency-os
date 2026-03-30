@@ -26,12 +26,29 @@ export interface Tool {
 export interface ChatCompletionResult {
   content: string | null;
   toolCalls?: ToolCall[];
+  refusal?: string | null;
   tokensIn: number;
   tokensOut: number;
   tokensTotal: number;
   model: string;
   durationMs: number;
 }
+
+export interface JsonSchemaResponseFormat {
+  type: "json_schema";
+  json_schema: {
+    name: string;
+    description?: string;
+    strict?: boolean;
+    schema: Record<string, unknown>;
+  };
+}
+
+export interface JsonObjectResponseFormat {
+  type: "json_object";
+}
+
+export type ResponseFormat = JsonSchemaResponseFormat | JsonObjectResponseFormat;
 
 const getDefaultModel = (): string => {
   const model = process.env.OPENAI_MODEL_PRIMARY || "gpt-5.1-nano";
@@ -61,6 +78,7 @@ const callOpenAIHttp = async (
   temperature: number,
   maxTokens?: number,
   tools?: Tool[],
+  responseFormat?: ResponseFormat,
 ): Promise<ChatCompletionResult> => {
   const startTime = Date.now();
 
@@ -86,6 +104,10 @@ const callOpenAIHttp = async (
     requestBody.tools = tools;
   }
 
+  if (responseFormat) {
+    requestBody.response_format = responseFormat;
+  }
+
   const response = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -109,6 +131,7 @@ const callOpenAIHttp = async (
       message?: {
         content?: string | null;
         tool_calls?: ToolCall[];
+        refusal?: string | null;
       }
     }>;
     usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
@@ -127,6 +150,7 @@ const callOpenAIHttp = async (
   return {
     content: choice.message.content ?? null,
     toolCalls: choice.message.tool_calls,
+    refusal: choice.message.refusal ?? null,
     tokensIn,
     tokensOut,
     tokensTotal,
@@ -142,6 +166,7 @@ export const createChatCompletion = async (
     temperature?: number;
     maxTokens?: number;
     tools?: Tool[];
+    responseFormat?: ResponseFormat;
   },
 ): Promise<ChatCompletionResult> => {
   const model = options?.model || getDefaultModel();
@@ -152,6 +177,7 @@ export const createChatCompletion = async (
       options?.temperature ?? 0.7,
       options?.maxTokens,
       options?.tools,
+      options?.responseFormat,
     );
   } catch (error) {
     if (options?.model && options.model !== getDefaultModel()) {

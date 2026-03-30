@@ -189,6 +189,14 @@ Current implementation validates that:
 This was added specifically to prevent malformed model output from silently
 polluting gram synthesis.
 
+Important implementation update:
+
+1. the OpenAI call now uses **Structured Outputs** with a strict JSON schema
+   for the campaign-evaluation response
+2. local validation still remains in place as a defensive backup
+3. this materially reduces failures from malformed enum fields such as blank
+   `confidence` values
+
 ## Step 2: Campaign-theme parsing
 
 Besides product mapping, parse the campaign's targeting theme from its naming

@@ -112,6 +112,13 @@ describe("evaluateCampaignWithValidationRetry", () => {
 
     const calls = vi.mocked(openaiModule.createChatCompletion).mock.calls;
     expect(calls).toHaveLength(2);
+    expect(calls[0]?.[1]?.responseFormat).toMatchObject({
+      type: "json_schema",
+      json_schema: {
+        name: "ngram_campaign_prefill_response",
+        strict: true,
+      },
+    });
     expect(calls[1]?.[0][2]).toEqual({
       role: "assistant",
       content: JSON.stringify({
@@ -182,5 +189,49 @@ describe("evaluateCampaignWithValidationRetry", () => {
         maxTokens: 2200,
       }),
     ).rejects.toThrow("AI response validation failed after 3 attempts");
+  });
+
+  it("fails clearly if the model refuses structured output", async () => {
+    const campaign: AggregatedCampaign = {
+      campaignName: "Screen Shine - Go | SPM | STPP | Exp. | Rsrch",
+      totalSpend: 10,
+      termCount: 1,
+      terms: [],
+    };
+
+    vi.spyOn(openaiModule, "createChatCompletion").mockResolvedValue({
+      content: null,
+      refusal: "safety refusal",
+      tokensIn: 10,
+      tokensOut: 1,
+      tokensTotal: 11,
+      model: "gpt-5.4-2026-03-05",
+      durationMs: 1,
+    });
+
+    await expect(
+      evaluateCampaignWithValidationRetry({
+        campaign,
+        catalogProducts: [],
+        terms: [
+          {
+            campaignName: campaign.campaignName,
+            searchTerm: "screen cleaner",
+            impressions: 10,
+            clicks: 1,
+            spend: 1,
+            orders: 0,
+            sales: 0,
+            keyword: null,
+            keywordType: null,
+            targeting: null,
+            matchType: null,
+          },
+        ],
+        marketplaceCode: "CA",
+        model: "gpt-5.4-2026-03-05",
+        maxTokens: 2200,
+      }),
+    ).rejects.toThrow("model refused structured output");
   });
 });

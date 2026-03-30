@@ -35,6 +35,8 @@ Read first, in this order:
    - AI preview now has a dedicated model env var: `OPENAI_MODEL_NGRAM`
    - GPT-5-family request-shape handling is centralized in the shared OpenAI
      adapter, so the Step 3 route no longer passes a redundant temperature arg
+   - the N-Gram campaign call now uses OpenAI Structured Outputs with a strict
+     JSON schema instead of relying only on prompt-formatted JSON
    - preview responses are validated strictly before gram synthesis
    - successful preview payloads now persist in `ngram_ai_preview_runs`
    - preview responses now return `preview_run_id`, and the AI-prefilled

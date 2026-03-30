@@ -77,4 +77,56 @@ describe("openai adapter", () => {
     expect(body.max_completion_tokens).toBeUndefined();
     expect(body.reasoning_effort).toBeUndefined();
   });
+
+  it("passes structured response_format through to OpenAI", async () => {
+    process.env.OPENAI_MODEL_PRIMARY = "gpt-5.4";
+
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: "{\"ok\":true}" } }],
+        usage: { prompt_tokens: 5, completion_tokens: 3, total_tokens: 8 },
+        model: "gpt-5.4-2026-03-05",
+      }),
+    });
+    global.fetch = fetchMock as typeof fetch;
+
+    await createChatCompletion([{ role: "user", content: "hello" }], {
+      maxTokens: 120,
+      responseFormat: {
+        type: "json_schema",
+        json_schema: {
+          name: "test_schema",
+          strict: true,
+          schema: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              ok: { type: "boolean" },
+            },
+            required: ["ok"],
+          },
+        },
+      },
+    });
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(String(init.body));
+
+    expect(body.response_format).toEqual({
+      type: "json_schema",
+      json_schema: {
+        name: "test_schema",
+        strict: true,
+        schema: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            ok: { type: "boolean" },
+          },
+          required: ["ok"],
+        },
+      },
+    });
+  });
 });
