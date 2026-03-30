@@ -115,11 +115,26 @@ export type AIPrefillCatalogProduct = {
   itemDescription: string | null;
 };
 
+export const ALLOWED_REASON_TAGS = [
+  "core_use_case",
+  "wrong_category",
+  "wrong_product_form",
+  "wrong_size_variant",
+  "wrong_audience_theme",
+  "competitor_brand",
+  "cloth_primary_intent",
+  "accessory_only_intent",
+  "foreign_language",
+  "ambiguous_intent",
+] as const;
+
+export type AIPrefillReasonTag = (typeof ALLOWED_REASON_TAGS)[number];
+
 export type AIPrefillTermRecommendation = {
   search_term: string;
   recommendation: "KEEP" | "NEGATE" | "REVIEW";
   confidence: "HIGH" | "MEDIUM" | "LOW";
-  reason_tag: string;
+  reason_tag: AIPrefillReasonTag;
   rationale: string | null;
 };
 
@@ -288,12 +303,15 @@ const parseConfidenceStrict = (value: unknown): "HIGH" | "MEDIUM" | "LOW" => {
   throw new Error(`Invalid confidence: ${String(value || "")}`);
 };
 
-const normalizeReasonTag = (value: unknown): string => {
+const normalizeReasonTag = (value: unknown): AIPrefillReasonTag => {
   const raw = toNonEmptyString(value).toLowerCase();
   if (!raw) throw new Error("Missing reason_tag");
-  const normalized = raw.replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 48);
-  if (!normalized) throw new Error("Invalid reason_tag");
-  return normalized;
+  if ((ALLOWED_REASON_TAGS as readonly string[]).includes(raw)) {
+    return raw as AIPrefillReasonTag;
+  }
+  throw new Error(
+    `Invalid reason_tag: ${raw}. Allowed values: ${ALLOWED_REASON_TAGS.join(", ")}`,
+  );
 };
 
 const normalizeRationale = (value: unknown): string | null => {

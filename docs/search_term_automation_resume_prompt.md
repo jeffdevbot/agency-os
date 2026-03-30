@@ -33,6 +33,18 @@ Read first, in this order:
    - AI preview now performs **AI-first product identification + term
      evaluation in one call** using Windsor child-ASIN catalog context
    - preview responses are validated strictly before gram synthesis
+   - successful preview payloads now persist in `ngram_ai_preview_runs`
+   - `reason_tag` is now a strict enum and must be exactly one of:
+     - `core_use_case`
+     - `wrong_category`
+     - `wrong_product_form`
+     - `wrong_size_variant`
+     - `wrong_audience_theme`
+     - `competitor_brand`
+     - `cloth_primary_intent`
+     - `accessory_only_intent`
+     - `foreign_language`
+     - `ambiguous_intent`
    - intentionally skipped brand/mix/defensive campaigns no longer consume the
      top-6 preview budget
 
@@ -107,8 +119,9 @@ Read first, in this order:
 
 ## Recommended next-session target
 
-Focus on validating and tightening the trusted `SP` AI-preview path in
-`/ngram-2` rather than trying to “solve” legacy `SB` immediately.
+The current `SP` Step 3 validation slice is in a good state. Focus next on
+turning the trusted `/ngram-2` preview output into a better workbook-prefill /
+analyst-review loop rather than trying to “solve” legacy `SB` immediately.
 
 Recommended order:
 
@@ -116,11 +129,11 @@ Recommended order:
    - `codex mcp logout supabase`
    - `codex mcp login supabase`
    - `codex mcp list`
-2. use the fresh session to inspect live `/ngram-2` AI preview results on real
-   profiles and determine what the next real blocker is:
-   - prompt/model quality
-   - skip taxonomy
+2. use the fresh session to inspect the persisted `/ngram-2` preview outputs
+   and identify the next smallest useful SP-focused implementation slice:
    - workbook-prefill tuning
+   - analyst-review ergonomics
+   - override logging / calibration
 3. keep validating `SB` opportunistically on additional modern accounts, but
    do not block `SP` product progress on full legacy SB parity
 4. avoid touching the legacy `/ngram` route unless explicitly asked
@@ -149,11 +162,17 @@ Current reality:
 - /ngram-2 Step 3 AI preview now uses AI-first product identification from the
   Windsor child-ASIN catalog in the same call as term evaluation
 - AI preview responses are now validated strictly before gram synthesis
+- successful preview payloads now persist in `ngram_ai_preview_runs`
+- `reason_tag` is now a strict 10-value enum:
+  core_use_case, wrong_category, wrong_product_form, wrong_size_variant,
+  wrong_audience_theme, competitor_brand, cloth_primary_intent,
+  accessory_only_intent, foreign_language, ambiguous_intent
 - skipped brand/mix/defensive campaigns no longer burn the top-6 preview slots
-- the next priority is validating the live SP AI-preview path in /ngram-2, not
-  blocking on full legacy SB parity
+- the current Step 3 validation slice is a pass; the next priority is turning
+  the trusted SP preview path into a stronger workbook-prefill / review loop,
+  not blocking on full legacy SB parity
 
 Start by checking that Supabase MCP auth works in this fresh session, then
-review the current live /ngram-2 AI preview behavior and identify the next
-smallest useful SP-focused implementation slice based on real outputs.
+review the latest persisted /ngram-2 preview outputs and identify the next
+smallest useful SP-focused implementation slice based on those real results.
 ```

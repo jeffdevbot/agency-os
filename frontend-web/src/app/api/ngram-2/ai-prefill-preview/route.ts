@@ -105,7 +105,7 @@ Return strict JSON with this shape:
       "search_term": "string",
       "recommendation": "KEEP" | "NEGATE" | "REVIEW",
       "confidence": "HIGH" | "MEDIUM" | "LOW",
-      "reason_tag": "snake_case_or_short_slug",
+      "reason_tag": "one of: core_use_case, wrong_category, wrong_product_form, wrong_size_variant, wrong_audience_theme, competitor_brand, cloth_primary_intent, accessory_only_intent, foreign_language, ambiguous_intent",
       "rationale": "one short sentence"
     }
   ]
@@ -120,9 +120,9 @@ Rules:
 - NEGATE means the term is clearly irrelevant or wrong-fit for this campaign/product.
 - REVIEW means mixed, ambiguous, low-signal, or context-dependent.
 - Use REVIEW instead of forcing a weak NEGATE.
-- Prefer compact reason tags like competitor_brand, wrong_category, travel_size_mismatch, accessories_intent, core_use_case, foreign_language.
+- The reason_tag field must be exactly one of these values: core_use_case, wrong_category, wrong_product_form, wrong_size_variant, wrong_audience_theme, competitor_brand, cloth_primary_intent, accessory_only_intent, foreign_language, ambiguous_intent.
 - Return one term_recommendation for every input search term and preserve the exact search_term text.
-- If matched_product is null, return REVIEW / LOW for every term with a reason tag like product_match_low_confidence.
+- If matched_product is null, return REVIEW / LOW for every term and use reason_tag = ambiguous_intent.
 - Do not include markdown or explanation outside the JSON object.`;
 
 const buildCampaignPrompt = (

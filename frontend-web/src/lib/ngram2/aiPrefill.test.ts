@@ -238,7 +238,7 @@ describe("ngram2 aiPrefill helpers", () => {
           search_term: "travel size screen cleaner",
           recommendation: "NEGATE",
           confidence: "HIGH",
-          reason_tag: "travel_size_mismatch",
+          reason_tag: "wrong_size_variant",
           rationale: null,
           spend: 9,
           clicks: 4,
@@ -253,7 +253,7 @@ describe("ngram2 aiPrefill helpers", () => {
           search_term: "travel screen spray",
           recommendation: "NEGATE",
           confidence: "HIGH",
-          reason_tag: "travel_size_mismatch",
+          reason_tag: "wrong_size_variant",
           rationale: null,
           spend: 7,
           clicks: 3,
@@ -329,7 +329,7 @@ describe("ngram2 aiPrefill helpers", () => {
             search_term: "travel size screen cleaner",
             recommendation: "NEGATE",
             confidence: "HIGH",
-            reason_tag: "travel_size_mismatch",
+            reason_tag: "wrong_size_variant",
             rationale: "This campaign maps to the larger Pro bottle.",
           },
         ],
@@ -340,7 +340,7 @@ describe("ngram2 aiPrefill helpers", () => {
 
     expect(validated.matchedProduct?.childAsin).toBe("A1");
     expect(validated.termRecommendations).toHaveLength(2);
-    expect(validated.termRecommendations[1]?.reason_tag).toBe("travel_size_mismatch");
+    expect(validated.termRecommendations[1]?.reason_tag).toBe("wrong_size_variant");
   });
 
   it("fails loudly when the AI response is missing a term recommendation or returns a bad product", () => {
@@ -379,5 +379,43 @@ describe("ngram2 aiPrefill helpers", () => {
         ["screen cleaner", "travel size screen cleaner"],
       ),
     ).toThrow();
+  });
+
+  it("fails loudly when the AI response returns a reason tag outside the allowed enum", () => {
+    const catalog = prepareAIPrefillCatalogProducts([
+      {
+        child_asin: "A1",
+        child_sku: "1FGAMZ500US",
+        child_product_name: "WHOOSH! Screen Shine Pro 16.9 fl oz Refillable Screen Cleaner",
+        parent_title: null,
+        category: "electronics cleaner",
+        item_description: "large screen cleaner",
+      },
+    ]);
+
+    expect(() =>
+      validateAIPrefillCampaignResponse(
+        {
+          matched_product: {
+            child_asin: "A1",
+            child_sku: "1FGAMZ500US",
+            product_name: "WHOOSH! Screen Shine Pro 16.9 fl oz Refillable Screen Cleaner",
+          },
+          match_confidence: "HIGH",
+          match_reason: "right product",
+          term_recommendations: [
+            {
+              search_term: "screen cleaner",
+              recommendation: "KEEP",
+              confidence: "HIGH",
+              reason_tag: "travel_size_mismatch",
+              rationale: "fit",
+            },
+          ],
+        },
+        catalog,
+        ["screen cleaner"],
+      ),
+    ).toThrow(/Invalid reason_tag/);
   });
 });

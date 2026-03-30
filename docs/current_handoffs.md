@@ -256,18 +256,33 @@ historical reference.
        malformed JSON, bad ASINs, missing term rows, duplicate term rows, or
        contradictory confidence/product states hard-fail instead of silently
        degrading
+     - AI preview `reason_tag` is now a strict enum and must be exactly one
+       of:
+       - `core_use_case`
+       - `wrong_category`
+       - `wrong_product_form`
+       - `wrong_size_variant`
+       - `wrong_audience_theme`
+       - `competitor_brand`
+       - `cloth_primary_intent`
+       - `accessory_only_intent`
+       - `foreign_language`
+       - `ambiguous_intent`
      - the preview-budget bug was fixed:
        intentionally skipped brand/mix/defensive campaigns no longer consume
        the top-6 preview slots; the route now walks past them to the next
        runnable campaigns
+     - successful Step 3 preview payloads now persist in
+       `ngram_ai_preview_runs` instead of existing only in the browser state
      - both recent `/ngram-2` changes are frontend-service-only because the
        preview route lives under Next.js at
        `frontend-web/src/app/api/ngram-2/ai-prefill-preview/route.ts`
+     - current read:
+       the Step 3 SP validation slice is effectively a pass
      - immediate next-session goal:
-       after fresh Supabase MCP auth and a fresh Codex session, inspect live
-       `/ngram-2` AI preview behavior on real profiles and decide whether the
-       next issue is prompt/model quality, skip taxonomy, or workbook-prefill
-       tuning
+       after fresh Supabase MCP auth and a fresh Codex session, inspect the
+       persisted preview runs and decide whether the next useful slice is
+       workbook-prefill tuning, analyst-review ergonomics, or override logging
        be omitted from the native `sbSearchTerm` API while still appearing in
        Amazon console/export surfaces
    - screenshots/export inspection confirmed:

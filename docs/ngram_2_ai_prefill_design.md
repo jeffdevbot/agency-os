@@ -296,6 +296,12 @@ Suggested reason-tag families:
 9. foreign_language
 10. ambiguous_intent
 
+Current implementation note:
+
+1. `reason_tag` is no longer an open-ended slug field
+2. it must be exactly one of the ten values above
+3. if none fit cleanly, the model should use `ambiguous_intent`
+
 ## Step 5: Conservative gram synthesis
 
 This is the most important safety layer.
