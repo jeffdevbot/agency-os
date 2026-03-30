@@ -647,13 +647,13 @@ Alternative if the stack remains OpenAI-only for now:
 This is **not** a good place to reuse a generic global “cheap default” model
 lane without explicit validation.
 
-The current implementation path inherits the shared frontend OpenAI adapter
-default behavior. In practice that means:
+Current implemented state:
 
-1. if no explicit model is set for `N-Gram 2.0`, it uses whatever
-   `OPENAI_MODEL_PRIMARY` is set to for the environment
-2. if that env var is absent, the frontend adapter falls back to
-   `gpt-5.1-nano`
+1. `N-Gram 2.0` preview now reads a dedicated env var:
+   `OPENAI_MODEL_NGRAM`
+2. if that env var is absent, the frontend adapter still falls back to the
+   shared default lane (`OPENAI_MODEL_PRIMARY`, then `gpt-5.1-nano`)
+3. preview temperature is pinned to `0` to reduce repeated-run inconsistency
 
 That is an implementation convenience, not a product recommendation.
 

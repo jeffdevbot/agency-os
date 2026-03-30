@@ -7,6 +7,7 @@ _Last updated: 2026-03-30 (ET)_
 ---
 
 ## 2026-03-30 (ET)
+- **`/ngram-2` preview now has a dedicated model lane and deterministic temperature:** Step 3 no longer has to inherit the generic frontend OpenAI primary model; the preview route now reads `OPENAI_MODEL_NGRAM` explicitly and runs at `temperature = 0` to reduce quality jitter between repeated runs on the same campaign/window.
 - **The AI-prefilled workbook now writes negatives more like a human-filled N-Gram sheet:** `NEGATE` terms with 1/2/3 cleaned words now drop directly into the scratchpad `Monogram` / `Bigram` / `Trigram` columns, while longer `NEGATE` terms prefill the search-term row itself as exact `NE`; this uses the existing workbook formulas instead of inventing a separate AI-only marking pattern.
 - **Saved Step 3 previews now feed the AI-prefilled workbook path directly:** The `/ngram-2` preview route now returns the persisted `preview_run_id`, the AI-prefilled workbook request can reuse that exact saved run instead of depending only on transient browser state, and the backend rejects mismatched saved runs rather than silently drifting to a different selection.
 - **The AI-prefilled workbook now carries compact review context without breaking the familiar N-Gram layout:** Search-term tables keep their existing structure and now append `AI Recommendation`, `AI Confidence`, and `AI Reason` columns, summary metadata records the linked preview run id / model / threshold, and the scratchpad area shifts one extra spacer column right to preserve readability and workbook compatibility.

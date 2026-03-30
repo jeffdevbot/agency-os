@@ -277,6 +277,10 @@ historical reference.
      - the preview route now returns `preview_run_id`, and the AI-prefilled
        workbook path can reuse that saved run directly instead of depending
        only on transient browser state
+     - Step 3 preview now has a dedicated model env var:
+       `OPENAI_MODEL_NGRAM`
+     - preview temperature is now pinned to `0` to reduce repeated-run
+       inconsistency on the same campaign/window
      - AI-prefilled workbook sheets keep the legacy workbook layout but now
        append compact search-term review columns:
        - `AI Recommendation`

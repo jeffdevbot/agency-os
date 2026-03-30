@@ -54,6 +54,7 @@ const LISTING_SELECT = [
 const MAX_BATCH_SIZE = 1000;
 const SUPPORTED_AD_PRODUCT = "SPONSORED_PRODUCTS";
 const PROFILE_SELECT = ["id", "client_id", "display_name", "marketplace_code", "status"].join(",");
+const NGRAM_MODEL_OVERRIDE = process.env.OPENAI_MODEL_NGRAM?.trim() || null;
 
 type CampaignPreview = {
   campaignName: string;
@@ -405,7 +406,8 @@ export async function POST(request: Request) {
       }
 
       const result = await createChatCompletion(buildCampaignPrompt(campaign, catalogProducts, terms), {
-        temperature: 0.1,
+        model: NGRAM_MODEL_OVERRIDE || undefined,
+        temperature: 0,
         maxTokens: 2200,
       });
 

@@ -32,6 +32,8 @@ Read first, in this order:
    - native SP preflight summary is already in place
    - AI preview now performs **AI-first product identification + term
      evaluation in one call** using Windsor child-ASIN catalog context
+   - AI preview now has a dedicated model env var: `OPENAI_MODEL_NGRAM`
+   - preview temperature is pinned to `0` for more repeatable comparisons
    - preview responses are validated strictly before gram synthesis
    - successful preview payloads now persist in `ngram_ai_preview_runs`
    - preview responses now return `preview_run_id`, and the AI-prefilled
