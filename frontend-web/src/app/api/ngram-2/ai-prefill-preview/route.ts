@@ -3,23 +3,27 @@ import { NextResponse } from "next/server";
 import { logAppError } from "@/lib/ai/errorLogger";
 import { logUsage } from "@/lib/ai/usageLogger";
 import { createChatCompletion, parseJSONResponse, type ChatMessage } from "@/lib/composer/ai/openai";
-import { createSupabaseRouteClient, createSupabaseServiceClient } from "@/lib/supabase/serverClient";
 import {
   aggregateSearchTerms,
   AI_PREFILL_PREVIEW_MAX_CAMPAIGNS,
   AI_PREFILL_PREVIEW_MAX_TERMS_PER_CAMPAIGN,
-  buildPreparedListingCatalog,
   buildCampaignAggregates,
-  chooseBestListingMatch,
   isAsinQuery,
+  isIntentionallySkippedCampaign,
   isLegacyExcludedCampaign,
+  parseCampaignProductIdentifier,
+  parseCampaignTheme,
+  prepareAIPrefillCatalogProducts,
   synthesizeCampaignScratchpad,
+  validateAIPrefillCampaignResponse,
   type AggregatedCampaign,
   type AggregatedSearchTerm,
+  type AIPrefillCatalogProduct,
   type CampaignPrefillScratchpad,
   type NgramListingRow,
   type SearchTermFactRow,
 } from "@/lib/ngram2/aiPrefill";
+import { createSupabaseRouteClient, createSupabaseServiceClient } from "@/lib/supabase/serverClient";
 
 const FACT_SELECT = [
   "report_date",
@@ -38,6 +42,7 @@ const FACT_SELECT = [
 
 const LISTING_SELECT = [
   "child_asin",
+  "child_sku",
   "child_product_name",
   "parent_title",
   "category",
@@ -46,17 +51,6 @@ const LISTING_SELECT = [
 
 const MAX_BATCH_SIZE = 1000;
 const SUPPORTED_AD_PRODUCT = "SPONSORED_PRODUCTS";
-
-type NormalizedRecommendation = "KEEP" | "NEGATE" | "REVIEW";
-type NormalizedConfidence = "HIGH" | "MEDIUM" | "LOW";
-
-type ParsedAiEvaluation = {
-  search_term: string;
-  recommendation: NormalizedRecommendation;
-  confidence: NormalizedConfidence;
-  reason_tag: string;
-  rationale: string | null;
-};
 
 type CampaignPreview = {
   campaignName: string;
@@ -68,32 +62,42 @@ type CampaignPreview = {
   productIdentifier: string | null;
   theme: string | null;
   matchStatus: "matched" | "ambiguous" | "intentionally_skipped";
-  matchSource: "deterministic" | "ai_fallback" | "none";
+  matchSource: "ai_combined" | "none";
   skipReason: "brand_mix_defensive" | "missing_identifier" | null;
   matchedTitle: string | null;
   category: string | null;
   itemDescription: string | null;
   matchScore: number | null;
   synthesizedPrefills: CampaignPrefillScratchpad;
-  evaluations: Array<
-    ParsedAiEvaluation & {
-      spend: number;
-      clicks: number;
-      orders: number;
-      sales: number;
-      keyword: string | null;
-      keywordType: string | null;
-      targeting: string | null;
-      matchType: string | null;
-    }
-  >;
+  evaluations: Array<{
+    search_term: string;
+    recommendation: "KEEP" | "NEGATE" | "REVIEW";
+    confidence: "HIGH" | "MEDIUM" | "LOW";
+    reason_tag: string;
+    rationale: string | null;
+    spend: number;
+    clicks: number;
+    orders: number;
+    sales: number;
+    keyword: string | null;
+    keywordType: string | null;
+    targeting: string | null;
+    matchType: string | null;
+  }>;
 };
 
 const SYSTEM_PROMPT = `You evaluate Amazon Sponsored Products shopper queries for N-Gram negative recommendation prefill.
 
 Return strict JSON with this shape:
 {
-  "evaluations": [
+  "matched_product": {
+    "child_asin": "exact catalog child_asin",
+    "child_sku": "exact catalog child_sku or null",
+    "product_name": "exact catalog product_name"
+  } | null,
+  "match_confidence": "HIGH" | "MEDIUM" | "LOW",
+  "match_reason": "one short sentence",
+  "term_recommendations": [
     {
       "search_term": "string",
       "recommendation": "KEEP" | "NEGATE" | "REVIEW",
@@ -105,63 +109,22 @@ Return strict JSON with this shape:
 }
 
 Rules:
+- First, identify the best matching product from the provided Windsor catalog rows.
+- If you cannot confidently identify one product, set matched_product to null and match_confidence to LOW.
+- When you select a product, copy the exact child_asin, child_sku, and product_name values from the catalog.
 - Judge each search term in the context of both the product and the campaign theme.
 - KEEP means the term is relevant and should not be prefilled as a negative.
 - NEGATE means the term is clearly irrelevant or wrong-fit for this campaign/product.
 - REVIEW means mixed, ambiguous, low-signal, or context-dependent.
 - Use REVIEW instead of forcing a weak NEGATE.
 - Prefer compact reason tags like competitor_brand, wrong_category, travel_size_mismatch, accessories_intent, core_use_case, foreign_language.
-- Return one evaluation for every input search term and preserve the exact search_term text.
+- Return one term_recommendation for every input search term and preserve the exact search_term text.
+- If matched_product is null, return REVIEW / LOW for every term with a reason tag like product_match_low_confidence.
 - Do not include markdown or explanation outside the JSON object.`;
-
-const PRODUCT_MATCH_SYSTEM_PROMPT = `You disambiguate Amazon Ads campaign product identifiers against a short candidate list of listing titles.
-
-Return strict JSON with this shape:
-{
-  "selected_title": "exact candidate title or null",
-  "confidence": "HIGH" | "MEDIUM" | "LOW",
-  "ambiguous": true | false,
-  "rationale": "one short sentence"
-}
-
-Rules:
-- Choose only from the provided candidate titles.
-- Use the campaign identifier segment as the primary anchor.
-- Prefer exact family-level resolution, not loose semantic similarity.
-- If the best choice is uncertain, set ambiguous=true and selected_title=null.
-- Do not invent a title that is not in the candidate list.
-- Do not include markdown or explanation outside the JSON object.`;
-
-const normalizeRecommendation = (value: unknown): NormalizedRecommendation => {
-  const normalized = String(value || "").trim().toUpperCase();
-  if (normalized === "KEEP" || normalized === "NEGATE" || normalized === "REVIEW") {
-    return normalized;
-  }
-  return "REVIEW";
-};
-
-const normalizeConfidence = (value: unknown): NormalizedConfidence => {
-  const normalized = String(value || "").trim().toUpperCase();
-  if (normalized === "HIGH" || normalized === "MEDIUM" || normalized === "LOW") {
-    return normalized;
-  }
-  return "LOW";
-};
-
-const toReasonTag = (value: unknown): string => {
-  const raw = String(value || "").trim().toLowerCase();
-  if (!raw) return "review_needed";
-  return raw.replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 48) || "review_needed";
-};
-
-const toRationale = (value: unknown): string | null => {
-  const raw = String(value || "").trim();
-  return raw ? raw.slice(0, 240) : null;
-};
 
 const buildCampaignPrompt = (
   campaign: AggregatedCampaign,
-  match: ReturnType<typeof chooseBestListingMatch>,
+  catalogProducts: AIPrefillCatalogProduct[],
   terms: AggregatedSearchTerm[],
 ): ChatMessage[] => [
   { role: "system", content: SYSTEM_PROMPT },
@@ -170,13 +133,15 @@ const buildCampaignPrompt = (
     content: JSON.stringify(
       {
         campaign_name: campaign.campaignName,
-        campaign_theme: match.theme,
-        product_identifier: match.identifier,
-        matched_product: {
-          title: match.matchedTitle,
-          category: match.category,
-          item_description: match.itemDescription,
-        },
+        campaign_theme: parseCampaignTheme(campaign.campaignName),
+        campaign_identifier: parseCampaignProductIdentifier(campaign.campaignName),
+        catalog_products: catalogProducts.map((product) => ({
+          child_asin: product.childAsin,
+          child_sku: product.childSku,
+          product_name: product.productName,
+          category: product.category,
+          item_description: product.itemDescription,
+        })),
         search_terms: terms.map((term) => ({
           search_term: term.searchTerm,
           impressions: term.impressions,
@@ -188,27 +153,6 @@ const buildCampaignPrompt = (
           keyword_type: term.keywordType,
           targeting: term.targeting,
           match_type: term.matchType,
-        })),
-      },
-      null,
-      2,
-    ),
-  },
-];
-
-const buildProductMatchPrompt = (
-  _campaignName: string,
-  match: ReturnType<typeof chooseBestListingMatch>,
-): ChatMessage[] => [
-  { role: "system", content: PRODUCT_MATCH_SYSTEM_PROMPT },
-  {
-    role: "user",
-    content: JSON.stringify(
-      {
-        campaign_identifier_segment: match.identifier,
-        candidates: match.candidates.slice(0, 3).map((candidate) => ({
-          title: candidate.title,
-          item_description: candidate.itemDescription,
         })),
       },
       null,
@@ -301,79 +245,6 @@ const coerceRequest = async (request: Request): Promise<{
   };
 };
 
-const applyProductMatchFallback = async (
-  campaignName: string,
-  match: ReturnType<typeof chooseBestListingMatch>,
-): Promise<{
-  match: ReturnType<typeof chooseBestListingMatch>;
-  usage: { tokensIn: number; tokensOut: number; tokensTotal: number; model: string };
-}> => {
-  if (match.status !== "ambiguous" || match.candidates.length < 2) {
-    return {
-      match,
-      usage: { tokensIn: 0, tokensOut: 0, tokensTotal: 0, model: "" },
-    };
-  }
-
-  const result = await createChatCompletion(buildProductMatchPrompt(campaignName, match), {
-    temperature: 0,
-    maxTokens: 300,
-  });
-
-  const parsed = parseJSONResponse<{
-    selected_title?: string | null;
-    confidence?: string | null;
-    ambiguous?: boolean | null;
-  }>(result.content || "{}");
-
-  const ambiguous = Boolean(parsed.ambiguous);
-  const selectedTitle = String(parsed.selected_title || "").trim();
-  const confidence = normalizeConfidence(parsed.confidence);
-
-  if (ambiguous || !selectedTitle || confidence === "LOW") {
-    return {
-      match,
-      usage: {
-        tokensIn: result.tokensIn,
-        tokensOut: result.tokensOut,
-        tokensTotal: result.tokensTotal,
-        model: result.model,
-      },
-    };
-  }
-
-  const candidate = match.candidates.find((item) => item.title === selectedTitle);
-  if (!candidate) {
-    return {
-      match,
-      usage: {
-        tokensIn: result.tokensIn,
-        tokensOut: result.tokensOut,
-        tokensTotal: result.tokensTotal,
-        model: result.model,
-      },
-    };
-  }
-
-  return {
-    match: {
-      ...match,
-      status: "matched",
-      matchedTitle: candidate.title,
-      category: candidate.category,
-      itemDescription: candidate.itemDescription,
-      score: candidate.score,
-      matchSource: "ai_fallback",
-    },
-    usage: {
-      tokensIn: result.tokensIn,
-      tokensOut: result.tokensOut,
-      tokensTotal: result.tokensTotal,
-      model: result.model,
-    },
-  };
-};
-
 export async function POST(request: Request) {
   const supabase = await createSupabaseRouteClient();
   const {
@@ -392,7 +263,10 @@ export async function POST(request: Request) {
       loadAllFactRows(profileId, adProduct, dateFrom, dateTo),
       loadListings(profileId),
     ]);
-    const listingCatalog = buildPreparedListingCatalog(listings);
+    const catalogProducts = prepareAIPrefillCatalogProducts(listings);
+    if (catalogProducts.length === 0) {
+      throw new Error("No active Windsor child ASIN catalog rows were found for this profile.");
+    }
 
     const usableRows = rows.filter((row) => {
       const campaignName = String(row.campaign_name || "").trim();
@@ -426,14 +300,16 @@ export async function POST(request: Request) {
     const previewResults: CampaignPreview[] = [];
     let ambiguousCampaigns = 0;
     let intentionallySkippedCampaigns = 0;
-    let aiMatchFallbackCalls = 0;
+    let aiLowConfidenceCampaigns = 0;
 
     for (const campaign of previewCampaigns) {
-      let match = chooseBestListingMatch(campaign.campaignName, listingCatalog);
       const terms = campaign.terms.slice(0, AI_PREFILL_PREVIEW_MAX_TERMS_PER_CAMPAIGN);
       const skippedBelowThresholdTerms = aggregatedTerms.filter(
         (term) => term.campaignName === campaign.campaignName && term.spend < spendThreshold,
       ).length;
+      const productIdentifier = parseCampaignProductIdentifier(campaign.campaignName);
+      const theme = parseCampaignTheme(campaign.campaignName);
+      const intentionallySkipped = isIntentionallySkippedCampaign(campaign.campaignName);
 
       if (campaign.terms.length > AI_PREFILL_PREVIEW_MAX_TERMS_PER_CAMPAIGN) {
         warnings.push(
@@ -441,22 +317,8 @@ export async function POST(request: Request) {
         );
       }
 
-      if (match.status === "ambiguous" && match.candidates.length >= 2) {
-        aiMatchFallbackCalls += 1;
-        const fallback = await applyProductMatchFallback(campaign.campaignName, match);
-        match = fallback.match;
-        tokensIn += fallback.usage.tokensIn;
-        tokensOut += fallback.usage.tokensOut;
-        tokensTotal += fallback.usage.tokensTotal;
-        model = fallback.usage.model || model;
-      }
-
-      if (match.status !== "matched") {
-        if (match.status === "intentionally_skipped") {
-          intentionallySkippedCampaigns += 1;
-        } else {
-          ambiguousCampaigns += 1;
-        }
+      if (!productIdentifier || intentionallySkipped) {
+        intentionallySkippedCampaigns += 1;
         previewResults.push({
           campaignName: campaign.campaignName,
           totalSpend: Number(campaign.totalSpend.toFixed(2)),
@@ -464,24 +326,24 @@ export async function POST(request: Request) {
           totalTerms: aggregatedTerms.filter((term) => term.campaignName === campaign.campaignName).length,
           eligibleTerms: terms.length,
           skippedBelowThresholdTerms,
-          productIdentifier: match.identifier,
-          theme: match.theme,
-          matchStatus: match.status,
-          matchSource: match.matchSource,
-          skipReason: match.skipReason,
-          matchedTitle: match.matchedTitle,
-          category: match.category,
-          itemDescription: match.itemDescription,
-          matchScore: match.score,
+          productIdentifier,
+          theme,
+          matchStatus: "intentionally_skipped",
+          matchSource: "none",
+          skipReason: intentionallySkipped ? "brand_mix_defensive" : "missing_identifier",
+          matchedTitle: null,
+          category: null,
+          itemDescription: null,
+          matchScore: null,
           synthesizedPrefills: { mono: [], bi: [], tri: [] },
           evaluations: [],
         });
         continue;
       }
 
-      const result = await createChatCompletion(buildCampaignPrompt(campaign, match, terms), {
+      const result = await createChatCompletion(buildCampaignPrompt(campaign, catalogProducts, terms), {
         temperature: 0.1,
-        maxTokens: 1400,
+        maxTokens: 2200,
       });
 
       tokensIn += result.tokensIn;
@@ -489,41 +351,35 @@ export async function POST(request: Request) {
       tokensTotal += result.tokensTotal;
       model = result.model || model;
 
-      const parsed = parseJSONResponse<{ evaluations?: Array<Record<string, unknown>> }>(result.content || "{}");
-      const byTerm = new Map<string, ParsedAiEvaluation>();
-      for (const evaluation of parsed.evaluations || []) {
-        const searchTerm = String(evaluation.search_term || "").trim();
-        if (!searchTerm) continue;
-        byTerm.set(searchTerm.toLowerCase(), {
-          search_term: searchTerm,
-          recommendation: normalizeRecommendation(evaluation.recommendation),
-          confidence: normalizeConfidence(evaluation.confidence),
-          reason_tag: toReasonTag(evaluation.reason_tag),
-          rationale: toRationale(evaluation.rationale),
-        });
+      const parsed = parseJSONResponse<Record<string, unknown>>(result.content || "{}");
+      const validated = validateAIPrefillCampaignResponse(
+        parsed,
+        catalogProducts,
+        terms.map((term) => term.searchTerm),
+      );
+
+      const lowConfidenceNoMatch = !validated.matchedProduct && validated.matchConfidence === "LOW";
+      if (lowConfidenceNoMatch) {
+        ambiguousCampaigns += 1;
+        aiLowConfidenceCampaigns += 1;
       }
 
-      const evaluations = terms.map((term) => {
-        const fallback = byTerm.get(term.searchTerm.toLowerCase()) || {
-          search_term: term.searchTerm,
-          recommendation: "REVIEW" as const,
-          confidence: "LOW" as const,
-          reason_tag: "no_ai_output",
-          rationale: "Model did not return a structured evaluation for this term.",
-        };
-
-        return {
-          ...fallback,
-          spend: Number(term.spend.toFixed(2)),
-          clicks: term.clicks,
-          orders: term.orders,
-          sales: Number(term.sales.toFixed(2)),
-          keyword: term.keyword,
-          keywordType: term.keywordType,
-          targeting: term.targeting,
-          matchType: term.matchType,
-        };
-      });
+      const evaluations = lowConfidenceNoMatch
+        ? []
+        : validated.termRecommendations.map((evaluation, index) => {
+            const term = terms[index];
+            return {
+              ...evaluation,
+              spend: Number(term.spend.toFixed(2)),
+              clicks: term.clicks,
+              orders: term.orders,
+              sales: Number(term.sales.toFixed(2)),
+              keyword: term.keyword,
+              keywordType: term.keywordType,
+              targeting: term.targeting,
+              matchType: term.matchType,
+            };
+          });
 
       previewResults.push({
         campaignName: campaign.campaignName,
@@ -532,16 +388,23 @@ export async function POST(request: Request) {
         totalTerms: aggregatedTerms.filter((term) => term.campaignName === campaign.campaignName).length,
         eligibleTerms: terms.length,
         skippedBelowThresholdTerms,
-        productIdentifier: match.identifier,
-        theme: match.theme,
-        matchStatus: match.status,
-        matchSource: match.matchSource,
-        skipReason: match.skipReason,
-        matchedTitle: match.matchedTitle,
-        category: match.category,
-        itemDescription: match.itemDescription,
-        matchScore: match.score,
-        synthesizedPrefills: synthesizeCampaignScratchpad(evaluations, spendThreshold),
+        productIdentifier,
+        theme,
+        matchStatus: lowConfidenceNoMatch ? "ambiguous" : "matched",
+        matchSource: lowConfidenceNoMatch ? "none" : "ai_combined",
+        skipReason: null,
+        matchedTitle: validated.matchedProduct?.productName ?? null,
+        category: validated.matchedProduct?.category ?? null,
+        itemDescription: validated.matchedProduct?.itemDescription ?? null,
+        matchScore:
+          validated.matchConfidence === "HIGH"
+            ? 1
+            : validated.matchConfidence === "MEDIUM"
+              ? 0.75
+              : null,
+        synthesizedPrefills: lowConfidenceNoMatch
+          ? { mono: [], bi: [], tri: [] }
+          : synthesizeCampaignScratchpad(evaluations, spendThreshold),
         evaluations,
       });
     }
@@ -558,7 +421,7 @@ export async function POST(request: Request) {
 
     if (ambiguousCampaigns > 0) {
       warnings.push(
-        `${ambiguousCampaigns} preview campaign(s) remain unresolved after deterministic and fallback product matching.`,
+        `${ambiguousCampaigns} preview campaign(s) were flagged because AI could not confidently identify a single product.`,
       );
     }
 
@@ -589,7 +452,8 @@ export async function POST(request: Request) {
         preview_campaigns: previewResults.length,
         ambiguous_campaigns: ambiguousCampaigns,
         intentionally_skipped_campaigns: intentionallySkippedCampaigns,
-        ai_match_fallback_calls: aiMatchFallbackCalls,
+        ai_low_confidence_campaigns: aiLowConfidenceCampaigns,
+        catalog_products: catalogProducts.length,
         evaluated_terms: recommendationCounts.keep + recommendationCounts.negate + recommendationCounts.review,
       },
     });

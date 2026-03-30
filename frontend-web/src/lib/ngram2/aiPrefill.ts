@@ -15,6 +15,7 @@ export type SearchTermFactRow = {
 
 export type NgramListingRow = {
   child_asin: string | null;
+  child_sku: string | null;
   child_product_name: string | null;
   parent_title: string | null;
   category: string | null;
@@ -43,7 +44,7 @@ export type CampaignProductMatch = {
   itemDescription: string | null;
   score: number | null;
   theme: string | null;
-  matchSource: "deterministic" | "ai_fallback" | "none";
+  matchSource: "deterministic" | "ai_fallback" | "ai_combined" | "none";
   skipReason: "brand_mix_defensive" | "missing_identifier" | null;
   candidates: Array<{
     title: string;
@@ -104,6 +105,29 @@ export type PreparedListingCatalog = {
     category: string | null;
     itemDescription: string | null;
   }>;
+};
+
+export type AIPrefillCatalogProduct = {
+  childAsin: string;
+  childSku: string | null;
+  productName: string;
+  category: string | null;
+  itemDescription: string | null;
+};
+
+export type AIPrefillTermRecommendation = {
+  search_term: string;
+  recommendation: "KEEP" | "NEGATE" | "REVIEW";
+  confidence: "HIGH" | "MEDIUM" | "LOW";
+  reason_tag: string;
+  rationale: string | null;
+};
+
+export type ValidatedAIPrefillCampaignResponse = {
+  matchedProduct: AIPrefillCatalogProduct | null;
+  matchConfidence: "HIGH" | "MEDIUM" | "LOW";
+  matchReason: string;
+  termRecommendations: AIPrefillTermRecommendation[];
 };
 
 export const AI_PREFILL_PREVIEW_MAX_CAMPAIGNS = 6;
@@ -246,6 +270,37 @@ export const buildNgramsForQuery = (query: string | null | undefined, size: 1 | 
 
 const dedupeTokens = (tokens: string[]): string[] => [...new Set(tokens)];
 
+const toNonEmptyString = (value: unknown): string => String(value || "").trim();
+
+const parseRecommendationStrict = (value: unknown): "KEEP" | "NEGATE" | "REVIEW" => {
+  const normalized = toNonEmptyString(value).toUpperCase();
+  if (normalized === "KEEP" || normalized === "NEGATE" || normalized === "REVIEW") {
+    return normalized;
+  }
+  throw new Error(`Invalid recommendation: ${String(value || "")}`);
+};
+
+const parseConfidenceStrict = (value: unknown): "HIGH" | "MEDIUM" | "LOW" => {
+  const normalized = toNonEmptyString(value).toUpperCase();
+  if (normalized === "HIGH" || normalized === "MEDIUM" || normalized === "LOW") {
+    return normalized;
+  }
+  throw new Error(`Invalid confidence: ${String(value || "")}`);
+};
+
+const normalizeReasonTag = (value: unknown): string => {
+  const raw = toNonEmptyString(value).toLowerCase();
+  if (!raw) throw new Error("Missing reason_tag");
+  const normalized = raw.replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 48);
+  if (!normalized) throw new Error("Invalid reason_tag");
+  return normalized;
+};
+
+const normalizeRationale = (value: unknown): string | null => {
+  const raw = toNonEmptyString(value);
+  return raw ? raw.slice(0, 240) : null;
+};
+
 const buildFamilyTokens = (normalized: string, commonTokens: Set<string>): string[] => {
   const tokens = dedupeTokens(normalized.split(" ").filter(isMeaningfulProductToken));
   const withoutCommon = tokens.filter((token) => !commonTokens.has(token));
@@ -291,6 +346,147 @@ export const buildPreparedListingCatalog = (listings: NgramListingRow[]): Prepar
         familyTokens,
         familyKey: familyTokens.join(" "),
       };
+    }),
+  };
+};
+
+export const prepareAIPrefillCatalogProducts = (listings: NgramListingRow[]): AIPrefillCatalogProduct[] => {
+  const deduped = new Map<string, AIPrefillCatalogProduct>();
+
+  for (const listing of listings) {
+    const childAsin = toNonEmptyString(listing.child_asin);
+    const productName = toNonEmptyString(listing.child_product_name || listing.parent_title);
+    if (!childAsin || !productName) continue;
+
+    const existing = deduped.get(childAsin);
+    const candidate: AIPrefillCatalogProduct = {
+      childAsin,
+      childSku: toNonEmptyString(listing.child_sku) || null,
+      productName,
+      category: toNonEmptyString(listing.category) || null,
+      itemDescription: toNonEmptyString(listing.item_description) || null,
+    };
+
+    if (!existing) {
+      deduped.set(childAsin, candidate);
+      continue;
+    }
+
+    if (!existing.itemDescription && candidate.itemDescription) {
+      deduped.set(childAsin, candidate);
+    }
+  }
+
+  return [...deduped.values()].sort((left, right) => left.productName.localeCompare(right.productName));
+};
+
+export const validateAIPrefillCampaignResponse = (
+  payload: unknown,
+  catalogProducts: AIPrefillCatalogProduct[],
+  expectedSearchTerms: string[],
+): ValidatedAIPrefillCampaignResponse => {
+  if (!payload || typeof payload !== "object") {
+    throw new Error("AI response must be a JSON object.");
+  }
+
+  const raw = payload as Record<string, unknown>;
+  const matchConfidence = parseConfidenceStrict(raw.match_confidence);
+  const matchReason = toNonEmptyString(raw.match_reason).slice(0, 240);
+  if (!matchReason) {
+    throw new Error("AI response is missing match_reason.");
+  }
+
+  let matchedProduct: AIPrefillCatalogProduct | null = null;
+  if (raw.matched_product != null) {
+    if (typeof raw.matched_product !== "object") {
+      throw new Error("matched_product must be an object or null.");
+    }
+
+    const matchedRaw = raw.matched_product as Record<string, unknown>;
+    const childAsin = toNonEmptyString(matchedRaw.child_asin);
+    if (!childAsin) {
+      throw new Error("matched_product.child_asin is required when matched_product is present.");
+    }
+
+    const catalogRow = catalogProducts.find((product) => product.childAsin === childAsin);
+    if (!catalogRow) {
+      throw new Error(`matched_product.child_asin does not exist in catalog: ${childAsin}`);
+    }
+
+    const childSku = toNonEmptyString(matchedRaw.child_sku);
+    const productName = toNonEmptyString(matchedRaw.product_name);
+    if (childSku && catalogRow.childSku && childSku !== catalogRow.childSku) {
+      throw new Error(`matched_product.child_sku does not match catalog row for ${childAsin}`);
+    }
+    if (productName && productName !== catalogRow.productName) {
+      throw new Error(`matched_product.product_name does not match catalog row for ${childAsin}`);
+    }
+
+    matchedProduct = catalogRow;
+  }
+
+  if (matchConfidence !== "LOW" && !matchedProduct) {
+    throw new Error("AI response must return a matched_product when match_confidence is HIGH or MEDIUM.");
+  }
+  if (matchConfidence === "LOW" && matchedProduct) {
+    throw new Error("AI response must set matched_product to null when match_confidence is LOW.");
+  }
+
+  if (!Array.isArray(raw.term_recommendations)) {
+    throw new Error("AI response is missing term_recommendations array.");
+  }
+
+  if (raw.term_recommendations.length !== expectedSearchTerms.length) {
+    throw new Error(
+      `AI response returned ${raw.term_recommendations.length} term recommendations for ${expectedSearchTerms.length} input terms.`,
+    );
+  }
+
+  const expectedByKey = new Map(
+    expectedSearchTerms.map((term) => [term.trim().toLowerCase(), term.trim()]),
+  );
+  const seen = new Set<string>();
+  const recommendationsByKey = new Map<string, AIPrefillTermRecommendation>();
+
+  for (const recommendation of raw.term_recommendations as Array<Record<string, unknown>>) {
+    if (!recommendation || typeof recommendation !== "object") {
+      throw new Error("Each term recommendation must be an object.");
+    }
+
+    const searchTerm = toNonEmptyString(recommendation.search_term);
+    const key = searchTerm.toLowerCase();
+    if (!searchTerm || !expectedByKey.has(key)) {
+      throw new Error(`AI response included an unexpected search_term: ${searchTerm || "<empty>"}`);
+    }
+    if (seen.has(key)) {
+      throw new Error(`AI response included a duplicate search_term: ${searchTerm}`);
+    }
+    seen.add(key);
+
+    recommendationsByKey.set(key, {
+      search_term: expectedByKey.get(key) || searchTerm,
+      recommendation: parseRecommendationStrict(recommendation.recommendation),
+      confidence: parseConfidenceStrict(recommendation.confidence),
+      reason_tag: normalizeReasonTag(recommendation.reason_tag),
+      rationale: normalizeRationale(recommendation.rationale),
+    });
+  }
+
+  if (seen.size !== expectedSearchTerms.length) {
+    const missingTerms = expectedSearchTerms.filter((term) => !seen.has(term.trim().toLowerCase()));
+    throw new Error(`AI response is missing recommendations for: ${missingTerms.join(", ")}`);
+  }
+
+  return {
+    matchedProduct,
+    matchConfidence,
+    matchReason,
+    termRecommendations: expectedSearchTerms.map((term) => {
+      const recommendation = recommendationsByKey.get(term.trim().toLowerCase());
+      if (!recommendation) {
+        throw new Error(`AI response is missing recommendation for ${term}`);
+      }
+      return recommendation;
     }),
   };
 };

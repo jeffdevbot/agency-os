@@ -10,7 +10,9 @@ import {
   isLegacyExcludedCampaign,
   parseCampaignProductIdentifier,
   parseCampaignTheme,
+  prepareAIPrefillCatalogProducts,
   synthesizeCampaignScratchpad,
+  validateAIPrefillCampaignResponse,
   type SearchTermFactRow,
 } from "./aiPrefill";
 
@@ -33,6 +35,7 @@ describe("ngram2 aiPrefill helpers", () => {
     const match = chooseBestListingMatch("Screen Shine - Duo | SPM | SKW | Ex. | screen cleaner | Rank", [
       {
         child_asin: "A1",
+        child_sku: "DUO-1",
         child_product_name: "WHOOSH! Screen Shine Duo 3.4 + 0.3 fl oz",
         parent_title: null,
         category: "electronics cleaner",
@@ -40,6 +43,7 @@ describe("ngram2 aiPrefill helpers", () => {
       },
       {
         child_asin: "A2",
+        child_sku: "SPORT-1",
         child_product_name: "WHOOSH! Sport Shine 3.4 fl oz Eye Guard Cleaner",
         parent_title: null,
         category: "eyeglasses cleaner",
@@ -55,6 +59,7 @@ describe("ngram2 aiPrefill helpers", () => {
     const match = chooseBestListingMatch("Brand | SPM | MKW | Br. | Mix. | Def", [
       {
         child_asin: "A1",
+        child_sku: "PRO-1",
         child_product_name: "WHOOSH! Screen Shine Pro 16.9 fl oz",
         parent_title: null,
         category: "electronics cleaner",
@@ -70,6 +75,7 @@ describe("ngram2 aiPrefill helpers", () => {
     const listings = [
       {
         child_asin: "A1",
+        child_sku: "PRO-1",
         child_product_name: "WHOOSH! Screen Shine Pro 16.9 fl oz",
         parent_title: null,
         category: "electronics cleaner",
@@ -77,6 +83,7 @@ describe("ngram2 aiPrefill helpers", () => {
       },
       {
         child_asin: "A2",
+        child_sku: "GOXL-1",
         child_product_name: "WHOOSH! Screen Shine Go XL 3.4 fl oz",
         parent_title: null,
         category: "electronics cleaner",
@@ -84,6 +91,7 @@ describe("ngram2 aiPrefill helpers", () => {
       },
       {
         child_asin: "A3",
+        child_sku: "DUO-1",
         child_product_name: "WHOOSH! Screen Shine Duo 3.4 + 0.3 fl oz",
         parent_title: null,
         category: "electronics cleaner",
@@ -104,6 +112,7 @@ describe("ngram2 aiPrefill helpers", () => {
     const listings = [
       {
         child_asin: "B1",
+        child_sku: "SERUM-NIGHT",
         child_product_name: "Glow Labs Hydrating Serum Night Repair 30 ml",
         parent_title: null,
         category: "skin care",
@@ -111,6 +120,7 @@ describe("ngram2 aiPrefill helpers", () => {
       },
       {
         child_asin: "B2",
+        child_sku: "SERUM-DAY",
         child_product_name: "Glow Labs Hydrating Serum Day Defense 30 ml",
         parent_title: null,
         category: "skin care",
@@ -118,6 +128,7 @@ describe("ngram2 aiPrefill helpers", () => {
       },
       {
         child_asin: "B3",
+        child_sku: "CLEANSER-C",
         child_product_name: "Glow Labs Vitamin C Gel Cleanser 120 ml",
         parent_title: null,
         category: "skin care",
@@ -275,5 +286,98 @@ describe("ngram2 aiPrefill helpers", () => {
     expect(scratchpad.mono.map((item) => item.gram)).toContain("travel");
     expect(scratchpad.mono.map((item) => item.gram)).not.toContain("screen");
     expect(scratchpad.bi.map((item) => item.gram)).toContain("travel size");
+  });
+
+  it("prepares catalog rows and validates the strict AI response contract", () => {
+    const catalog = prepareAIPrefillCatalogProducts([
+      {
+        child_asin: "A1",
+        child_sku: "1FGAMZ500US",
+        child_product_name: "WHOOSH! Screen Shine Pro 16.9 fl oz Refillable Screen Cleaner",
+        parent_title: null,
+        category: "electronics cleaner",
+        item_description: "large screen cleaner",
+      },
+      {
+        child_asin: "A2",
+        child_sku: "1FG100MLAMZ",
+        child_product_name: "WHOOSH! Screen Shine Go XL 3.4 fl oz",
+        parent_title: null,
+        category: "electronics cleaner",
+        item_description: "travel cleaner",
+      },
+    ]);
+
+    const validated = validateAIPrefillCampaignResponse(
+      {
+        matched_product: {
+          child_asin: "A1",
+          child_sku: "1FGAMZ500US",
+          product_name: "WHOOSH! Screen Shine Pro 16.9 fl oz Refillable Screen Cleaner",
+        },
+        match_confidence: "HIGH",
+        match_reason: "Campaign family name maps directly to the Pro listing.",
+        term_recommendations: [
+          {
+            search_term: "screen cleaner",
+            recommendation: "KEEP",
+            confidence: "HIGH",
+            reason_tag: "core_use_case",
+            rationale: "Direct fit.",
+          },
+          {
+            search_term: "travel size screen cleaner",
+            recommendation: "NEGATE",
+            confidence: "HIGH",
+            reason_tag: "travel_size_mismatch",
+            rationale: "This campaign maps to the larger Pro bottle.",
+          },
+        ],
+      },
+      catalog,
+      ["screen cleaner", "travel size screen cleaner"],
+    );
+
+    expect(validated.matchedProduct?.childAsin).toBe("A1");
+    expect(validated.termRecommendations).toHaveLength(2);
+    expect(validated.termRecommendations[1]?.reason_tag).toBe("travel_size_mismatch");
+  });
+
+  it("fails loudly when the AI response is missing a term recommendation or returns a bad product", () => {
+    const catalog = prepareAIPrefillCatalogProducts([
+      {
+        child_asin: "A1",
+        child_sku: "1FGAMZ500US",
+        child_product_name: "WHOOSH! Screen Shine Pro 16.9 fl oz Refillable Screen Cleaner",
+        parent_title: null,
+        category: "electronics cleaner",
+        item_description: "large screen cleaner",
+      },
+    ]);
+
+    expect(() =>
+      validateAIPrefillCampaignResponse(
+        {
+          matched_product: {
+            child_asin: "BAD-ASIN",
+            child_sku: "1FGAMZ500US",
+            product_name: "WHOOSH! Screen Shine Pro 16.9 fl oz Refillable Screen Cleaner",
+          },
+          match_confidence: "HIGH",
+          match_reason: "wrong",
+          term_recommendations: [
+            {
+              search_term: "screen cleaner",
+              recommendation: "KEEP",
+              confidence: "HIGH",
+              reason_tag: "core_use_case",
+              rationale: "fit",
+            },
+          ],
+        },
+        catalog,
+        ["screen cleaner", "travel size screen cleaner"],
+      ),
+    ).toThrow();
   });
 });

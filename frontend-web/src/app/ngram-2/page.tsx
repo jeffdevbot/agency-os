@@ -87,7 +87,7 @@ type AIPrefillCampaignPreview = {
   productIdentifier: string | null;
   theme: string | null;
   matchStatus: "matched" | "ambiguous" | "intentionally_skipped";
-  matchSource: "deterministic" | "ai_fallback" | "none";
+  matchSource: "ai_combined" | "none";
   skipReason: "brand_mix_defensive" | "missing_identifier" | null;
   matchedTitle: string | null;
   category: string | null;
@@ -988,15 +988,15 @@ export default function NgramTwoPage() {
                           <p className="text-base font-semibold text-[#0f172a]">{campaign.campaignName}</p>
                           <p className="mt-1 text-sm text-[#4c576f]">
                             {campaign.matchedTitle
-                              ? `${campaign.matchedTitle}${campaign.theme ? ` • theme: ${campaign.theme}` : ""}${campaign.matchSource === "ai_fallback" ? " • AI disambiguated" : ""}`
+                              ? `${campaign.matchedTitle}${campaign.theme ? ` • theme: ${campaign.theme}` : ""}${campaign.matchSource === "ai_combined" ? " • AI matched" : ""}`
                               : campaign.matchStatus === "intentionally_skipped"
                                 ? "Intentionally skipped campaign (brand / mix / defensive)."
-                                : "Product mapping remains ambiguous."}
+                                : "AI could not confidently identify a single product."}
                           </p>
                         </div>
                         <div className="rounded-full border border-[#dbe4f0] bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-[#64748b]">
                           {campaign.matchStatus === "matched"
-                            ? campaign.matchSource === "ai_fallback"
+                            ? campaign.matchSource === "ai_combined"
                               ? "ai match"
                               : "matched"
                             : campaign.matchStatus === "intentionally_skipped"
