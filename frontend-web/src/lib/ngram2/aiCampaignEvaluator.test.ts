@@ -112,6 +112,27 @@ describe("evaluateCampaignWithValidationRetry", () => {
 
     const calls = vi.mocked(openaiModule.createChatCompletion).mock.calls;
     expect(calls).toHaveLength(2);
+    expect(calls[1]?.[0][2]).toEqual({
+      role: "assistant",
+      content: JSON.stringify({
+        matched_product: {
+          child_asin: "A1",
+          child_sku: "DUO-1",
+          product_name: "WHOOSH! Screen Shine Duo",
+        },
+        match_confidence: "",
+        match_reason: "bad draft",
+        term_recommendations: [
+          {
+            search_term: "laptop cloth",
+            recommendation: "NEGATE",
+            confidence: "",
+            reason_tag: "cloth_primary_intent",
+            rationale: "standalone cloth query",
+          },
+        ],
+      }),
+    });
     expect(calls[1]?.[0].at(-1)?.content).toContain("Invalid confidence:");
   });
 

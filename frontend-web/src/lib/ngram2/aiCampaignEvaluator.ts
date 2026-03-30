@@ -56,12 +56,20 @@ export const evaluateCampaignWithValidationRetry = async ({
   let tokensOut = 0;
   let tokensTotal = 0;
   let lastError: Error | null = null;
+  let lastContent: string | null = null;
 
   for (let attempt = 1; attempt <= MAX_VALIDATION_ATTEMPTS; attempt += 1) {
     const messages =
       attempt === 1
         ? baseMessages
-        : [...baseMessages, buildValidationRetryMessage(lastError?.message || "Unknown validation error")];
+        : [
+            ...baseMessages,
+            {
+              role: "assistant" as const,
+              content: lastContent || "{}",
+            },
+            buildValidationRetryMessage(lastError?.message || "Unknown validation error"),
+          ];
 
     const completion = await createChatCompletion(messages, {
       model,
@@ -71,6 +79,7 @@ export const evaluateCampaignWithValidationRetry = async ({
     tokensIn += completion.tokensIn;
     tokensOut += completion.tokensOut;
     tokensTotal += completion.tokensTotal;
+    lastContent = completion.content ?? "{}";
 
     try {
       const parsed = parseJSONResponse<Record<string, unknown>>(completion.content || "{}");
