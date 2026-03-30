@@ -407,7 +407,6 @@ export async function POST(request: Request) {
 
       const result = await createChatCompletion(buildCampaignPrompt(campaign, catalogProducts, terms), {
         model: NGRAM_MODEL_OVERRIDE || undefined,
-        temperature: 0,
         maxTokens: 2200,
       });
 
