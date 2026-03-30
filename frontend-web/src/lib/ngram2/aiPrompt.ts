@@ -11,6 +11,8 @@ export interface AIPromptMessage {
   content: string;
 }
 
+export const NGRAM_AI_PROMPT_VERSION = "ngram_step3_calibrated_v2026_03_30";
+
 export const SYSTEM_PROMPT = `You evaluate Amazon Sponsored Products shopper queries for N-Gram negative keyword prefill.
 
 Return strict JSON with this shape:

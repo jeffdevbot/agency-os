@@ -89,6 +89,7 @@ def test_build_workbook_writes_ai_prefills_to_scratchpad_columns():
         ai_summary={
             "preview_run_id": "preview-run-123",
             "model": "gpt-5.4-mini-2026-03-17",
+            "prompt_version": "ngram_step3_calibrated_v2026_03_30",
             "spend_threshold": "1.0",
         },
     )
@@ -100,7 +101,8 @@ def test_build_workbook_writes_ai_prefills_to_scratchpad_columns():
 
         assert summary_ws["J3"].value == "AI Preview Run: preview-run-123"
         assert summary_ws["J4"].value == "AI Model: gpt-5.4-mini-2026-03-17"
-        assert summary_ws["J5"].value == "AI Threshold: 1.0"
+        assert summary_ws["J5"].value == "AI Prompt Version: ngram_step3_calibrated_v2026_03_30"
+        assert summary_ws["J6"].value == "AI Threshold: 1.0"
 
         assert ws["AV6"].value == "AI Recommendation"
         assert ws["AW6"].value == "AI Confidence"

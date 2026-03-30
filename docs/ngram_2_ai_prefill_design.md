@@ -411,6 +411,7 @@ Current implemented state:
    - campaign-level product matches
    - term recommendations
    - synthesized mono/bi/tri scratchpads
+4. preview rows now also persist explicit `prompt_version`
 
 Why this matters:
 
@@ -434,6 +435,14 @@ Current implemented follow-through:
      gram tables update naturally
    - longer `NEGATE` terms are prefilled on the search-term row itself as
      exact `NE`
+5. workbook summary metadata now records:
+   - `AI Preview Run`
+   - `AI Model`
+   - `AI Prompt Version`
+   - `AI Threshold`
+6. reviewed legacy workbook uploads now perform best-effort override capture
+   when `AI Preview Run` metadata is present, persisting the resulting diff
+   payload in `ngram_ai_override_runs`
 
 ## Manual path remains first-class
 
@@ -757,7 +766,7 @@ implementation should still be built in layers:
 3. search-term AI judgment contract
 4. deterministic gram synthesis layer
 5. workbook-prefill writer
-6. optional override logging after reviewed-workbook upload
+6. reviewed-workbook override logging after upload
 
 ## Open questions
 
@@ -781,6 +790,8 @@ The best version of `N-Gram 2.0` AI prefill is:
 6. conservative in gram prefill
 7. workbook-compatible
 8. fully reviewable by analysts
+9. traceable by prompt/model/version
+10. override-capturable for later calibration
 
 That preserves the current team's workflow while still delivering real AI
 time savings.

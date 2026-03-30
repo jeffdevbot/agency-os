@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { type AIPrefillCatalogProduct, type AggregatedCampaign, type AggregatedSearchTerm } from "@/lib/ngram2/aiPrefill";
 
-import { buildCampaignPrompt, SYSTEM_PROMPT } from "@/lib/ngram2/aiPrompt";
+import { buildCampaignPrompt, NGRAM_AI_PROMPT_VERSION, SYSTEM_PROMPT } from "@/lib/ngram2/aiPrompt";
 
 describe("ngram-2 ai prefill preview route prompt", () => {
   it("includes explicit marketplace code in the campaign payload", () => {
@@ -41,6 +41,7 @@ describe("ngram-2 ai prefill preview route prompt", () => {
     const userMessage = messages.find((message) => message.role === "user");
 
     expect(userMessage?.content).toContain('"marketplace_code": "CA"');
+    expect(NGRAM_AI_PROMPT_VERSION).toBe("ngram_step3_calibrated_v2026_03_30");
   });
 
   it("documents the cloth-only and CA French decision rules", () => {

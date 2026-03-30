@@ -39,6 +39,7 @@ Read first, in this order:
    - successful preview payloads now persist in `ngram_ai_preview_runs`
    - preview responses now return `preview_run_id`, and the AI-prefilled
      workbook path can reuse that exact saved run
+   - preview rows now persist explicit `prompt_version`
    - preview user payloads now pass explicit `marketplace_code` into the AI
      call
    - the Step 3 prompt now explicitly tightens `REVIEW` vs `NEGATE`
@@ -64,6 +65,11 @@ Read first, in this order:
      - `NEGATE` terms with 1/2/3 cleaned words go directly into scratchpad
        mono/bi/tri columns
      - longer `NEGATE` terms prefill the search-term row as exact `NE`
+   - workbook summary metadata now records `AI Preview Run`, `AI Model`,
+     `AI Prompt Version`, and `AI Threshold`
+   - legacy `/ngram/collect` now performs best-effort override capture when a
+     reviewed workbook still contains `AI Preview Run` metadata, and persists
+     the resulting diff payload to `ngram_ai_override_runs`
 
 ## Important validation findings
 
@@ -150,7 +156,8 @@ Recommended order:
    and identify the next smallest useful SP-focused implementation slice:
    - workbook-prefill tuning
    - analyst-review ergonomics
-   - override logging / calibration
+- reviewed-workbook upload UX for `/ngram-2`
+- override logging / calibration analysis
 3. keep validating `SB` opportunistically on additional modern accounts, but
    do not block `SP` product progress on full legacy SB parity
 4. avoid touching the legacy `/ngram` route unless explicitly asked

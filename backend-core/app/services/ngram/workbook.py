@@ -214,8 +214,10 @@ def build_workbook(
                 summary_ws.write_string(2, 9, f"AI Preview Run: {ai_summary['preview_run_id']}", runinfo_fmt)
             if ai_summary.get("model"):
                 summary_ws.write_string(3, 9, f"AI Model: {ai_summary['model']}", runinfo_fmt)
+            if ai_summary.get("prompt_version"):
+                summary_ws.write_string(4, 9, f"AI Prompt Version: {ai_summary['prompt_version']}", runinfo_fmt)
             if ai_summary.get("spend_threshold") is not None:
-                summary_ws.write_string(4, 9, f"AI Threshold: {ai_summary['spend_threshold']}", runinfo_fmt)
+                summary_ws.write_string(5, 9, f"AI Threshold: {ai_summary['spend_threshold']}", runinfo_fmt)
 
         row = 1
         sheet_name_map: Dict[str, str] = {}

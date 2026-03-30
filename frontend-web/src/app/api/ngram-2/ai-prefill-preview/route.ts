@@ -4,7 +4,7 @@ import { logAppError } from "@/lib/ai/errorLogger";
 import { persistNgramPreviewRun } from "@/lib/ai/ngramPreviewLogger";
 import { logUsage } from "@/lib/ai/usageLogger";
 import { createChatCompletion, parseJSONResponse } from "@/lib/composer/ai/openai";
-import { buildCampaignPrompt } from "@/lib/ngram2/aiPrompt";
+import { buildCampaignPrompt, NGRAM_AI_PROMPT_VERSION } from "@/lib/ngram2/aiPrompt";
 import {
   aggregateSearchTerms,
   AI_PREFILL_PREVIEW_MAX_CAMPAIGNS,
@@ -450,6 +450,7 @@ export async function POST(request: Request) {
       intentionally_skipped_campaigns: intentionallySkippedCampaigns,
       recommendation_counts: recommendationCounts,
       model: model || null,
+      prompt_version: NGRAM_AI_PROMPT_VERSION,
       campaigns: previewResults,
       warnings,
     };
@@ -486,6 +487,7 @@ export async function POST(request: Request) {
       spendThreshold,
       respectLegacyExclusions,
       model: model || null,
+      promptVersion: NGRAM_AI_PROMPT_VERSION,
       promptTokens: tokensIn,
       completionTokens: tokensOut,
       totalTokens: tokensTotal,

@@ -9,6 +9,7 @@ type PersistNgramPreviewRunParams = {
   spendThreshold: number;
   respectLegacyExclusions: boolean;
   model: string | null;
+  promptVersion: string;
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
@@ -31,6 +32,7 @@ export const persistNgramPreviewRun = async (
         spend_threshold: params.spendThreshold,
         respect_legacy_exclusions: params.respectLegacyExclusions,
         model: params.model,
+        prompt_version: params.promptVersion,
         prompt_tokens: params.promptTokens,
         completion_tokens: params.completionTokens,
         total_tokens: params.totalTokens,

@@ -613,6 +613,7 @@ Columns:
 - `spend_threshold numeric(12,2) not null check (spend_threshold >= 0)`
 - `respect_legacy_exclusions boolean not null default true`
 - `model text`
+- `prompt_version text`
 - `prompt_tokens integer not null default 0 check (prompt_tokens >= 0)`
 - `completion_tokens integer not null default 0 check (completion_tokens >= 0)`
 - `total_tokens integer not null default 0 check (total_tokens >= 0)`
@@ -631,10 +632,44 @@ Notes:
 - `ngram_ai_preview_runs` stores the exact preview payload returned to the UI:
   warnings, campaign cards, match metadata, term recommendations, and
   synthesized mono/bi/tri scratchpads.
+- `prompt_version` stores the explicit Step 3 prompt identifier used for the
+  saved run, so later override analysis is not forced to infer behavior from
+  timestamps or commits.
 - Current writes are best-effort from the frontend preview route, matching the
   rest of the shared frontend logging pattern.
 
-### 14. `wbr_report_snapshots`
+### 14. `ngram_ai_override_runs`
+
+Purpose:
+
+- Persist reviewed-workbook diffs between saved AI preview output and analyst
+  final submission for later calibration analysis.
+
+Columns:
+
+- `id uuid primary key default gen_random_uuid()`
+- `preview_run_id uuid not null references public.ngram_ai_preview_runs(id) on delete restrict`
+- `profile_id uuid not null references public.wbr_profiles(id) on delete restrict`
+- `collected_by_auth_user_id uuid`
+- `source_filename text`
+- `model text`
+- `prompt_version text`
+- `override_payload jsonb not null`
+- `created_at timestamptz not null default now()`
+
+Constraints/indexes:
+
+- Index on `(preview_run_id, created_at desc)`
+- Index on `(profile_id, created_at desc)`
+
+Notes:
+
+- This table is populated best-effort during legacy `/ngram/collect` when the
+  reviewed workbook still carries `AI Preview Run` metadata from `/ngram-2`.
+- `override_payload` stores both term-level and gram-level diffs so later
+  tuning can inspect where analysts accepted, rejected, or added negatives.
+
+### 15. `wbr_report_snapshots`
 
 Purpose:
 
@@ -668,7 +703,7 @@ Notes:
 - It supports downstream drafting, MCP summaries, and audit/debug workflows
   without re-deriving the digest every time.
 
-### 15. `wbr_asin_exclusions`
+### 16. `wbr_asin_exclusions`
 
 Purpose:
 

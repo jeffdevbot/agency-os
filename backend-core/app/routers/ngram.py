@@ -21,6 +21,7 @@ from ..services.ngram import (
     build_workbook,
     NativeNgramWorkbookService,
 )
+from ..services.ngram.override_capture import persist_ai_override_capture
 from openpyxl import load_workbook
 import xlsxwriter
 
@@ -187,6 +188,7 @@ def _build_prefill_context_from_saved_preview(
     ai_summary: dict[str, str | float | None] = {
         "preview_run_id": _to_non_empty_text(preview_run.get("id")) or None,
         "model": _to_non_empty_text(preview_payload.get("model")) or _to_non_empty_text(preview_run.get("model")) or None,
+        "prompt_version": _to_non_empty_text(preview_payload.get("prompt_version")) or _to_non_empty_text(preview_run.get("prompt_version")) or None,
         "spend_threshold": float(preview_run.get("spend_threshold")) if preview_run.get("spend_threshold") is not None else None,
     }
 
@@ -196,7 +198,7 @@ def _build_prefill_context_from_saved_preview(
 def _load_saved_preview_run(service: NativeNgramWorkbookService, preview_run_id: str) -> dict[str, Any]:
     response = (
         service.db.table("ngram_ai_preview_runs")
-        .select("id,profile_id,ad_product,date_from,date_to,spend_threshold,respect_legacy_exclusions,model,preview_payload")
+        .select("id,profile_id,ad_product,date_from,date_to,spend_threshold,respect_legacy_exclusions,model,prompt_version,preview_payload")
         .eq("id", preview_run_id)
         .limit(1)
         .execute()
@@ -267,6 +269,31 @@ async def process_report(
             "app_version": settings.app_version,
         }
     )
+
+    try:
+        override_capture = persist_ai_override_capture(
+            _get_supabase(),
+            wb,
+            collected_by_auth_user_id=_to_non_empty_text(user.get("sub")) or None,
+            source_filename=file.filename,
+        )
+        if override_capture:
+            usage_logger.log(
+                {
+                    "user_id": user.get("sub"),
+                    "user_email": user.get("email"),
+                    "tool": "ngram",
+                    "action": "collect_ai_override_capture",
+                    "file_name": file.filename,
+                    "preview_run_id": override_capture.get("preview_run_id"),
+                    "override_capture_id": override_capture.get("id"),
+                    "status": "success",
+                    "app_version": settings.app_version,
+                }
+            )
+    except Exception:
+        # Override capture is best-effort and should never block summary export.
+        pass
 
     return FileResponse(
         workbook_path,

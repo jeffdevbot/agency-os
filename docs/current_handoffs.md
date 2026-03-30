@@ -277,6 +277,12 @@ historical reference.
      - the preview route now returns `preview_run_id`, and the AI-prefilled
        workbook path can reuse that saved run directly instead of depending
        only on transient browser state
+     - Step 3 preview rows now also persist explicit `prompt_version`
+     - AI-prefilled workbook summary metadata now records:
+       - `AI Preview Run`
+       - `AI Model`
+       - `AI Prompt Version`
+       - `AI Threshold`
      - Step 3 preview now has a dedicated model env var:
        `OPENAI_MODEL_NGRAM`
      - GPT-5-family request-shape handling is now centralized in the shared
@@ -305,16 +311,24 @@ historical reference.
        - longer `NEGATE` terms are prefilled as exact `NE` on the search-term
          row
      - workbook summary metadata now records the linked preview run id, model,
-       and spend threshold for traceability
+       prompt version, and spend threshold for traceability
+     - legacy `/ngram/collect` now performs best-effort override capture when
+       a reviewed workbook contains `AI Preview Run` metadata:
+       - the collect flow reads the saved preview payload back from
+         `ngram_ai_preview_runs`
+       - it compares AI term recommendations and synthesized grams against the
+         analyst’s final exact negatives and selected gram outputs
+       - the resulting diff payload is persisted in `ngram_ai_override_runs`
      - the preview route still lives under Next.js at
        `frontend-web/src/app/api/ngram-2/ai-prefill-preview/route.ts`, but the
-       saved-preview workbook reuse / AI-column write now also touches the
-       backend N-Gram route and workbook writer
+       saved-preview workbook reuse / AI-column write / override capture now
+       also touch the backend N-Gram route and workbook writer
      - current read:
        the Step 3 SP validation slice is effectively a pass
      - immediate next-session goal:
-       now that workbook prefill is linked to persisted preview runs, the next
-       useful slice is reviewed-workbook override logging and calibration
+       now that the first override-capture layer is live, the next useful
+       slice is a native `/ngram-2` reviewed-workbook upload UX plus analysis
+       surfaces for the captured override data
    - screenshots/export inspection confirmed:
      - campaign type is `Sponsored Brands`
      - campaign targeting is `MANUAL`
