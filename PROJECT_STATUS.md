@@ -7,6 +7,7 @@ _Last updated: 2026-03-30 (ET)_
 ---
 
 ## 2026-03-30 (ET)
+- **`/ngram-2` Step 4 can now run the full uncapped AI workbook flow without changing the cheap preview surface:** Step 3 remains the bounded top-6 / top-20 validation preview, while the Step 4 `Generate Full AI-Prefilled Workbook` action now runs a fresh full AI pass for all runnable above-threshold campaigns/terms in the selected window and immediately builds the workbook from that saved run.
 - **`/ngram-2` Step 3 runs now persist explicit prompt-version traceability:** New preview rows now store `prompt_version` directly on `ngram_ai_preview_runs`, the preview payload also carries it, and the AI-prefilled workbook summary now writes `AI Prompt Version` alongside preview run id / model / threshold.
 - **Reviewed N-Gram workbook uploads now capture silent AI-vs-analyst override diffs:** When a filled workbook still carries an `AI Preview Run` id, `/ngram/collect` now logs a best-effort `ngram_ai_override_runs` payload comparing saved AI term recommendations and synthesized grams against the analyst’s final exact negatives and accepted gram selections.
 - **`/ngram-2` Step 3 prompt now explicitly tightens REVIEW vs NEGATE calibration:** The AI preview prompt now tells the model that if it can write a clear one-sentence wrong-fit rationale, that should be a `NEGATE`, not a `REVIEW`; it also adds explicit cloth-only / accessory-only guidance plus a CA-French carve-out for foreign-language handling.

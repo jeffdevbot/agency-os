@@ -16,10 +16,13 @@ import {
   parseCampaignProductIdentifier,
   parseCampaignTheme,
   prepareAIPrefillCatalogProducts,
+  selectCampaignsForAIPrefill,
+  selectTermsForAIPrefillCampaign,
   synthesizeCampaignScratchpad,
   validateAIPrefillCampaignResponse,
   type AggregatedCampaign,
   type AggregatedSearchTerm,
+  type AIPrefillRunMode,
   type AIPrefillCatalogProduct,
   type CampaignPrefillScratchpad,
   type NgramListingRow,
@@ -218,6 +221,7 @@ const coerceRequest = async (request: Request): Promise<{
   dateTo: string;
   spendThreshold: number;
   respectLegacyExclusions: boolean;
+  runMode: AIPrefillRunMode;
 }> => {
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
   const profileId = String(body?.profile_id || "").trim();
@@ -225,6 +229,7 @@ const coerceRequest = async (request: Request): Promise<{
   const dateFrom = String(body?.date_from || "").trim();
   const dateTo = String(body?.date_to || "").trim();
   const spendThresholdRaw = Number(body?.spend_threshold ?? 0);
+  const runModeRaw = String(body?.run_mode || "preview").trim().toLowerCase();
 
   if (!profileId || !adProduct || !dateFrom || !dateTo) {
     throw new Error("profile_id, ad_product, date_from, and date_to are required");
@@ -238,6 +243,9 @@ const coerceRequest = async (request: Request): Promise<{
   if (dateFrom > dateTo) {
     throw new Error("date_from must be on or before date_to");
   }
+  if (runModeRaw !== "preview" && runModeRaw !== "full") {
+    throw new Error("run_mode must be either 'preview' or 'full'");
+  }
 
   return {
     profileId,
@@ -246,6 +254,7 @@ const coerceRequest = async (request: Request): Promise<{
     dateTo,
     spendThreshold: spendThresholdRaw,
     respectLegacyExclusions: body?.respect_legacy_exclusions !== false,
+    runMode: runModeRaw as AIPrefillRunMode,
   };
 };
 
@@ -260,7 +269,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const { profileId, adProduct, dateFrom, dateTo, spendThreshold, respectLegacyExclusions } =
+    const { profileId, adProduct, dateFrom, dateTo, spendThreshold, respectLegacyExclusions, runMode } =
       await coerceRequest(request);
 
     const warnings: string[] = [];
@@ -302,9 +311,9 @@ export async function POST(request: Request) {
     });
     const intentionallySkippedCampaigns =
       candidateCampaigns.length - runnableCampaigns.length;
-    const previewCampaigns = runnableCampaigns.slice(0, AI_PREFILL_PREVIEW_MAX_CAMPAIGNS);
+    const previewCampaigns = selectCampaignsForAIPrefill(runnableCampaigns, runMode);
 
-    if (runnableCampaigns.length > AI_PREFILL_PREVIEW_MAX_CAMPAIGNS) {
+    if (runMode === "preview" && runnableCampaigns.length > AI_PREFILL_PREVIEW_MAX_CAMPAIGNS) {
       warnings.push(
         `Preview is limited to the top ${AI_PREFILL_PREVIEW_MAX_CAMPAIGNS} runnable campaigns by eligible spend.`,
       );
@@ -320,14 +329,17 @@ export async function POST(request: Request) {
     let aiLowConfidenceCampaigns = 0;
 
     for (const campaign of previewCampaigns) {
-      const terms = campaign.terms.slice(0, AI_PREFILL_PREVIEW_MAX_TERMS_PER_CAMPAIGN);
+      const terms = selectTermsForAIPrefillCampaign(campaign, runMode);
       const skippedBelowThresholdTerms = aggregatedTerms.filter(
         (term) => term.campaignName === campaign.campaignName && term.spend < spendThreshold,
       ).length;
       const productIdentifier = parseCampaignProductIdentifier(campaign.campaignName);
       const theme = parseCampaignTheme(campaign.campaignName);
 
-      if (campaign.terms.length > AI_PREFILL_PREVIEW_MAX_TERMS_PER_CAMPAIGN) {
+      if (
+        runMode === "preview" &&
+        campaign.terms.length > AI_PREFILL_PREVIEW_MAX_TERMS_PER_CAMPAIGN
+      ) {
         warnings.push(
           `${campaign.campaignName}: preview only evaluates the top ${AI_PREFILL_PREVIEW_MAX_TERMS_PER_CAMPAIGN} terms by spend.`,
         );
@@ -435,16 +447,18 @@ export async function POST(request: Request) {
     );
 
     const previewPayload = {
+      run_mode: runMode,
       ad_product: adProduct,
       profile_id: profileId,
       date_from: dateFrom,
       date_to: dateTo,
       spend_threshold: spendThreshold,
-      max_campaigns: AI_PREFILL_PREVIEW_MAX_CAMPAIGNS,
-      max_terms_per_campaign: AI_PREFILL_PREVIEW_MAX_TERMS_PER_CAMPAIGN,
+      max_campaigns: runMode === "preview" ? AI_PREFILL_PREVIEW_MAX_CAMPAIGNS : null,
+      max_terms_per_campaign: runMode === "preview" ? AI_PREFILL_PREVIEW_MAX_TERMS_PER_CAMPAIGN : null,
       raw_rows: rows.length,
       eligible_rows: usableRows.length,
       candidate_campaigns: candidateCampaigns.length,
+      runnable_campaigns: runnableCampaigns.length,
       preview_campaigns: previewResults.length,
       ambiguous_campaigns: ambiguousCampaigns,
       intentionally_skipped_campaigns: intentionallySkippedCampaigns,
@@ -468,8 +482,10 @@ export async function POST(request: Request) {
         ad_product: adProduct,
         date_from: dateFrom,
         date_to: dateTo,
+        run_mode: runMode,
         spend_threshold: spendThreshold,
         preview_campaigns: previewResults.length,
+        runnable_campaigns: runnableCampaigns.length,
         ambiguous_campaigns: ambiguousCampaigns,
         intentionally_skipped_campaigns: intentionallySkippedCampaigns,
         ai_low_confidence_campaigns: aiLowConfidenceCampaigns,

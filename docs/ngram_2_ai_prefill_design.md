@@ -43,12 +43,14 @@ The proposed AI path is:
 
 1. user selects native `SP` data in `N-Gram 2.0`
 2. user sets a spend threshold
-3. system provides campaign context plus Windsor catalog context to AI
-4. AI evaluates qualifying search terms
-5. system converts term-level judgments into **conservative gram prefills**
-6. workbook is generated in the same practical shape as legacy N-Gram
-7. analyst reviews, edits, and overrides
-8. downstream upload / cleanup / publishing flow stays the same
+3. system can run a **bounded preview** for cheap validation or a **full run**
+   for workbook generation
+4. system provides campaign context plus Windsor catalog context to AI
+5. AI evaluates qualifying search terms
+6. system converts term-level judgments into **conservative gram prefills**
+7. workbook is generated in the same practical shape as legacy N-Gram
+8. analyst reviews, edits, and overrides
+9. downstream upload / cleanup / publishing flow stays the same
 
 Important nuance:
 
@@ -220,6 +222,27 @@ For each campaign:
 3. keep them visible in the workbook with blank AI-prefill fields
 
 This should happen before any LLM call.
+
+### Current shipped split: preview vs full run
+
+Current product behavior intentionally separates the two AI entrypoints:
+
+1. **Step 3 Preview**
+   - capped to the top `6` runnable campaigns
+   - capped to the top `20` above-threshold terms per campaign
+   - meant for cheap inspection / calibration
+2. **Step 4 Full AI workbook run**
+   - uses the same selected profile/window/threshold
+   - evaluates **all** runnable above-threshold campaigns and terms
+   - persists the resulting saved run and immediately builds the workbook from
+     that full saved run
+
+This split is deliberate:
+
+1. preview stays fast and inexpensive
+2. workbook generation is no longer silently limited by the preview caps
+3. the user can inspect a cheap slice first, then explicitly pay for the full
+   run when ready
 
 ## Step 4: AI relevance evaluation
 

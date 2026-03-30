@@ -5,6 +5,8 @@ import {
   buildNgramsForQuery,
   buildCampaignAggregates,
   chooseBestListingMatch,
+  selectCampaignsForAIPrefill,
+  selectTermsForAIPrefillCampaign,
   isIntentionallySkippedCampaign,
   isExpectedAmbiguousCampaign,
   isLegacyExcludedCampaign,
@@ -286,6 +288,35 @@ describe("ngram2 aiPrefill helpers", () => {
     expect(scratchpad.mono.map((item) => item.gram)).toContain("travel");
     expect(scratchpad.mono.map((item) => item.gram)).not.toContain("screen");
     expect(scratchpad.bi.map((item) => item.gram)).toContain("travel size");
+  });
+
+  it("caps preview mode but leaves full mode uncapped", () => {
+    const campaigns = Array.from({ length: 8 }, (_, campaignIndex) => ({
+      campaignName: `Campaign ${campaignIndex + 1}`,
+      totalSpend: 100 - campaignIndex,
+      termCount: 25,
+      terms: Array.from({ length: 25 }, (_, termIndex) => ({
+        campaignName: `Campaign ${campaignIndex + 1}`,
+        searchTerm: `term ${termIndex + 1}`,
+        impressions: 10,
+        clicks: 1,
+        spend: 25 - termIndex,
+        orders: 0,
+        sales: 0,
+        keyword: null,
+        keywordType: null,
+        targeting: null,
+        matchType: null,
+      })),
+    }));
+
+    const previewCampaigns = selectCampaignsForAIPrefill(campaigns, "preview");
+    const fullCampaigns = selectCampaignsForAIPrefill(campaigns, "full");
+
+    expect(previewCampaigns).toHaveLength(6);
+    expect(fullCampaigns).toHaveLength(8);
+    expect(selectTermsForAIPrefillCampaign(previewCampaigns[0], "preview")).toHaveLength(20);
+    expect(selectTermsForAIPrefillCampaign(fullCampaigns[0], "full")).toHaveLength(25);
   });
 
   it("prepares catalog rows and validates the strict AI response contract", () => {

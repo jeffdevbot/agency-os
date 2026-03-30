@@ -120,6 +120,9 @@ historical reference.
      are confirmed
    - `search_term_daily_facts` now preserves `keyword_id`, `keyword`,
      `keyword_type`, and `targeting`
+   - `/ngram-2` now intentionally splits AI work into:
+     - a bounded Step 3 preview for cheap validation
+     - a full uncapped Step 4 AI workbook run for actual workbook generation
    - STR UI now auto-refreshes every 15 seconds while runs are in `running`
      state, mirroring the WBR Ads sync experience
    - post-worker-redeploy live validation is now confirmed on a real Whoosh US

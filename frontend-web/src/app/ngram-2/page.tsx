@@ -102,16 +102,18 @@ type AIPrefillCampaignPreview = {
 };
 
 type AIPrefillPreview = {
+  run_mode?: "preview" | "full";
   ad_product: string;
   profile_id: string;
   date_from: string;
   date_to: string;
   spend_threshold: number;
-  max_campaigns: number;
-  max_terms_per_campaign: number;
+  max_campaigns: number | null;
+  max_terms_per_campaign: number | null;
   raw_rows: number;
   eligible_rows: number;
   candidate_campaigns: number;
+  runnable_campaigns?: number;
   preview_campaigns: number;
   ambiguous_campaigns: number;
   intentionally_skipped_campaigns: number;
@@ -257,7 +259,7 @@ export default function NgramTwoPage() {
         { mono: 0, bi: 0, tri: 0 },
       )
     : { mono: 0, bi: 0, tri: 0 };
-  const canGenerateAiWorkbook = canGenerateWorkbook && !aiWorkbookGenerating && Boolean(aiPreview);
+  const canGenerateAiWorkbook = canGenerateWorkbook && !aiWorkbookGenerating;
 
   const runStateClasses =
     runState.tone === "ready"
@@ -329,12 +331,50 @@ export default function NgramTwoPage() {
   };
 
   const handleGenerateAiWorkbook = async () => {
-    if (!canGenerateAiWorkbook || !selectedProfile || !aiPreview) return;
+    if (!canGenerateAiWorkbook || !selectedProfile) return;
+
+    const parsedThreshold = Number.parseFloat(spendThreshold);
+    if (!Number.isFinite(parsedThreshold) || parsedThreshold < 0) {
+      setAiWorkbookError("Spend threshold must be a number greater than or equal to 0.");
+      return;
+    }
 
     setAiWorkbookGenerating(true);
     setAiWorkbookError(null);
 
     try {
+      const previewResponse = await fetch("/api/ngram-2/ai-prefill-preview", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          profile_id: selectedProfile.profileId,
+          ad_product: selectedProductConfig?.amazonAdsAdProduct,
+          date_from: dateFrom,
+          date_to: dateTo,
+          spend_threshold: parsedThreshold,
+          respect_legacy_exclusions: legacyExclusions,
+          run_mode: "full",
+        }),
+      });
+
+      if (!previewResponse.ok) {
+        const detail = await previewResponse.json().catch(() => undefined);
+        throw new Error(detail?.detail || "Full AI workbook run failed");
+      }
+
+      const previewPayload = (await previewResponse.json()) as {
+        preview?: AIPrefillPreview;
+        preview_run_id?: string | null;
+      };
+      const fullRun = previewPayload.preview ?? null;
+      const fullRunId = previewPayload.preview_run_id ?? null;
+
+      if (!fullRun || !fullRunId) {
+        throw new Error("Full AI workbook run did not return a saved run id.");
+      }
+
       const supabase = getBrowserSupabaseClient();
       const { data } = await supabase.auth.getSession();
       const accessToken = data.session?.access_token;
@@ -357,8 +397,8 @@ export default function NgramTwoPage() {
           date_from: dateFrom,
           date_to: dateTo,
           respect_legacy_exclusions: legacyExclusions,
-          preview_run_id: aiPreviewRunId,
-          campaign_prefills: aiPreview.campaigns
+          preview_run_id: fullRunId,
+          campaign_prefills: fullRun.campaigns
             .map((campaign) => ({
               campaign_name: campaign.campaignName,
               mono: campaign.synthesizedPrefills.mono.map((item) => item.gram),
@@ -367,7 +407,7 @@ export default function NgramTwoPage() {
             }))
             .filter((campaign) => campaign.mono.length + campaign.bi.length + campaign.tri.length > 0),
           campaign_term_reviews: Object.fromEntries(
-            aiPreview.campaigns.map((campaign) => [
+            fullRun.campaigns.map((campaign) => [
               campaign.campaignName,
               campaign.evaluations.map((evaluation) => ({
                 search_term: evaluation.search_term,
@@ -400,11 +440,11 @@ export default function NgramTwoPage() {
       anchor.remove();
       window.URL.revokeObjectURL(downloadUrl);
 
-      setToast("AI-prefilled workbook download started.");
+      setToast("Full AI-prefilled workbook download started.");
       window.setTimeout(() => setToast(null), 3200);
     } catch (generateError) {
       setAiWorkbookError(
-        generateError instanceof Error ? generateError.message : "AI-prefilled workbook generation failed",
+        generateError instanceof Error ? generateError.message : "Full AI-prefilled workbook generation failed",
       );
     } finally {
       setAiWorkbookGenerating(false);
@@ -1107,7 +1147,7 @@ export default function NgramTwoPage() {
                 Produce the familiar mono/bi/tri workbook from native data so the current analyst and manager review flow stays intact.
               </p>
               <p className="mt-1 text-xs text-[#94a3b8]">
-                Legacy workbook output stays available regardless of whether you run the AI preview.
+                Preview stays capped and cheap; the AI workbook button below runs the full uncapped AI pass for the selected window and threshold.
               </p>
             </div>
 
@@ -1126,13 +1166,13 @@ export default function NgramTwoPage() {
               onClick={handleGenerateAiWorkbook}
               className="mt-4 w-full rounded-2xl bg-[#0f172a] px-4 py-3 text-sm font-semibold text-white shadow-[0_15px_30px_rgba(15,23,42,0.24)] transition hover:bg-[#1e293b] disabled:cursor-not-allowed disabled:bg-[#b8c1d1]"
             >
-              {aiWorkbookGenerating ? "Generating AI-prefilled workbook…" : "Generate AI-Prefilled Workbook"}
+              {aiWorkbookGenerating ? "Running full AI + generating workbook…" : "Generate Full AI-Prefilled Workbook"}
             </button>
 
             <div className="mt-4 rounded-2xl border border-[#dbe4f0] bg-[#f7faff] p-4">
               <p className="text-sm text-[#4c576f]">
                 {selectedProduct === "sp"
-                  ? "Uses native Sponsored Products search-term facts for the selected window and keeps the legacy exclusion rules. The AI button only fills scratchpad grams synthesized from the previewed term judgments."
+                  ? "Uses native Sponsored Products search-term facts for the selected window and keeps the legacy exclusion rules. The AI button runs the full uncapped AI evaluation, then writes workbook prefills from that saved run."
                   : "Workbook generation is intentionally limited to Sponsored Products first."}
               </p>
             </div>

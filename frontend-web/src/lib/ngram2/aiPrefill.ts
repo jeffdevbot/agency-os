@@ -115,6 +115,8 @@ export type AIPrefillCatalogProduct = {
   itemDescription: string | null;
 };
 
+export type AIPrefillRunMode = "preview" | "full";
+
 export const ALLOWED_REASON_TAGS = [
   "core_use_case",
   "wrong_category",
@@ -751,6 +753,20 @@ export const buildCampaignAggregates = (
     }))
     .sort((left, right) => right.totalSpend - left.totalSpend || left.campaignName.localeCompare(right.campaignName));
 };
+
+export const selectCampaignsForAIPrefill = (
+  campaigns: AggregatedCampaign[],
+  runMode: AIPrefillRunMode,
+): AggregatedCampaign[] =>
+  runMode === "preview" ? campaigns.slice(0, AI_PREFILL_PREVIEW_MAX_CAMPAIGNS) : campaigns;
+
+export const selectTermsForAIPrefillCampaign = (
+  campaign: AggregatedCampaign,
+  runMode: AIPrefillRunMode,
+): AggregatedSearchTerm[] =>
+  runMode === "preview"
+    ? campaign.terms.slice(0, AI_PREFILL_PREVIEW_MAX_TERMS_PER_CAMPAIGN)
+    : campaign.terms;
 
 const weightedConfidenceScore = (confidence: AIPrefillEvaluation["confidence"]): number => {
   if (confidence === "HIGH") return 2;

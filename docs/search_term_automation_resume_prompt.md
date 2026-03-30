@@ -39,6 +39,11 @@ Read first, in this order:
    - successful preview payloads now persist in `ngram_ai_preview_runs`
    - preview responses now return `preview_run_id`, and the AI-prefilled
      workbook path can reuse that exact saved run
+   - Step 3 preview remains intentionally capped to the top `6` runnable
+     campaigns and top `20` above-threshold terms per campaign
+   - Step 4 `Generate Full AI-Prefilled Workbook` now runs a fresh **full**
+     uncapped AI pass for all runnable above-threshold campaigns/terms and
+     builds the workbook from that saved run
    - preview rows now persist explicit `prompt_version`
    - preview user payloads now pass explicit `marketplace_code` into the AI
      call
@@ -187,6 +192,8 @@ Current reality:
   Windsor child-ASIN catalog in the same call as term evaluation
 - AI preview responses are now validated strictly before gram synthesis
 - successful preview payloads now persist in `ngram_ai_preview_runs`
+- Step 3 preview is intentionally capped; Step 4 full AI workbook generation is
+  now a separate uncapped run
 - `reason_tag` is now a strict 10-value enum:
   core_use_case, wrong_category, wrong_product_form, wrong_size_variant,
   wrong_audience_theme, competitor_brand, cloth_primary_intent,
