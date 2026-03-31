@@ -2,13 +2,23 @@ import { describe, expect, it, vi, afterEach } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
-import { evaluateCampaignWithValidationRetry } from "./aiCampaignEvaluator";
+import {
+  estimateNgramCampaignMaxTokens,
+  evaluateCampaignWithValidationRetry,
+} from "./aiCampaignEvaluator";
 import type { AIPrefillCatalogProduct, AggregatedCampaign, AggregatedSearchTerm } from "./aiPrefill";
 import * as openaiModule from "@/lib/composer/ai/openai";
 
 describe("evaluateCampaignWithValidationRetry", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it("sizes completion budget for large full-run campaigns", () => {
+    expect(estimateNgramCampaignMaxTokens(1)).toBe(2200);
+    expect(estimateNgramCampaignMaxTokens(20)).toBe(2200);
+    expect(estimateNgramCampaignMaxTokens(176)).toBe(11360);
+    expect(estimateNgramCampaignMaxTokens(1000)).toBe(14000);
   });
 
   it("retries when the model returns invalid confidence fields", async () => {

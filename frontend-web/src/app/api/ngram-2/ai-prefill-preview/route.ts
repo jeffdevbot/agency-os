@@ -4,7 +4,10 @@ import { logAppError } from "@/lib/ai/errorLogger";
 import { persistNgramPreviewRun } from "@/lib/ai/ngramPreviewLogger";
 import { logUsage } from "@/lib/ai/usageLogger";
 import { NGRAM_AI_PROMPT_VERSION } from "@/lib/ngram2/aiPrompt";
-import { evaluateCampaignWithValidationRetry } from "@/lib/ngram2/aiCampaignEvaluator";
+import {
+  estimateNgramCampaignMaxTokens,
+  evaluateCampaignWithValidationRetry,
+} from "@/lib/ngram2/aiCampaignEvaluator";
 import {
   aggregateSearchTerms,
   AI_PREFILL_PREVIEW_MAX_CAMPAIGNS,
@@ -350,7 +353,7 @@ export async function POST(request: Request) {
         terms,
         marketplaceCode: catalogProfile.marketplaceCode,
         model: NGRAM_MODEL_OVERRIDE || undefined,
-        maxTokens: 2200,
+        maxTokens: estimateNgramCampaignMaxTokens(terms.length),
       });
 
       tokensIn += evaluation.tokensIn;

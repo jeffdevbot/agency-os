@@ -16,6 +16,10 @@ import {
 import { buildCampaignPrompt } from "./aiPrompt";
 
 const MAX_VALIDATION_ATTEMPTS = 3;
+const MIN_RESPONSE_MAX_TOKENS = 2200;
+const MAX_RESPONSE_MAX_TOKENS = 14000;
+const RESPONSE_OVERHEAD_TOKENS = 800;
+const RESPONSE_TOKENS_PER_TERM = 60;
 
 const NGRAM_RESPONSE_FORMAT: ResponseFormat = {
   type: "json_schema",
@@ -112,6 +116,17 @@ const buildValidationRetryMessage = (errorMessage: string): ChatMessage => ({
     "Do not omit any required fields.",
   ].join("\n"),
 });
+
+export const estimateNgramCampaignMaxTokens = (termCount: number): number => {
+  const safeTermCount = Number.isFinite(termCount) ? Math.max(0, Math.floor(termCount)) : 0;
+  return Math.min(
+    MAX_RESPONSE_MAX_TOKENS,
+    Math.max(
+      MIN_RESPONSE_MAX_TOKENS,
+      RESPONSE_OVERHEAD_TOKENS + safeTermCount * RESPONSE_TOKENS_PER_TERM,
+    ),
+  );
+};
 
 export const evaluateCampaignWithValidationRetry = async ({
   campaign,
