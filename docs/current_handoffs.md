@@ -15,39 +15,40 @@ historical reference.
 3. [N-Gram 2.0 AI prefill design](/Users/jeff/code/agency-os/docs/ngram_2_ai_prefill_design.md)
    - Current product/design reference for the shipped Step 3 / Step 4 AI
      workflow and its conservative workbook-writing model.
-4. [WBR schema plan](/Users/jeff/code/agency-os/docs/wbr_v2_schema_plan.md)
+4. [N-Gram 2.0 pure prompt pivot plan](/Users/jeff/code/agency-os/docs/ngram_2_pure_prompt_pivot_plan.md)
+   - Current pivot brief for moving `/ngram-2` away from deterministic gram
+     synthesis and toward frontier-model-led exact + phrase negative output.
+5. [WBR schema plan](/Users/jeff/code/agency-os/docs/wbr_v2_schema_plan.md)
    - Current schema/reference document for live WBR + STR + N-Gram support
      tables, including `ngram_ai_preview_runs` and `ngram_ai_override_runs`.
-5. [Claude primary surface plan](/Users/jeff/code/agency-os/docs/claude_primary_surface_plan.md)
+6. [Claude primary surface plan](/Users/jeff/code/agency-os/docs/claude_primary_surface_plan.md)
    - Current strategy doc for Claude vs The Claw and future MCP expansion.
-6. [Agency OS MCP implementation plan](/Users/jeff/code/agency-os/docs/agency_os_mcp_implementation_plan.md)
+7. [Agency OS MCP implementation plan](/Users/jeff/code/agency-os/docs/agency_os_mcp_implementation_plan.md)
    - Current implementation-planning reference for the shared Claude/MCP tool
      surface after WBR + Monthly P&L shipped.
-7. [Reports API access and SP-API plan](/Users/jeff/code/agency-os/docs/reports_api_access_and_spapi_plan.md)
+8. [Reports API access and SP-API plan](/Users/jeff/code/agency-os/docs/reports_api_access_and_spapi_plan.md)
    - Current shared reporting auth/source-of-truth planning reference.
 
 ## Highest-priority restart target
 
 If the next session is about `/ngram-2`, start here:
 
-1. The current product goal is a **full 7-day Whoosh US worksheet comparison**
-   between:
-   - an analyst-reviewed manual workbook
-   - the new `/ngram-2` full AI-prefilled workbook path
-2. Treat the current AI workflow as functionally shipped for this validation:
+1. Read the [N-Gram 2.0 pure prompt pivot plan](/Users/jeff/code/agency-os/docs/ngram_2_pure_prompt_pivot_plan.md)
+   first.
+2. The current product goal is no longer to refine deterministic gram
+   synthesis. It is to evaluate a pivot toward **frontier-model-led exact +
+   phrase negative output**.
+3. Treat the current AI workflow as functionally shipped reference state, but
+   not the preferred long-term synthesis direction:
    - Step 3 bounded preview works
    - Step 4 full AI workbook runs work
    - OpenAI Structured Outputs are live
    - prompt version is persisted
    - reviewed workbook uploads now log override diffs
-3. The next session should not reopen model/plumbing questions unless the
-   analyst-verified 7-day comparison exposes a real regression.
 4. The exact next checkpoint is:
-   - run a full 7-day Whoosh US AI workbook
-   - compare against the analyst-verified worksheet
-   - inspect diffs by campaign / term / gram
-   - decide whether the current prompt/model/workbook behavior is good enough
-     to keep or needs targeted correction
+   - build a single-campaign pure-model prototype for `/ngram-2`
+   - compare direct model exact/phrase output against analyst output
+   - validate on at least one non-Whoosh brand before committing to the pivot
 
 ## Current operational/reference docs
 
