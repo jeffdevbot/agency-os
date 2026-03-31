@@ -498,6 +498,14 @@ async def build_native_summary(
                 "orders": result.workbook_input_totals.orders,
                 "sales": result.workbook_input_totals.sales,
             },
+            "campaigns": [
+                {
+                    "campaign_name": campaign.campaign_name,
+                    "search_terms": campaign.search_terms,
+                    "spend": campaign.spend,
+                }
+                for campaign in result.campaigns
+            ],
             "warnings": result.warnings,
         },
     }

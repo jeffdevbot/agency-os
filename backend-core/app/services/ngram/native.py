@@ -37,6 +37,13 @@ class NativeNgramWorkbookResult:
 
 
 @dataclass(frozen=True)
+class NativeNgramCampaignSummary:
+    campaign_name: str
+    search_terms: int
+    spend: float
+
+
+@dataclass(frozen=True)
 class NativeNgramPreflightSummary:
     ad_product: str
     profile_id: str
@@ -57,6 +64,7 @@ class NativeNgramPreflightSummary:
     coverage_end: str | None
     imported_totals: NativeNgramTotals
     workbook_input_totals: NativeNgramTotals
+    campaigns: list[NativeNgramCampaignSummary]
     warnings: list[str]
 
 
@@ -205,6 +213,7 @@ class NativeNgramWorkbookService:
             coverage_end=coverage_end,
             imported_totals=self._compute_imported_totals(rows),
             workbook_input_totals=self._compute_dataframe_totals(df),
+            campaigns=self._build_campaign_summaries(df, respect_legacy_exclusions),
             warnings=warnings,
         )
 
@@ -313,6 +322,41 @@ class NativeNgramWorkbookService:
             orders=int(df["Order 14d"].sum()),
             sales=round(float(df["Sales 14d"].sum()), 2),
         )
+
+    def _build_campaign_summaries(
+        self,
+        df: pd.DataFrame,
+        respect_legacy_exclusions: bool,
+    ) -> list[NativeNgramCampaignSummary]:
+        if df.empty:
+            return []
+
+        summary_df = (
+            df.groupby("Campaign Name", as_index=False)
+            .agg(
+                search_terms=("Query", "nunique"),
+                spend=("Spend", "sum"),
+            )
+            .sort_values(["spend", "Campaign Name"], ascending=[False, True])
+            .reset_index(drop=True)
+        )
+
+        campaigns: list[NativeNgramCampaignSummary] = []
+        for row in summary_df.to_dict(orient="records"):
+            campaign_name = str(row.get("Campaign Name") or "").strip()
+            if not campaign_name:
+                continue
+            if respect_legacy_exclusions and any(marker in campaign_name for marker in ("Ex.", "SDI", "SDV")):
+                continue
+            campaigns.append(
+                NativeNgramCampaignSummary(
+                    campaign_name=campaign_name,
+                    search_terms=int(row.get("search_terms") or 0),
+                    spend=round(float(row.get("spend") or 0), 2),
+                )
+            )
+
+        return campaigns
 
 
 @dataclass(frozen=True)

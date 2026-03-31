@@ -809,14 +809,22 @@ export const buildCampaignAggregates = (
 export const selectCampaignsForAIPrefill = (
   campaigns: AggregatedCampaign[],
   runMode: AIPrefillRunMode,
+  requestedCampaignNames: string[] = [],
 ): AggregatedCampaign[] =>
-  runMode === "preview" ? campaigns.slice(0, AI_PREFILL_PREVIEW_MAX_CAMPAIGNS) : campaigns;
+  requestedCampaignNames.length > 0
+    ? requestedCampaignNames
+        .map((campaignName) => campaigns.find((campaign) => campaign.campaignName === campaignName) ?? null)
+        .filter((campaign): campaign is AggregatedCampaign => Boolean(campaign))
+    : runMode === "preview"
+      ? campaigns.slice(0, AI_PREFILL_PREVIEW_MAX_CAMPAIGNS)
+      : campaigns;
 
 export const selectTermsForAIPrefillCampaign = (
   campaign: AggregatedCampaign,
   runMode: AIPrefillRunMode,
+  hasRequestedCampaigns = false,
 ): AggregatedSearchTerm[] =>
-  runMode === "preview"
+  runMode === "preview" && !hasRequestedCampaigns
     ? campaign.terms.slice(0, AI_PREFILL_PREVIEW_MAX_TERMS_PER_CAMPAIGN)
     : campaign.terms;
 

@@ -224,6 +224,7 @@ const coerceRequest = async (request: Request): Promise<{
   spendThreshold: number;
   respectLegacyExclusions: boolean;
   runMode: AIPrefillRunMode;
+  requestedCampaignNames: string[];
 }> => {
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
   const profileId = String(body?.profile_id || "").trim();
@@ -232,6 +233,9 @@ const coerceRequest = async (request: Request): Promise<{
   const dateTo = String(body?.date_to || "").trim();
   const spendThresholdRaw = Number(body?.spend_threshold ?? 0);
   const runModeRaw = String(body?.run_mode || "preview").trim().toLowerCase();
+  const requestedCampaignNames = Array.isArray(body?.campaign_names)
+    ? [...new Set(body.campaign_names.map((value) => String(value || "").trim()).filter(Boolean))]
+    : [];
 
   if (!profileId || !adProduct || !dateFrom || !dateTo) {
     throw new Error("profile_id, ad_product, date_from, and date_to are required");
@@ -257,6 +261,7 @@ const coerceRequest = async (request: Request): Promise<{
     spendThreshold: spendThresholdRaw,
     respectLegacyExclusions: body?.respect_legacy_exclusions !== false,
     runMode: runModeRaw as AIPrefillRunMode,
+    requestedCampaignNames,
   };
 };
 
@@ -271,7 +276,16 @@ export async function POST(request: Request) {
   }
 
   try {
-    const { profileId, adProduct, dateFrom, dateTo, spendThreshold, respectLegacyExclusions, runMode } =
+    const {
+      profileId,
+      adProduct,
+      dateFrom,
+      dateTo,
+      spendThreshold,
+      respectLegacyExclusions,
+      runMode,
+      requestedCampaignNames,
+    } =
       await coerceRequest(request);
 
     const warnings: string[] = [];
@@ -313,11 +327,29 @@ export async function POST(request: Request) {
     });
     const intentionallySkippedCampaigns =
       candidateCampaigns.length - runnableCampaigns.length;
-    const previewCampaigns = selectCampaignsForAIPrefill(runnableCampaigns, runMode);
+    const previewCampaigns = selectCampaignsForAIPrefill(runnableCampaigns, runMode, requestedCampaignNames);
+    const hasRequestedCampaigns = requestedCampaignNames.length > 0;
+    const missingRequestedCampaigns = hasRequestedCampaigns
+      ? requestedCampaignNames.filter(
+          (campaignName) => !runnableCampaigns.some((campaign) => campaign.campaignName === campaignName),
+        )
+      : [];
 
-    if (runMode === "preview" && runnableCampaigns.length > AI_PREFILL_PREVIEW_MAX_CAMPAIGNS) {
+    if (!hasRequestedCampaigns && runMode === "preview" && runnableCampaigns.length > AI_PREFILL_PREVIEW_MAX_CAMPAIGNS) {
       warnings.push(
         `Preview is limited to the top ${AI_PREFILL_PREVIEW_MAX_CAMPAIGNS} runnable campaigns by eligible spend.`,
+      );
+    }
+
+    if (hasRequestedCampaigns) {
+      warnings.push(
+        `Campaign-scoped preview selected ${previewCampaigns.length} campaign(s); preview caps are bypassed for those campaigns.`,
+      );
+    }
+
+    if (missingRequestedCampaigns.length > 0) {
+      warnings.push(
+        `${missingRequestedCampaigns.length} requested campaign(s) were not runnable for this window, threshold, or exclusion setting.`,
       );
     }
 
@@ -331,7 +363,7 @@ export async function POST(request: Request) {
     let aiLowConfidenceCampaigns = 0;
 
     for (const campaign of previewCampaigns) {
-      const terms = selectTermsForAIPrefillCampaign(campaign, runMode);
+      const terms = selectTermsForAIPrefillCampaign(campaign, runMode, hasRequestedCampaigns);
       const skippedBelowThresholdTerms = aggregatedTerms.filter(
         (term) => term.campaignName === campaign.campaignName && term.spend < spendThreshold,
       ).length;
@@ -339,6 +371,7 @@ export async function POST(request: Request) {
       const theme = parseCampaignTheme(campaign.campaignName);
 
       if (
+        !hasRequestedCampaigns &&
         runMode === "preview" &&
         campaign.terms.length > AI_PREFILL_PREVIEW_MAX_TERMS_PER_CAMPAIGN
       ) {
@@ -451,13 +484,15 @@ export async function POST(request: Request) {
       date_from: dateFrom,
       date_to: dateTo,
       spend_threshold: spendThreshold,
-      max_campaigns: runMode === "preview" ? AI_PREFILL_PREVIEW_MAX_CAMPAIGNS : null,
-      max_terms_per_campaign: runMode === "preview" ? AI_PREFILL_PREVIEW_MAX_TERMS_PER_CAMPAIGN : null,
+      max_campaigns: runMode === "preview" && !hasRequestedCampaigns ? AI_PREFILL_PREVIEW_MAX_CAMPAIGNS : null,
+      max_terms_per_campaign:
+        runMode === "preview" && !hasRequestedCampaigns ? AI_PREFILL_PREVIEW_MAX_TERMS_PER_CAMPAIGN : null,
       raw_rows: rows.length,
       eligible_rows: usableRows.length,
       candidate_campaigns: candidateCampaigns.length,
       runnable_campaigns: runnableCampaigns.length,
       preview_campaigns: previewResults.length,
+      selected_campaigns: requestedCampaignNames,
       ambiguous_campaigns: ambiguousCampaigns,
       intentionally_skipped_campaigns: intentionallySkippedCampaigns,
       recommendation_counts: recommendationCounts,
@@ -482,6 +517,7 @@ export async function POST(request: Request) {
         date_to: dateTo,
         run_mode: runMode,
         spend_threshold: spendThreshold,
+        selected_campaigns: requestedCampaignNames,
         preview_campaigns: previewResults.length,
         runnable_campaigns: runnableCampaigns.length,
         ambiguous_campaigns: ambiguousCampaigns,

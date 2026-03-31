@@ -38,6 +38,12 @@ type NativeNgramTotals = {
   sales: number;
 };
 
+type NativeNgramCampaignSummary = {
+  campaign_name: string;
+  search_terms: number;
+  spend: number;
+};
+
 type NativeNgramSummary = {
   ad_product: string;
   profile_id: string;
@@ -58,6 +64,7 @@ type NativeNgramSummary = {
   coverage_end: string | null;
   imported_totals: NativeNgramTotals;
   workbook_input_totals: NativeNgramTotals;
+  campaigns: NativeNgramCampaignSummary[];
   warnings: string[];
 };
 
@@ -115,6 +122,7 @@ type AIPrefillPreview = {
   candidate_campaigns: number;
   runnable_campaigns?: number;
   preview_campaigns: number;
+  selected_campaigns?: string[];
   ambiguous_campaigns: number;
   intentionally_skipped_campaigns: number;
   recommendation_counts: {
@@ -151,10 +159,13 @@ export default function NgramTwoPage() {
   const [workbookError, setWorkbookError] = useState<string | null>(null);
   const [aiWorkbookGenerating, setAiWorkbookGenerating] = useState(false);
   const [aiWorkbookError, setAiWorkbookError] = useState<string | null>(null);
+  const [aiPreviewWorkbookGenerating, setAiPreviewWorkbookGenerating] = useState(false);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [summaryError, setSummaryError] = useState<string | null>(null);
   const [summary, setSummary] = useState<NativeNgramSummary | null>(null);
   const [spendThreshold, setSpendThreshold] = useState("3");
+  const [aiCampaignQuery, setAiCampaignQuery] = useState("");
+  const [selectedAiCampaignNames, setSelectedAiCampaignNames] = useState<string[]>([]);
   const [aiPreviewLoading, setAiPreviewLoading] = useState(false);
   const [aiPreviewError, setAiPreviewError] = useState<string | null>(null);
   const [aiPreview, setAiPreview] = useState<AIPrefillPreview | null>(null);
@@ -260,6 +271,16 @@ export default function NgramTwoPage() {
       )
     : { mono: 0, bi: 0, tri: 0 };
   const canGenerateAiWorkbook = canGenerateWorkbook && !aiWorkbookGenerating;
+  const canGenerateAiPreviewWorkbook =
+    canGenerateWorkbook && !aiPreviewWorkbookGenerating && Boolean(aiPreviewRunId) && Boolean(selectedProfile?.profileId);
+  const filteredCampaignOptions = (summary?.campaigns ?? [])
+    .filter((campaign) =>
+      aiCampaignQuery.trim()
+        ? campaign.campaign_name.toLowerCase().includes(aiCampaignQuery.trim().toLowerCase())
+        : true,
+    )
+    .slice(0, 24);
+  const hasSelectedAiCampaignSubset = selectedAiCampaignNames.length > 0;
 
   const runStateClasses =
     runState.tone === "ready"
@@ -451,6 +472,70 @@ export default function NgramTwoPage() {
     }
   };
 
+  const handleGenerateAiPreviewWorkbook = async () => {
+    if (!canGenerateAiPreviewWorkbook || !selectedProfile || !aiPreviewRunId) return;
+
+    setAiPreviewWorkbookGenerating(true);
+    setAiWorkbookError(null);
+
+    try {
+      const supabase = getBrowserSupabaseClient();
+      const { data } = await supabase.auth.getSession();
+      const accessToken = data.session?.access_token;
+
+      if (!accessToken) {
+        setAiWorkbookError("Please sign in again.");
+        setAiPreviewWorkbookGenerating(false);
+        return;
+      }
+
+      const response = await fetch(`${BACKEND_URL}/ngram/native-workbook-prefilled`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          profile_id: selectedProfile.profileId,
+          ad_product: selectedProductConfig?.amazonAdsAdProduct,
+          date_from: dateFrom,
+          date_to: dateTo,
+          respect_legacy_exclusions: legacyExclusions,
+          preview_run_id: aiPreviewRunId,
+        }),
+      });
+
+      if (!response.ok) {
+        const detail = await response.json().catch(() => undefined);
+        throw new Error(detail?.detail || "Preview workbook generation failed");
+      }
+
+      const blob = await response.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const disposition = response.headers.get("content-disposition") || "";
+      const match = disposition.match(/filename=\"?([^\";]+)\"?/i);
+      const filename =
+        match?.[1] || `${selectedProfile.displayName.replace(/\s+/g, "_")}_ai_preview_native_ngrams.xlsx`;
+
+      const anchor = document.createElement("a");
+      anchor.href = downloadUrl;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.URL.revokeObjectURL(downloadUrl);
+
+      setToast("AI preview workbook download started.");
+      window.setTimeout(() => setToast(null), 3200);
+    } catch (generateError) {
+      setAiWorkbookError(
+        generateError instanceof Error ? generateError.message : "Preview workbook generation failed",
+      );
+    } finally {
+      setAiPreviewWorkbookGenerating(false);
+    }
+  };
+
   const handleRunAiPreview = async () => {
     if (!canRunAiPreview || !selectedProfile) return;
 
@@ -478,6 +563,7 @@ export default function NgramTwoPage() {
           date_to: dateTo,
           spend_threshold: parsedThreshold,
           respect_legacy_exclusions: legacyExclusions,
+          campaign_names: selectedAiCampaignNames,
         }),
       });
 
@@ -499,6 +585,14 @@ export default function NgramTwoPage() {
     } finally {
       setAiPreviewLoading(false);
     }
+  };
+
+  const toggleSelectedAiCampaignName = (campaignName: string) => {
+    setSelectedAiCampaignNames((current) =>
+      current.includes(campaignName)
+        ? current.filter((value) => value !== campaignName)
+        : [...current, campaignName],
+    );
   };
 
   useEffect(() => {
@@ -607,6 +701,8 @@ export default function NgramTwoPage() {
     setAiPreviewRunId(null);
     setAiPreviewError(null);
     setAiWorkbookError(null);
+    setSelectedAiCampaignNames([]);
+    setAiCampaignQuery("");
   }, [selectedProfile?.profileId, selectedProduct, dateFrom, dateTo, legacyExclusions]);
 
   return (
@@ -966,7 +1062,7 @@ export default function NgramTwoPage() {
               <div className="rounded-2xl border border-[#dbe4f0] bg-[#f7faff] p-4">
                 <p className="text-sm font-semibold text-[#0f172a]">Per-run filter</p>
                 <p className="mt-1 text-sm text-[#4c576f]">
-                  Terms below this spend threshold stay untouched. The preview currently evaluates the highest-spend eligible campaigns and terms first so we can validate the workflow without blowing up token usage.
+                  Terms below this spend threshold stay untouched. Leave campaign selection empty to use the capped top-spend preview, or pick one or more campaigns to run a cheaper full-term subset pass and export that preview workbook.
                 </p>
                 <button
                   type="button"
@@ -978,6 +1074,80 @@ export default function NgramTwoPage() {
                 </button>
               </div>
             </div>
+
+            {summary?.campaigns?.length ? (
+              <div className="mt-4 rounded-2xl border border-[#dbe4f0] bg-[#fbfdff] p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-[#0f172a]">Optional campaign subset</p>
+                    <p className="mt-1 text-sm text-[#4c576f]">
+                      Pick campaign(s) to bypass the preview caps and evaluate all eligible terms for just those lanes.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedAiCampaignNames([])}
+                    disabled={selectedAiCampaignNames.length === 0}
+                    className="rounded-full border border-[#cbd5e1] bg-white px-3 py-1.5 text-xs font-semibold text-[#334155] transition hover:border-[#94a3b8] disabled:cursor-not-allowed disabled:text-[#94a3b8]"
+                  >
+                    Clear selection
+                  </button>
+                </div>
+
+                <div className="mt-4 grid gap-4 md:grid-cols-[280px_1fr]">
+                  <label className="space-y-2">
+                    <span className="text-sm font-semibold text-[#1b2430]">Search campaigns</span>
+                    <input
+                      type="text"
+                      value={aiCampaignQuery}
+                      onChange={(event) => setAiCampaignQuery(event.target.value)}
+                      placeholder="Filter by campaign name"
+                      className="w-full rounded-2xl border border-[#d4ddea] bg-white px-4 py-3 text-sm text-[#1b2430] shadow-sm outline-none transition focus:border-[#8bb6ff] focus:ring-4 focus:ring-[#d8e8ff]"
+                    />
+                    <p className="text-xs text-[#7d8ba1]">
+                      {hasSelectedAiCampaignSubset
+                        ? `${formatNumber(selectedAiCampaignNames.length)} selected for a full-term subset preview`
+                        : "No selection: preview stays on the capped top-spend auto slice"}
+                    </p>
+                  </label>
+
+                  <div className="rounded-2xl border border-[#dbe4f0] bg-white p-2">
+                    <div className="max-h-64 space-y-2 overflow-y-auto px-2 py-1">
+                      {filteredCampaignOptions.length > 0 ? (
+                        filteredCampaignOptions.map((campaign) => {
+                          const checked = selectedAiCampaignNames.includes(campaign.campaign_name);
+                          return (
+                            <label
+                              key={campaign.campaign_name}
+                              className={`flex cursor-pointer items-start gap-3 rounded-2xl border px-3 py-3 transition ${
+                                checked
+                                  ? "border-[#8bb6ff] bg-[#eef5ff]"
+                                  : "border-[#e2e8f0] bg-[#fbfdff] hover:border-[#cbd5e1]"
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => toggleSelectedAiCampaignName(campaign.campaign_name)}
+                                className="mt-1 h-4 w-4 rounded border-[#94a3b8] text-[#0a6fd6] focus:ring-[#bfdbfe]"
+                              />
+                              <span className="min-w-0 flex-1">
+                                <span className="block text-sm font-semibold text-[#0f172a]">{campaign.campaign_name}</span>
+                                <span className="mt-1 block text-xs text-[#64748b]">
+                                  {formatCurrency(campaign.spend, selectedProfile?.currencyCode)} spend • {formatNumber(campaign.search_terms)} search terms
+                                </span>
+                              </span>
+                            </label>
+                          );
+                        })
+                      ) : (
+                        <p className="px-2 py-3 text-sm text-[#64748b]">No campaigns matched the current filter.</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : null}
 
             {aiPreviewError ? (
               <p className="mt-4 rounded-xl border border-[#f87171]/40 bg-[#fee2e2] px-4 py-3 text-sm text-[#991b1b]">
@@ -1037,6 +1207,15 @@ export default function NgramTwoPage() {
                     <p className="mt-2 text-lg font-semibold text-[#0f172a]">{formatNumber(aiScratchpadCounts.tri)}</p>
                   </div>
                 </div>
+
+                <button
+                  type="button"
+                  disabled={!canGenerateAiPreviewWorkbook}
+                  onClick={handleGenerateAiPreviewWorkbook}
+                  className="mt-4 inline-flex rounded-full bg-[#0f172a] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#1e293b] disabled:cursor-not-allowed disabled:bg-[#a8b4c8]"
+                >
+                  {aiPreviewWorkbookGenerating ? "Generating preview workbook…" : "Download AI Preview Workbook"}
+                </button>
 
                 <div className="mt-6 space-y-4">
                   {aiPreview.campaigns.map((campaign) => (

@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.routers import ngram
-from app.services.ngram.native import NativeNgramPreflightSummary, NativeNgramTotals
+from app.services.ngram.native import NativeNgramCampaignSummary, NativeNgramPreflightSummary, NativeNgramTotals
 
 
 class _FakeNativeNgramService:
@@ -61,6 +61,13 @@ class _FakeNativeNgramService:
                 orders=6,
                 sales=220.00,
             ),
+            campaigns=[
+                NativeNgramCampaignSummary(
+                    campaign_name="Screen Shine - Pro | SPM | MKW | Br.M | 2 - computer | Perf",
+                    search_terms=24,
+                    spend=91.5,
+                )
+            ],
             warnings=["1 campaign(s) will be skipped by the legacy Ex./SDI/SDV exclusions."],
         )
 
@@ -95,6 +102,13 @@ def test_native_summary_route_returns_summary_payload(monkeypatch):
     assert data["ok"] is True
     assert data["summary"]["eligible_rows"] == 80
     assert data["summary"]["workbook_input_totals"]["clicks"] == 80
+    assert data["summary"]["campaigns"] == [
+        {
+            "campaign_name": "Screen Shine - Pro | SPM | MKW | Br.M | 2 - computer | Perf",
+            "search_terms": 24,
+            "spend": 91.5,
+        }
+    ]
     assert data["summary"]["warnings"] == [
         "1 campaign(s) will be skipped by the legacy Ex./SDI/SDV exclusions."
     ]

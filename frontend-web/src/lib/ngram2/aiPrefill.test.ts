@@ -422,6 +422,39 @@ describe("ngram2 aiPrefill helpers", () => {
     expect(selectTermsForAIPrefillCampaign(fullCampaigns[0], "full")).toHaveLength(25);
   });
 
+  it("respects requested campaign subsets and bypasses preview term caps for them", () => {
+    const campaigns = Array.from({ length: 3 }, (_, campaignIndex) => ({
+      campaignName: `Campaign ${campaignIndex + 1}`,
+      totalSpend: 100 - campaignIndex,
+      termCount: 25,
+      terms: Array.from({ length: 25 }, (_, termIndex) => ({
+        campaignName: `Campaign ${campaignIndex + 1}`,
+        searchTerm: `term ${termIndex + 1}`,
+        impressions: 10,
+        clicks: 1,
+        spend: 25 - termIndex,
+        orders: 0,
+        sales: 0,
+        keyword: null,
+        keywordType: null,
+        targeting: null,
+        matchType: null,
+      })),
+    }));
+
+    const requestedCampaigns = selectCampaignsForAIPrefill(campaigns, "preview", [
+      "Campaign 3",
+      "Campaign 1",
+      "Missing Campaign",
+    ]);
+
+    expect(requestedCampaigns.map((campaign) => campaign.campaignName)).toEqual([
+      "Campaign 3",
+      "Campaign 1",
+    ]);
+    expect(selectTermsForAIPrefillCampaign(requestedCampaigns[0], "preview", true)).toHaveLength(25);
+  });
+
   it("prepares catalog rows and validates the strict AI response contract", () => {
     const catalog = prepareAIPrefillCatalogProducts([
       {
