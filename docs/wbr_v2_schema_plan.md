@@ -32,6 +32,7 @@ As of March 30, 2026:
    - `20260327143000_add_str_ad_product_foundation.sql`
    - `20260327204500_harden_str_fact_metadata.sql`
    - `20260330131500_add_ngram_ai_preview_runs.sql`
+   - `20260330162000_add_ngram_ai_override_capture.sql`
 3. The application layer is wired to the full current WBR v2 stack:
    - profiles and row tree
    - Pacvue import and campaign mapping
@@ -59,6 +60,7 @@ As of March 30, 2026:
    - `search_term_daily_facts`
    - `search_term_campaign_scope`
    - `ngram_ai_preview_runs`
+   - `ngram_ai_override_runs`
 7. Shared external auth for report-level integrations is now centered on:
    - `report_api_connections`
    - WBR still retains `wbr_amazon_ads_connections` as a legacy/compatibility
@@ -105,9 +107,25 @@ As of March 30, 2026:
     aggregate token logs:
     - each successful preview run writes its exact UI payload to
       `ngram_ai_preview_runs`
+    - Step 4 full AI workbook runs also persist into that same table, with the
+      saved payload marking `run_mode = full`
     - `ai_token_usage` remains the lightweight cost/telemetry source of truth
     - this makes preview outputs auditable without depending on screenshots or
       rerunning the same request
+14. The first override-capture layer is now live for reviewed AI-prefilled
+    workbooks:
+    - legacy `/ngram/collect` now writes best-effort diff payloads to
+      `ngram_ai_override_runs`
+    - the saved payload captures both term-level and gram-level analyst
+      overrides against the originating AI run
+15. A limited full `/ngram-2` AI workbook run was live-validated on Whoosh CA
+    for `2026-03-27` through `2026-03-29`:
+    - saved run id: `a63530e2-9d1a-42c1-a0d4-563bf931e6b1`
+    - `43` runnable campaigns
+    - `145` evaluated terms
+    - `477,233` total tokens
+    - the next validation milestone is a full 7-day Whoosh US analyst-verified
+      worksheet comparison rather than more schema or model plumbing
 
 ## Decision on the old migration
 
@@ -599,8 +617,8 @@ Notes:
 
 Purpose:
 
-- Persist the exact Step 3 `/ngram-2` AI preview response for auditability,
-  review, and later tuning.
+- Persist the exact saved `/ngram-2` AI run payload for auditability, review,
+  workbook generation, and later tuning.
 
 Columns:
 
@@ -629,12 +647,17 @@ Notes:
 
 - This table is intentionally separate from `ai_token_usage`.
 - `ai_token_usage` remains the lightweight token/cost telemetry source.
-- `ngram_ai_preview_runs` stores the exact preview payload returned to the UI:
-  warnings, campaign cards, match metadata, term recommendations, and
-  synthesized mono/bi/tri scratchpads.
+- Despite the table name, it now stores both:
+  - bounded Step 3 preview runs
+  - uncapped Step 4 full AI workbook runs
+- `ngram_ai_preview_runs` stores the exact saved payload returned to the UI or
+  used for workbook generation: warnings, campaign cards, match metadata, term
+  recommendations, and synthesized mono/bi/tri scratchpads.
 - `prompt_version` stores the explicit Step 3 prompt identifier used for the
   saved run, so later override analysis is not forced to infer behavior from
   timestamps or commits.
+- `run_mode` is currently stored inside `preview_payload` rather than as its
+  own top-level column.
 - Current writes are best-effort from the frontend preview route, matching the
   rest of the shared frontend logging pattern.
 
@@ -668,6 +691,9 @@ Notes:
   reviewed workbook still carries `AI Preview Run` metadata from `/ngram-2`.
 - `override_payload` stores both term-level and gram-level diffs so later
   tuning can inspect where analysts accepted, rejected, or added negatives.
+- `collected_by_auth_user_id` captures the final uploader identity, which is
+  enough for reviewer-level calibration analysis even though row-level Excel
+  authorship is not available.
 
 ### 15. `wbr_report_snapshots`
 
@@ -727,7 +753,7 @@ Constraints/indexes:
 - Partial unique index on `(profile_id, child_asin)` where `active = true`.
 - Index on `(profile_id, created_at desc)`.
 
-### 16. `wbr_campaign_exclusions`
+### 17. `wbr_campaign_exclusions`
 
 Purpose:
 
@@ -751,7 +777,7 @@ Constraints/indexes:
 - Partial unique index on `(profile_id, campaign_name)` where `active = true`.
 - Index on `(profile_id, created_at desc)`.
 
-### 17. `wbr_email_drafts`
+### 18. `wbr_email_drafts`
 
 Purpose:
 

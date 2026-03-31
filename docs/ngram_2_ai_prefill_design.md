@@ -252,6 +252,34 @@ This split is deliberate:
 3. the user can inspect a cheap slice first, then explicitly pay for the full
    run when ready
 
+### Current validation checkpoint
+
+As of `2026-03-30`, this workflow has moved beyond prototype-only status.
+
+Current shipped/validated checkpoint:
+
+1. Step 3 bounded preview works on live Whoosh data
+2. Step 4 full AI workbook generation works
+3. OpenAI Structured Outputs are live for the campaign-evaluation contract
+4. saved runs persist in `ngram_ai_preview_runs`
+5. reviewed workbook uploads now persist best-effort diffs in
+   `ngram_ai_override_runs`
+6. a limited Whoosh CA full run for `2026-03-27` through `2026-03-29`
+   completed successfully with:
+   - `43` runnable campaigns
+   - `145` evaluated terms
+   - `477,233` total tokens
+   - approx `$1.42` cost on `gpt-5.4`
+
+That means the next useful milestone is no longer “make the pipeline work.”
+The next useful milestone is:
+
+1. compare a full 7-day Whoosh US analyst-reviewed worksheet against the
+   `/ngram-2` full AI-prefilled workbook
+2. inspect the real campaign / term / gram diffs
+3. decide whether the current prompt/model/workbook behavior is good enough or
+   needs targeted correction
+
 ## Step 4: AI relevance evaluation
 
 ### Unit of AI judgment

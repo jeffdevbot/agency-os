@@ -7,18 +7,47 @@ historical reference.
 
 ## Active next-session entrypoints
 
-1. [Claude primary surface plan](/Users/jeff/code/agency-os/docs/claude_primary_surface_plan.md)
+1. [Search term automation resume prompt](/Users/jeff/code/agency-os/docs/search_term_automation_resume_prompt.md)
+   - Primary restart doc for the current highest-priority workstream:
+     `STR / N-Gram 2.0`.
+2. [PROJECT_STATUS.md](/Users/jeff/code/agency-os/PROJECT_STATUS.md)
+   - Fastest high-level snapshot of what is already shipped.
+3. [N-Gram 2.0 AI prefill design](/Users/jeff/code/agency-os/docs/ngram_2_ai_prefill_design.md)
+   - Current product/design reference for the shipped Step 3 / Step 4 AI
+     workflow and its conservative workbook-writing model.
+4. [WBR schema plan](/Users/jeff/code/agency-os/docs/wbr_v2_schema_plan.md)
+   - Current schema/reference document for live WBR + STR + N-Gram support
+     tables, including `ngram_ai_preview_runs` and `ngram_ai_override_runs`.
+5. [Claude primary surface plan](/Users/jeff/code/agency-os/docs/claude_primary_surface_plan.md)
    - Current strategy doc for Claude vs The Claw and future MCP expansion.
-2. [Agency OS MCP implementation plan](/Users/jeff/code/agency-os/docs/agency_os_mcp_implementation_plan.md)
+6. [Agency OS MCP implementation plan](/Users/jeff/code/agency-os/docs/agency_os_mcp_implementation_plan.md)
    - Current implementation-planning reference for the shared Claude/MCP tool
      surface after WBR + Monthly P&L shipped.
-3. [Reports API access and SP-API plan](/Users/jeff/code/agency-os/docs/reports_api_access_and_spapi_plan.md)
+7. [Reports API access and SP-API plan](/Users/jeff/code/agency-os/docs/reports_api_access_and_spapi_plan.md)
    - Current shared reporting auth/source-of-truth planning reference.
-4. [PROJECT_STATUS.md](/Users/jeff/code/agency-os/PROJECT_STATUS.md)
-   - Fastest high-level snapshot of what is already shipped.
-5. [Search term automation resume prompt](/Users/jeff/code/agency-os/docs/search_term_automation_resume_prompt.md)
-   - Current restart prompt if the next session returns specifically to the
-     STR / N-Gram 2.0 workstream.
+
+## Highest-priority restart target
+
+If the next session is about `/ngram-2`, start here:
+
+1. The current product goal is a **full 7-day Whoosh US worksheet comparison**
+   between:
+   - an analyst-reviewed manual workbook
+   - the new `/ngram-2` full AI-prefilled workbook path
+2. Treat the current AI workflow as functionally shipped for this validation:
+   - Step 3 bounded preview works
+   - Step 4 full AI workbook runs work
+   - OpenAI Structured Outputs are live
+   - prompt version is persisted
+   - reviewed workbook uploads now log override diffs
+3. The next session should not reopen model/plumbing questions unless the
+   analyst-verified 7-day comparison exposes a real regression.
+4. The exact next checkpoint is:
+   - run a full 7-day Whoosh US AI workbook
+   - compare against the analyst-verified worksheet
+   - inspect diffs by campaign / term / gram
+   - decide whether the current prompt/model/workbook behavior is good enough
+     to keep or needs targeted correction
 
 ## Current operational/reference docs
 
@@ -107,7 +136,7 @@ historical reference.
    - the tracked upgrade follow-up should not require mass re-auth of Amazon
      Ads or Windsor accounts because those credentials are stored in database
      rows
-6. Search Term Automation current state as of 2026-03-30 (ET):
+6. Search Term Automation / N-Gram 2.0 current state as of 2026-03-30 (ET):
    - Stage 1 `Search Term Automation` controls are live on
      `/reports/client-data-access/[clientSlug]`
    - Stage 2 `Search Term Data` is live on
@@ -123,6 +152,19 @@ historical reference.
    - `/ngram-2` now intentionally splits AI work into:
      - a bounded Step 3 preview for cheap validation
      - a full uncapped Step 4 AI workbook run for actual workbook generation
+   - Step 3/4 campaign evaluation now uses OpenAI Structured Outputs with a
+     strict JSON schema instead of prompt-only JSON
+   - `/ngram-2` now uses a dedicated model env var:
+     `OPENAI_MODEL_NGRAM`
+   - Step 3 / Step 4 saved runs now persist:
+     - exact payloads in `ngram_ai_preview_runs`
+     - explicit `prompt_version`
+     - prompt/completion/total tokens
+   - reviewed workbook uploads through legacy `/ngram` Step 2 now persist
+     best-effort AI-vs-analyst diffs in `ngram_ai_override_runs`
+   - workbook output now mirrors human behavior more closely:
+     - 1/2/3-word `NEGATE` terms land in scratchpad mono/bi/tri columns
+     - longer `NEGATE` terms prefill exact `NE` on the search-term row
    - STR UI now auto-refreshes every 15 seconds while runs are in `running`
      state, mirroring the WBR Ads sync experience
    - post-worker-redeploy live validation is now confirmed on a real Whoosh US
@@ -251,16 +293,14 @@ historical reference.
    - current best interpretation is that this specific campaign family may
    - `/ngram-2` current state:
      - native SP preflight summary is live
-     - page was simplified to a single-column Step 1 / 2 / 3 flow
-     - AI preview now uses **AI-first product matching** from the Windsor child
-       ASIN catalog inside the same call as term evaluation rather than a
-       deterministic pre-match gate
-     - AI preview output is now validated strictly before synthesis:
-       malformed JSON, bad ASINs, missing term rows, duplicate term rows, or
-       contradictory confidence/product states hard-fail instead of silently
-       degrading
-     - AI preview `reason_tag` is now a strict enum and must be exactly one
-       of:
+     - page now effectively supports a Step 3 preview and a Step 4 full-run
+       workbook path
+     - AI evaluation uses AI-first product matching from Windsor child-ASIN
+       catalog context in the same call as term evaluation
+     - output is validated by both:
+       - OpenAI Structured Outputs
+       - local contract validation/retry
+     - `reason_tag` is now a strict 10-value enum:
        - `core_use_case`
        - `wrong_category`
        - `wrong_product_form`
@@ -271,67 +311,30 @@ historical reference.
        - `accessory_only_intent`
        - `foreign_language`
        - `ambiguous_intent`
-     - the preview-budget bug was fixed:
-       intentionally skipped brand/mix/defensive campaigns no longer consume
-       the top-6 preview slots; the route now walks past them to the next
-       runnable campaigns
-     - successful Step 3 preview payloads now persist in
-       `ngram_ai_preview_runs` instead of existing only in the browser state
-     - the preview route now returns `preview_run_id`, and the AI-prefilled
-       workbook path can reuse that saved run directly instead of depending
-       only on transient browser state
-     - Step 3 preview rows now also persist explicit `prompt_version`
-     - AI-prefilled workbook summary metadata now records:
+     - prompt calibration now explicitly handles:
+       - `REVIEW` vs `NEGATE`
+       - cloth/accessory standalone intent
+       - CA French relevance handling
+     - saved-run traceability now includes:
        - `AI Preview Run`
        - `AI Model`
        - `AI Prompt Version`
        - `AI Threshold`
-     - Step 3 preview now has a dedicated model env var:
-       `OPENAI_MODEL_NGRAM`
-     - GPT-5-family request-shape handling is now centralized in the shared
-       OpenAI adapter; the Step 3 route no longer passes a redundant
-       temperature arg
-     - the Step 3 prompt now explicitly tightens `REVIEW` vs `NEGATE`
-       calibration:
-       - if the model can write a clear one-sentence wrong-fit rationale, that
-         should be `NEGATE`, not `REVIEW`
-       - cloth-only and other accessory-only terms are now called out as
-         explicit negative-intent cases rather than left to implied judgment
-       - CA French queries are now treated as a marketplace-aware relevance
-         case rather than a generic foreign-language negative
-     - Step 3 user payloads now pass explicit `marketplace_code` into the AI
-       call so the model does not need to infer CA-vs-US language policy from
-       campaign naming alone
-     - AI-prefilled workbook sheets keep the legacy workbook layout but now
-       append compact search-term review columns:
-       - `AI Recommendation`
-       - `AI Confidence`
-       - `AI Reason`
-     - AI-prefilled workbook output now behaves more like a human-filled
-       sheet:
-       - `NEGATE` terms with 1/2/3 cleaned words are written directly into
-         the scratchpad `Monogram` / `Bigram` / `Trigram` columns
-       - longer `NEGATE` terms are prefilled as exact `NE` on the search-term
-         row
-     - workbook summary metadata now records the linked preview run id, model,
-       prompt version, and spend threshold for traceability
-     - legacy `/ngram/collect` now performs best-effort override capture when
-       a reviewed workbook contains `AI Preview Run` metadata:
-       - the collect flow reads the saved preview payload back from
-         `ngram_ai_preview_runs`
-       - it compares AI term recommendations and synthesized grams against the
-         analyst’s final exact negatives and selected gram outputs
-       - the resulting diff payload is persisted in `ngram_ai_override_runs`
-     - the preview route still lives under Next.js at
-       `frontend-web/src/app/api/ngram-2/ai-prefill-preview/route.ts`, but the
-       saved-preview workbook reuse / AI-column write / override capture now
-       also touch the backend N-Gram route and workbook writer
+     - the first end-to-end override-capture row is now live in
+       `ngram_ai_override_runs`
+     - a limited Whoosh CA full run for `2026-03-27` through `2026-03-29`
+       completed successfully and persisted:
+       - run id `a63530e2-9d1a-42c1-a0d4-563bf931e6b1`
+       - `43` runnable campaigns
+       - `145` evaluated terms
+       - `477,233` total tokens
+       - approx cost `$1.42` on `gpt-5.4`
      - current read:
-       the Step 3 SP validation slice is effectively a pass
-     - immediate next-session goal:
-       now that the first override-capture layer is live, the next useful
-       slice is a native `/ngram-2` reviewed-workbook upload UX plus analysis
-       surfaces for the captured override data
+       the `/ngram-2` SP AI workbook path is functional enough to move into
+       analyst-verified comparison work
+     - exact next-session goal:
+       compare a full 7-day Whoosh US analyst-reviewed worksheet against the
+       `/ngram-2` full AI-generated worksheet and inspect the real diffs
    - screenshots/export inspection confirmed:
      - campaign type is `Sponsored Brands`
      - campaign targeting is `MANUAL`

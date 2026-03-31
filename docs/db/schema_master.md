@@ -2,15 +2,15 @@
 
 ## Snapshot
 
-- Last verified (UTC): `2026-03-27 19:53:08Z`
+- Last verified (UTC): `2026-03-30 23:58:00Z`
 - Source: live Supabase introspection via MCP (`supabase.execute_sql` against `information_schema` + `pg_catalog`)
 - Schema: `public`
-- Relations: `80` total (`79` tables, `1` view, `0` materialized views)
-- Columns: `955`
-- Primary key entries: `79`
-- Foreign key entries: `145`
-- Indexes: `318`
-- RLS policies: `141`
+- Relations: `82` total (`81` tables, `1` view, `0` materialized views)
+- Columns: `979`
+- Primary key entries: `81`
+- Foreign key entries: `148`
+- Indexes: `324`
+- RLS policies: `145`
 - Functions: `138`
 
 ## Scope Note
@@ -61,6 +61,8 @@ refreshed directly from live Supabase MCP instead.
 | `public.monthly_pnl_raw_rows` | `table` | `yes` |
 | `public.monthly_pnl_sku_cogs` | `table` | `yes` |
 | `public.ops_chat_sessions` | `table` | `yes` |
+| `public.ngram_ai_override_runs` | `table` | `yes` |
+| `public.ngram_ai_preview_runs` | `table` | `yes` |
 | `public.playbook_slack_sessions` | `table` | `yes` |
 | `public.playbook_sops` | `table` | `yes` |
 | `public.profiles` | `table` | `yes` |
@@ -171,6 +173,8 @@ refreshed directly from live Supabase MCP instead.
 - `wbr_profiles`
 - `wbr_rows`
 - `wbr_sync_runs`
+- `ngram_ai_preview_runs`
+- `ngram_ai_override_runs`
 - `search_term_campaign_scope`
 - `search_term_daily_facts`
 - `wbr_business_asin_daily`
@@ -636,6 +640,47 @@ refreshed directly from live Supabase MCP instead.
   - `targeting text nullable`
   - `ad_product text nullable`
   - `report_type_id text nullable`
+
+### `public.ngram_ai_preview_runs`
+
+- RLS enabled: `yes`
+- Primary key: `id`
+- Key foreign keys:
+  - `profile_id -> wbr_profiles.id`
+- Columns:
+  - `id uuid`
+  - `profile_id uuid`
+  - `requested_by_auth_user_id uuid nullable`
+  - `ad_product text`
+  - `date_from date`
+  - `date_to date`
+  - `spend_threshold numeric`
+  - `respect_legacy_exclusions bool default true`
+  - `model text nullable`
+  - `prompt_version text nullable`
+  - `prompt_tokens int4 default 0`
+  - `completion_tokens int4 default 0`
+  - `total_tokens int4 default 0`
+  - `preview_payload jsonb`
+  - `created_at timestamptz`
+
+### `public.ngram_ai_override_runs`
+
+- RLS enabled: `yes`
+- Primary key: `id`
+- Key foreign keys:
+  - `preview_run_id -> ngram_ai_preview_runs.id`
+  - `profile_id -> wbr_profiles.id`
+- Columns:
+  - `id uuid`
+  - `preview_run_id uuid`
+  - `profile_id uuid`
+  - `collected_by_auth_user_id uuid nullable`
+  - `source_filename text nullable`
+  - `model text nullable`
+  - `prompt_version text nullable`
+  - `override_payload jsonb`
+  - `created_at timestamptz`
 
 ### `public.wbr_report_snapshots`
 
