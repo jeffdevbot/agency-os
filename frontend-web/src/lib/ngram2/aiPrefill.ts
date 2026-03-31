@@ -173,6 +173,58 @@ const STOP_WORDS = new Set([
   "bottles",
 ]);
 
+const SYNTHESIS_BOUNDARY_TOKENS = new Set([
+  ...STOP_WORDS,
+  "to",
+  "from",
+  "in",
+  "on",
+  "at",
+  "by",
+  "de",
+  "para",
+  "y",
+  "la",
+  "el",
+  "los",
+  "las",
+  "en",
+  "con",
+]);
+
+const SYNTHESIS_GENERIC_MONOGRAMS = new Set([
+  "screen",
+  "screens",
+  "clean",
+  "cleaner",
+  "cleaning",
+  "cloth",
+  "cloths",
+  "wipe",
+  "wipes",
+  "spray",
+  "sprays",
+  "liquid",
+  "liquido",
+  "kit",
+  "kits",
+  "case",
+  "cases",
+  "remove",
+  "remover",
+  "scratch",
+  "scratches",
+  "glass",
+  "glasses",
+  "monitor",
+  "monitors",
+  "phone",
+  "phones",
+  "de",
+  "para",
+  "y",
+]);
+
 const QUERY_TOKEN_RE = /[^\w\s\-"'®©™°&+#]+/gu;
 const PRODUCT_TOKEN_RE = /[^\w\s]+/g;
 const PRODUCT_ABBREVIATIONS: Array<[RegExp, string]> = [
@@ -774,6 +826,42 @@ const weightedConfidenceScore = (confidence: AIPrefillEvaluation["confidence"]):
   return 0;
 };
 
+const tokenizeSynthesizedGram = (gram: string): string[] =>
+  cleanQueryForNgrams(gram)
+    .split(" ")
+    .filter(Boolean);
+
+const isAllowedSynthesizedGram = (gram: string, size: 1 | 2 | 3): boolean => {
+  const tokens = tokenizeSynthesizedGram(gram);
+  if (tokens.length !== size) return false;
+
+  if (size === 1) {
+    return !SYNTHESIS_GENERIC_MONOGRAMS.has(tokens[0] || "");
+  }
+
+  const first = tokens[0] || "";
+  const last = tokens[tokens.length - 1] || "";
+  if (SYNTHESIS_BOUNDARY_TOKENS.has(first) || SYNTHESIS_BOUNDARY_TOKENS.has(last)) {
+    return false;
+  }
+
+  return tokens.some((token) => !SYNTHESIS_BOUNDARY_TOKENS.has(token));
+};
+
+const pruneRedundantMonograms = (
+  monoCandidates: SynthesizedGram[],
+  longerCandidates: SynthesizedGram[],
+): SynthesizedGram[] =>
+  monoCandidates.filter((candidate) => {
+    const token = tokenizeSynthesizedGram(candidate.gram)[0] || "";
+    if (!token) return false;
+
+    return !longerCandidates.some((longer) => {
+      const longerTokens = tokenizeSynthesizedGram(longer.gram);
+      return longer.negateCount >= 2 && longerTokens.includes(token);
+    });
+  });
+
 const synthesizeForSize = (
   evaluations: AIPrefillEvaluation[],
   size: 1 | 2 | 3,
@@ -835,8 +923,13 @@ const synthesizeForSize = (
       if (candidate.keepCount > 0) return false;
       if (candidate.reviewCount > 0) return false;
       if (candidate.weightedScore < 2) return false;
+      if (!isAllowedSynthesizedGram(candidate.gram, size)) return false;
 
       if (size === 1) {
+        return candidate.supportTerms.length >= 2;
+      }
+
+      if (size === 3) {
         return candidate.supportTerms.length >= 2;
       }
 
@@ -855,8 +948,13 @@ const synthesizeForSize = (
 export const synthesizeCampaignScratchpad = (
   evaluations: AIPrefillEvaluation[],
   spendThreshold: number,
-): CampaignPrefillScratchpad => ({
-  mono: synthesizeForSize(evaluations, 1, spendThreshold),
-  bi: synthesizeForSize(evaluations, 2, spendThreshold),
-  tri: synthesizeForSize(evaluations, 3, spendThreshold),
-});
+): CampaignPrefillScratchpad => {
+  const tri = synthesizeForSize(evaluations, 3, spendThreshold);
+  const bi = synthesizeForSize(evaluations, 2, spendThreshold);
+  const mono = pruneRedundantMonograms(
+    synthesizeForSize(evaluations, 1, spendThreshold),
+    [...bi, ...tri],
+  );
+
+  return { mono, bi, tri };
+};

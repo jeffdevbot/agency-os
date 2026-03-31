@@ -290,6 +290,109 @@ describe("ngram2 aiPrefill helpers", () => {
     expect(scratchpad.bi.map((item) => item.gram)).toContain("travel size");
   });
 
+  it("prunes fragment monograms when a stronger repeated phrase exists", () => {
+    const scratchpad = synthesizeCampaignScratchpad(
+      [
+        {
+          search_term: "stardew valley for nintendo switch",
+          recommendation: "NEGATE",
+          confidence: "HIGH",
+          reason_tag: "wrong_category",
+          rationale: null,
+          spend: 4,
+          clicks: 2,
+          orders: 0,
+          sales: 0,
+          keyword: null,
+          keywordType: null,
+          targeting: null,
+          matchType: null,
+        },
+        {
+          search_term: "stardew valley switch edition",
+          recommendation: "NEGATE",
+          confidence: "HIGH",
+          reason_tag: "wrong_category",
+          rationale: null,
+          spend: 4,
+          clicks: 2,
+          orders: 0,
+          sales: 0,
+          keyword: null,
+          keywordType: null,
+          targeting: null,
+          matchType: null,
+        },
+        {
+          search_term: "stardew valley nintendo switch release",
+          recommendation: "NEGATE",
+          confidence: "HIGH",
+          reason_tag: "wrong_category",
+          rationale: null,
+          spend: 4,
+          clicks: 2,
+          orders: 0,
+          sales: 0,
+          keyword: null,
+          keywordType: null,
+          targeting: null,
+          matchType: null,
+        },
+      ],
+      0,
+    );
+
+    expect(scratchpad.bi.map((item) => item.gram)).toContain("stardew valley");
+    expect(scratchpad.mono.map((item) => item.gram)).not.toContain("stardew");
+    expect(scratchpad.mono.map((item) => item.gram)).not.toContain("valley");
+    expect(scratchpad.mono.map((item) => item.gram)).not.toContain("nintendo");
+    expect(scratchpad.mono.map((item) => item.gram)).not.toContain("switch");
+  });
+
+  it("blocks weak glue-word grams and single-support trigrams", () => {
+    const scratchpad = synthesizeCampaignScratchpad(
+      [
+        {
+          search_term: "spray para limpiar pantalla de televisor y monitor",
+          recommendation: "NEGATE",
+          confidence: "HIGH",
+          reason_tag: "foreign_language",
+          rationale: null,
+          spend: 12,
+          clicks: 3,
+          orders: 0,
+          sales: 0,
+          keyword: null,
+          keywordType: null,
+          targeting: null,
+          matchType: null,
+        },
+        {
+          search_term: "belkin display cleaner",
+          recommendation: "NEGATE",
+          confidence: "HIGH",
+          reason_tag: "competitor_brand",
+          rationale: null,
+          spend: 10,
+          clicks: 3,
+          orders: 0,
+          sales: 0,
+          keyword: null,
+          keywordType: null,
+          targeting: null,
+          matchType: null,
+        },
+      ],
+      0,
+    );
+
+    expect(scratchpad.mono.map((item) => item.gram)).not.toContain("de");
+    expect(scratchpad.mono.map((item) => item.gram)).not.toContain("para");
+    expect(scratchpad.mono.map((item) => item.gram)).not.toContain("y");
+    expect(scratchpad.bi.map((item) => item.gram)).not.toContain("para limpiar");
+    expect(scratchpad.tri).toHaveLength(0);
+  });
+
   it("caps preview mode but leaves full mode uncapped", () => {
     const campaigns = Array.from({ length: 8 }, (_, campaignIndex) => ({
       campaignName: `Campaign ${campaignIndex + 1}`,
