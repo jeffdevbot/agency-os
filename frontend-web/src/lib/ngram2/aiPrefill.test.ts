@@ -287,7 +287,7 @@ describe("ngram2 aiPrefill helpers", () => {
 
     expect(scratchpad.mono.map((item) => item.gram)).toContain("travel");
     expect(scratchpad.mono.map((item) => item.gram)).not.toContain("screen");
-    expect(scratchpad.bi.map((item) => item.gram)).toContain("travel size");
+    expect(scratchpad.bi).toHaveLength(0);
   });
 
   it("prunes fragment monograms when a stronger repeated phrase exists", () => {
@@ -389,8 +389,116 @@ describe("ngram2 aiPrefill helpers", () => {
     expect(scratchpad.mono.map((item) => item.gram)).not.toContain("de");
     expect(scratchpad.mono.map((item) => item.gram)).not.toContain("para");
     expect(scratchpad.mono.map((item) => item.gram)).not.toContain("y");
+    expect(scratchpad.mono.map((item) => item.gram)).not.toContain("limpiador");
     expect(scratchpad.bi.map((item) => item.gram)).not.toContain("para limpiar");
     expect(scratchpad.tri).toHaveLength(0);
+  });
+
+  it("keeps distinctive repeated phrases while blocking repeated generic cleaner/device phrases", () => {
+    const scratchpad = synthesizeCampaignScratchpad(
+      [
+        {
+          search_term: "flat screen tv cleaner",
+          recommendation: "NEGATE",
+          confidence: "HIGH",
+          reason_tag: "wrong_category",
+          rationale: null,
+          spend: 9,
+          clicks: 2,
+          orders: 0,
+          sales: 0,
+          keyword: null,
+          keywordType: null,
+          targeting: null,
+          matchType: null,
+        },
+        {
+          search_term: "tv screen cleaner for smart tv streak free",
+          recommendation: "NEGATE",
+          confidence: "HIGH",
+          reason_tag: "wrong_category",
+          rationale: null,
+          spend: 9,
+          clicks: 2,
+          orders: 0,
+          sales: 0,
+          keyword: null,
+          keywordType: null,
+          targeting: null,
+          matchType: null,
+        },
+        {
+          search_term: "cleaning cloth for computer screen",
+          recommendation: "NEGATE",
+          confidence: "HIGH",
+          reason_tag: "accessory_only_intent",
+          rationale: null,
+          spend: 7,
+          clicks: 2,
+          orders: 0,
+          sales: 0,
+          keyword: null,
+          keywordType: null,
+          targeting: null,
+          matchType: null,
+        },
+        {
+          search_term: "phone cloths anti scratch and cleaner",
+          recommendation: "NEGATE",
+          confidence: "HIGH",
+          reason_tag: "accessory_only_intent",
+          rationale: null,
+          spend: 7,
+          clicks: 2,
+          orders: 0,
+          sales: 0,
+          keyword: null,
+          keywordType: null,
+          targeting: null,
+          matchType: null,
+        },
+        {
+          search_term: "screen doctor professional screen cleaner",
+          recommendation: "NEGATE",
+          confidence: "HIGH",
+          reason_tag: "competitor_brand",
+          rationale: null,
+          spend: 6,
+          clicks: 2,
+          orders: 0,
+          sales: 0,
+          keyword: null,
+          keywordType: null,
+          targeting: null,
+          matchType: null,
+        },
+        {
+          search_term: "screen doctor tv screen cleaner",
+          recommendation: "NEGATE",
+          confidence: "HIGH",
+          reason_tag: "competitor_brand",
+          rationale: null,
+          spend: 6,
+          clicks: 2,
+          orders: 0,
+          sales: 0,
+          keyword: null,
+          keywordType: null,
+          targeting: null,
+          matchType: null,
+        },
+      ],
+      0,
+    );
+
+    expect(scratchpad.mono.map((item) => item.gram)).not.toContain("from");
+    expect(scratchpad.mono.map((item) => item.gram)).not.toContain("televisor");
+    expect(scratchpad.bi.map((item) => item.gram)).toContain("screen doctor");
+    expect(scratchpad.bi.map((item) => item.gram)).not.toContain("tv screen");
+    expect(scratchpad.bi.map((item) => item.gram)).not.toContain("cleaning cloth");
+    expect(scratchpad.bi.map((item) => item.gram)).not.toContain("phone screen");
+    expect(scratchpad.tri.map((item) => item.gram)).not.toContain("tv screen cleaner");
+    expect(scratchpad.tri.map((item) => item.gram)).not.toContain("screen cleaning cloth");
   });
 
   it("caps preview mode but leaves full mode uncapped", () => {

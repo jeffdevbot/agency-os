@@ -218,11 +218,66 @@ const SYNTHESIS_GENERIC_MONOGRAMS = new Set([
   "glasses",
   "monitor",
   "monitors",
+  "display",
+  "displays",
   "phone",
   "phones",
+  "tv",
+  "tvs",
+  "tablet",
+  "tablets",
+  "laptop",
+  "laptops",
+  "computer",
+  "computers",
+  "ipad",
+  "iphone",
+  "macbook",
+  "touchpad",
+  "mousepad",
+  "televisor",
+  "television",
+  "televisión",
+  "pantalla",
+  "pantallas",
+  "limpiador",
+  "limpiar",
+  "limpieza",
   "de",
   "para",
   "y",
+]);
+
+const SYNTHESIS_GENERIC_DESCRIPTOR_TOKENS = new Set([
+  ...SYNTHESIS_GENERIC_MONOGRAMS,
+  "solution",
+  "solutions",
+  "polish",
+  "polishing",
+  "streak",
+  "free",
+  "dust",
+  "duster",
+  "foam",
+  "foaming",
+  "pad",
+  "pads",
+  "protector",
+  "protectors",
+  "set",
+  "sets",
+  "glossy",
+  "gloss",
+  "anti",
+  "cleaned",
+  "cleans",
+  "microfiber",
+  "micro",
+  "fiber",
+  "flat",
+  "smart",
+  "large",
+  "outside",
 ]);
 
 const QUERY_TOKEN_RE = /[^\w\s\-"'®©™°&+#]+/gu;
@@ -839,6 +894,11 @@ const tokenizeSynthesizedGram = (gram: string): string[] =>
     .split(" ")
     .filter(Boolean);
 
+const countDistinctiveSynthesizedTokens = (gram: string): number =>
+  tokenizeSynthesizedGram(gram).filter(
+    (token) => !SYNTHESIS_BOUNDARY_TOKENS.has(token) && !SYNTHESIS_GENERIC_DESCRIPTOR_TOKENS.has(token),
+  ).length;
+
 const isAllowedSynthesizedGram = (gram: string, size: 1 | 2 | 3): boolean => {
   const tokens = tokenizeSynthesizedGram(gram);
   if (tokens.length !== size) return false;
@@ -853,7 +913,7 @@ const isAllowedSynthesizedGram = (gram: string, size: 1 | 2 | 3): boolean => {
     return false;
   }
 
-  return tokens.some((token) => !SYNTHESIS_BOUNDARY_TOKENS.has(token));
+  return countDistinctiveSynthesizedTokens(gram) > 0;
 };
 
 const pruneRedundantMonograms = (
@@ -873,7 +933,6 @@ const pruneRedundantMonograms = (
 const synthesizeForSize = (
   evaluations: AIPrefillEvaluation[],
   size: 1 | 2 | 3,
-  spendThreshold: number,
 ): SynthesizedGram[] => {
   const byGram = new Map<
     string,
@@ -914,8 +973,6 @@ const synthesizeForSize = (
     }
   }
 
-  const minSpendForSingleTerm = Math.max(spendThreshold * 2.5, size === 1 ? 12 : 8);
-
   return [...byGram.entries()]
     .map(([gram, stats]) => ({
       gram,
@@ -937,12 +994,7 @@ const synthesizeForSize = (
         return candidate.supportTerms.length >= 2;
       }
 
-      if (size === 3) {
-        return candidate.supportTerms.length >= 2;
-      }
-
-      if (candidate.supportTerms.length >= 2) return true;
-      return candidate.negateSpend >= minSpendForSingleTerm;
+      return candidate.supportTerms.length >= 2;
     })
     .sort(
       (left, right) =>
@@ -955,12 +1007,12 @@ const synthesizeForSize = (
 
 export const synthesizeCampaignScratchpad = (
   evaluations: AIPrefillEvaluation[],
-  spendThreshold: number,
+  _spendThreshold: number,
 ): CampaignPrefillScratchpad => {
-  const tri = synthesizeForSize(evaluations, 3, spendThreshold);
-  const bi = synthesizeForSize(evaluations, 2, spendThreshold);
+  const tri = synthesizeForSize(evaluations, 3);
+  const bi = synthesizeForSize(evaluations, 2);
   const mono = pruneRedundantMonograms(
-    synthesizeForSize(evaluations, 1, spendThreshold),
+    synthesizeForSize(evaluations, 1),
     [...bi, ...tri],
   );
 
