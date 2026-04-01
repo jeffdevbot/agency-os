@@ -78,11 +78,13 @@ def test_build_workbook_writes_ai_prefills_to_scratchpad_columns():
                     "recommendation": "NEGATE",
                     "confidence": "HIGH",
                     "reason_tag": "wrong_size_variant",
+                    "rationale": "Travel-size intent does not match this product size.",
                 },
                 "travel size screen cleaner": {
                     "recommendation": "NEGATE",
                     "confidence": "MEDIUM",
                     "reason_tag": "ambiguous_intent",
+                    "rationale": "The query leans away from the stocked variant.",
                 }
             }
         },
@@ -107,19 +109,21 @@ def test_build_workbook_writes_ai_prefills_to_scratchpad_columns():
         assert ws["AV6"].value == "AI Recommendation"
         assert ws["AW6"].value == "AI Confidence"
         assert ws["AX6"].value == "AI Reason"
+        assert ws["AY6"].value == "AI Rationale"
         assert ws["AV7"].value == "LIKELY NEGATE"
         assert ws["AW7"].value == "HIGH"
         assert ws["AX7"].value == "wrong_size_variant"
+        assert ws["AY7"].value == "Travel-size intent does not match this product size."
         assert ws["AV8"].value == "LIKELY NEGATE"
         assert ws["AW8"].value == "MEDIUM"
         assert ws["AX8"].value == "ambiguous_intent"
+        assert ws["AY8"].value == "The query leans away from the stocked variant."
         assert ws["AT8"].value == "NE"
         assert ws["AV7"].fill.fgColor.rgb == "FFFDECEA"
 
         assert ws["AZ6"].value == "Monogram"
         assert ws["BA6"].value == "Bigram"
         assert ws["BB6"].value == "Trigram"
-        assert ws["AY6"].value in (None, "")
         assert ws["BA7"].value == "travel size"
 
         assert isinstance(ws["K7"].value, str)
@@ -185,11 +189,13 @@ def test_build_workbook_uses_explicit_exact_prefills_when_present():
                     "recommendation": "NEGATE",
                     "confidence": "HIGH",
                     "reason_tag": "accessory_only_intent",
+                    "rationale": "This term targets a standalone case, not the main product.",
                 },
                 "travel screen protector bundle": {
                     "recommendation": "NEGATE",
                     "confidence": "HIGH",
                     "reason_tag": "wrong_product_form",
+                    "rationale": "This shopper wants a protector bundle rather than a cleaner.",
                 },
             }
         },
@@ -203,6 +209,7 @@ def test_build_workbook_uses_explicit_exact_prefills_when_present():
         assert ws["AT8"].value in (None, "")
         assert ws["BA7"].value == "screen protector"
         assert ws["AV7"].value == "LIKELY NEGATE"
+        assert ws["AY7"].value == "This term targets a standalone case, not the main product."
     finally:
         os.unlink(workbook_path)
 
@@ -262,16 +269,19 @@ def test_build_workbook_displays_triage_labels_and_colors():
                     "recommendation": "KEEP",
                     "confidence": "HIGH",
                     "reason_tag": "core_use_case",
+                    "rationale": "This directly matches the product's core use case.",
                 },
                 "apple juice screen cleaner": {
                     "recommendation": "NEGATE",
                     "confidence": "HIGH",
                     "reason_tag": "wrong_category",
+                    "rationale": "Juice intent is unrelated to device cleaning.",
                 },
                 "clean macbook": {
                     "recommendation": "REVIEW",
                     "confidence": "MEDIUM",
                     "reason_tag": "ambiguous_intent",
+                    "rationale": "It could mean either cleaning advice or a product search.",
                 },
             }
         },
@@ -287,6 +297,9 @@ def test_build_workbook_displays_triage_labels_and_colors():
         assert ws["X7"].fill.fgColor.rgb == "FFE8F5E9"
         assert ws["X8"].fill.fgColor.rgb == "FFFDECEA"
         assert ws["X9"].fill.fgColor.rgb == "FFFFF4CC"
+        assert ws["AA7"].value == "This directly matches the product's core use case."
+        assert ws["AA8"].value == "Juice intent is unrelated to device cleaning."
+        assert ws["AA9"].value == "It could mean either cleaning advice or a product search."
     finally:
         os.unlink(workbook_path)
 
@@ -344,11 +357,13 @@ def test_build_workbook_triage_mode_leaves_ne_and_scratchpad_blank():
                     "recommendation": "NEGATE",
                     "confidence": "HIGH",
                     "reason_tag": "wrong_size_variant",
+                    "rationale": "Travel-size intent does not match this product size.",
                 },
                 "travel size screen cleaner": {
                     "recommendation": "NEGATE",
                     "confidence": "MEDIUM",
                     "reason_tag": "ambiguous_intent",
+                    "rationale": "The query leans away from the stocked variant.",
                 },
             }
         },
@@ -367,6 +382,8 @@ def test_build_workbook_triage_mode_leaves_ne_and_scratchpad_blank():
 
         assert ws["AV7"].value == "LIKELY NEGATE"
         assert ws["AV8"].value == "LIKELY NEGATE"
+        assert ws["AY7"].value == "Travel-size intent does not match this product size."
+        assert ws["AY8"].value == "The query leans away from the stocked variant."
         assert ws["AT7"].value in (None, "")
         assert ws["AT8"].value in (None, "")
         assert ws["AZ7"].value in (None, "")

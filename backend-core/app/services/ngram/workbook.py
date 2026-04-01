@@ -15,7 +15,7 @@ from .analytics import clean_query_str, color_for_category
 START_ROW = 3
 SCRATCHPAD_HEADERS = ["Monogram", "Bigram", "Trigram"]
 SCRATCHPAD_BASE_COL = 51
-AI_REVIEW_HEADERS = ["AI Recommendation", "AI Confidence", "AI Reason"]
+AI_REVIEW_HEADERS = ["AI Recommendation", "AI Confidence", "AI Reason", "AI Rationale"]
 AI_RECOMMENDATION_DISPLAY = {
     "KEEP": "SAFE KEEP",
     "NEGATE": "LIKELY NEGATE",
@@ -321,10 +321,14 @@ def build_workbook(
                 raw_with_ai["AI Reason"] = search_terms.map(
                     lambda key: str(campaign_review_lookup.get(key, {}).get("reason_tag") or "")
                 )
+                raw_with_ai["AI Rationale"] = search_terms.map(
+                    lambda key: str(campaign_review_lookup.get(key, {}).get("rationale") or "")
+                )
             else:
                 raw_with_ai["AI Recommendation"] = ""
                 raw_with_ai["AI Confidence"] = ""
                 raw_with_ai["AI Reason"] = ""
+                raw_with_ai["AI Rationale"] = ""
             write_pretty_table(ws, col, "Search Term", raw_with_ai)
 
             for offset, label in enumerate(SCRATCHPAD_HEADERS):
