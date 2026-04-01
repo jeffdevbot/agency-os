@@ -24,6 +24,11 @@ TRI_FLAG_COLUMN = "AK"
 SCRATCHPAD_MONO_COLUMN = "AZ"
 SCRATCHPAD_BI_COLUMN = "BA"
 SCRATCHPAD_TRI_COLUMN = "BB"
+AI_RECOMMENDATION_NORMALIZATION = {
+    "SAFE KEEP": "KEEP",
+    "LIKELY NEGATE": "NEGATE",
+    "REVIEW": "REVIEW",
+}
 
 
 def _to_text(value: Any) -> str:
@@ -32,6 +37,13 @@ def _to_text(value: Any) -> str:
 
 def _search_term_key(value: Any) -> str:
     return _to_text(value).casefold()
+
+
+def _normalize_ai_recommendation(value: Any) -> str | None:
+    raw = _to_text(value).upper()
+    if not raw:
+        return None
+    return AI_RECOMMENDATION_NORMALIZATION.get(raw, raw)
 
 
 def _last_non_empty(sheet, col: str, start_row: int) -> int:
@@ -84,7 +96,7 @@ def _read_sheet_state(sheet) -> dict[str, Any]:
         reviewed_terms[key] = {
             "search_term": search_term,
             "final_flag": _to_text(sheet[f"{TERM_FLAG_COLUMN}{row_idx}"].value).upper() or None,
-            "ai_recommendation": _to_text(sheet[f"{AI_RECOMMENDATION_COLUMN}{row_idx}"].value).upper() or None,
+            "ai_recommendation": _normalize_ai_recommendation(sheet[f"{AI_RECOMMENDATION_COLUMN}{row_idx}"].value),
             "ai_confidence": _to_text(sheet[f"{AI_CONFIDENCE_COLUMN}{row_idx}"].value).upper() or None,
             "ai_reason_tag": _to_text(sheet[f"{AI_REASON_COLUMN}{row_idx}"].value) or None,
         }

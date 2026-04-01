@@ -8,14 +8,20 @@ import {
 
 import {
   validateAIPrefillCampaignResponse,
-  validatePureModelCampaignResponse,
+  validatePureModelContextResponse,
+  validatePureModelTermTriageResponse,
   type AggregatedCampaign,
   type AggregatedSearchTerm,
   type AIPrefillCatalogProduct,
   type ValidatedAIPrefillCampaignResponse,
-  type ValidatedPureModelCampaignResponse,
+  type ValidatedPureModelContextResponse,
+  type ValidatedPureModelTermTriageResponse,
 } from "./aiPrefill";
-import { buildCampaignPrompt, buildPureModelCampaignPrompt } from "./aiPrompt";
+import {
+  buildCampaignPrompt,
+  buildPureModelContextPrompt,
+  buildPureModelTermTriagePrompt,
+} from "./aiPrompt";
 
 const MAX_VALIDATION_ATTEMPTS = 3;
 const MIN_RESPONSE_MAX_TOKENS = 2200;
@@ -106,10 +112,10 @@ const NGRAM_RESPONSE_FORMAT: ResponseFormat = {
   },
 };
 
-const NGRAM_PURE_MODEL_RESPONSE_FORMAT: ResponseFormat = {
+const NGRAM_PURE_MODEL_CONTEXT_RESPONSE_FORMAT: ResponseFormat = {
   type: "json_schema",
   json_schema: {
-    name: "ngram_campaign_pure_model_response",
+    name: "ngram_campaign_context_response",
     strict: true,
     schema: {
       type: "object",
@@ -135,6 +141,25 @@ const NGRAM_PURE_MODEL_RESPONSE_FORMAT: ResponseFormat = {
           enum: ["HIGH", "MEDIUM", "LOW"],
         },
         match_reason: { type: "string" },
+      },
+      required: [
+        "matched_product",
+        "match_confidence",
+        "match_reason",
+      ],
+    },
+  },
+};
+
+const NGRAM_PURE_MODEL_TERM_TRIAGE_RESPONSE_FORMAT: ResponseFormat = {
+  type: "json_schema",
+  json_schema: {
+    name: "ngram_campaign_term_triage_response",
+    strict: true,
+    schema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
         term_recommendations: {
           type: "array",
           items: {
@@ -210,9 +235,6 @@ const NGRAM_PURE_MODEL_RESPONSE_FORMAT: ResponseFormat = {
         },
       },
       required: [
-        "matched_product",
-        "match_confidence",
-        "match_reason",
         "term_recommendations",
         "exact_negatives",
         "phrase_negatives",
@@ -234,7 +256,20 @@ const buildValidationRetryMessage = (errorMessage: string): ChatMessage => ({
   ].join("\n"),
 });
 
-const buildPureModelValidationRetryMessage = (errorMessage: string): ChatMessage => ({
+const buildPureModelContextValidationRetryMessage = (errorMessage: string): ChatMessage => ({
+  role: "user",
+  content: [
+    "Your previous response was invalid for this exact reason:",
+    errorMessage,
+    "",
+    "Return the full JSON again.",
+    "match_confidence must be exactly HIGH, MEDIUM, or LOW.",
+    "matched_product must either be a valid catalog row or null.",
+    "Do not omit any required fields.",
+  ].join("\n"),
+});
+
+const buildPureModelTermTriageValidationRetryMessage = (errorMessage: string): ChatMessage => ({
   role: "user",
   content: [
     "Your previous response was invalid for this exact reason:",
@@ -349,26 +384,24 @@ export const evaluateCampaignWithValidationRetry = async ({
 export const evaluateCampaignWithPureModelValidationRetry = async ({
   campaign,
   catalogProducts,
-  terms,
   marketplaceCode,
   model,
   maxTokens,
 }: {
   campaign: AggregatedCampaign;
   catalogProducts: AIPrefillCatalogProduct[];
-  terms: AggregatedSearchTerm[];
   marketplaceCode: string | null;
   model?: string;
   maxTokens: number;
 }): Promise<{
   completion: ChatCompletionResult;
-  validated: ValidatedPureModelCampaignResponse;
+  validated: ValidatedPureModelContextResponse;
   attempts: number;
   tokensIn: number;
   tokensOut: number;
   tokensTotal: number;
 }> => {
-  const baseMessages = buildPureModelCampaignPrompt(campaign, catalogProducts, terms, marketplaceCode);
+  const baseMessages = buildPureModelContextPrompt(campaign, catalogProducts, marketplaceCode);
   let tokensIn = 0;
   let tokensOut = 0;
   let tokensTotal = 0;
@@ -385,13 +418,13 @@ export const evaluateCampaignWithPureModelValidationRetry = async ({
               role: "assistant" as const,
               content: lastContent || "{}",
             },
-            buildPureModelValidationRetryMessage(lastError?.message || "Unknown validation error"),
+            buildPureModelContextValidationRetryMessage(lastError?.message || "Unknown validation error"),
           ];
 
     const completion = await createChatCompletion(messages, {
       model,
       maxTokens,
-      responseFormat: NGRAM_PURE_MODEL_RESPONSE_FORMAT,
+      responseFormat: NGRAM_PURE_MODEL_CONTEXT_RESPONSE_FORMAT,
     });
 
     if (completion.refusal) {
@@ -405,9 +438,101 @@ export const evaluateCampaignWithPureModelValidationRetry = async ({
 
     try {
       const parsed = parseJSONResponse<Record<string, unknown>>(completion.content || "{}");
-      const validated = validatePureModelCampaignResponse(
+      const validated = validatePureModelContextResponse(parsed, catalogProducts);
+
+      return {
+        completion,
+        validated,
+        attempts: attempt,
+        tokensIn,
+        tokensOut,
+        tokensTotal,
+      };
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      if (attempt === MAX_VALIDATION_ATTEMPTS) {
+        throw new Error(
+          `${campaign.campaignName}: AI response validation failed after ${MAX_VALIDATION_ATTEMPTS} attempts: ${lastError.message}`,
+        );
+      }
+    }
+  }
+
+  throw new Error(`${campaign.campaignName}: AI response validation failed.`);
+};
+
+export const evaluateCampaignTermTriageWithValidationRetry = async ({
+  campaign,
+  matchedProduct,
+  terms,
+  marketplaceCode,
+  matchConfidence,
+  matchReason,
+  model,
+  maxTokens,
+}: {
+  campaign: AggregatedCampaign;
+  matchedProduct: AIPrefillCatalogProduct;
+  terms: AggregatedSearchTerm[];
+  marketplaceCode: string | null;
+  matchConfidence: "HIGH" | "MEDIUM" | "LOW";
+  matchReason: string;
+  model?: string;
+  maxTokens: number;
+}): Promise<{
+  completion: ChatCompletionResult;
+  validated: ValidatedPureModelTermTriageResponse;
+  attempts: number;
+  tokensIn: number;
+  tokensOut: number;
+  tokensTotal: number;
+}> => {
+  const baseMessages = buildPureModelTermTriagePrompt(
+    campaign,
+    matchedProduct,
+    terms,
+    marketplaceCode,
+    matchConfidence,
+    matchReason,
+  );
+  let tokensIn = 0;
+  let tokensOut = 0;
+  let tokensTotal = 0;
+  let lastError: Error | null = null;
+  let lastContent: string | null = null;
+
+  for (let attempt = 1; attempt <= MAX_VALIDATION_ATTEMPTS; attempt += 1) {
+    const messages =
+      attempt === 1
+        ? baseMessages
+        : [
+            ...baseMessages,
+            {
+              role: "assistant" as const,
+              content: lastContent || "{}",
+            },
+            buildPureModelTermTriageValidationRetryMessage(lastError?.message || "Unknown validation error"),
+          ];
+
+    const completion = await createChatCompletion(messages, {
+      model,
+      maxTokens,
+      responseFormat: NGRAM_PURE_MODEL_TERM_TRIAGE_RESPONSE_FORMAT,
+    });
+
+    if (completion.refusal) {
+      throw new Error(`${campaign.campaignName}: model refused structured output: ${completion.refusal}`);
+    }
+
+    tokensIn += completion.tokensIn;
+    tokensOut += completion.tokensOut;
+    tokensTotal += completion.tokensTotal;
+    lastContent = completion.content ?? "{}";
+
+    try {
+      const parsed = parseJSONResponse<Record<string, unknown>>(completion.content || "{}");
+      const validated = validatePureModelTermTriageResponse(
         parsed,
-        catalogProducts,
         terms.map((term) => term.searchTerm),
       );
 

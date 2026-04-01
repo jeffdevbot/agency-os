@@ -222,6 +222,7 @@ def _build_prefill_context_from_saved_preview(
         "model": _to_non_empty_text(preview_payload.get("model")) or _to_non_empty_text(preview_run.get("model")) or None,
         "prompt_version": _to_non_empty_text(preview_payload.get("prompt_version")) or _to_non_empty_text(preview_run.get("prompt_version")) or None,
         "spend_threshold": float(preview_run.get("spend_threshold")) if preview_run.get("spend_threshold") is not None else None,
+        "output_mode": "triage_only",
     }
 
     return ai_prefills, ai_term_reviews, ai_summary

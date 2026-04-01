@@ -4,10 +4,12 @@ import { type AIPrefillCatalogProduct, type AggregatedCampaign, type AggregatedS
 
 import {
   buildCampaignPrompt,
-  buildPureModelCampaignPrompt,
+  buildPureModelContextPrompt,
+  buildPureModelTermTriagePrompt,
   NGRAM_AI_PROMPT_VERSION,
   NGRAM_PURE_MODEL_PROMPT_VERSION,
-  PURE_MODEL_SYSTEM_PROMPT,
+  PURE_MODEL_CONTEXT_SYSTEM_PROMPT,
+  PURE_MODEL_TERM_TRIAGE_SYSTEM_PROMPT,
   SYSTEM_PROMPT,
 } from "@/lib/ngram2/aiPrompt";
 
@@ -58,7 +60,7 @@ describe("ngram-2 ai prefill preview route prompt", () => {
     expect(SYSTEM_PROMPT).toContain("On CA marketplace profiles, French-language terms are expected");
   });
 
-  it("defines the pure-model prompt contract for exact and phrase negatives", () => {
+  it("defines the pure-model context pass contract", () => {
     const campaign: AggregatedCampaign = {
       campaignName: "Screen Shine - Duo | SPA | Cls. | Rsrch",
       totalSpend: 12.34,
@@ -74,6 +76,30 @@ describe("ngram-2 ai prefill preview route prompt", () => {
         itemDescription: "spray plus cloth kit",
       },
     ];
+    const messages = buildPureModelContextPrompt(campaign, catalogProducts, "US");
+    const userMessage = messages.find((message) => message.role === "user");
+
+    expect(userMessage?.content).toContain('"campaign_identifier": "Screen Shine - Duo"');
+    expect(userMessage?.content).toContain('"catalog_products"');
+    expect(PURE_MODEL_CONTEXT_SYSTEM_PROMPT).toContain("Your job in this pass is only to lock product context");
+    expect(PURE_MODEL_CONTEXT_SYSTEM_PROMPT).toContain("Do not evaluate search terms in this pass.");
+    expect(NGRAM_PURE_MODEL_PROMPT_VERSION).toBe("ngram_pure_model_two_step_v2026_04_01");
+  });
+
+  it("defines the pure-model term-triage pass contract", () => {
+    const campaign: AggregatedCampaign = {
+      campaignName: "Screen Shine - Duo | SPA | Cls. | Rsrch",
+      totalSpend: 12.34,
+      termCount: 1,
+      terms: [],
+    };
+    const matchedProduct: AIPrefillCatalogProduct = {
+      childAsin: "B001",
+      childSku: "DUO-1",
+      productName: "WHOOSH! Screen Shine Duo Kit",
+      category: "electronics cleaner",
+      itemDescription: "spray plus cloth kit",
+    };
     const terms: AggregatedSearchTerm[] = [
       {
         campaignName: campaign.campaignName,
@@ -90,13 +116,21 @@ describe("ngram-2 ai prefill preview route prompt", () => {
       },
     ];
 
-    const messages = buildPureModelCampaignPrompt(campaign, catalogProducts, terms, "US");
+    const messages = buildPureModelTermTriagePrompt(
+      campaign,
+      matchedProduct,
+      terms,
+      "US",
+      "HIGH",
+      "Campaign name matches the Duo kit.",
+    );
     const userMessage = messages.find((message) => message.role === "user");
 
     expect(userMessage?.content).toContain('"search_term": "laptop cloth"');
-    expect(PURE_MODEL_SYSTEM_PROMPT).toContain('"exact_negatives"');
-    expect(PURE_MODEL_SYSTEM_PROMPT).toContain('"phrase_negatives"');
-    expect(PURE_MODEL_SYSTEM_PROMPT).toContain("exact_negatives must only contain search terms");
-    expect(NGRAM_PURE_MODEL_PROMPT_VERSION).toBe("ngram_pure_model_single_campaign_v2026_03_31");
+    expect(userMessage?.content).toContain('"locked_product_context"');
+    expect(userMessage?.content).toContain('"match_confidence": "HIGH"');
+    expect(PURE_MODEL_TERM_TRIAGE_SYSTEM_PROMPT).toContain('"exact_negatives"');
+    expect(PURE_MODEL_TERM_TRIAGE_SYSTEM_PROMPT).toContain('"phrase_negatives"');
+    expect(PURE_MODEL_TERM_TRIAGE_SYSTEM_PROMPT).toContain("matched product context is already locked");
   });
 });

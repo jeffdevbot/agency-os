@@ -172,6 +172,19 @@ export type ValidatedPureModelCampaignResponse = ValidatedAIPrefillCampaignRespo
   modelPrefills: CampaignModelPrefills;
 };
 
+export type ValidatedPureModelContextResponse = {
+  matchedProduct: AIPrefillCatalogProduct | null;
+  matchConfidence: "HIGH" | "MEDIUM" | "LOW";
+  matchReason: string;
+};
+
+export type ValidatedPureModelTermTriageResponse = {
+  termRecommendations: AIPrefillTermRecommendation[];
+  exactNegatives: string[];
+  phraseNegatives: PureModelPhraseNegative[];
+  modelPrefills: CampaignModelPrefills;
+};
+
 export const AI_PREFILL_PREVIEW_MAX_CAMPAIGNS = 6;
 export const AI_PREFILL_PREVIEW_MAX_TERMS_PER_CAMPAIGN = 20;
 
@@ -811,6 +824,205 @@ export const validatePureModelCampaignResponse = (
   };
 };
 
+export const validatePureModelContextResponse = (
+  payload: unknown,
+  catalogProducts: AIPrefillCatalogProduct[],
+): ValidatedPureModelContextResponse => {
+  if (!payload || typeof payload !== "object") {
+    throw new Error("AI response must be a JSON object.");
+  }
+
+  const raw = payload as Record<string, unknown>;
+  const matchConfidence = parseConfidenceStrict(raw.match_confidence);
+  const matchReason = toNonEmptyString(raw.match_reason).slice(0, 240);
+  if (!matchReason) {
+    throw new Error("AI response is missing match_reason.");
+  }
+
+  let matchedProduct: AIPrefillCatalogProduct | null = null;
+  if (raw.matched_product != null) {
+    if (typeof raw.matched_product !== "object") {
+      throw new Error("matched_product must be an object or null.");
+    }
+
+    const matchedRaw = raw.matched_product as Record<string, unknown>;
+    const childAsin = toNonEmptyString(matchedRaw.child_asin);
+    if (!childAsin) {
+      throw new Error("matched_product.child_asin is required when matched_product is present.");
+    }
+
+    const catalogRow = catalogProducts.find((product) => product.childAsin === childAsin);
+    if (!catalogRow) {
+      throw new Error(`matched_product.child_asin does not exist in catalog: ${childAsin}`);
+    }
+
+    const childSku = toNonEmptyString(matchedRaw.child_sku);
+    const productName = toNonEmptyString(matchedRaw.product_name);
+    if (childSku && catalogRow.childSku && childSku !== catalogRow.childSku) {
+      throw new Error(`matched_product.child_sku does not match catalog row for ${childAsin}`);
+    }
+    if (productName && productName !== catalogRow.productName) {
+      throw new Error(`matched_product.product_name does not match catalog row for ${childAsin}`);
+    }
+
+    matchedProduct = catalogRow;
+  }
+
+  if (matchConfidence !== "LOW" && !matchedProduct) {
+    throw new Error("AI response must return a matched_product when match_confidence is HIGH or MEDIUM.");
+  }
+  if (matchConfidence === "LOW" && matchedProduct) {
+    throw new Error("AI response must set matched_product to null when match_confidence is LOW.");
+  }
+
+  return {
+    matchedProduct,
+    matchConfidence,
+    matchReason,
+  };
+};
+
+export const validatePureModelTermTriageResponse = (
+  payload: unknown,
+  expectedSearchTerms: string[],
+): ValidatedPureModelTermTriageResponse => {
+  if (!payload || typeof payload !== "object") {
+    throw new Error("AI response must be a JSON object.");
+  }
+
+  const raw = payload as Record<string, unknown>;
+  if (!Array.isArray(raw.term_recommendations)) {
+    throw new Error("AI response is missing term_recommendations array.");
+  }
+  if (!Array.isArray(raw.exact_negatives)) {
+    throw new Error("AI response is missing exact_negatives array.");
+  }
+  if (!Array.isArray(raw.phrase_negatives)) {
+    throw new Error("AI response is missing phrase_negatives array.");
+  }
+
+  const expectedByKey = new Map(
+    expectedSearchTerms.map((term) => [term.trim().toLowerCase(), term.trim()]),
+  );
+
+  if (raw.term_recommendations.length !== expectedSearchTerms.length) {
+    throw new Error(
+      `AI response returned ${raw.term_recommendations.length} term recommendations for ${expectedSearchTerms.length} input terms.`,
+    );
+  }
+
+  const seen = new Set<string>();
+  const recommendationsByKey = new Map<string, AIPrefillTermRecommendation>();
+
+  for (const recommendation of raw.term_recommendations as Array<Record<string, unknown>>) {
+    if (!recommendation || typeof recommendation !== "object") {
+      throw new Error("Each term recommendation must be an object.");
+    }
+
+    const searchTerm = toNonEmptyString(recommendation.search_term);
+    const key = searchTerm.toLowerCase();
+    if (!searchTerm || !expectedByKey.has(key)) {
+      throw new Error(`AI response included an unexpected search_term: ${searchTerm || "<empty>"}`);
+    }
+    if (seen.has(key)) {
+      throw new Error(`AI response included a duplicate search_term: ${searchTerm}`);
+    }
+    seen.add(key);
+
+    recommendationsByKey.set(key, {
+      search_term: expectedByKey.get(key) || searchTerm,
+      recommendation: parseRecommendationStrict(recommendation.recommendation),
+      confidence: parseConfidenceStrict(recommendation.confidence),
+      reason_tag: normalizeReasonTag(recommendation.reason_tag),
+      rationale: normalizeRationale(recommendation.rationale),
+    });
+  }
+
+  if (seen.size !== expectedSearchTerms.length) {
+    const missingTerms = expectedSearchTerms.filter((term) => !seen.has(term.trim().toLowerCase()));
+    throw new Error(`AI response is missing recommendations for: ${missingTerms.join(", ")}`);
+  }
+
+  const exactSeen = new Set<string>();
+  const exactNegatives: string[] = [];
+  for (const value of raw.exact_negatives) {
+    const searchTerm = toNonEmptyString(value);
+    const key = searchTerm.toLowerCase();
+    if (!searchTerm || !expectedByKey.has(key)) {
+      throw new Error(`AI response included an unexpected exact negative: ${searchTerm || "<empty>"}`);
+    }
+    if (exactSeen.has(key)) {
+      throw new Error(`AI response included a duplicate exact negative: ${searchTerm}`);
+    }
+    if (recommendationsByKey.get(key)?.recommendation !== "NEGATE") {
+      throw new Error(`Exact negative must correspond to a NEGATE term recommendation: ${searchTerm}`);
+    }
+    exactSeen.add(key);
+    exactNegatives.push(expectedByKey.get(key) || searchTerm);
+  }
+
+  const phraseSeen = new Set<string>();
+  const phraseNegatives: PureModelPhraseNegative[] = [];
+  for (const entry of raw.phrase_negatives as unknown[]) {
+    if (!entry || typeof entry !== "object") {
+      throw new Error("Each phrase negative must be an object.");
+    }
+
+    const phraseRaw = entry as Record<string, unknown>;
+    const bucket = normalizePhraseBucket(phraseRaw.bucket);
+    const phrase = normalizePhraseNegative(phraseRaw.phrase, bucket);
+    const phraseKey = `${bucket}:${phrase.toLowerCase()}`;
+    if (phraseSeen.has(phraseKey)) {
+      throw new Error(`AI response included a duplicate phrase negative: ${phrase}`);
+    }
+
+    const rawSourceTerms = Array.isArray(phraseRaw.source_terms) ? phraseRaw.source_terms : null;
+    if (!rawSourceTerms || rawSourceTerms.length === 0) {
+      throw new Error(`Phrase negative "${phrase}" must include at least one source term.`);
+    }
+
+    const sourceTerms: string[] = [];
+    const sourceSeen = new Set<string>();
+    for (const sourceValue of rawSourceTerms) {
+      const sourceTerm = toNonEmptyString(sourceValue);
+      const key = sourceTerm.toLowerCase();
+      if (!sourceTerm || !expectedByKey.has(key)) {
+        throw new Error(`Phrase negative "${phrase}" referenced an unknown source term: ${sourceTerm || "<empty>"}`);
+      }
+      if (sourceSeen.has(key)) {
+        throw new Error(`Phrase negative "${phrase}" repeated source term: ${sourceTerm}`);
+      }
+      if (recommendationsByKey.get(key)?.recommendation !== "NEGATE") {
+        throw new Error(`Phrase negative "${phrase}" source term must be NEGATE: ${sourceTerm}`);
+      }
+      sourceSeen.add(key);
+      sourceTerms.push(expectedByKey.get(key) || sourceTerm);
+    }
+
+    phraseSeen.add(phraseKey);
+    phraseNegatives.push({
+      phrase,
+      bucket,
+      confidence: parseConfidenceStrict(phraseRaw.confidence),
+      sourceTerms,
+      rationale: normalizeRationale(phraseRaw.rationale),
+    });
+  }
+
+  return {
+    termRecommendations: expectedSearchTerms.map((term) => {
+      const recommendation = recommendationsByKey.get(term.trim().toLowerCase());
+      if (!recommendation) {
+        throw new Error(`AI response is missing recommendation for ${term}`);
+      }
+      return recommendation;
+    }),
+    exactNegatives,
+    phraseNegatives,
+    modelPrefills: buildCampaignModelPrefills(exactNegatives, phraseNegatives),
+  };
+};
+
 const confidenceRank = (value: "HIGH" | "MEDIUM" | "LOW"): number => {
   if (value === "HIGH") return 3;
   if (value === "MEDIUM") return 2;
@@ -892,6 +1104,67 @@ export const mergePureModelCampaignResponses = (
     matchedProduct: canonical?.matchedProduct ?? null,
     matchConfidence: canonical?.matchConfidence ?? "LOW",
     matchReason: canonical?.matchReason ?? "Merged pure-model campaign response.",
+    termRecommendations: responses.flatMap((response) => response.termRecommendations),
+    exactNegatives,
+    phraseNegatives,
+    modelPrefills: buildCampaignModelPrefills(exactNegatives, phraseNegatives),
+  };
+};
+
+export const mergePureModelTermTriageResponses = (
+  responses: ValidatedPureModelTermTriageResponse[],
+): ValidatedPureModelTermTriageResponse => {
+  if (responses.length === 0) {
+    throw new Error("Cannot merge zero pure-model term-triage responses.");
+  }
+
+  const exactSeen = new Set<string>();
+  const exactNegatives: string[] = [];
+  for (const response of responses) {
+    for (const searchTerm of response.exactNegatives) {
+      const key = searchTerm.trim().toLowerCase();
+      if (!key || exactSeen.has(key)) continue;
+      exactSeen.add(key);
+      exactNegatives.push(searchTerm);
+    }
+  }
+
+  const phraseMap = new Map<string, PureModelPhraseNegative>();
+  for (const response of responses) {
+    for (const phrase of response.phraseNegatives) {
+      const key = `${phrase.bucket}:${phrase.phrase.toLowerCase()}`;
+      const existing = phraseMap.get(key);
+      if (!existing) {
+        phraseMap.set(key, {
+          ...phrase,
+          sourceTerms: [...phrase.sourceTerms],
+        });
+        continue;
+      }
+
+      const sourceTermSeen = new Set(existing.sourceTerms.map((term) => term.toLowerCase()));
+      for (const sourceTerm of phrase.sourceTerms) {
+        const sourceKey = sourceTerm.toLowerCase();
+        if (sourceTermSeen.has(sourceKey)) continue;
+        sourceTermSeen.add(sourceKey);
+        existing.sourceTerms.push(sourceTerm);
+      }
+
+      if (confidenceRank(phrase.confidence) > confidenceRank(existing.confidence)) {
+        existing.confidence = phrase.confidence;
+      }
+      if (!existing.rationale && phrase.rationale) {
+        existing.rationale = phrase.rationale;
+      }
+    }
+  }
+
+  const phraseNegatives = [...phraseMap.values()].sort(
+    (left, right) =>
+      left.bucket.localeCompare(right.bucket) || left.phrase.localeCompare(right.phrase),
+  );
+
+  return {
     termRecommendations: responses.flatMap((response) => response.termRecommendations),
     exactNegatives,
     phraseNegatives,

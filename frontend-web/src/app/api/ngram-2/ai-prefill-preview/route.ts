@@ -7,6 +7,7 @@ import { NGRAM_AI_PROMPT_VERSION, NGRAM_PURE_MODEL_PROMPT_VERSION } from "@/lib/
 import {
   estimateNgramCampaignMaxTokens,
   evaluateCampaignWithValidationRetry,
+  evaluateCampaignTermTriageWithValidationRetry,
   evaluateCampaignWithPureModelValidationRetry,
 } from "@/lib/ngram2/aiCampaignEvaluator";
 import {
@@ -17,7 +18,7 @@ import {
   isAsinQuery,
   isIntentionallySkippedCampaign,
   isLegacyExcludedCampaign,
-  mergePureModelCampaignResponses,
+  mergePureModelTermTriageResponses,
   parseCampaignProductIdentifier,
   parseCampaignTheme,
   prepareAIPrefillCatalogProducts,
@@ -34,7 +35,8 @@ import {
   type NgramListingRow,
   type PureModelPhraseNegative,
   type SearchTermFactRow,
-  type ValidatedPureModelCampaignResponse,
+  type ValidatedPureModelContextResponse,
+  type ValidatedPureModelTermTriageResponse,
 } from "@/lib/ngram2/aiPrefill";
 import { resolveCatalogSource, type CatalogSourceCandidate, type CatalogSourceProfile } from "@/lib/ngram2/catalogSource";
 import { createSupabaseRouteClient, createSupabaseServiceClient } from "@/lib/supabase/serverClient";
@@ -110,7 +112,8 @@ type PureModelEvaluationResult = {
   completion: {
     model: string;
   };
-  validated: ValidatedPureModelCampaignResponse;
+  context: ValidatedPureModelContextResponse;
+  triage: ValidatedPureModelTermTriageResponse;
   attempts: number;
   tokensIn: number;
   tokensOut: number;
@@ -448,35 +451,70 @@ export async function POST(request: Request) {
           );
         }
 
-        let chunkTokensIn = 0;
-        let chunkTokensOut = 0;
-        let chunkTokensTotal = 0;
-        let chunkModel = "";
-        const chunkValidated: ValidatedPureModelCampaignResponse[] = [];
+        const contextEvaluation = await evaluateCampaignWithPureModelValidationRetry({
+          campaign,
+          catalogProducts,
+          marketplaceCode: catalogProfile.marketplaceCode,
+          model: NGRAM_MODEL_OVERRIDE || undefined,
+          maxTokens: 2200,
+        });
 
-        for (const termChunk of termChunks) {
-          const chunkEvaluation = await evaluateCampaignWithPureModelValidationRetry({
-            campaign,
-            catalogProducts,
-            terms: termChunk,
-            marketplaceCode: catalogProfile.marketplaceCode,
-            model: NGRAM_MODEL_OVERRIDE || undefined,
-            maxTokens: estimateNgramCampaignMaxTokens(termChunk.length),
-          });
+        let chunkTokensIn = contextEvaluation.tokensIn;
+        let chunkTokensOut = contextEvaluation.tokensOut;
+        let chunkTokensTotal = contextEvaluation.tokensTotal;
+        let chunkModel = contextEvaluation.completion.model || "";
+        let mergedTriage: ValidatedPureModelTermTriageResponse = {
+          termRecommendations: [],
+          exactNegatives: [],
+          phraseNegatives: [],
+          modelPrefills: { exact: [], mono: [], bi: [], tri: [] },
+        };
 
-          chunkTokensIn += chunkEvaluation.tokensIn;
-          chunkTokensOut += chunkEvaluation.tokensOut;
-          chunkTokensTotal += chunkEvaluation.tokensTotal;
-          chunkModel = chunkEvaluation.completion.model || chunkModel;
-          chunkValidated.push(chunkEvaluation.validated);
+        if (contextEvaluation.validated.matchedProduct) {
+          const chunkValidated: ValidatedPureModelTermTriageResponse[] = [];
+
+          for (const termChunk of termChunks) {
+            const chunkEvaluation = await evaluateCampaignTermTriageWithValidationRetry({
+              campaign,
+              matchedProduct: contextEvaluation.validated.matchedProduct,
+              terms: termChunk,
+              marketplaceCode: catalogProfile.marketplaceCode,
+              matchConfidence: contextEvaluation.validated.matchConfidence,
+              matchReason: contextEvaluation.validated.matchReason,
+              model: NGRAM_MODEL_OVERRIDE || undefined,
+              maxTokens: estimateNgramCampaignMaxTokens(termChunk.length),
+            });
+
+            chunkTokensIn += chunkEvaluation.tokensIn;
+            chunkTokensOut += chunkEvaluation.tokensOut;
+            chunkTokensTotal += chunkEvaluation.tokensTotal;
+            chunkModel = chunkEvaluation.completion.model || chunkModel;
+            chunkValidated.push(chunkEvaluation.validated);
+          }
+
+          mergedTriage = mergePureModelTermTriageResponses(chunkValidated);
+        } else {
+          mergedTriage = {
+            termRecommendations: terms.map((term) => ({
+              search_term: term.searchTerm,
+              recommendation: "REVIEW",
+              confidence: "LOW",
+              reason_tag: "ambiguous_intent",
+              rationale: contextEvaluation.validated.matchReason,
+            })),
+            exactNegatives: [],
+            phraseNegatives: [],
+            modelPrefills: { exact: [], mono: [], bi: [], tri: [] },
+          };
         }
 
         pureModelEvaluation = {
           completion: {
             model: chunkModel,
           },
-          validated: mergePureModelCampaignResponses(chunkValidated),
-          attempts: termChunks.length,
+          context: contextEvaluation.validated,
+          triage: mergedTriage,
+          attempts: 1 + (contextEvaluation.validated.matchedProduct ? termChunks.length : 0),
           tokensIn: chunkTokensIn,
           tokensOut: chunkTokensOut,
           tokensTotal: chunkTokensTotal,
@@ -493,7 +531,17 @@ export async function POST(request: Request) {
       tokensTotal += activeEvaluation.tokensTotal;
       model = activeEvaluation.completion.model || model;
 
-      const validated = activeEvaluation.validated;
+      const validated = pureModelEvaluation
+        ? {
+            matchedProduct: pureModelEvaluation.context.matchedProduct,
+            matchConfidence: pureModelEvaluation.context.matchConfidence,
+            matchReason: pureModelEvaluation.context.matchReason,
+            termRecommendations: pureModelEvaluation.triage.termRecommendations,
+          }
+        : heuristicEvaluation?.validated;
+      if (!validated) {
+        throw new Error(`${campaign.campaignName}: missing validated AI payload.`);
+      }
 
       const lowConfidenceNoMatch = !validated.matchedProduct && validated.matchConfidence === "LOW";
       if (lowConfidenceNoMatch) {
@@ -520,13 +568,13 @@ export async function POST(request: Request) {
           });
 
       const modelPrefills =
-        pureModelEvaluation?.validated.modelPrefills ?? {
+        pureModelEvaluation?.triage.modelPrefills ?? {
           exact: [],
           mono: [],
           bi: [],
           tri: [],
         };
-      const phraseNegatives = pureModelEvaluation?.validated.phraseNegatives ?? [];
+      const phraseNegatives = pureModelEvaluation?.triage.phraseNegatives ?? [];
 
       previewResults.push({
         prefillStrategy,

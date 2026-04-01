@@ -472,7 +472,7 @@ export default function NgramTwoPage() {
 
       if (!response.ok) {
         const detail = await response.json().catch(() => undefined);
-        throw new Error(detail?.detail || "AI-prefilled workbook generation failed");
+        throw new Error(detail?.detail || "AI review workbook generation failed");
       }
 
       const blob = await response.blob();
@@ -480,7 +480,7 @@ export default function NgramTwoPage() {
       const disposition = response.headers.get("content-disposition") || "";
       const match = disposition.match(/filename=\"?([^\";]+)\"?/i);
       const filename =
-        match?.[1] || `${selectedProfile.displayName.replace(/\s+/g, "_")}_ai_prefilled_native_ngrams.xlsx`;
+        match?.[1] || `${selectedProfile.displayName.replace(/\s+/g, "_")}_ai_review_native_ngrams.xlsx`;
 
       const anchor = document.createElement("a");
       anchor.href = downloadUrl;
@@ -490,11 +490,11 @@ export default function NgramTwoPage() {
       anchor.remove();
       window.URL.revokeObjectURL(downloadUrl);
 
-      setToast("Full AI-prefilled workbook download started.");
+      setToast("Full AI review workbook download started.");
       window.setTimeout(() => setToast(null), 3200);
     } catch (generateError) {
       setAiWorkbookError(
-        generateError instanceof Error ? generateError.message : "Full AI-prefilled workbook generation failed",
+        generateError instanceof Error ? generateError.message : "Full AI review workbook generation failed",
       );
     } finally {
       setAiWorkbookGenerating(false);
@@ -1289,7 +1289,7 @@ export default function NgramTwoPage() {
                   onClick={handleGenerateAiPreviewWorkbook}
                   className="mt-4 inline-flex rounded-full bg-[#0f172a] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#1e293b] disabled:cursor-not-allowed disabled:bg-[#a8b4c8]"
                 >
-                  {aiPreviewWorkbookGenerating ? "Generating preview workbook…" : "Download AI Preview Workbook"}
+                  {aiPreviewWorkbookGenerating ? "Generating review workbook…" : "Download AI Review Workbook"}
                 </button>
 
                 <div className="mt-6 space-y-4">
@@ -1469,13 +1469,13 @@ export default function NgramTwoPage() {
               onClick={handleGenerateAiWorkbook}
               className="mt-4 w-full rounded-2xl bg-[#0f172a] px-4 py-3 text-sm font-semibold text-white shadow-[0_15px_30px_rgba(15,23,42,0.24)] transition hover:bg-[#1e293b] disabled:cursor-not-allowed disabled:bg-[#b8c1d1]"
             >
-              {aiWorkbookGenerating ? "Running full AI + generating workbook…" : "Generate Full AI-Prefilled Workbook"}
+              {aiWorkbookGenerating ? "Running full AI + generating workbook…" : "Generate Full AI Review Workbook"}
             </button>
 
             <div className="mt-4 rounded-2xl border border-[#dbe4f0] bg-[#f7faff] p-4">
               <p className="text-sm text-[#4c576f]">
                 {selectedProduct === "sp"
-                  ? "Uses native Sponsored Products search-term facts for the selected window and keeps the legacy exclusion rules. The AI button runs the full uncapped AI evaluation, then writes workbook prefills from that saved run."
+                  ? "Uses native Sponsored Products search-term facts for the selected window and keeps the legacy exclusion rules. The AI button runs the full uncapped AI evaluation, then writes an AI review workbook from that saved run without auto-filling NE/NP or scratchpad negatives."
                   : "Workbook generation is intentionally limited to Sponsored Products first."}
               </p>
             </div>

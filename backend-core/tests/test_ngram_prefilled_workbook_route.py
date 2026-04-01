@@ -155,6 +155,7 @@ def test_native_prefilled_workbook_route_uses_saved_preview_run(monkeypatch):
                 "model": "gpt-5.4-mini-2026-03-17",
                 "prompt_version": "ngram_step3_calibrated_v2026_03_30",
                 "spend_threshold": 1.0,
+                "output_mode": "triage_only",
             },
         }
     ]

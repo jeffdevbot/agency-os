@@ -5,6 +5,7 @@ vi.mock("server-only", () => ({}));
 import {
   estimateNgramCampaignMaxTokens,
   evaluateCampaignWithValidationRetry,
+  evaluateCampaignTermTriageWithValidationRetry,
   evaluateCampaignWithPureModelValidationRetry,
 } from "./aiCampaignEvaluator";
 import type { AIPrefillCatalogProduct, AggregatedCampaign, AggregatedSearchTerm } from "./aiPrefill";
@@ -246,11 +247,11 @@ describe("evaluateCampaignWithValidationRetry", () => {
     ).rejects.toThrow("model refused structured output");
   });
 
-  it("validates the pure-model campaign contract with exact and phrase negatives", async () => {
+  it("validates the pure-model context contract", async () => {
     const campaign: AggregatedCampaign = {
       campaignName: "Screen Shine - Duo | SPA | Cls. | Rsrch",
       totalSpend: 10,
-      termCount: 2,
+      termCount: 1,
       terms: [],
     };
     const catalogProducts: AIPrefillCatalogProduct[] = [
@@ -262,6 +263,58 @@ describe("evaluateCampaignWithValidationRetry", () => {
         itemDescription: "spray plus cloth",
       },
     ];
+
+    vi.spyOn(openaiModule, "createChatCompletion").mockResolvedValue({
+      content: JSON.stringify({
+        matched_product: {
+          child_asin: "A1",
+          child_sku: "DUO-1",
+          product_name: "WHOOSH! Screen Shine Duo",
+        },
+        match_confidence: "HIGH",
+        match_reason: "valid draft",
+      }),
+      tokensIn: 70,
+      tokensOut: 20,
+      tokensTotal: 90,
+      model: "gpt-5.4-2026-03-05",
+      durationMs: 1,
+    });
+
+    const result = await evaluateCampaignWithPureModelValidationRetry({
+      campaign,
+      catalogProducts,
+      marketplaceCode: "US",
+      model: "gpt-5.4-2026-03-05",
+      maxTokens: 2200,
+    });
+
+    expect(result.attempts).toBe(1);
+    expect(result.validated.matchedProduct?.productName).toBe("WHOOSH! Screen Shine Duo");
+    const calls = vi.mocked(openaiModule.createChatCompletion).mock.calls;
+    expect(calls[0]?.[1]?.responseFormat).toMatchObject({
+      type: "json_schema",
+      json_schema: {
+        name: "ngram_campaign_context_response",
+        strict: true,
+      },
+    });
+  });
+
+  it("validates the pure-model term-triage contract with locked product context", async () => {
+    const campaign: AggregatedCampaign = {
+      campaignName: "Screen Shine - Duo | SPA | Cls. | Rsrch",
+      totalSpend: 10,
+      termCount: 2,
+      terms: [],
+    };
+    const matchedProduct: AIPrefillCatalogProduct = {
+      childAsin: "A1",
+      childSku: "DUO-1",
+      productName: "WHOOSH! Screen Shine Duo",
+      category: "electronics cleaner",
+      itemDescription: "spray plus cloth",
+    };
     const terms: AggregatedSearchTerm[] = [
       {
         campaignName: campaign.campaignName,
@@ -293,13 +346,6 @@ describe("evaluateCampaignWithValidationRetry", () => {
 
     vi.spyOn(openaiModule, "createChatCompletion").mockResolvedValue({
       content: JSON.stringify({
-        matched_product: {
-          child_asin: "A1",
-          child_sku: "DUO-1",
-          product_name: "WHOOSH! Screen Shine Duo",
-        },
-        match_confidence: "HIGH",
-        match_reason: "valid draft",
         term_recommendations: [
           {
             search_term: "laptop cloth",
@@ -334,11 +380,13 @@ describe("evaluateCampaignWithValidationRetry", () => {
       durationMs: 1,
     });
 
-    const result = await evaluateCampaignWithPureModelValidationRetry({
+    const result = await evaluateCampaignTermTriageWithValidationRetry({
       campaign,
-      catalogProducts,
+      matchedProduct,
       terms,
       marketplaceCode: "US",
+      matchConfidence: "HIGH",
+      matchReason: "valid draft",
       model: "gpt-5.4-2026-03-05",
       maxTokens: 2200,
     });
@@ -350,7 +398,7 @@ describe("evaluateCampaignWithValidationRetry", () => {
     expect(calls[0]?.[1]?.responseFormat).toMatchObject({
       type: "json_schema",
       json_schema: {
-        name: "ngram_campaign_pure_model_response",
+        name: "ngram_campaign_term_triage_response",
         strict: true,
       },
     });

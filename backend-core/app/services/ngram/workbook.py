@@ -16,6 +16,11 @@ START_ROW = 3
 SCRATCHPAD_HEADERS = ["Monogram", "Bigram", "Trigram"]
 SCRATCHPAD_BASE_COL = 51
 AI_REVIEW_HEADERS = ["AI Recommendation", "AI Confidence", "AI Reason"]
+AI_RECOMMENDATION_DISPLAY = {
+    "KEEP": "SAFE KEEP",
+    "NEGATE": "LIKELY NEGATE",
+    "REVIEW": "REVIEW",
+}
 
 
 def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
@@ -132,6 +137,11 @@ def _derive_review_prefills(
     return direct_prefills, exact_negative_keys
 
 
+def _display_ai_recommendation(value: str | None) -> str:
+    normalized = str(value or "").strip().upper()
+    return AI_RECOMMENDATION_DISPLAY.get(normalized, normalized)
+
+
 def build_workbook(
     campaign_items: List[Dict],
     app_version: str,
@@ -153,6 +163,9 @@ def build_workbook(
         bold_fmt = book.add_format({"bold": True})
         wrap_fmt = book.add_format({"text_wrap": True})
         back_fmt = book.add_format({"color": "#666666", "italic": True, "underline": 1})
+        ai_safe_keep_fmt = book.add_format({"border": 1, "bg_color": "#E8F5E9", "font_color": "#1B5E20", "bold": True})
+        ai_likely_negate_fmt = book.add_format({"border": 1, "bg_color": "#FDECEA", "font_color": "#B42318", "bold": True})
+        ai_review_fmt = book.add_format({"border": 1, "bg_color": "#FFF4CC", "font_color": "#8A6100", "bold": True})
 
         def write_pretty_table(ws, start_col: int, title: str, dfx: pd.DataFrame):
             ws.write_string(START_ROW + 0, start_col, title, title_fmt)
@@ -176,6 +189,16 @@ def build_workbook(
                         ws.write_number(i, start_col + j, float(val or 0), pct_fmt)
                     elif col_name == "CPC":
                         ws.write_number(i, start_col + j, float(val or 0), two_dec_fmt)
+                    elif col_name == "AI Recommendation":
+                        text_val = _display_ai_recommendation("" if pd.isna(val) else str(val))
+                        recommendation_fmt = None
+                        if text_val == "SAFE KEEP":
+                            recommendation_fmt = ai_safe_keep_fmt
+                        elif text_val == "LIKELY NEGATE":
+                            recommendation_fmt = ai_likely_negate_fmt
+                        elif text_val == "REVIEW":
+                            recommendation_fmt = ai_review_fmt
+                        ws.write_string(i, start_col + j, text_val, recommendation_fmt)
                     elif col_name in text_columns:
                         text_val = "" if pd.isna(val) else str(val)
                         ws.write_string(i, start_col + j, text_val)
@@ -274,10 +297,15 @@ def build_workbook(
             col = write_pretty_table(ws, col, "Trigram", item["tri"])
             trigram_start_col = 26
             raw_with_ai = item["raw"].copy()
+            triage_only_mode = str((ai_summary or {}).get("output_mode") or "").strip().lower() == "triage_only"
             campaign_prefills = ai_prefills.get(item["campaign_name"], {}) if ai_prefills else {}
-            explicit_exact_negative_keys = _normalize_exact_prefill_keys(campaign_prefills.get("exact"))
+            explicit_exact_negative_keys = set() if triage_only_mode else _normalize_exact_prefill_keys(campaign_prefills.get("exact"))
             campaign_review_lookup = ai_term_reviews.get(item["campaign_name"], {}) if ai_term_reviews else {}
-            review_prefills, derived_exact_negative_keys = _derive_review_prefills(campaign_review_lookup)
+            review_prefills, derived_exact_negative_keys = (
+                ({"mono": [], "bi": [], "tri": []}, set())
+                if triage_only_mode
+                else _derive_review_prefills(campaign_review_lookup)
+            )
             exact_negative_keys = explicit_exact_negative_keys or derived_exact_negative_keys
             if exact_negative_keys:
                 search_term_keys = raw_with_ai["Search Term"].map(lambda value: _normalize_search_term_key(str(value)))
@@ -302,12 +330,13 @@ def build_workbook(
             for offset, label in enumerate(SCRATCHPAD_HEADERS):
                 ws.write_string(START_ROW + 2, SCRATCHPAD_BASE_COL + offset, label, bold_fmt)
 
-            for offset, key in enumerate(("mono", "bi", "tri")):
-                merged_prefills = _normalize_prefill_values(
-                    [*(campaign_prefills.get(key) or []), *review_prefills.get(key, [])]
-                )
-                for row_offset, gram in enumerate(merged_prefills):
-                    ws.write_string(START_ROW + 3 + row_offset, SCRATCHPAD_BASE_COL + offset, gram)
+            if not triage_only_mode:
+                for offset, key in enumerate(("mono", "bi", "tri")):
+                    merged_prefills = _normalize_prefill_values(
+                        [*(campaign_prefills.get(key) or []), *review_prefills.get(key, [])]
+                    )
+                    for row_offset, gram in enumerate(merged_prefills):
+                        ws.write_string(START_ROW + 3 + row_offset, SCRATCHPAD_BASE_COL + offset, gram)
 
             first_data_excel_row = START_ROW + 4
             for r_i in range(len(item["mono"])):

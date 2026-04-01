@@ -11,12 +11,15 @@ import {
   isExpectedAmbiguousCampaign,
   isLegacyExcludedCampaign,
   mergePureModelCampaignResponses,
+  mergePureModelTermTriageResponses,
   parseCampaignProductIdentifier,
   parseCampaignTheme,
   prepareAIPrefillCatalogProducts,
   synthesizeCampaignScratchpad,
   validateAIPrefillCampaignResponse,
   validatePureModelCampaignResponse,
+  validatePureModelContextResponse,
+  validatePureModelTermTriageResponse,
   type SearchTermFactRow,
 } from "./aiPrefill";
 
@@ -358,6 +361,70 @@ describe("ngram2 aiPrefill helpers", () => {
     expect(validated.phraseNegatives[0]?.sourceTerms).toEqual(["laptop cloth"]);
   });
 
+  it("validates the two-step pure-model context response", () => {
+    const validated = validatePureModelContextResponse(
+      {
+        matched_product: {
+          child_asin: "A1",
+          child_sku: "DUO-1",
+          product_name: "WHOOSH! Screen Shine Duo",
+        },
+        match_confidence: "HIGH",
+        match_reason: "Campaign name aligns with the Duo catalog row.",
+      },
+      [
+        {
+          childAsin: "A1",
+          childSku: "DUO-1",
+          productName: "WHOOSH! Screen Shine Duo",
+          category: "electronics cleaner",
+          itemDescription: "spray plus cloth",
+        },
+      ],
+    );
+
+    expect(validated.matchConfidence).toBe("HIGH");
+    expect(validated.matchedProduct?.productName).toBe("WHOOSH! Screen Shine Duo");
+  });
+
+  it("validates the two-step pure-model term-triage response", () => {
+    const validated = validatePureModelTermTriageResponse(
+      {
+        term_recommendations: [
+          {
+            search_term: "laptop cloth",
+            recommendation: "NEGATE",
+            confidence: "HIGH",
+            reason_tag: "cloth_primary_intent",
+            rationale: "standalone cloth query",
+          },
+          {
+            search_term: "screen cleaner spray",
+            recommendation: "KEEP",
+            confidence: "HIGH",
+            reason_tag: "core_use_case",
+            rationale: "core product query",
+          },
+        ],
+        exact_negatives: [],
+        phrase_negatives: [
+          {
+            phrase: "laptop cloth",
+            bucket: "bi",
+            confidence: "HIGH",
+            source_terms: ["laptop cloth"],
+            rationale: "reusable cloth-only phrase",
+          },
+        ],
+      },
+      ["laptop cloth", "screen cleaner spray"],
+    );
+
+    expect(validated.termRecommendations).toHaveLength(2);
+    expect(validated.modelPrefills.bi).toEqual(["laptop cloth"]);
+    expect(validated.phraseNegatives[0]?.sourceTerms).toEqual(["laptop cloth"]);
+  });
+
   it("merges chunked pure-model responses into one campaign result", () => {
     const merged = mergePureModelCampaignResponses([
       {
@@ -406,6 +473,73 @@ describe("ngram2 aiPrefill helpers", () => {
         },
         matchConfidence: "HIGH",
         matchReason: "Best fit.",
+        termRecommendations: [
+          {
+            search_term: "portable monitor travel case",
+            recommendation: "NEGATE",
+            confidence: "HIGH",
+            reason_tag: "accessory_only_intent",
+            rationale: "case intent",
+          },
+        ],
+        exactNegatives: ["portable monitor travel case"],
+        phraseNegatives: [
+          {
+            phrase: "laptop cloth",
+            bucket: "bi",
+            confidence: "MEDIUM",
+            sourceTerms: ["portable monitor travel case"],
+            rationale: null,
+          },
+        ],
+        modelPrefills: {
+          exact: ["portable monitor travel case"],
+          mono: [],
+          bi: ["laptop cloth"],
+          tri: [],
+        },
+      },
+    ]);
+
+    expect(merged.termRecommendations).toHaveLength(2);
+    expect(merged.exactNegatives).toEqual(["portable monitor travel case"]);
+    expect(merged.modelPrefills.bi).toEqual(["laptop cloth"]);
+    expect(merged.phraseNegatives[0]?.sourceTerms).toEqual([
+      "laptop cloth",
+      "portable monitor travel case",
+    ]);
+  });
+
+  it("merges chunked two-step term-triage responses into one result", () => {
+    const merged = mergePureModelTermTriageResponses([
+      {
+        termRecommendations: [
+          {
+            search_term: "laptop cloth",
+            recommendation: "NEGATE",
+            confidence: "HIGH",
+            reason_tag: "cloth_primary_intent",
+            rationale: "standalone cloth",
+          },
+        ],
+        exactNegatives: [],
+        phraseNegatives: [
+          {
+            phrase: "laptop cloth",
+            bucket: "bi",
+            confidence: "HIGH",
+            sourceTerms: ["laptop cloth"],
+            rationale: "reusable cloth phrase",
+          },
+        ],
+        modelPrefills: {
+          exact: [],
+          mono: [],
+          bi: ["laptop cloth"],
+          tri: [],
+        },
+      },
+      {
         termRecommendations: [
           {
             search_term: "portable monitor travel case",
