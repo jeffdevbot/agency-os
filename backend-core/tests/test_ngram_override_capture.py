@@ -77,7 +77,7 @@ def test_build_override_payload_compares_ai_recommendations_to_reviewed_workbook
                 "laptop cloth": {
                     "recommendation": "NEGATE",
                     "confidence": "HIGH",
-                    "reason_tag": "cloth_primary_intent",
+                    "reason_tag": "accessory_only_intent",
                 },
                 "screen cleaner spray": {
                     "recommendation": "KEEP",
@@ -123,7 +123,7 @@ def test_build_override_payload_compares_ai_recommendations_to_reviewed_workbook
                                     "search_term": "laptop cloth",
                                     "recommendation": "NEGATE",
                                     "confidence": "HIGH",
-                                    "reason_tag": "cloth_primary_intent",
+                                    "reason_tag": "accessory_only_intent",
                                 },
                                 {
                                     "search_term": "screen cleaner spray",
@@ -340,7 +340,7 @@ def test_persist_ai_override_capture_uses_python_client_insert_shape():
                 "laptop cloth": {
                     "recommendation": "NEGATE",
                     "confidence": "HIGH",
-                    "reason_tag": "cloth_primary_intent",
+                    "reason_tag": "accessory_only_intent",
                 }
             }
         },
@@ -370,7 +370,7 @@ def test_persist_ai_override_capture_uses_python_client_insert_shape():
                                     "search_term": "laptop cloth",
                                     "recommendation": "NEGATE",
                                     "confidence": "HIGH",
-                                    "reason_tag": "cloth_primary_intent",
+                                    "reason_tag": "accessory_only_intent",
                                 }
                             ],
                         }
@@ -428,7 +428,7 @@ def test_build_override_payload_treats_direct_negate_prefills_as_ai_prefills():
                 "laptop cloth": {
                     "recommendation": "NEGATE",
                     "confidence": "HIGH",
-                    "reason_tag": "cloth_primary_intent",
+                    "reason_tag": "accessory_only_intent",
                 }
             }
         },
@@ -459,7 +459,7 @@ def test_build_override_payload_treats_direct_negate_prefills_as_ai_prefills():
                                     "search_term": "laptop cloth",
                                     "recommendation": "NEGATE",
                                     "confidence": "HIGH",
-                                    "reason_tag": "cloth_primary_intent",
+                                    "reason_tag": "accessory_only_intent",
                                 }
                             ],
                         }

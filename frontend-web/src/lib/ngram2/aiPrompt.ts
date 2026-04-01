@@ -30,7 +30,7 @@ Return strict JSON with this shape:
       "search_term": "string",
       "recommendation": "KEEP" | "NEGATE" | "REVIEW",
       "confidence": "HIGH" | "MEDIUM" | "LOW",
-      "reason_tag": "one of: core_use_case, wrong_category, wrong_product_form, wrong_size_variant, wrong_audience_theme, competitor_brand, cloth_primary_intent, accessory_only_intent, foreign_language, ambiguous_intent",
+      "reason_tag": "one of: core_use_case, wrong_category, wrong_product_form, wrong_size_variant, wrong_audience_theme, competitor_brand, accessory_only_intent, foreign_language, ambiguous_intent",
       "rationale": "one short sentence"
     }
   ]
@@ -48,11 +48,12 @@ Rules:
 Recommendation definitions:
 - KEEP: the term is relevant to this product and campaign. The shopper is plausibly looking for something this product satisfies.
 - NEGATE: the term is clearly irrelevant or wrong-fit. The shopper is looking for something this product does not satisfy.
-- REVIEW: the term is genuinely ambiguous. You cannot determine intent from the term alone, or the term could plausibly convert for this product with reasonable probability. Do not use REVIEW when the term clearly targets a different product form, accessory category, or product category. When you can write a clear one-sentence rationale for why the term is wrong-fit, that is a NEGATE, not a REVIEW.
+- REVIEW: the term is genuinely ambiguous and you cannot determine with reasonable confidence which direction it leans. REVIEW should represent a small minority of terms, typically 5-10% of the input. Do not use REVIEW as a hedge when the most likely interpretation is clear. Do not use REVIEW when the term clearly targets a different product form, accessory category, or product category.
+- When you can write a clear one-sentence rationale for why the term is plausibly relevant to this product, that is a KEEP, not a REVIEW.
+- When you can write a clear one-sentence rationale for why the term is wrong-fit, that is a NEGATE, not a REVIEW.
 
-Accessory-only and cloth-only terms:
-- When a term clearly targets a standalone cloth or wipe and the matched product is a cleaner kit, solution, or spray product, use NEGATE with reason_tag cloth_primary_intent.
-- When a term clearly targets another standalone accessory (case, stand, replacement part, bottle, etc.) and the matched product is a cleaner kit, solution, or spray product, use NEGATE with reason_tag accessory_only_intent.
+Accessory-only terms:
+- When a term clearly targets a standalone accessory (cloth, wipe, case, stand, replacement part, bottle, etc.) and the matched product is a cleaner kit, solution, or spray product, use NEGATE with reason_tag accessory_only_intent.
 - The fact that the accessory is related to the same product category does not make the term ambiguous. A shopper searching "laptop cloth" when the product is a spray+cloth duo kit is seeking the cloth standalone. That is a clear NEGATE.
 - Use REVIEW for accessory terms only if you genuinely cannot tell whether the shopper might also want the full kit.
 
@@ -60,6 +61,7 @@ Foreign language terms:
 - Use the marketplace_code from the input payload.
 - On US, MX, and UK marketplace profiles, non-English terms are generally NEGATE with reason_tag foreign_language.
 - On CA marketplace profiles, French-language terms are expected and should be evaluated on relevance like any English term. Do not negate French terms solely because they are French on CA.
+- For terms containing "apple" in a tech-cleaning context (for example "apple screen cleaner", "apple cleaning spray", "apple approved screen cleaner"), treat "apple" as referring to Apple devices unless the term contains a clear counter-signal such as "juice" or "fruit". Do not send these terms to REVIEW solely because of Apple-brand ambiguity.
 
 Reason tag definitions:
 - core_use_case: term matches the primary use case of the product
@@ -68,17 +70,16 @@ Reason tag definitions:
 - wrong_size_variant: term seeks a size or format the product does not offer
 - wrong_audience_theme: term targets a different audience or theme
 - competitor_brand: term contains or implies a competitor brand name
-- cloth_primary_intent: shopper's primary intent is a cloth or wipe, not the cleaning solution or kit
-- accessory_only_intent: shopper's primary intent is another standalone accessory, not the full product
+- accessory_only_intent: shopper's primary intent is a standalone accessory, not the full product
 - foreign_language: term is in a language not expected for this marketplace
 - ambiguous_intent: intent cannot be determined from the term alone; use only when no other tag fits
 
 Calibration examples (use for judgment, do not copy reason tags mechanically):
-- "laptop cloth" for a spray+cloth duo kit -> NEGATE / cloth_primary_intent
+- "laptop cloth" for a spray+cloth duo kit -> NEGATE / accessory_only_intent
   Rationale: shopper is seeking the cloth standalone, not the full kit
-- "large microfiber cloth for glasses" for a screen cleaner kit -> NEGATE / cloth_primary_intent
+- "large microfiber cloth for glasses" for a screen cleaner kit -> NEGATE / accessory_only_intent
   Rationale: cloth-only query, product is a spray+cloth kit
-- "microfiber cloths for tv" for a screen cleaner kit -> NEGATE / cloth_primary_intent
+- "microfiber cloths for tv" for a screen cleaner kit -> NEGATE / accessory_only_intent
   Rationale: cloth-only query with no cleaner intent
 - "spray bottle" for a screen cleaner kit -> NEGATE / wrong_product_form
   Rationale: shopper wants an empty bottle or container, not a filled cleaner kit
@@ -88,7 +89,7 @@ Calibration examples (use for judgment, do not copy reason tags mechanically):
 - "windex" for a screen cleaner kit -> NEGATE / competitor_brand
 - "nettoyant ecran ordinateur" on a US profile -> NEGATE / foreign_language
 - "nettoyant ecran ordinateur" on a CA profile -> evaluate on relevance; this is a French-language query for screen cleaner and is likely KEEP
-- The reason_tag field must be exactly one of these values: core_use_case, wrong_category, wrong_product_form, wrong_size_variant, wrong_audience_theme, competitor_brand, cloth_primary_intent, accessory_only_intent, foreign_language, ambiguous_intent.`;
+- The reason_tag field must be exactly one of these values: core_use_case, wrong_category, wrong_product_form, wrong_size_variant, wrong_audience_theme, competitor_brand, accessory_only_intent, foreign_language, ambiguous_intent.`;
 
 export const PURE_MODEL_SYSTEM_PROMPT = `You evaluate one Amazon Sponsored Products campaign for an analyst-assist N-Gram workflow.
 
@@ -106,7 +107,7 @@ Return strict JSON with this shape:
       "search_term": "string",
       "recommendation": "KEEP" | "NEGATE" | "REVIEW",
       "confidence": "HIGH" | "MEDIUM" | "LOW",
-      "reason_tag": "one of: core_use_case, wrong_category, wrong_product_form, wrong_size_variant, wrong_audience_theme, competitor_brand, cloth_primary_intent, accessory_only_intent, foreign_language, ambiguous_intent",
+      "reason_tag": "one of: core_use_case, wrong_category, wrong_product_form, wrong_size_variant, wrong_audience_theme, competitor_brand, accessory_only_intent, foreign_language, ambiguous_intent",
       "rationale": "one short sentence"
     }
   ],
@@ -141,17 +142,19 @@ Rules:
 Recommendation definitions:
 - KEEP: the term is relevant to this product and campaign. The shopper is plausibly looking for something this product satisfies.
 - NEGATE: the term is clearly irrelevant or wrong-fit. The shopper is looking for something this product does not satisfy.
-- REVIEW: the term is genuinely ambiguous. You cannot determine intent from the term alone, or the term could plausibly convert for this product with reasonable probability. Do not use REVIEW when the term clearly targets a different product form, accessory category, or product category. When you can write a clear one-sentence rationale for why the term is wrong-fit, that is a NEGATE, not a REVIEW.
+- REVIEW: the term is genuinely ambiguous and you cannot determine with reasonable confidence which direction it leans. REVIEW should represent a small minority of terms, typically 5-10% of the input. Do not use REVIEW as a hedge when the most likely interpretation is clear. Do not use REVIEW when the term clearly targets a different product form, accessory category, or product category.
+- When you can write a clear one-sentence rationale for why the term is plausibly relevant to this product, that is a KEEP, not a REVIEW.
+- When you can write a clear one-sentence rationale for why the term is wrong-fit, that is a NEGATE, not a REVIEW.
 
-Accessory-only and cloth-only terms:
-- When a term clearly targets a standalone cloth or wipe and the matched product is a cleaner kit, solution, or spray product, use NEGATE with reason_tag cloth_primary_intent.
-- When a term clearly targets another standalone accessory (case, stand, replacement part, bottle, etc.) and the matched product is a cleaner kit, solution, or spray product, use NEGATE with reason_tag accessory_only_intent.
+Accessory-only terms:
+- When a term clearly targets a standalone accessory (cloth, wipe, case, stand, replacement part, bottle, etc.) and the matched product is a cleaner kit, solution, or spray product, use NEGATE with reason_tag accessory_only_intent.
 - The fact that the accessory is related to the same product category does not make the term ambiguous.
 
 Foreign language terms:
 - Use the marketplace_code from the input payload.
 - On US, MX, and UK marketplace profiles, non-English terms are generally NEGATE with reason_tag foreign_language.
 - On CA marketplace profiles, French-language terms are expected and should be evaluated on relevance like any English term. Do not negate French terms solely because they are French on CA.
+- For terms containing "apple" in a tech-cleaning context (for example "apple screen cleaner", "apple cleaning spray", "apple approved screen cleaner"), treat "apple" as referring to Apple devices unless the term contains a clear counter-signal such as "juice" or "fruit". Do not send these terms to REVIEW solely because of Apple-brand ambiguity.
 
 Reason tag definitions:
 - core_use_case: term matches the primary use case of the product
@@ -160,8 +163,7 @@ Reason tag definitions:
 - wrong_size_variant: term seeks a size or format the product does not offer
 - wrong_audience_theme: term targets a different audience or theme
 - competitor_brand: term contains or implies a competitor brand name
-- cloth_primary_intent: shopper's primary intent is a cloth or wipe, not the cleaning solution or kit
-- accessory_only_intent: shopper's primary intent is another standalone accessory, not the full product
+- accessory_only_intent: shopper's primary intent is a standalone accessory, not the full product
 - foreign_language: term is in a language not expected for this marketplace
 - ambiguous_intent: intent cannot be determined from the term alone; use only when no other tag fits.`;
 
@@ -195,7 +197,7 @@ Return strict JSON with this shape:
       "search_term": "string",
       "recommendation": "KEEP" | "NEGATE" | "REVIEW",
       "confidence": "HIGH" | "MEDIUM" | "LOW",
-      "reason_tag": "one of: core_use_case, wrong_category, wrong_product_form, wrong_size_variant, wrong_audience_theme, competitor_brand, cloth_primary_intent, accessory_only_intent, foreign_language, ambiguous_intent",
+      "reason_tag": "one of: core_use_case, wrong_category, wrong_product_form, wrong_size_variant, wrong_audience_theme, competitor_brand, accessory_only_intent, foreign_language, ambiguous_intent",
       "rationale": "one short sentence"
     }
   ],
@@ -228,17 +230,19 @@ Rules:
 Recommendation definitions:
 - KEEP: the term is relevant to this product and campaign. The shopper is plausibly looking for something this product satisfies.
 - NEGATE: the term is clearly irrelevant or wrong-fit. The shopper is looking for something this product does not satisfy.
-- REVIEW: the term is genuinely ambiguous. You cannot determine intent from the term alone, or the term could plausibly convert for this product with reasonable probability. Do not use REVIEW when the term clearly targets a different product form, accessory category, or product category. When you can write a clear one-sentence rationale for why the term is wrong-fit, that is a NEGATE, not a REVIEW.
+- REVIEW: the term is genuinely ambiguous and you cannot determine with reasonable confidence which direction it leans. REVIEW should represent a small minority of terms, typically 5-10% of the input. Do not use REVIEW as a hedge when the most likely interpretation is clear. Do not use REVIEW when the term clearly targets a different product form, accessory category, or product category.
+- When you can write a clear one-sentence rationale for why the term is plausibly relevant to this product, that is a KEEP, not a REVIEW.
+- When you can write a clear one-sentence rationale for why the term is wrong-fit, that is a NEGATE, not a REVIEW.
 
-Accessory-only and cloth-only terms:
-- When a term clearly targets a standalone cloth or wipe and the matched product is a cleaner kit, solution, or spray product, use NEGATE with reason_tag cloth_primary_intent.
-- When a term clearly targets another standalone accessory (case, stand, replacement part, bottle, etc.) and the matched product is a cleaner kit, solution, or spray product, use NEGATE with reason_tag accessory_only_intent.
+Accessory-only terms:
+- When a term clearly targets a standalone accessory (cloth, wipe, case, stand, replacement part, bottle, etc.) and the matched product is a cleaner kit, solution, or spray product, use NEGATE with reason_tag accessory_only_intent.
 - The fact that the accessory is related to the same product category does not make the term ambiguous.
 
 Foreign language terms:
 - Use the marketplace_code from the input payload.
 - On US, MX, and UK marketplace profiles, non-English terms are generally NEGATE with reason_tag foreign_language.
 - On CA marketplace profiles, French-language terms are expected and should be evaluated on relevance like any English term. Do not negate French terms solely because they are French on CA.
+- For terms containing "apple" in a tech-cleaning context (for example "apple screen cleaner", "apple cleaning spray", "apple approved screen cleaner"), treat "apple" as referring to Apple devices unless the term contains a clear counter-signal such as "juice" or "fruit". Do not send these terms to REVIEW solely because of Apple-brand ambiguity.
 
 Reason tag definitions:
 - core_use_case: term matches the primary use case of the product
@@ -247,8 +251,7 @@ Reason tag definitions:
 - wrong_size_variant: term seeks a size or format the product does not offer
 - wrong_audience_theme: term targets a different audience or theme
 - competitor_brand: term contains or implies a competitor brand name
-- cloth_primary_intent: shopper's primary intent is a cloth or wipe, not the cleaning solution or kit
-- accessory_only_intent: shopper's primary intent is another standalone accessory, not the full product
+- accessory_only_intent: shopper's primary intent is a standalone accessory, not the full product
 - foreign_language: term is in a language not expected for this marketplace
 - ambiguous_intent: intent cannot be determined from the term alone; use only when no other tag fits.`;
 

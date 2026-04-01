@@ -143,7 +143,6 @@ export const ALLOWED_REASON_TAGS = [
   "wrong_size_variant",
   "wrong_audience_theme",
   "competitor_brand",
-  "cloth_primary_intent",
   "accessory_only_intent",
   "foreign_language",
   "ambiguous_intent",

@@ -55,9 +55,12 @@ describe("ngram-2 ai prefill preview route prompt", () => {
 
   it("documents the cloth-only and CA French decision rules", () => {
     expect(SYSTEM_PROMPT).toContain("When you can write a clear one-sentence rationale for why the term is wrong-fit, that is a NEGATE, not a REVIEW.");
+    expect(SYSTEM_PROMPT).toContain("When you can write a clear one-sentence rationale for why the term is plausibly relevant to this product, that is a KEEP, not a REVIEW.");
     expect(SYSTEM_PROMPT).toContain('A shopper searching "laptop cloth" when the product is a spray+cloth duo kit is seeking the cloth standalone.');
     expect(SYSTEM_PROMPT).toContain("Use the marketplace_code from the input payload.");
     expect(SYSTEM_PROMPT).toContain("On CA marketplace profiles, French-language terms are expected");
+    expect(SYSTEM_PROMPT).toContain("REVIEW should represent a small minority of terms, typically 5-10% of the input.");
+    expect(SYSTEM_PROMPT).toContain('treat "apple" as referring to Apple devices unless the term contains a clear counter-signal such as "juice" or "fruit"');
   });
 
   it("defines the pure-model context pass contract", () => {
@@ -132,5 +135,8 @@ describe("ngram-2 ai prefill preview route prompt", () => {
     expect(PURE_MODEL_TERM_TRIAGE_SYSTEM_PROMPT).toContain('"exact_negatives"');
     expect(PURE_MODEL_TERM_TRIAGE_SYSTEM_PROMPT).toContain('"phrase_negatives"');
     expect(PURE_MODEL_TERM_TRIAGE_SYSTEM_PROMPT).toContain("matched product context is already locked");
+    expect(PURE_MODEL_TERM_TRIAGE_SYSTEM_PROMPT).toContain("that is a KEEP, not a REVIEW");
+    expect(PURE_MODEL_TERM_TRIAGE_SYSTEM_PROMPT).toContain("REVIEW should represent a small minority of terms, typically 5-10% of the input.");
+    expect(PURE_MODEL_TERM_TRIAGE_SYSTEM_PROMPT).toContain('treat "apple" as referring to Apple devices unless the term contains a clear counter-signal such as "juice" or "fruit"');
   });
 });
