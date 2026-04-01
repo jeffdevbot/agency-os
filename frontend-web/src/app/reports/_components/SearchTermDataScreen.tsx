@@ -16,6 +16,7 @@ import {
   type ClientReportSurfaceSummary,
 } from "../_lib/reportClientData";
 import {
+  exportSearchTermFactsCsv,
   listSearchTermFacts,
   type SearchTermFact,
   type SearchTermFactsParams,
@@ -385,6 +386,7 @@ export default function SearchTermDataScreen({ clientSlug }: Props) {
   // Facts data
   const [facts, setFacts] = useState<SearchTermFact[]>([]);
   const [loadingFacts, setLoadingFacts] = useState(false);
+  const [exportingCsv, setExportingCsv] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [factsError, setFactsError] = useState<string | null>(null);
   // Track the params used for the current page so load-more knows the offset
@@ -479,6 +481,46 @@ export default function SearchTermDataScreen({ clientSlug }: Props) {
     );
   }, [appliedParams, fetchFacts]);
 
+  const handleExportCsv = useCallback(async () => {
+    if (!selectedProfile) return;
+
+    setExportingCsv(true);
+    setFactsError(null);
+
+    try {
+      const token = await getToken();
+      const params: SearchTermFactsParams = {
+        ad_product: LIVE_SEARCH_TERM_AD_PRODUCT.amazonAdsAdProduct ?? undefined,
+        date_from: dateFrom || undefined,
+        date_to: dateTo || undefined,
+        campaign_type: campaignType || undefined,
+        campaign_name_contains: campaignNameContains || undefined,
+        search_term_contains: searchTermContains || undefined,
+      };
+      const { blob, filename } = await exportSearchTermFactsCsv(token, selectedProfile.id, params);
+      const url = window.URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      setFactsError(err instanceof Error ? err.message : "Failed to export search term data");
+    } finally {
+      setExportingCsv(false);
+    }
+  }, [
+    campaignNameContains,
+    campaignType,
+    dateFrom,
+    dateTo,
+    getToken,
+    searchTermContains,
+    selectedProfile,
+  ]);
+
   // Auto-run initial query when profile resolves
   const [didInitialLoad, setDidInitialLoad] = useState(false);
   useEffect(() => {
@@ -542,6 +584,17 @@ export default function SearchTermDataScreen({ clientSlug }: Props) {
         </p>
       ) : (
         <div className="mt-6 space-y-4">
+          <div className="flex flex-wrap justify-end gap-3">
+            <button
+              type="button"
+              onClick={() => void handleExportCsv()}
+              disabled={!selectedProfile || exportingCsv || loadingFacts}
+              className="rounded-2xl border border-[#c7d8f5] bg-white px-4 py-2 text-sm font-semibold text-[#0a6fd6] transition hover:bg-[#f7faff] disabled:cursor-not-allowed disabled:text-slate-400"
+            >
+              {exportingCsv ? "Exporting CSV..." : "Export CSV"}
+            </button>
+          </div>
+
           {/* Profile selector */}
           {wbrProfiles.length > 1 ? (
             <div className="flex flex-wrap items-center gap-3">

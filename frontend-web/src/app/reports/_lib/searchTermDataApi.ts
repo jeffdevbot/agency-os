@@ -75,6 +75,17 @@ export type SearchTermFactsResult = {
   has_more: boolean;
 };
 
+const parseAttachmentFilename = (response: Response, fallback: string): string => {
+  const disposition = response.headers.get("Content-Disposition") || response.headers.get("content-disposition");
+  if (!disposition) return fallback;
+  const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    return decodeURIComponent(utf8Match[1]);
+  }
+  const plainMatch = disposition.match(/filename="?([^";]+)"?/i);
+  return plainMatch?.[1] || fallback;
+};
+
 // ------------------------------------------------------------------
 // API function
 // ------------------------------------------------------------------
@@ -101,4 +112,39 @@ export const listSearchTermFacts = async (
     { method: "GET" },
   );
   return payload;
+};
+
+export const exportSearchTermFactsCsv = async (
+  token: string,
+  profileId: string,
+  params: SearchTermFactsParams = {},
+): Promise<{ blob: Blob; filename: string }> => {
+  const query = new URLSearchParams();
+  if (params.date_from) query.set("date_from", params.date_from);
+  if (params.date_to) query.set("date_to", params.date_to);
+  if (params.ad_product) query.set("ad_product", params.ad_product);
+  if (params.campaign_type) query.set("campaign_type", params.campaign_type);
+  if (params.campaign_name_contains) query.set("campaign_name_contains", params.campaign_name_contains);
+  if (params.search_term_contains) query.set("search_term_contains", params.search_term_contains);
+
+  const response = await fetch(
+    `${getBackendUrl()}/admin/wbr/profiles/${profileId}/search-term-facts/export${query.toString() ? `?${query.toString()}` : ""}`,
+    {
+      method: "GET",
+      cache: "no-store",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    },
+  );
+
+  if (!response.ok) {
+    const detail = await parseErrorDetail(response);
+    throw new Error(detail);
+  }
+
+  return {
+    blob: await response.blob(),
+    filename: parseAttachmentFilename(response, "search-term-data.csv"),
+  };
 };

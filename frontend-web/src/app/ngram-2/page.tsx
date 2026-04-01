@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { startTransition, useEffect, useState } from "react";
+import { startTransition, useEffect, useRef, useState } from "react";
 
 import { getBrowserSupabaseClient } from "@/lib/supabaseClient";
 import {
@@ -26,6 +26,7 @@ import {
 const defaultDates = buildNativeNgramDefaultDateRange();
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
 const AI_PREVIEW_RESULT_LIMIT = 10;
+const ACTIVITY_LINE_LIMIT = 18;
 
 if (!BACKEND_URL) {
   throw new Error("NEXT_PUBLIC_BACKEND_URL is not configured");
@@ -179,6 +180,8 @@ type AIPrefillPreview = {
   warnings: string[];
 };
 
+type ActivityMode = "preview" | "full_workbook" | "preview_workbook";
+
 const formatNumber = (value: number): string => value.toLocaleString();
 
 const formatCurrency = (value: number, currencyCode: string | null | undefined): string =>
@@ -187,6 +190,17 @@ const formatCurrency = (value: number, currencyCode: string | null | undefined):
     currency: currencyCode ?? "USD",
     minimumFractionDigits: 2,
   }).format(value);
+
+const parseAttachmentFilename = (response: Response, fallback: string): string => {
+  const disposition = response.headers.get("Content-Disposition") || response.headers.get("content-disposition");
+  if (!disposition) return fallback;
+  const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    return decodeURIComponent(utf8Match[1]);
+  }
+  const plainMatch = disposition.match(/filename="?([^";]+)"?/i);
+  return plainMatch?.[1] || fallback;
+};
 
 const formatRecommendationLabel = (
   recommendation: AIPrefillRecommendation["recommendation"],
@@ -232,8 +246,6 @@ export default function NgramTwoPage() {
   const [dateFrom, setDateFrom] = useState(defaultDates.from);
   const [dateTo, setDateTo] = useState(defaultDates.to);
   const [legacyExclusions, setLegacyExclusions] = useState(true);
-  const [workbookGenerating, setWorkbookGenerating] = useState(false);
-  const [workbookError, setWorkbookError] = useState<string | null>(null);
   const [aiWorkbookGenerating, setAiWorkbookGenerating] = useState(false);
   const [aiWorkbookError, setAiWorkbookError] = useState<string | null>(null);
   const [aiPreviewWorkbookGenerating, setAiPreviewWorkbookGenerating] = useState(false);
@@ -247,8 +259,14 @@ export default function NgramTwoPage() {
   const [aiPreviewError, setAiPreviewError] = useState<string | null>(null);
   const [aiPreview, setAiPreview] = useState<AIPrefillPreview | null>(null);
   const [aiPreviewRunId, setAiPreviewRunId] = useState<string | null>(null);
+  const [selectedFilledWorkbook, setSelectedFilledWorkbook] = useState<File | null>(null);
+  const [collectingNegatives, setCollectingNegatives] = useState(false);
+  const [collectError, setCollectError] = useState<string | null>(null);
+  const [expandedPreviewRows, setExpandedPreviewRows] = useState<Record<string, number>>({});
   const [activityLines, setActivityLines] = useState<string[]>([]);
+  const [activityMode, setActivityMode] = useState<ActivityMode | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const activityScrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const supabase = getBrowserSupabaseClient();
@@ -317,11 +335,10 @@ export default function NgramTwoPage() {
         }).toString()}`
       : null;
   const summaryAllowsWorkbook = Boolean(summary && summary.eligible_rows > 0);
-  const selectedAiCampaignName = selectedAiCampaignNames[0] ?? "";
-  const hasSelectedAiCampaign = Boolean(selectedAiCampaignName);
+  const hasSelectedAiCampaignSubset = selectedAiCampaignNames.length > 0;
   const canGenerateWorkbook =
     !loading &&
-    !workbookGenerating &&
+    !aiWorkbookGenerating &&
     selectedProduct === "sp" &&
     runState.tone === "ready" &&
     Boolean(selectedProfile?.profileId) &&
@@ -345,7 +362,8 @@ export default function NgramTwoPage() {
     !aiPreviewWorkbookGenerating &&
     Boolean(aiPreviewRunId) &&
     Boolean(selectedProfile?.profileId);
-  const canRunPureModelPreview = canRunPreviewBase && hasSelectedAiCampaign;
+  const canRunPureModelPreview = canRunPreviewBase && hasSelectedAiCampaignSubset;
+  const canCollectNegatives = Boolean(selectedFilledWorkbook) && !collectingNegatives;
   const filteredCampaignOptions = (summary?.campaigns ?? [])
     .filter((campaign) =>
       aiCampaignQuery.trim()
@@ -363,82 +381,24 @@ export default function NgramTwoPage() {
     ? "Campaign names containing Ex., SDI, or SDV will be skipped."
     : "All campaign names in the selected window will be included.";
 
-  const resetActivity = (firstLine?: string) => {
-    setActivityLines(firstLine ? [firstLine] : []);
-  };
-
   const appendActivity = (line: string) => {
-    setActivityLines((current) => [...current.slice(-6), line]);
+    setActivityLines((current) => [...current.slice(-(ACTIVITY_LINE_LIMIT - 1)), line]);
   };
 
-  const handleGenerateWorkbook = async () => {
-    if (!canGenerateWorkbook || !selectedProfile) return;
+  const startActivity = (mode: ActivityMode, initialLines: string[]) => {
+    setActivityMode(mode);
+    setActivityLines(initialLines);
+  };
 
-    setWorkbookGenerating(true);
-    setWorkbookError(null);
-    resetActivity("Loading search-term data");
-
-    try {
-      const supabase = getBrowserSupabaseClient();
-      const { data } = await supabase.auth.getSession();
-      const accessToken = data.session?.access_token;
-
-      if (!accessToken) {
-        setWorkbookError("Please sign in again.");
-        setWorkbookGenerating(false);
-        return;
-      }
-
-      appendActivity("Preparing workbook");
-      const response = await fetch(`${BACKEND_URL}/ngram/native-workbook`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          profile_id: selectedProfile.profileId,
-          ad_product: selectedProductConfig?.amazonAdsAdProduct,
-          date_from: dateFrom,
-          date_to: dateTo,
-          respect_legacy_exclusions: legacyExclusions,
-        }),
-      });
-
-      if (!response.ok) {
-        const detail = await response.json().catch(() => undefined);
-        throw new Error(detail?.detail || "Workbook generation failed");
-      }
-
-      const blob = await response.blob();
-      const downloadUrl = window.URL.createObjectURL(blob);
-      const disposition = response.headers.get("content-disposition") || "";
-      const match = disposition.match(/filename=\"?([^\";]+)\"?/i);
-      const filename = match?.[1] || `${selectedProfile.displayName.replace(/\s+/g, "_")}_native_ngrams.xlsx`;
-
-      const anchor = document.createElement("a");
-      anchor.href = downloadUrl;
-      anchor.download = filename;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      window.URL.revokeObjectURL(downloadUrl);
-
-      appendActivity("Done");
-      setToast("Workbook download started.");
-      window.setTimeout(() => setToast(null), 3200);
-    } catch (generateError) {
-      appendActivity("Workbook run failed");
-      setWorkbookError(
-        generateError instanceof Error ? generateError.message : "Workbook generation failed",
-      );
-    } finally {
-      setWorkbookGenerating(false);
+  const finishActivity = (finalLine?: string) => {
+    setActivityMode(null);
+    if (finalLine) {
+      appendActivity(finalLine);
     }
   };
 
   const handleGenerateAiWorkbook = async () => {
-    if (!canGenerateAiWorkbook || !selectedProfile) return;
+    if (!canGenerateWorkbook || !selectedProfile) return;
 
     const parsedThreshold = Number.parseFloat(spendThreshold);
     if (!Number.isFinite(parsedThreshold) || parsedThreshold < 0) {
@@ -448,11 +408,13 @@ export default function NgramTwoPage() {
 
     setAiWorkbookGenerating(true);
     setAiWorkbookError(null);
-    resetActivity("Loading search-term data");
+    startActivity("full_workbook", [
+      "Loading search-term data",
+      "Preparing campaign set",
+      "Running AI context pass",
+    ]);
 
     try {
-      appendActivity("Preparing campaign set");
-      appendActivity("Running AI context and term analysis");
       const previewResponse = await fetch("/api/ngram-2/ai-prefill-preview", {
         method: "POST",
         headers: {
@@ -485,6 +447,7 @@ export default function NgramTwoPage() {
         throw new Error("Full AI workbook run did not return a saved run id.");
       }
 
+      appendActivity("Running AI term analysis");
       appendActivity("Saving AI run");
 
       const supabase = getBrowserSupabaseClient();
@@ -554,11 +517,11 @@ export default function NgramTwoPage() {
       anchor.remove();
       window.URL.revokeObjectURL(downloadUrl);
 
-      appendActivity("Done");
+      finishActivity("Done");
       setToast("Full AI review workbook download started.");
       window.setTimeout(() => setToast(null), 3200);
     } catch (generateError) {
-      appendActivity("AI workbook run failed");
+      finishActivity("AI workbook run failed");
       setAiWorkbookError(
         generateError instanceof Error ? generateError.message : "Full AI review workbook generation failed",
       );
@@ -572,7 +535,11 @@ export default function NgramTwoPage() {
 
     setAiPreviewWorkbookGenerating(true);
     setAiWorkbookError(null);
-    resetActivity("Preparing preview workbook");
+    startActivity("preview_workbook", [
+      "Preparing preview workbook",
+      "Loading saved preview run",
+      "Preparing workbook download",
+    ]);
 
     try {
       const supabase = getBrowserSupabaseClient();
@@ -585,7 +552,6 @@ export default function NgramTwoPage() {
         return;
       }
 
-      appendActivity("Loading saved preview run");
       const response = await fetch(`${BACKEND_URL}/ngram/native-workbook-prefilled`, {
         method: "POST",
         headers: {
@@ -622,16 +588,95 @@ export default function NgramTwoPage() {
       anchor.remove();
       window.URL.revokeObjectURL(downloadUrl);
 
-      appendActivity("Done");
+      finishActivity("Done");
       setToast("Preview workbook download started.");
       window.setTimeout(() => setToast(null), 3200);
     } catch (generateError) {
-      appendActivity("Preview workbook run failed");
+      finishActivity("Preview workbook run failed");
       setAiWorkbookError(
         generateError instanceof Error ? generateError.message : "Preview workbook generation failed",
       );
     } finally {
       setAiPreviewWorkbookGenerating(false);
+    }
+  };
+
+  const handleFilledWorkbookChange = (file: File | null) => {
+    setSelectedFilledWorkbook(file);
+    setCollectError(null);
+  };
+
+  const handleFilledWorkbookDrop = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const file = event.dataTransfer.files[0] ?? null;
+    handleFilledWorkbookChange(file);
+  };
+
+  const handleCollectNegatives = async () => {
+    if (!selectedFilledWorkbook || collectingNegatives) return;
+
+    setCollectingNegatives(true);
+    setCollectError(null);
+    startActivity("preview_workbook", [
+      "Uploading reviewed workbook",
+      "Reading analyst selections",
+      "Preparing negatives summary",
+    ]);
+
+    try {
+      const supabase = getBrowserSupabaseClient();
+      const { data } = await supabase.auth.getSession();
+      const accessToken = data.session?.access_token;
+
+      if (!accessToken) {
+        setCollectError("Please sign in again.");
+        setCollectingNegatives(false);
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append("file", selectedFilledWorkbook);
+
+      const response = await fetch(`${BACKEND_URL}/ngram/collect`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const detail = await response.json().catch(() => undefined);
+        throw new Error(detail?.detail || "Failed to collect negatives");
+      }
+
+      const blob = await response.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const filename = parseAttachmentFilename(
+        response,
+        `${selectedFilledWorkbook.name.replace(/\.[^.]+$/, "")}_negatives.xlsx`,
+      );
+
+      const anchor = document.createElement("a");
+      anchor.href = downloadUrl;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.URL.revokeObjectURL(downloadUrl);
+
+      finishActivity("Done");
+      setToast("Negatives summary download started.");
+      window.setTimeout(() => setToast(null), 3200);
+    } catch (collectNegativesError) {
+      finishActivity("Negatives summary failed");
+      setCollectError(
+        collectNegativesError instanceof Error
+          ? collectNegativesError.message
+          : "Failed to collect negatives",
+      );
+    } finally {
+      setCollectingNegatives(false);
     }
   };
 
@@ -648,11 +693,13 @@ export default function NgramTwoPage() {
     setAiPreviewError(null);
     setAiPreview(null);
     setAiPreviewRunId(null);
-    resetActivity("Loading search-term data");
+    startActivity("preview", [
+      "Loading search-term data",
+      "Preparing campaign preview",
+      "Running AI analysis",
+    ]);
 
     try {
-      appendActivity("Preparing campaign preview");
-      appendActivity("Running AI analysis");
       const response = await fetch("/api/ngram-2/ai-prefill-preview", {
         method: "POST",
         headers: {
@@ -682,9 +729,9 @@ export default function NgramTwoPage() {
       appendActivity("Saving preview run");
       setAiPreview(payload.preview ?? null);
       setAiPreviewRunId(payload.preview_run_id ?? null);
-      appendActivity("Done");
+      finishActivity("Done");
     } catch (previewError) {
-      appendActivity("Preview failed");
+      finishActivity("Preview failed");
       setAiPreviewError(
         previewError instanceof Error ? previewError.message : "AI prefill preview failed",
       );
@@ -694,7 +741,11 @@ export default function NgramTwoPage() {
   };
 
   const toggleSelectedAiCampaignName = (campaignName: string) => {
-    setSelectedAiCampaignNames((current) => (current[0] === campaignName ? [] : [campaignName]));
+    setSelectedAiCampaignNames((current) =>
+      current.includes(campaignName)
+        ? current.filter((value) => value !== campaignName)
+        : [...current, campaignName],
+    );
   };
 
   useEffect(() => {
@@ -801,12 +852,60 @@ export default function NgramTwoPage() {
   useEffect(() => {
     setAiPreview(null);
     setAiPreviewRunId(null);
+    setExpandedPreviewRows({});
     setAiPreviewError(null);
     setAiWorkbookError(null);
+    setSelectedFilledWorkbook(null);
+    setCollectError(null);
     setSelectedAiCampaignNames([]);
     setAiCampaignQuery("");
     setActivityLines([]);
+    setActivityMode(null);
   }, [selectedProfile?.profileId, selectedProduct, dateFrom, dateTo, legacyExclusions]);
+
+  useEffect(() => {
+    if (!activityMode) return;
+
+    const waitingScripts: Record<ActivityMode, string[]> = {
+      preview: [
+        "Checking campaign context",
+        "Reviewing above-threshold terms",
+        "Waiting for preview response",
+        "Still generating AI recommendations",
+        "Preparing saved preview payload",
+      ],
+      full_workbook: [
+        "Checking campaign context",
+        "Reviewing above-threshold terms",
+        "Waiting for AI campaign results",
+        "Building review workbook rows",
+        "Finalizing workbook payload",
+      ],
+      preview_workbook: [
+        "Checking saved preview payload",
+        "Mapping AI review rows",
+        "Preparing workbook file",
+        "Waiting for download payload",
+      ],
+    };
+
+    let scriptIndex = 0;
+    const script = waitingScripts[activityMode];
+    const intervalId = window.setInterval(() => {
+      appendActivity(script[scriptIndex % script.length] ?? "Working…");
+      scriptIndex += 1;
+    }, 900);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [activityMode]);
+
+  useEffect(() => {
+    const element = activityScrollRef.current;
+    if (!element) return;
+    element.scrollTop = element.scrollHeight;
+  }, [activityLines]);
 
   return (
     <div className="flex min-h-screen flex-col bg-gradient-to-br from-[#eaf2ff] via-[#dce8ff] to-[#cddcf8]">
@@ -997,15 +1096,16 @@ export default function NgramTwoPage() {
               </label>
             </div>
 
-            <div className={`mt-4 rounded-2xl border px-4 py-3 text-sm ${statusToneClasses}`}>
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <p>
-                  {runState.note}
-                  {dayCount !== null ? ` Selected range: ${dayCount} day${dayCount === 1 ? "" : "s"}.` : ""}
-                </p>
-                <span className="font-semibold uppercase tracking-[0.18em]">{runState.label}</span>
+            {selectedProfile && dayCount !== null ? (
+              <div className={`mt-4 rounded-2xl border px-4 py-3 text-sm ${statusToneClasses}`}>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <p>
+                    {dayCount} day{dayCount === 1 ? "" : "s"} selected.
+                  </p>
+                  <span className="font-semibold uppercase tracking-[0.18em]">{runState.label}</span>
+                </div>
               </div>
-            </div>
+            ) : null}
 
             {error ? (
               <p className="mt-4 rounded-xl border border-[#f87171]/40 bg-[#fee2e2] px-4 py-3 text-sm text-[#991b1b]">
@@ -1188,7 +1288,10 @@ export default function NgramTwoPage() {
                   Clear
                 </button>
               </div>
-              <div className="mt-3 space-y-2 font-mono text-sm text-[#dbeafe]">
+              <div
+                ref={activityScrollRef}
+                className="mt-3 max-h-64 space-y-2 overflow-y-auto pr-2 font-mono text-sm text-[#dbeafe]"
+              >
                 {activityLines.map((line, index) => (
                   <p key={`${line}-${index}`}>
                     <span className="mr-2 text-[#38bdf8]">$</span>
@@ -1212,7 +1315,7 @@ export default function NgramTwoPage() {
 
             <div className="mt-4 rounded-2xl border border-[#dbe4f0] bg-[#f7faff] p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <p className="text-sm font-semibold text-[#0f172a]">Preview one campaign</p>
+                <p className="text-sm font-semibold text-[#0f172a]">Preview selected campaigns</p>
                 <button
                   type="button"
                   disabled={!canRunPureModelPreview}
@@ -1226,9 +1329,9 @@ export default function NgramTwoPage() {
                 The preview stays small on purpose. Step 4 still handles the full workbook run for the selected window and threshold.
               </p>
               <p className="mt-2 text-xs text-[#7d8ba1]">
-                {hasSelectedAiCampaign
-                  ? `Selected campaign: ${selectedAiCampaignName}`
-                  : "Select one campaign below to enable the preview."}
+                {hasSelectedAiCampaignSubset
+                  ? `${formatNumber(selectedAiCampaignNames.length)} campaign${selectedAiCampaignNames.length === 1 ? "" : "s"} selected for preview.`
+                  : "Select one or more campaigns below to enable the preview."}
               </p>
             </div>
 
@@ -1238,13 +1341,13 @@ export default function NgramTwoPage() {
                   <div>
                     <p className="text-sm font-semibold text-[#0f172a]">Campaign selector</p>
                     <p className="mt-1 text-sm text-[#4c576f]">
-                      Choose one campaign for the preview. The full workbook run is still available in Step 4.
+                      Choose one or more campaigns for the preview. The full workbook run is still available in Step 4.
                     </p>
                   </div>
                   <button
                     type="button"
                     onClick={() => setSelectedAiCampaignNames([])}
-                    disabled={!hasSelectedAiCampaign}
+                    disabled={!hasSelectedAiCampaignSubset}
                     className="rounded-full border border-[#cbd5e1] bg-white px-3 py-1.5 text-xs font-semibold text-[#334155] transition hover:border-[#94a3b8] disabled:cursor-not-allowed disabled:text-[#94a3b8]"
                   >
                     Clear selection
@@ -1262,7 +1365,9 @@ export default function NgramTwoPage() {
                       className="w-full rounded-2xl border border-[#d4ddea] bg-white px-4 py-3 text-sm text-[#1b2430] shadow-sm outline-none transition focus:border-[#8bb6ff] focus:ring-4 focus:ring-[#d8e8ff]"
                     />
                     <p className="text-xs text-[#7d8ba1]">
-                      {hasSelectedAiCampaign ? "One campaign selected for preview." : "No campaign selected yet."}
+                      {hasSelectedAiCampaignSubset
+                        ? `${formatNumber(selectedAiCampaignNames.length)} campaign${selectedAiCampaignNames.length === 1 ? "" : "s"} selected for preview.`
+                        : "No campaign selected yet."}
                     </p>
                   </label>
 
@@ -1270,7 +1375,7 @@ export default function NgramTwoPage() {
                     <div className="max-h-56 space-y-2 overflow-y-auto px-2 py-1">
                       {filteredCampaignOptions.length > 0 ? (
                         filteredCampaignOptions.map((campaign) => {
-                          const checked = selectedAiCampaignName === campaign.campaign_name;
+                          const checked = selectedAiCampaignNames.includes(campaign.campaign_name);
                           return (
                             <label
                               key={campaign.campaign_name}
@@ -1374,11 +1479,10 @@ export default function NgramTwoPage() {
                 <div className="mt-4 space-y-3">
                   {aiPreview.campaigns.map((campaign) => {
                     const sortedEvaluations = sortPreviewEvaluations(campaign.evaluations);
-                    const visibleEvaluations = sortedEvaluations.slice(0, AI_PREVIEW_RESULT_LIMIT);
-                    const hiddenEvaluationCount = Math.max(
-                      sortedEvaluations.length - visibleEvaluations.length,
-                      0,
-                    );
+                    const visibleCount =
+                      expandedPreviewRows[campaign.campaignName] ?? AI_PREVIEW_RESULT_LIMIT;
+                    const visibleEvaluations = sortedEvaluations.slice(0, visibleCount);
+                    const hiddenEvaluationCount = Math.max(sortedEvaluations.length - visibleCount, 0);
                     const campaignCounts = sortedEvaluations.reduce<
                       Record<AIPrefillRecommendation["recommendation"], number>
                     >(
@@ -1490,11 +1594,54 @@ export default function NgramTwoPage() {
                             })}
 
                             {hiddenEvaluationCount > 0 ? (
-                              <p className="text-xs text-[#7d8ba1]">
-                                Showing the first {formatNumber(AI_PREVIEW_RESULT_LIMIT)} rows for this
-                                campaign. {formatNumber(hiddenEvaluationCount)} more rows are hidden to keep
-                                the preview compact.
-                              </p>
+                              <div className="flex flex-wrap items-center gap-3 text-xs text-[#7d8ba1]">
+                                <p>
+                                  Showing the first {formatNumber(visibleCount)} rows for this campaign.{" "}
+                                  {formatNumber(hiddenEvaluationCount)} more rows are hidden to keep the
+                                  preview compact.
+                                </p>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setExpandedPreviewRows((current) => ({
+                                      ...current,
+                                      [campaign.campaignName]: Math.min(
+                                        sortedEvaluations.length,
+                                        visibleCount + AI_PREVIEW_RESULT_LIMIT,
+                                      ),
+                                    }))
+                                  }
+                                  className="font-semibold text-[#0a6fd6] transition hover:text-[#0959ab]"
+                                >
+                                  Show 10 more
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setExpandedPreviewRows((current) => ({
+                                      ...current,
+                                      [campaign.campaignName]: sortedEvaluations.length,
+                                    }))
+                                  }
+                                  className="font-semibold text-[#0a6fd6] transition hover:text-[#0959ab]"
+                                >
+                                  Show all
+                                </button>
+                              </div>
+                            ) : null}
+                            {visibleCount > AI_PREVIEW_RESULT_LIMIT ? (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setExpandedPreviewRows((current) => ({
+                                    ...current,
+                                    [campaign.campaignName]: AI_PREVIEW_RESULT_LIMIT,
+                                  }))
+                                }
+                                className="text-xs font-semibold text-[#0a6fd6] transition hover:text-[#0959ab]"
+                              >
+                                Show less
+                              </button>
                             ) : null}
                           </div>
                         ) : null}
@@ -1511,50 +1658,98 @@ export default function NgramTwoPage() {
               <p className="text-xs font-semibold uppercase tracking-[0.25em] text-[#94a3b8]">Step 4</p>
               <h2 className="mt-1 text-lg font-semibold text-[#0f172a]">Generate Workbook</h2>
               <p className="text-sm text-[#4c576f]">
-                Download the workbook for the selected window. You can keep it fully manual or run the full AI triage pass first.
+                Run the full AI triage pass for the selected window and download the review workbook.
               </p>
               <p className="mt-1 text-xs text-[#94a3b8]">
-                The AI workbook uses the same selected date range and minimum spend from Step 1, then writes triage guidance without filling `NE/NP` or scratchpad negatives.
+                The workbook uses the selected date range and minimum spend from Step 1, then writes triage guidance without filling `NE/NP` or scratchpad negatives.
               </p>
             </div>
 
             <button
               type="button"
               disabled={!canGenerateWorkbook}
-              onClick={handleGenerateWorkbook}
-              className="mt-6 w-full rounded-2xl bg-[#0a6fd6] px-4 py-3 text-sm font-semibold text-white shadow-[0_15px_30px_rgba(10,111,214,0.35)] transition hover:bg-[#0959ab] disabled:cursor-not-allowed disabled:bg-[#b7cbea]"
-            >
-              {workbookGenerating ? "Generating workbook…" : "Generate Workbook"}
-            </button>
-
-            <button
-              type="button"
-              disabled={!canGenerateAiWorkbook}
               onClick={handleGenerateAiWorkbook}
-              className="mt-4 w-full rounded-2xl bg-[#0f172a] px-4 py-3 text-sm font-semibold text-white shadow-[0_15px_30px_rgba(15,23,42,0.24)] transition hover:bg-[#1e293b] disabled:cursor-not-allowed disabled:bg-[#b8c1d1]"
+              className="mt-6 w-full rounded-2xl bg-[#0f172a] px-4 py-3 text-sm font-semibold text-white shadow-[0_15px_30px_rgba(15,23,42,0.24)] transition hover:bg-[#1e293b] disabled:cursor-not-allowed disabled:bg-[#b8c1d1]"
             >
-              {aiWorkbookGenerating ? "Running full AI and generating workbook…" : "Generate AI Review Workbook"}
+              {aiWorkbookGenerating ? "Running AI and generating workbook…" : "Generate Workbook"}
             </button>
 
             <div className="mt-4 rounded-2xl border border-[#dbe4f0] bg-[#f7faff] p-4">
               <p className="text-sm text-[#4c576f]">
                 {selectedProduct === "sp"
-                  ? "The manual workbook uses the imported search-term rows directly. The AI workbook runs the full selected window, writes SAFE KEEP / LIKELY NEGATE / REVIEW guidance, and leaves final analyst expression blank."
+                  ? "The generated workbook writes SAFE KEEP / LIKELY NEGATE / REVIEW guidance across the full selected window and leaves final analyst expression blank."
                   : "Workbook generation is intentionally limited to Sponsored Products first."}
               </p>
             </div>
-
-            {workbookError ? (
-              <p className="mt-4 rounded-xl border border-[#f87171]/40 bg-[#fee2e2] px-4 py-3 text-sm text-[#991b1b]">
-                {workbookError}
-              </p>
-            ) : null}
 
             {aiWorkbookError ? (
               <p className="mt-4 rounded-xl border border-[#f87171]/40 bg-[#fee2e2] px-4 py-3 text-sm text-[#991b1b]">
                 {aiWorkbookError}
               </p>
             ) : null}
+          </div>
+
+          <div className="rounded-3xl bg-white/95 p-8 shadow-[0_30px_80px_rgba(10,59,130,0.15)]">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.25em] text-[#94a3b8]">Step 5</p>
+              <h2 className="mt-1 text-lg font-semibold text-[#0f172a]">Upload Reviewed Workbook to Collect Negatives</h2>
+              <p className="text-sm text-[#4c576f]">
+                After the analyst reviews the workbook and fills the final negatives, upload it here to get the campaign-by-campaign negatives summary back.
+              </p>
+            </div>
+
+            <div
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={handleFilledWorkbookDrop}
+              className="mt-6 rounded-2xl border border-dashed border-[#c7d8f5] bg-[#f7faff] p-10 text-center"
+            >
+              <p className="text-base font-semibold text-[#0f172a]">Drag and drop the reviewed workbook</p>
+              <p className="text-sm text-[#4c576f]">(.xlsx)</p>
+              <div className="mt-4 flex flex-col items-center gap-3">
+                <label className="cursor-pointer rounded-full bg-white px-5 py-2 text-sm font-semibold text-[#0a6fd6] shadow">
+                  <input
+                    type="file"
+                    accept=".xlsx"
+                    className="hidden"
+                    onChange={(event) => handleFilledWorkbookChange(event.target.files?.[0] ?? null)}
+                  />
+                  Browse files
+                </label>
+                <p className="text-xs text-[#94a3b8]">
+                  {selectedFilledWorkbook ? selectedFilledWorkbook.name : "No file selected"}
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              disabled={!canCollectNegatives}
+              onClick={handleCollectNegatives}
+              className="mt-6 w-full rounded-2xl bg-[#0a6fd6] px-4 py-3 text-sm font-semibold text-white shadow-[0_15px_30px_rgba(10,111,214,0.35)] transition hover:bg-[#0959ab] disabled:cursor-not-allowed disabled:bg-[#b7cbea]"
+            >
+              {collectingNegatives ? "Collecting…" : "Download Negatives Summary"}
+            </button>
+
+            {collectError ? (
+              <p className="mt-4 rounded-xl border border-[#f87171]/40 bg-[#fee2e2] px-4 py-3 text-sm text-[#991b1b]">
+                {collectError}
+              </p>
+            ) : null}
+          </div>
+
+          <div className="rounded-3xl border border-dashed border-[#d7dfec] bg-white/70 p-8 opacity-75 shadow-[0_18px_40px_rgba(10,59,130,0.08)]">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.25em] text-[#94a3b8]">Step 6</p>
+                <h2 className="mt-1 text-lg font-semibold text-[#0f172a]">Coming Soon: Push Negatives Directly to Amazon</h2>
+                <p className="text-sm text-[#4c576f]">
+                  A future step will let analysts send approved negatives straight to Amazon with explicit confirmation and audit logging.
+                </p>
+              </div>
+              <span className="rounded-full bg-[#f2f4f8] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-[#65748a]">
+                coming soon
+              </span>
+            </div>
           </div>
 
           {loading ? <p className="text-sm text-[#4c576f]">Loading client and marketplace options…</p> : null}

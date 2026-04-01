@@ -720,6 +720,38 @@ async def list_search_term_facts(
         raise HTTPException(status_code=500, detail="Failed to list search term facts")
 
 
+@router.get("/profiles/{profile_id}/search-term-facts/export")
+async def export_search_term_facts_csv(
+    profile_id: str,
+    ad_product: str | None = Query(None),
+    date_from: str | None = Query(None),
+    date_to: str | None = Query(None),
+    campaign_type: str | None = Query(None),
+    campaign_name_contains: str | None = Query(None),
+    search_term_contains: str | None = Query(None),
+    user=Depends(require_admin_user),
+):
+    svc = _get_search_term_facts_service()
+    try:
+        csv_text = svc.export_facts_csv(
+            profile_id,
+            ad_product=ad_product,
+            date_from=date_from,
+            date_to=date_to,
+            campaign_type=campaign_type,
+            campaign_name_contains=campaign_name_contains,
+            search_term_contains=search_term_contains,
+        )
+        filename = f"search-term-data-{profile_id}.csv"
+        return Response(
+            content=csv_text,
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to export search term facts")
+
+
 @router.post("/profiles/{profile_id}/sync-runs/windsor-business/backfill")
 async def run_windsor_business_backfill(
     profile_id: str,

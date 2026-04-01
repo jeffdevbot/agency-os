@@ -286,8 +286,8 @@ const coerceRequest = async (request: Request): Promise<{
     if (runModeRaw !== "preview") {
       throw new Error("pure_model_single_campaign is currently supported only for preview runs.");
     }
-    if (requestedCampaignNames.length !== 1) {
-      throw new Error("pure_model_single_campaign requires exactly one selected campaign.");
+    if (requestedCampaignNames.length === 0) {
+      throw new Error("pure_model_single_campaign requires at least one selected campaign.");
     }
   }
 
@@ -341,7 +341,7 @@ export async function POST(request: Request) {
 
     if (prefillStrategy === "pure_model_single_campaign") {
       warnings.push(
-        "Pure-model pivot preview is active for one campaign. Full AI workbook generation still uses the shipped heuristic path during transition.",
+        `Pure-model pivot preview is active for ${requestedCampaignNames.length} selected campaign(s). Full AI workbook generation still uses the shipped heuristic path during transition.`,
       );
     }
 
