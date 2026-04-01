@@ -189,8 +189,14 @@ def _build_override_payload(workbook: Workbook, preview_run: dict[str, Any]) -> 
             if isinstance(values, list)
         }
         ai_prefills_raw = campaign.get("synthesizedPrefills") if isinstance(campaign.get("synthesizedPrefills"), dict) else {}
+        model_prefills_raw = campaign.get("modelPrefills") if isinstance(campaign.get("modelPrefills"), dict) else {}
         evaluations = campaign.get("evaluations") if isinstance(campaign.get("evaluations"), list) else []
         direct_negate_prefills = _build_direct_negate_prefills(evaluations)
+        ai_exact_negative_keys = {
+            _search_term_key(value)
+            for value in model_prefills_raw.get("exact", [])
+            if _search_term_key(value)
+        }
         ai_prefills = {
             "mono": sorted(
                 {
@@ -198,6 +204,11 @@ def _build_override_payload(workbook: Workbook, preview_run: dict[str, Any]) -> 
                         clean_query_str(_to_text(item.get("gram")))
                         for item in ai_prefills_raw.get("mono", [])
                         if isinstance(item, dict) and _to_text(item.get("gram"))
+                    },
+                    *{
+                        clean_query_str(_to_text(value))
+                        for value in model_prefills_raw.get("mono", [])
+                        if _to_text(value)
                     },
                     *direct_negate_prefills["mono"],
                 }
@@ -209,6 +220,11 @@ def _build_override_payload(workbook: Workbook, preview_run: dict[str, Any]) -> 
                         for item in ai_prefills_raw.get("bi", [])
                         if isinstance(item, dict) and _to_text(item.get("gram"))
                     },
+                    *{
+                        clean_query_str(_to_text(value))
+                        for value in model_prefills_raw.get("bi", [])
+                        if _to_text(value)
+                    },
                     *direct_negate_prefills["bi"],
                 }
             ),
@@ -218,6 +234,11 @@ def _build_override_payload(workbook: Workbook, preview_run: dict[str, Any]) -> 
                         clean_query_str(_to_text(item.get("gram")))
                         for item in ai_prefills_raw.get("tri", [])
                         if isinstance(item, dict) and _to_text(item.get("gram"))
+                    },
+                    *{
+                        clean_query_str(_to_text(value))
+                        for value in model_prefills_raw.get("tri", [])
+                        if _to_text(value)
                     },
                     *direct_negate_prefills["tri"],
                 }
@@ -250,6 +271,15 @@ def _build_override_payload(workbook: Workbook, preview_run: dict[str, Any]) -> 
             )
             analyst_outcome = "negated" if analyst_source != "none" else "not_negated"
             ai_recommendation = _to_text(evaluation.get("recommendation")).upper()
+            ai_negation_path = (
+                "exact"
+                if search_term_key in ai_exact_negative_keys
+                else "phrase"
+                if any(term_ngrams[key].intersection(set(ai_prefills.get(key, []))) for key in ("mono", "bi", "tri"))
+                else "negate_only"
+                if ai_recommendation == "NEGATE"
+                else "none"
+            )
             ai_outcome = "negated" if ai_recommendation == "NEGATE" else "not_negated"
             decision_status = "matched" if ai_outcome == analyst_outcome else "overridden"
             if ai_recommendation == "NEGATE" and analyst_outcome == "negated":
@@ -269,6 +299,7 @@ def _build_override_payload(workbook: Workbook, preview_run: dict[str, Any]) -> 
                     "ai_recommendation": ai_recommendation,
                     "ai_confidence": _to_text(evaluation.get("confidence")).upper() or workbook_review.get("ai_confidence"),
                     "ai_reason_tag": _to_text(evaluation.get("reason_tag")) or workbook_review.get("ai_reason_tag"),
+                    "ai_negation_path": ai_negation_path,
                     "analyst_outcome": analyst_outcome,
                     "analyst_source": analyst_source,
                     "decision_status": decision_status,
@@ -303,6 +334,7 @@ def _build_override_payload(workbook: Workbook, preview_run: dict[str, Any]) -> 
         campaign_payloads.append(
             {
                 "campaign_name": campaign_name,
+                "ai_exact_negatives": sorted(ai_exact_negative_keys),
                 "term_diffs": term_diffs,
                 "gram_diffs": gram_diffs,
                 "final_grams": {key: sorted(values) for key, values in final_grams.items()},

@@ -10,11 +10,13 @@ import {
   isIntentionallySkippedCampaign,
   isExpectedAmbiguousCampaign,
   isLegacyExcludedCampaign,
+  mergePureModelCampaignResponses,
   parseCampaignProductIdentifier,
   parseCampaignTheme,
   prepareAIPrefillCatalogProducts,
   synthesizeCampaignScratchpad,
   validateAIPrefillCampaignResponse,
+  validatePureModelCampaignResponse,
   type SearchTermFactRow,
 } from "./aiPrefill";
 
@@ -288,6 +290,157 @@ describe("ngram2 aiPrefill helpers", () => {
     expect(scratchpad.mono.map((item) => item.gram)).toContain("travel");
     expect(scratchpad.mono.map((item) => item.gram)).not.toContain("screen");
     expect(scratchpad.bi).toHaveLength(0);
+  });
+
+  it("validates pure-model exact and phrase negatives without heuristic synthesis", () => {
+    const validated = validatePureModelCampaignResponse(
+      {
+        matched_product: {
+          child_asin: "A1",
+          child_sku: "DUO-1",
+          product_name: "WHOOSH! Screen Shine Duo",
+        },
+        match_confidence: "HIGH",
+        match_reason: "Best catalog fit.",
+        term_recommendations: [
+          {
+            search_term: "laptop cloth",
+            recommendation: "NEGATE",
+            confidence: "HIGH",
+            reason_tag: "cloth_primary_intent",
+            rationale: "standalone cloth query",
+          },
+          {
+            search_term: "portable monitor travel case",
+            recommendation: "NEGATE",
+            confidence: "HIGH",
+            reason_tag: "accessory_only_intent",
+            rationale: "shopper wants a case",
+          },
+          {
+            search_term: "screen cleaner spray",
+            recommendation: "KEEP",
+            confidence: "HIGH",
+            reason_tag: "core_use_case",
+            rationale: "core product query",
+          },
+        ],
+        exact_negatives: ["portable monitor travel case"],
+        phrase_negatives: [
+          {
+            phrase: "laptop cloth",
+            bucket: "bi",
+            confidence: "HIGH",
+            source_terms: ["laptop cloth"],
+            rationale: "reusable cloth-only phrase",
+          },
+        ],
+      },
+      [
+        {
+          childAsin: "A1",
+          childSku: "DUO-1",
+          productName: "WHOOSH! Screen Shine Duo",
+          category: "electronics cleaner",
+          itemDescription: "spray plus cloth",
+        },
+      ],
+      ["laptop cloth", "portable monitor travel case", "screen cleaner spray"],
+    );
+
+    expect(validated.exactNegatives).toEqual(["portable monitor travel case"]);
+    expect(validated.modelPrefills).toEqual({
+      exact: ["portable monitor travel case"],
+      mono: [],
+      bi: ["laptop cloth"],
+      tri: [],
+    });
+    expect(validated.phraseNegatives[0]?.sourceTerms).toEqual(["laptop cloth"]);
+  });
+
+  it("merges chunked pure-model responses into one campaign result", () => {
+    const merged = mergePureModelCampaignResponses([
+      {
+        matchedProduct: {
+          childAsin: "A1",
+          childSku: "DUO-1",
+          productName: "WHOOSH! Screen Shine Duo",
+          category: "electronics cleaner",
+          itemDescription: "spray plus cloth",
+        },
+        matchConfidence: "HIGH",
+        matchReason: "Best fit.",
+        termRecommendations: [
+          {
+            search_term: "laptop cloth",
+            recommendation: "NEGATE",
+            confidence: "HIGH",
+            reason_tag: "cloth_primary_intent",
+            rationale: "standalone cloth",
+          },
+        ],
+        exactNegatives: [],
+        phraseNegatives: [
+          {
+            phrase: "laptop cloth",
+            bucket: "bi",
+            confidence: "HIGH",
+            sourceTerms: ["laptop cloth"],
+            rationale: "reusable cloth phrase",
+          },
+        ],
+        modelPrefills: {
+          exact: [],
+          mono: [],
+          bi: ["laptop cloth"],
+          tri: [],
+        },
+      },
+      {
+        matchedProduct: {
+          childAsin: "A1",
+          childSku: "DUO-1",
+          productName: "WHOOSH! Screen Shine Duo",
+          category: "electronics cleaner",
+          itemDescription: "spray plus cloth",
+        },
+        matchConfidence: "HIGH",
+        matchReason: "Best fit.",
+        termRecommendations: [
+          {
+            search_term: "portable monitor travel case",
+            recommendation: "NEGATE",
+            confidence: "HIGH",
+            reason_tag: "accessory_only_intent",
+            rationale: "case intent",
+          },
+        ],
+        exactNegatives: ["portable monitor travel case"],
+        phraseNegatives: [
+          {
+            phrase: "laptop cloth",
+            bucket: "bi",
+            confidence: "MEDIUM",
+            sourceTerms: ["portable monitor travel case"],
+            rationale: null,
+          },
+        ],
+        modelPrefills: {
+          exact: ["portable monitor travel case"],
+          mono: [],
+          bi: ["laptop cloth"],
+          tri: [],
+        },
+      },
+    ]);
+
+    expect(merged.termRecommendations).toHaveLength(2);
+    expect(merged.exactNegatives).toEqual(["portable monitor travel case"]);
+    expect(merged.modelPrefills.bi).toEqual(["laptop cloth"]);
+    expect(merged.phraseNegatives[0]?.sourceTerms).toEqual([
+      "laptop cloth",
+      "portable monitor travel case",
+    ]);
   });
 
   it("prunes fragment monograms when a stronger repeated phrase exists", () => {

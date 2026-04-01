@@ -59,6 +59,7 @@ class NativeWorkbookRequest(BaseModel):
 
 class CampaignScratchpadPrefill(BaseModel):
     campaign_name: str = Field(..., min_length=1)
+    exact: list[str] = Field(default_factory=list)
     mono: list[str] = Field(default_factory=list)
     bi: list[str] = Field(default_factory=list)
     tri: list[str] = Field(default_factory=list)
@@ -90,6 +91,7 @@ def _build_prefill_context_from_request(
 ) -> tuple[dict[str, dict[str, list[str]]], dict[str, dict[str, dict[str, str | None]]], dict[str, str | float | None] | None]:
     ai_prefills = {
         item.campaign_name: {
+            "exact": item.exact,
             "mono": item.mono,
             "bi": item.bi,
             "tri": item.tri,
@@ -149,8 +151,19 @@ def _build_prefill_context_from_saved_preview(
             continue
 
         synthesized_prefills = campaign.get("synthesizedPrefills")
+        model_prefills = campaign.get("modelPrefills")
+        exact_prefills = (
+            [
+                _to_non_empty_text(value)
+                for value in model_prefills.get("exact", [])
+                if _to_non_empty_text(value)
+            ]
+            if isinstance(model_prefills, dict)
+            else []
+        )
         if isinstance(synthesized_prefills, dict):
             ai_prefills[campaign_name] = {
+                "exact": exact_prefills,
                 "mono": [
                     _to_non_empty_text(item.get("gram"))
                     for item in synthesized_prefills.get("mono", [])
@@ -165,6 +178,25 @@ def _build_prefill_context_from_saved_preview(
                     _to_non_empty_text(item.get("gram"))
                     for item in synthesized_prefills.get("tri", [])
                     if isinstance(item, dict) and _to_non_empty_text(item.get("gram"))
+                ],
+            }
+        elif isinstance(model_prefills, dict):
+            ai_prefills[campaign_name] = {
+                "exact": exact_prefills,
+                "mono": [
+                    _to_non_empty_text(value)
+                    for value in model_prefills.get("mono", [])
+                    if _to_non_empty_text(value)
+                ],
+                "bi": [
+                    _to_non_empty_text(value)
+                    for value in model_prefills.get("bi", [])
+                    if _to_non_empty_text(value)
+                ],
+                "tri": [
+                    _to_non_empty_text(value)
+                    for value in model_prefills.get("tri", [])
+                    if _to_non_empty_text(value)
                 ],
             }
 

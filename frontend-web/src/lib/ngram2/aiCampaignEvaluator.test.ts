@@ -5,6 +5,7 @@ vi.mock("server-only", () => ({}));
 import {
   estimateNgramCampaignMaxTokens,
   evaluateCampaignWithValidationRetry,
+  evaluateCampaignWithPureModelValidationRetry,
 } from "./aiCampaignEvaluator";
 import type { AIPrefillCatalogProduct, AggregatedCampaign, AggregatedSearchTerm } from "./aiPrefill";
 import * as openaiModule from "@/lib/composer/ai/openai";
@@ -243,5 +244,115 @@ describe("evaluateCampaignWithValidationRetry", () => {
         maxTokens: 2200,
       }),
     ).rejects.toThrow("model refused structured output");
+  });
+
+  it("validates the pure-model campaign contract with exact and phrase negatives", async () => {
+    const campaign: AggregatedCampaign = {
+      campaignName: "Screen Shine - Duo | SPA | Cls. | Rsrch",
+      totalSpend: 10,
+      termCount: 2,
+      terms: [],
+    };
+    const catalogProducts: AIPrefillCatalogProduct[] = [
+      {
+        childAsin: "A1",
+        childSku: "DUO-1",
+        productName: "WHOOSH! Screen Shine Duo",
+        category: "electronics cleaner",
+        itemDescription: "spray plus cloth",
+      },
+    ];
+    const terms: AggregatedSearchTerm[] = [
+      {
+        campaignName: campaign.campaignName,
+        searchTerm: "laptop cloth",
+        impressions: 100,
+        clicks: 10,
+        spend: 5,
+        orders: 0,
+        sales: 0,
+        keyword: "laptop cloth",
+        keywordType: "BROAD",
+        targeting: null,
+        matchType: "broad",
+      },
+      {
+        campaignName: campaign.campaignName,
+        searchTerm: "portable monitor travel case",
+        impressions: 50,
+        clicks: 4,
+        spend: 4,
+        orders: 0,
+        sales: 0,
+        keyword: "portable monitor travel case",
+        keywordType: "BROAD",
+        targeting: null,
+        matchType: "broad",
+      },
+    ];
+
+    vi.spyOn(openaiModule, "createChatCompletion").mockResolvedValue({
+      content: JSON.stringify({
+        matched_product: {
+          child_asin: "A1",
+          child_sku: "DUO-1",
+          product_name: "WHOOSH! Screen Shine Duo",
+        },
+        match_confidence: "HIGH",
+        match_reason: "valid draft",
+        term_recommendations: [
+          {
+            search_term: "laptop cloth",
+            recommendation: "NEGATE",
+            confidence: "HIGH",
+            reason_tag: "cloth_primary_intent",
+            rationale: "standalone cloth query",
+          },
+          {
+            search_term: "portable monitor travel case",
+            recommendation: "NEGATE",
+            confidence: "HIGH",
+            reason_tag: "accessory_only_intent",
+            rationale: "case intent",
+          },
+        ],
+        exact_negatives: ["portable monitor travel case"],
+        phrase_negatives: [
+          {
+            phrase: "laptop cloth",
+            bucket: "bi",
+            confidence: "HIGH",
+            source_terms: ["laptop cloth"],
+            rationale: "reusable cloth phrase",
+          },
+        ],
+      }),
+      tokensIn: 140,
+      tokensOut: 40,
+      tokensTotal: 180,
+      model: "gpt-5.4-2026-03-05",
+      durationMs: 1,
+    });
+
+    const result = await evaluateCampaignWithPureModelValidationRetry({
+      campaign,
+      catalogProducts,
+      terms,
+      marketplaceCode: "US",
+      model: "gpt-5.4-2026-03-05",
+      maxTokens: 2200,
+    });
+
+    expect(result.attempts).toBe(1);
+    expect(result.validated.exactNegatives).toEqual(["portable monitor travel case"]);
+    expect(result.validated.modelPrefills.bi).toEqual(["laptop cloth"]);
+    const calls = vi.mocked(openaiModule.createChatCompletion).mock.calls;
+    expect(calls[0]?.[1]?.responseFormat).toMatchObject({
+      type: "json_schema",
+      json_schema: {
+        name: "ngram_campaign_pure_model_response",
+        strict: true,
+      },
+    });
   });
 });

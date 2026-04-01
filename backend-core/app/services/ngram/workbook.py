@@ -100,6 +100,14 @@ def _normalize_search_term_key(value: str | None) -> str:
     return str(value or "").strip().casefold()
 
 
+def _normalize_exact_prefill_keys(values: list[str] | None) -> set[str]:
+    return {
+        _normalize_search_term_key(value)
+        for value in values or []
+        if _normalize_search_term_key(value)
+    }
+
+
 def _derive_review_prefills(
     campaign_reviews: Dict[str, Dict[str, str | None]] | None,
 ) -> tuple[dict[str, list[str]], set[str]]:
@@ -266,8 +274,11 @@ def build_workbook(
             col = write_pretty_table(ws, col, "Trigram", item["tri"])
             trigram_start_col = 26
             raw_with_ai = item["raw"].copy()
+            campaign_prefills = ai_prefills.get(item["campaign_name"], {}) if ai_prefills else {}
+            explicit_exact_negative_keys = _normalize_exact_prefill_keys(campaign_prefills.get("exact"))
             campaign_review_lookup = ai_term_reviews.get(item["campaign_name"], {}) if ai_term_reviews else {}
-            review_prefills, exact_negative_keys = _derive_review_prefills(campaign_review_lookup)
+            review_prefills, derived_exact_negative_keys = _derive_review_prefills(campaign_review_lookup)
+            exact_negative_keys = explicit_exact_negative_keys or derived_exact_negative_keys
             if exact_negative_keys:
                 search_term_keys = raw_with_ai["Search Term"].map(lambda value: _normalize_search_term_key(str(value)))
                 raw_with_ai["NE/NP"] = search_term_keys.map(lambda key: "NE" if key in exact_negative_keys else "")
@@ -291,7 +302,6 @@ def build_workbook(
             for offset, label in enumerate(SCRATCHPAD_HEADERS):
                 ws.write_string(START_ROW + 2, SCRATCHPAD_BASE_COL + offset, label, bold_fmt)
 
-            campaign_prefills = ai_prefills.get(item["campaign_name"], {}) if ai_prefills else {}
             for offset, key in enumerate(("mono", "bi", "tri")):
                 merged_prefills = _normalize_prefill_values(
                     [*(campaign_prefills.get(key) or []), *review_prefills.get(key, [])]

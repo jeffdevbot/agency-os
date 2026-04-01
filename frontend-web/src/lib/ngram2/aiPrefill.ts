@@ -87,6 +87,25 @@ export type CampaignPrefillScratchpad = {
   tri: SynthesizedGram[];
 };
 
+export type PhraseNegativeBucket = "mono" | "bi" | "tri";
+
+export type PureModelPhraseNegative = {
+  phrase: string;
+  bucket: PhraseNegativeBucket;
+  confidence: "HIGH" | "MEDIUM" | "LOW";
+  sourceTerms: string[];
+  rationale: string | null;
+};
+
+export type CampaignModelPrefills = {
+  exact: string[];
+  mono: string[];
+  bi: string[];
+  tri: string[];
+};
+
+export type AIPrefillStrategy = "heuristic_synthesis" | "pure_model_single_campaign";
+
 export type AggregatedCampaign = {
   campaignName: string;
   totalSpend: number;
@@ -145,6 +164,12 @@ export type ValidatedAIPrefillCampaignResponse = {
   matchConfidence: "HIGH" | "MEDIUM" | "LOW";
   matchReason: string;
   termRecommendations: AIPrefillTermRecommendation[];
+};
+
+export type ValidatedPureModelCampaignResponse = ValidatedAIPrefillCampaignResponse & {
+  exactNegatives: string[];
+  phraseNegatives: PureModelPhraseNegative[];
+  modelPrefills: CampaignModelPrefills;
 };
 
 export const AI_PREFILL_PREVIEW_MAX_CAMPAIGNS = 6;
@@ -428,6 +453,36 @@ const normalizeRationale = (value: unknown): string | null => {
   return raw ? raw.slice(0, 240) : null;
 };
 
+const normalizePhraseBucket = (value: unknown): PhraseNegativeBucket => {
+  const raw = toNonEmptyString(value).toLowerCase();
+  if (raw === "mono" || raw === "bi" || raw === "tri") {
+    return raw;
+  }
+  throw new Error(`Invalid phrase bucket: ${String(value || "")}`);
+};
+
+const expectedPhraseTokenCount = (bucket: PhraseNegativeBucket): 1 | 2 | 3 => {
+  if (bucket === "mono") return 1;
+  if (bucket === "bi") return 2;
+  return 3;
+};
+
+const normalizePhraseNegative = (value: unknown, bucket: PhraseNegativeBucket): string => {
+  const cleaned = cleanQueryForNgrams(toNonEmptyString(value));
+  if (!cleaned) {
+    throw new Error("Phrase negative cannot be blank.");
+  }
+
+  const tokenCount = cleaned.split(" ").filter(Boolean).length;
+  if (tokenCount !== expectedPhraseTokenCount(bucket)) {
+    throw new Error(
+      `Phrase negative "${cleaned}" does not match bucket ${bucket} (${expectedPhraseTokenCount(bucket)} token(s) required).`,
+    );
+  }
+
+  return cleaned;
+};
+
 const buildFamilyTokens = (normalized: string, commonTokens: Set<string>): string[] => {
   const tokens = dedupeTokens(normalized.split(" ").filter(isMeaningfulProductToken));
   const withoutCommon = tokens.filter((token) => !commonTokens.has(token));
@@ -615,6 +670,232 @@ export const validateAIPrefillCampaignResponse = (
       }
       return recommendation;
     }),
+  };
+};
+
+const validateSharedCampaignResponseBase = (
+  payload: unknown,
+  catalogProducts: AIPrefillCatalogProduct[],
+  expectedSearchTerms: string[],
+): {
+  matchedProduct: AIPrefillCatalogProduct | null;
+  matchConfidence: "HIGH" | "MEDIUM" | "LOW";
+  matchReason: string;
+  termRecommendations: AIPrefillTermRecommendation[];
+  raw: Record<string, unknown>;
+  expectedByKey: Map<string, string>;
+  recommendationsByKey: Map<string, AIPrefillTermRecommendation>;
+} => {
+  if (!payload || typeof payload !== "object") {
+    throw new Error("AI response must be a JSON object.");
+  }
+
+  const raw = payload as Record<string, unknown>;
+  const validated = validateAIPrefillCampaignResponse(payload, catalogProducts, expectedSearchTerms);
+  const expectedByKey = new Map(
+    expectedSearchTerms.map((term) => [term.trim().toLowerCase(), term.trim()]),
+  );
+  const recommendationsByKey = new Map(
+    validated.termRecommendations.map((recommendation) => [
+      recommendation.search_term.trim().toLowerCase(),
+      recommendation,
+    ]),
+  );
+
+  return {
+    ...validated,
+    raw,
+    expectedByKey,
+    recommendationsByKey,
+  };
+};
+
+export const validatePureModelCampaignResponse = (
+  payload: unknown,
+  catalogProducts: AIPrefillCatalogProduct[],
+  expectedSearchTerms: string[],
+): ValidatedPureModelCampaignResponse => {
+  const {
+    matchedProduct,
+    matchConfidence,
+    matchReason,
+    termRecommendations,
+    raw,
+    expectedByKey,
+    recommendationsByKey,
+  } = validateSharedCampaignResponseBase(payload, catalogProducts, expectedSearchTerms);
+
+  if (!Array.isArray(raw.exact_negatives)) {
+    throw new Error("AI response is missing exact_negatives array.");
+  }
+  if (!Array.isArray(raw.phrase_negatives)) {
+    throw new Error("AI response is missing phrase_negatives array.");
+  }
+
+  const exactSeen = new Set<string>();
+  const exactNegatives: string[] = [];
+  for (const value of raw.exact_negatives) {
+    const searchTerm = toNonEmptyString(value);
+    const key = searchTerm.toLowerCase();
+    if (!searchTerm || !expectedByKey.has(key)) {
+      throw new Error(`AI response included an unexpected exact negative: ${searchTerm || "<empty>"}`);
+    }
+    if (exactSeen.has(key)) {
+      throw new Error(`AI response included a duplicate exact negative: ${searchTerm}`);
+    }
+    if (recommendationsByKey.get(key)?.recommendation !== "NEGATE") {
+      throw new Error(`Exact negative must correspond to a NEGATE term recommendation: ${searchTerm}`);
+    }
+    exactSeen.add(key);
+    exactNegatives.push(expectedByKey.get(key) || searchTerm);
+  }
+
+  const phraseSeen = new Set<string>();
+  const phraseNegatives: PureModelPhraseNegative[] = [];
+  for (const entry of raw.phrase_negatives as unknown[]) {
+    if (!entry || typeof entry !== "object") {
+      throw new Error("Each phrase negative must be an object.");
+    }
+
+    const phraseRaw = entry as Record<string, unknown>;
+    const bucket = normalizePhraseBucket(phraseRaw.bucket);
+    const phrase = normalizePhraseNegative(phraseRaw.phrase, bucket);
+    const phraseKey = `${bucket}:${phrase.toLowerCase()}`;
+    if (phraseSeen.has(phraseKey)) {
+      throw new Error(`AI response included a duplicate phrase negative: ${phrase}`);
+    }
+
+    const rawSourceTerms = Array.isArray(phraseRaw.source_terms) ? phraseRaw.source_terms : null;
+    if (!rawSourceTerms || rawSourceTerms.length === 0) {
+      throw new Error(`Phrase negative "${phrase}" must include at least one source term.`);
+    }
+
+    const sourceTerms: string[] = [];
+    const sourceSeen = new Set<string>();
+    for (const sourceValue of rawSourceTerms) {
+      const sourceTerm = toNonEmptyString(sourceValue);
+      const key = sourceTerm.toLowerCase();
+      if (!sourceTerm || !expectedByKey.has(key)) {
+        throw new Error(`Phrase negative "${phrase}" referenced an unknown source term: ${sourceTerm || "<empty>"}`);
+      }
+      if (sourceSeen.has(key)) {
+        throw new Error(`Phrase negative "${phrase}" repeated source term: ${sourceTerm}`);
+      }
+      if (recommendationsByKey.get(key)?.recommendation !== "NEGATE") {
+        throw new Error(`Phrase negative "${phrase}" source term must be NEGATE: ${sourceTerm}`);
+      }
+      sourceSeen.add(key);
+      sourceTerms.push(expectedByKey.get(key) || sourceTerm);
+    }
+
+    phraseSeen.add(phraseKey);
+    phraseNegatives.push({
+      phrase,
+      bucket,
+      confidence: parseConfidenceStrict(phraseRaw.confidence),
+      sourceTerms,
+      rationale: normalizeRationale(phraseRaw.rationale),
+    });
+  }
+
+  const modelPrefills = buildCampaignModelPrefills(exactNegatives, phraseNegatives);
+
+  return {
+    matchedProduct,
+    matchConfidence,
+    matchReason,
+    termRecommendations,
+    exactNegatives,
+    phraseNegatives,
+    modelPrefills,
+  };
+};
+
+const confidenceRank = (value: "HIGH" | "MEDIUM" | "LOW"): number => {
+  if (value === "HIGH") return 3;
+  if (value === "MEDIUM") return 2;
+  return 1;
+};
+
+export const buildCampaignModelPrefills = (
+  exactNegatives: string[],
+  phraseNegatives: PureModelPhraseNegative[],
+): CampaignModelPrefills => ({
+  exact: [...exactNegatives],
+  mono: phraseNegatives.filter((entry) => entry.bucket === "mono").map((entry) => entry.phrase),
+  bi: phraseNegatives.filter((entry) => entry.bucket === "bi").map((entry) => entry.phrase),
+  tri: phraseNegatives.filter((entry) => entry.bucket === "tri").map((entry) => entry.phrase),
+});
+
+export const mergePureModelCampaignResponses = (
+  responses: ValidatedPureModelCampaignResponse[],
+): ValidatedPureModelCampaignResponse => {
+  if (responses.length === 0) {
+    throw new Error("Cannot merge zero pure-model campaign responses.");
+  }
+
+  const canonical = [...responses].sort((left, right) => {
+    const confidenceDelta = confidenceRank(right.matchConfidence) - confidenceRank(left.matchConfidence);
+    if (confidenceDelta !== 0) return confidenceDelta;
+    if (left.matchedProduct && !right.matchedProduct) return -1;
+    if (!left.matchedProduct && right.matchedProduct) return 1;
+    return 0;
+  })[0];
+
+  const exactSeen = new Set<string>();
+  const exactNegatives: string[] = [];
+  for (const response of responses) {
+    for (const searchTerm of response.exactNegatives) {
+      const key = searchTerm.trim().toLowerCase();
+      if (!key || exactSeen.has(key)) continue;
+      exactSeen.add(key);
+      exactNegatives.push(searchTerm);
+    }
+  }
+
+  const phraseMap = new Map<string, PureModelPhraseNegative>();
+  for (const response of responses) {
+    for (const phrase of response.phraseNegatives) {
+      const key = `${phrase.bucket}:${phrase.phrase.toLowerCase()}`;
+      const existing = phraseMap.get(key);
+      if (!existing) {
+        phraseMap.set(key, {
+          ...phrase,
+          sourceTerms: [...phrase.sourceTerms],
+        });
+        continue;
+      }
+
+      const sourceTermSeen = new Set(existing.sourceTerms.map((term) => term.toLowerCase()));
+      for (const sourceTerm of phrase.sourceTerms) {
+        const sourceKey = sourceTerm.toLowerCase();
+        if (sourceTermSeen.has(sourceKey)) continue;
+        sourceTermSeen.add(sourceKey);
+        existing.sourceTerms.push(sourceTerm);
+      }
+
+      if (confidenceRank(phrase.confidence) > confidenceRank(existing.confidence)) {
+        existing.confidence = phrase.confidence;
+      }
+      if (!existing.rationale && phrase.rationale) {
+        existing.rationale = phrase.rationale;
+      }
+    }
+  }
+
+  const phraseNegatives = [...phraseMap.values()].sort(
+    (left, right) =>
+      left.bucket.localeCompare(right.bucket) || left.phrase.localeCompare(right.phrase),
+  );
+
+  return {
+    matchedProduct: canonical?.matchedProduct ?? null,
+    matchConfidence: canonical?.matchConfidence ?? "LOW",
+    matchReason: canonical?.matchReason ?? "Merged pure-model campaign response.",
+    termRecommendations: responses.flatMap((response) => response.termRecommendations),
+    exactNegatives,
+    phraseNegatives,
+    modelPrefills: buildCampaignModelPrefills(exactNegatives, phraseNegatives),
   };
 };
 

@@ -107,6 +107,12 @@ def test_build_override_payload_compares_ai_recommendations_to_reviewed_workbook
                     "campaigns": [
                         {
                             "campaignName": campaign_name,
+                            "modelPrefills": {
+                                "exact": [],
+                                "mono": [],
+                                "bi": ["laptop cloth"],
+                                "tri": [],
+                            },
                             "synthesizedPrefills": {
                                 "mono": [],
                                 "bi": [{"gram": "laptop cloth"}],
@@ -145,12 +151,108 @@ def test_build_override_payload_compares_ai_recommendations_to_reviewed_workbook
 
         assert laptop_diff["analyst_outcome"] == "negated"
         assert laptop_diff["analyst_source"] == "gram"
+        assert laptop_diff["ai_negation_path"] == "phrase"
         assert laptop_diff["decision_status"] == "matched"
         assert keep_diff["analyst_outcome"] == "not_negated"
         assert keep_diff["decision_status"] == "matched"
 
         bi_diff = next(item for item in campaign_payload["gram_diffs"]["bi"] if item["gram"] == "laptop cloth")
         assert bi_diff["status"] == "matched"
+    finally:
+        os.unlink(workbook_path)
+
+
+def test_build_override_payload_marks_explicit_exact_negatives():
+    campaign_name = "Screen Shine - Duo | SPA | Cls. | Rsrch"
+    workbook_path = build_workbook(
+        [
+            {
+                "campaign_name": campaign_name,
+                "category_raw": "Duo",
+                "category_key": "duo",
+                "mono": _make_ngram_df([]),
+                "bi": _make_ngram_df([]),
+                "tri": _make_ngram_df([]),
+                "raw": pd.DataFrame(
+                    [
+                        {
+                            "Search Term": "portable monitor travel case",
+                            "Impression": 100,
+                            "Click": 10,
+                            "Spend": 8.5,
+                            "Order 14d": 0,
+                            "Sales 14d": 0,
+                            "NE/NP": "",
+                            "Comments": "",
+                        }
+                    ]
+                ),
+                "notes": [],
+            }
+        ],
+        "test-version",
+        ai_prefills={
+            campaign_name: {
+                "exact": ["portable monitor travel case"],
+                "mono": [],
+                "bi": [],
+                "tri": [],
+            }
+        },
+        ai_term_reviews={
+            campaign_name: {
+                "portable monitor travel case": {
+                    "recommendation": "NEGATE",
+                    "confidence": "HIGH",
+                    "reason_tag": "accessory_only_intent",
+                }
+            }
+        },
+        ai_summary={
+            "preview_run_id": "preview-run-exact",
+            "model": "gpt-5.4-2026-03-05",
+            "prompt_version": "ngram_pure_model_single_campaign_v2026_03_31",
+            "spend_threshold": "1.0",
+        },
+    )
+
+    try:
+        reviewed_wb = load_workbook(workbook_path, data_only=True)
+        payload = _build_override_payload(
+            reviewed_wb,
+            {
+                "id": "preview-run-exact",
+                "profile_id": "profile-1",
+                "model": "gpt-5.4-2026-03-05",
+                "prompt_version": "ngram_pure_model_single_campaign_v2026_03_31",
+                "preview_payload": {
+                    "campaigns": [
+                        {
+                            "campaignName": campaign_name,
+                            "modelPrefills": {
+                                "exact": ["portable monitor travel case"],
+                                "mono": [],
+                                "bi": [],
+                                "tri": [],
+                            },
+                            "evaluations": [
+                                {
+                                    "search_term": "portable monitor travel case",
+                                    "recommendation": "NEGATE",
+                                    "confidence": "HIGH",
+                                    "reason_tag": "accessory_only_intent",
+                                }
+                            ],
+                        }
+                    ]
+                },
+            },
+        )
+
+        assert payload is not None
+        campaign_payload = payload["campaigns"][0]
+        assert campaign_payload["ai_exact_negatives"] == ["portable monitor travel case"]
+        assert campaign_payload["term_diffs"][0]["ai_negation_path"] == "exact"
     finally:
         os.unlink(workbook_path)
 

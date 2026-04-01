@@ -84,7 +84,18 @@ type AIPrefillRecommendation = {
   matchType: string | null;
 };
 
+type AIPrefillStrategy = "heuristic_synthesis" | "pure_model_single_campaign";
+
+type PureModelPhraseNegative = {
+  phrase: string;
+  bucket: "mono" | "bi" | "tri";
+  confidence: "HIGH" | "MEDIUM" | "LOW";
+  sourceTerms: string[];
+  rationale: string | null;
+};
+
 type AIPrefillCampaignPreview = {
+  prefillStrategy: AIPrefillStrategy;
   campaignName: string;
   totalSpend: number;
   eligibleSpend: number;
@@ -105,11 +116,19 @@ type AIPrefillCampaignPreview = {
     bi: Array<{ gram: string; supportTerms: string[]; negateCount: number; keepCount: number; reviewCount: number; negateSpend: number; weightedScore: number }>;
     tri: Array<{ gram: string; supportTerms: string[]; negateCount: number; keepCount: number; reviewCount: number; negateSpend: number; weightedScore: number }>;
   };
+  modelPrefills: {
+    exact: string[];
+    mono: string[];
+    bi: string[];
+    tri: string[];
+  };
+  phraseNegatives: PureModelPhraseNegative[];
   evaluations: AIPrefillRecommendation[];
 };
 
 type AIPrefillPreview = {
   run_mode?: "preview" | "full";
+  prefill_strategy?: AIPrefillStrategy;
   ad_product: string;
   profile_id: string;
   date_from: string;
@@ -262,14 +281,23 @@ export default function NgramTwoPage() {
   const aiScratchpadCounts = aiPreview
     ? aiPreview.campaigns.reduce(
         (counts, campaign) => {
-          counts.mono += campaign.synthesizedPrefills.mono.length;
-          counts.bi += campaign.synthesizedPrefills.bi.length;
-          counts.tri += campaign.synthesizedPrefills.tri.length;
+          if (campaign.prefillStrategy === "pure_model_single_campaign") {
+            counts.mono += campaign.modelPrefills.mono.length;
+            counts.bi += campaign.modelPrefills.bi.length;
+            counts.tri += campaign.modelPrefills.tri.length;
+          } else {
+            counts.mono += campaign.synthesizedPrefills.mono.length;
+            counts.bi += campaign.synthesizedPrefills.bi.length;
+            counts.tri += campaign.synthesizedPrefills.tri.length;
+          }
           return counts;
         },
         { mono: 0, bi: 0, tri: 0 },
       )
     : { mono: 0, bi: 0, tri: 0 };
+  const aiExactPrefillCount = aiPreview
+    ? aiPreview.campaigns.reduce((count, campaign) => count + campaign.modelPrefills.exact.length, 0)
+    : 0;
   const canGenerateAiWorkbook = canGenerateWorkbook && !aiWorkbookGenerating;
   const canGenerateAiPreviewWorkbook =
     canGenerateWorkbook && !aiPreviewWorkbookGenerating && Boolean(aiPreviewRunId) && Boolean(selectedProfile?.profileId);
@@ -281,6 +309,7 @@ export default function NgramTwoPage() {
     )
     .slice(0, 24);
   const hasSelectedAiCampaignSubset = selectedAiCampaignNames.length > 0;
+  const canRunPureModelPreview = canRunAiPreview && selectedAiCampaignNames.length === 1;
 
   const runStateClasses =
     runState.tone === "ready"
@@ -536,8 +565,10 @@ export default function NgramTwoPage() {
     }
   };
 
-  const handleRunAiPreview = async () => {
-    if (!canRunAiPreview || !selectedProfile) return;
+  const runAiPreview = async (prefillStrategy: AIPrefillStrategy) => {
+    if (!selectedProfile) return;
+    if (prefillStrategy === "heuristic_synthesis" && !canRunAiPreview) return;
+    if (prefillStrategy === "pure_model_single_campaign" && !canRunPureModelPreview) return;
 
     const parsedThreshold = Number.parseFloat(spendThreshold);
     if (!Number.isFinite(parsedThreshold) || parsedThreshold < 0) {
@@ -564,6 +595,7 @@ export default function NgramTwoPage() {
           spend_threshold: parsedThreshold,
           respect_legacy_exclusions: legacyExclusions,
           campaign_names: selectedAiCampaignNames,
+          prefill_strategy: prefillStrategy,
         }),
       });
 
@@ -586,6 +618,10 @@ export default function NgramTwoPage() {
       setAiPreviewLoading(false);
     }
   };
+
+  const handleRunAiPreview = async () => runAiPreview("heuristic_synthesis");
+
+  const handleRunPureModelPreview = async () => runAiPreview("pure_model_single_campaign");
 
   const toggleSelectedAiCampaignName = (campaignName: string) => {
     setSelectedAiCampaignNames((current) =>
@@ -1064,14 +1100,27 @@ export default function NgramTwoPage() {
                 <p className="mt-1 text-sm text-[#4c576f]">
                   Terms below this spend threshold stay untouched. Leave campaign selection empty to use the capped top-spend preview, or pick one or more campaigns to run a cheaper full-term subset pass and export that preview workbook.
                 </p>
-                <button
-                  type="button"
-                  disabled={!canRunAiPreview}
-                  onClick={handleRunAiPreview}
-                  className="mt-4 inline-flex rounded-full bg-[#0f172a] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#1e293b] disabled:cursor-not-allowed disabled:bg-[#a8b4c8]"
-                >
-                  {aiPreviewLoading ? "Running AI preview…" : "Run AI Prefill Preview"}
-                </button>
+                <div className="mt-4 flex flex-wrap gap-3">
+                  <button
+                    type="button"
+                    disabled={!canRunAiPreview}
+                    onClick={handleRunAiPreview}
+                    className="inline-flex rounded-full bg-[#0f172a] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#1e293b] disabled:cursor-not-allowed disabled:bg-[#a8b4c8]"
+                  >
+                    {aiPreviewLoading ? "Running AI preview…" : "Run Shipped AI Preview"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!canRunPureModelPreview}
+                    onClick={handleRunPureModelPreview}
+                    className="inline-flex rounded-full border border-[#b9c9e6] bg-white px-5 py-2.5 text-sm font-semibold text-[#0f172a] transition hover:border-[#8bb6ff] hover:bg-[#eef5ff] disabled:cursor-not-allowed disabled:border-[#d7deea] disabled:text-[#94a3b8]"
+                  >
+                    {aiPreviewLoading ? "Running pivot preview…" : "Run Pure-Model Pivot Preview"}
+                  </button>
+                </div>
+                <p className="mt-3 text-xs text-[#7d8ba1]">
+                  Pure-model pivot preview currently requires exactly one selected campaign and keeps Step 4 full workbook generation on the shipped heuristic path.
+                </p>
               </div>
             </div>
 
@@ -1106,7 +1155,7 @@ export default function NgramTwoPage() {
                     />
                     <p className="text-xs text-[#7d8ba1]">
                       {hasSelectedAiCampaignSubset
-                        ? `${formatNumber(selectedAiCampaignNames.length)} selected for a full-term subset preview`
+                        ? `${formatNumber(selectedAiCampaignNames.length)} selected for a full-term subset preview${selectedAiCampaignNames.length === 1 ? " or pure-model pivot preview" : ""}`
                         : "No selection: preview stays on the capped top-spend auto slice"}
                     </p>
                   </label>
@@ -1189,22 +1238,48 @@ export default function NgramTwoPage() {
                   <div className="rounded-2xl border border-[#dbe4f0] bg-[#f7faff] p-4">
                     <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7d8ba1]">Model</p>
                     <p className="mt-2 text-sm font-semibold text-[#0f172a]">{aiPreview.model ?? "n/a"}</p>
-                    <p className="mt-1 text-xs text-[#7d8ba1]">threshold {formatCurrency(aiPreview.spend_threshold, selectedProfile?.currencyCode)}</p>
+                    <p className="mt-1 text-xs text-[#7d8ba1]">
+                      {aiPreview.prefill_strategy === "pure_model_single_campaign" ? "pure-model pivot" : "shipped heuristic"} • threshold {formatCurrency(aiPreview.spend_threshold, selectedProfile?.currencyCode)}
+                    </p>
                   </div>
                 </div>
 
                 <div className="mt-4 grid gap-4 md:grid-cols-3">
                   <div className="rounded-2xl border border-[#dbe4f0] bg-[#f7faff] p-4">
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7d8ba1]">Synthesized mono</p>
-                    <p className="mt-2 text-lg font-semibold text-[#0f172a]">{formatNumber(aiScratchpadCounts.mono)}</p>
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7d8ba1]">
+                      {aiPreview.prefill_strategy === "pure_model_single_campaign" ? "Model exact" : "Synthesized mono"}
+                    </p>
+                    <p className="mt-2 text-lg font-semibold text-[#0f172a]">
+                      {formatNumber(
+                        aiPreview.prefill_strategy === "pure_model_single_campaign"
+                          ? aiExactPrefillCount
+                          : aiScratchpadCounts.mono,
+                      )}
+                    </p>
                   </div>
                   <div className="rounded-2xl border border-[#dbe4f0] bg-[#f7faff] p-4">
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7d8ba1]">Synthesized bi</p>
-                    <p className="mt-2 text-lg font-semibold text-[#0f172a]">{formatNumber(aiScratchpadCounts.bi)}</p>
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7d8ba1]">
+                      {aiPreview.prefill_strategy === "pure_model_single_campaign" ? "Model phrase" : "Synthesized bi"}
+                    </p>
+                    <p className="mt-2 text-lg font-semibold text-[#0f172a]">
+                      {formatNumber(
+                        aiPreview.prefill_strategy === "pure_model_single_campaign"
+                          ? aiScratchpadCounts.mono + aiScratchpadCounts.bi + aiScratchpadCounts.tri
+                          : aiScratchpadCounts.bi,
+                      )}
+                    </p>
                   </div>
                   <div className="rounded-2xl border border-[#dbe4f0] bg-[#f7faff] p-4">
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7d8ba1]">Synthesized tri</p>
-                    <p className="mt-2 text-lg font-semibold text-[#0f172a]">{formatNumber(aiScratchpadCounts.tri)}</p>
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7d8ba1]">
+                      {aiPreview.prefill_strategy === "pure_model_single_campaign" ? "Phrase buckets" : "Synthesized tri"}
+                    </p>
+                    <p className="mt-2 text-lg font-semibold text-[#0f172a]">
+                      {formatNumber(
+                        aiPreview.prefill_strategy === "pure_model_single_campaign"
+                          ? aiScratchpadCounts.mono + aiScratchpadCounts.bi + aiScratchpadCounts.tri
+                          : aiScratchpadCounts.tri,
+                      )}
+                    </p>
                   </div>
                 </div>
 
@@ -1232,6 +1307,7 @@ export default function NgramTwoPage() {
                           </p>
                         </div>
                         <div className="rounded-full border border-[#dbe4f0] bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-[#64748b]">
+                          {campaign.prefillStrategy === "pure_model_single_campaign" ? "pure-model" : "heuristic"} •{" "}
                           {campaign.matchStatus === "matched"
                             ? campaign.matchSource === "ai_combined"
                               ? "ai match"
@@ -1289,7 +1365,55 @@ export default function NgramTwoPage() {
                         </div>
                       ) : null}
 
-                      {campaign.synthesizedPrefills.mono.length + campaign.synthesizedPrefills.bi.length + campaign.synthesizedPrefills.tri.length > 0 ? (
+                      {campaign.prefillStrategy === "pure_model_single_campaign" &&
+                      campaign.modelPrefills.exact.length +
+                        campaign.modelPrefills.mono.length +
+                        campaign.modelPrefills.bi.length +
+                        campaign.modelPrefills.tri.length >
+                        0 ? (
+                        <div className="mt-4 rounded-xl border border-[#dbe4f0] bg-[#f7faff] p-4">
+                          <p className="text-sm font-semibold text-[#0f172a]">Pure-model prefills</p>
+                          <div className="mt-2 space-y-2 text-sm text-[#4c576f]">
+                            {campaign.modelPrefills.exact.length > 0 ? (
+                              <p>
+                                Exact: <span className="font-semibold text-[#0f172a]">{campaign.modelPrefills.exact.join(", ")}</span>
+                              </p>
+                            ) : null}
+                            {campaign.modelPrefills.mono.length > 0 ? (
+                              <p>
+                                Mono: <span className="font-semibold text-[#0f172a]">{campaign.modelPrefills.mono.join(", ")}</span>
+                              </p>
+                            ) : null}
+                            {campaign.modelPrefills.bi.length > 0 ? (
+                              <p>
+                                Bi: <span className="font-semibold text-[#0f172a]">{campaign.modelPrefills.bi.join(", ")}</span>
+                              </p>
+                            ) : null}
+                            {campaign.modelPrefills.tri.length > 0 ? (
+                              <p>
+                                Tri: <span className="font-semibold text-[#0f172a]">{campaign.modelPrefills.tri.join(", ")}</span>
+                              </p>
+                            ) : null}
+                          </div>
+                          {campaign.phraseNegatives.length > 0 ? (
+                            <div className="mt-3 space-y-2">
+                              {campaign.phraseNegatives.map((phrase) => (
+                                <div key={`${campaign.campaignName}-${phrase.bucket}-${phrase.phrase}`} className="rounded-lg border border-[#e3ebf6] bg-white px-3 py-2 text-sm text-[#334155]">
+                                  <span className="font-semibold text-[#0f172a]">{phrase.bucket}</span>: {phrase.phrase} • {phrase.confidence}
+                                  {phrase.sourceTerms.length > 0 ? ` • from ${phrase.sourceTerms.join(", ")}` : ""}
+                                  {phrase.rationale ? ` • ${phrase.rationale}` : ""}
+                                </div>
+                              ))}
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
+
+                      {campaign.prefillStrategy !== "pure_model_single_campaign" &&
+                      campaign.synthesizedPrefills.mono.length +
+                        campaign.synthesizedPrefills.bi.length +
+                        campaign.synthesizedPrefills.tri.length >
+                        0 ? (
                         <div className="mt-4 rounded-xl border border-[#dbe4f0] bg-[#f7faff] p-4">
                           <p className="text-sm font-semibold text-[#0f172a]">Synthesized scratchpad</p>
                           <div className="mt-2 space-y-2 text-sm text-[#4c576f]">

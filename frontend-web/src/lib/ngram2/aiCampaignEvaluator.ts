@@ -8,12 +8,14 @@ import {
 
 import {
   validateAIPrefillCampaignResponse,
+  validatePureModelCampaignResponse,
   type AggregatedCampaign,
   type AggregatedSearchTerm,
   type AIPrefillCatalogProduct,
   type ValidatedAIPrefillCampaignResponse,
+  type ValidatedPureModelCampaignResponse,
 } from "./aiPrefill";
-import { buildCampaignPrompt } from "./aiPrompt";
+import { buildCampaignPrompt, buildPureModelCampaignPrompt } from "./aiPrompt";
 
 const MAX_VALIDATION_ATTEMPTS = 3;
 const MIN_RESPONSE_MAX_TOKENS = 2200;
@@ -104,6 +106,121 @@ const NGRAM_RESPONSE_FORMAT: ResponseFormat = {
   },
 };
 
+const NGRAM_PURE_MODEL_RESPONSE_FORMAT: ResponseFormat = {
+  type: "json_schema",
+  json_schema: {
+    name: "ngram_campaign_pure_model_response",
+    strict: true,
+    schema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        matched_product: {
+          anyOf: [
+            {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                child_asin: { type: "string" },
+                child_sku: { anyOf: [{ type: "string" }, { type: "null" }] },
+                product_name: { type: "string" },
+              },
+              required: ["child_asin", "child_sku", "product_name"],
+            },
+            { type: "null" },
+          ],
+        },
+        match_confidence: {
+          type: "string",
+          enum: ["HIGH", "MEDIUM", "LOW"],
+        },
+        match_reason: { type: "string" },
+        term_recommendations: {
+          type: "array",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              search_term: { type: "string" },
+              recommendation: {
+                type: "string",
+                enum: ["KEEP", "NEGATE", "REVIEW"],
+              },
+              confidence: {
+                type: "string",
+                enum: ["HIGH", "MEDIUM", "LOW"],
+              },
+              reason_tag: {
+                type: "string",
+                enum: [
+                  "core_use_case",
+                  "wrong_category",
+                  "wrong_product_form",
+                  "wrong_size_variant",
+                  "wrong_audience_theme",
+                  "competitor_brand",
+                  "cloth_primary_intent",
+                  "accessory_only_intent",
+                  "foreign_language",
+                  "ambiguous_intent",
+                ],
+              },
+              rationale: {
+                anyOf: [{ type: "string" }, { type: "null" }],
+              },
+            },
+            required: [
+              "search_term",
+              "recommendation",
+              "confidence",
+              "reason_tag",
+              "rationale",
+            ],
+          },
+        },
+        exact_negatives: {
+          type: "array",
+          items: { type: "string" },
+        },
+        phrase_negatives: {
+          type: "array",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              phrase: { type: "string" },
+              bucket: {
+                type: "string",
+                enum: ["mono", "bi", "tri"],
+              },
+              confidence: {
+                type: "string",
+                enum: ["HIGH", "MEDIUM", "LOW"],
+              },
+              source_terms: {
+                type: "array",
+                items: { type: "string" },
+              },
+              rationale: {
+                anyOf: [{ type: "string" }, { type: "null" }],
+              },
+            },
+            required: ["phrase", "bucket", "confidence", "source_terms", "rationale"],
+          },
+        },
+      },
+      required: [
+        "matched_product",
+        "match_confidence",
+        "match_reason",
+        "term_recommendations",
+        "exact_negatives",
+        "phrase_negatives",
+      ],
+    },
+  },
+};
+
 const buildValidationRetryMessage = (errorMessage: string): ChatMessage => ({
   role: "user",
   content: [
@@ -113,6 +230,21 @@ const buildValidationRetryMessage = (errorMessage: string): ChatMessage => ({
     "Return the full JSON again.",
     "Every match_confidence and every term confidence must be exactly HIGH, MEDIUM, or LOW.",
     "Return one term_recommendation for every input search term exactly once.",
+    "Do not omit any required fields.",
+  ].join("\n"),
+});
+
+const buildPureModelValidationRetryMessage = (errorMessage: string): ChatMessage => ({
+  role: "user",
+  content: [
+    "Your previous response was invalid for this exact reason:",
+    errorMessage,
+    "",
+    "Return the full JSON again.",
+    "Every match_confidence and every term confidence must be exactly HIGH, MEDIUM, or LOW.",
+    "Return one term_recommendation for every input search term exactly once.",
+    "exact_negatives must only reference exact input search terms.",
+    "phrase_negatives must use only mono, bi, or tri buckets and each source_terms entry must reference a NEGATE input search term.",
     "Do not omit any required fields.",
   ].join("\n"),
 });
@@ -188,6 +320,92 @@ export const evaluateCampaignWithValidationRetry = async ({
     try {
       const parsed = parseJSONResponse<Record<string, unknown>>(completion.content || "{}");
       const validated = validateAIPrefillCampaignResponse(
+        parsed,
+        catalogProducts,
+        terms.map((term) => term.searchTerm),
+      );
+
+      return {
+        completion,
+        validated,
+        attempts: attempt,
+        tokensIn,
+        tokensOut,
+        tokensTotal,
+      };
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      if (attempt === MAX_VALIDATION_ATTEMPTS) {
+        throw new Error(
+          `${campaign.campaignName}: AI response validation failed after ${MAX_VALIDATION_ATTEMPTS} attempts: ${lastError.message}`,
+        );
+      }
+    }
+  }
+
+  throw new Error(`${campaign.campaignName}: AI response validation failed.`);
+};
+
+export const evaluateCampaignWithPureModelValidationRetry = async ({
+  campaign,
+  catalogProducts,
+  terms,
+  marketplaceCode,
+  model,
+  maxTokens,
+}: {
+  campaign: AggregatedCampaign;
+  catalogProducts: AIPrefillCatalogProduct[];
+  terms: AggregatedSearchTerm[];
+  marketplaceCode: string | null;
+  model?: string;
+  maxTokens: number;
+}): Promise<{
+  completion: ChatCompletionResult;
+  validated: ValidatedPureModelCampaignResponse;
+  attempts: number;
+  tokensIn: number;
+  tokensOut: number;
+  tokensTotal: number;
+}> => {
+  const baseMessages = buildPureModelCampaignPrompt(campaign, catalogProducts, terms, marketplaceCode);
+  let tokensIn = 0;
+  let tokensOut = 0;
+  let tokensTotal = 0;
+  let lastError: Error | null = null;
+  let lastContent: string | null = null;
+
+  for (let attempt = 1; attempt <= MAX_VALIDATION_ATTEMPTS; attempt += 1) {
+    const messages =
+      attempt === 1
+        ? baseMessages
+        : [
+            ...baseMessages,
+            {
+              role: "assistant" as const,
+              content: lastContent || "{}",
+            },
+            buildPureModelValidationRetryMessage(lastError?.message || "Unknown validation error"),
+          ];
+
+    const completion = await createChatCompletion(messages, {
+      model,
+      maxTokens,
+      responseFormat: NGRAM_PURE_MODEL_RESPONSE_FORMAT,
+    });
+
+    if (completion.refusal) {
+      throw new Error(`${campaign.campaignName}: model refused structured output: ${completion.refusal}`);
+    }
+
+    tokensIn += completion.tokensIn;
+    tokensOut += completion.tokensOut;
+    tokensTotal += completion.tokensTotal;
+    lastContent = completion.content ?? "{}";
+
+    try {
+      const parsed = parseJSONResponse<Record<string, unknown>>(completion.content || "{}");
+      const validated = validatePureModelCampaignResponse(
         parsed,
         catalogProducts,
         terms.map((term) => term.searchTerm),

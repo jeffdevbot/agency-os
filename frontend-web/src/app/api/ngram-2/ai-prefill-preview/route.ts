@@ -3,10 +3,11 @@ import { NextResponse } from "next/server";
 import { logAppError } from "@/lib/ai/errorLogger";
 import { persistNgramPreviewRun } from "@/lib/ai/ngramPreviewLogger";
 import { logUsage } from "@/lib/ai/usageLogger";
-import { NGRAM_AI_PROMPT_VERSION } from "@/lib/ngram2/aiPrompt";
+import { NGRAM_AI_PROMPT_VERSION, NGRAM_PURE_MODEL_PROMPT_VERSION } from "@/lib/ngram2/aiPrompt";
 import {
   estimateNgramCampaignMaxTokens,
   evaluateCampaignWithValidationRetry,
+  evaluateCampaignWithPureModelValidationRetry,
 } from "@/lib/ngram2/aiCampaignEvaluator";
 import {
   aggregateSearchTerms,
@@ -16,19 +17,24 @@ import {
   isAsinQuery,
   isIntentionallySkippedCampaign,
   isLegacyExcludedCampaign,
+  mergePureModelCampaignResponses,
   parseCampaignProductIdentifier,
   parseCampaignTheme,
   prepareAIPrefillCatalogProducts,
   selectCampaignsForAIPrefill,
   selectTermsForAIPrefillCampaign,
   synthesizeCampaignScratchpad,
+  type AIPrefillStrategy,
   type AggregatedCampaign,
   type AggregatedSearchTerm,
   type AIPrefillRunMode,
   type AIPrefillCatalogProduct,
+  type CampaignModelPrefills,
   type CampaignPrefillScratchpad,
   type NgramListingRow,
+  type PureModelPhraseNegative,
   type SearchTermFactRow,
+  type ValidatedPureModelCampaignResponse,
 } from "@/lib/ngram2/aiPrefill";
 import { resolveCatalogSource, type CatalogSourceCandidate, type CatalogSourceProfile } from "@/lib/ngram2/catalogSource";
 import { createSupabaseRouteClient, createSupabaseServiceClient } from "@/lib/supabase/serverClient";
@@ -61,8 +67,10 @@ const MAX_BATCH_SIZE = 1000;
 const SUPPORTED_AD_PRODUCT = "SPONSORED_PRODUCTS";
 const PROFILE_SELECT = ["id", "client_id", "display_name", "marketplace_code", "status"].join(",");
 const NGRAM_MODEL_OVERRIDE = process.env.OPENAI_MODEL_NGRAM?.trim() || null;
+const PURE_MODEL_MAX_TERMS_PER_CHUNK = 100;
 
 type CampaignPreview = {
+  prefillStrategy: AIPrefillStrategy;
   campaignName: string;
   totalSpend: number;
   eligibleSpend: number;
@@ -79,6 +87,8 @@ type CampaignPreview = {
   itemDescription: string | null;
   matchScore: number | null;
   synthesizedPrefills: CampaignPrefillScratchpad;
+  modelPrefills: CampaignModelPrefills;
+  phraseNegatives: PureModelPhraseNegative[];
   evaluations: Array<{
     search_term: string;
     recommendation: "KEEP" | "NEGATE" | "REVIEW";
@@ -94,6 +104,17 @@ type CampaignPreview = {
     targeting: string | null;
     matchType: string | null;
   }>;
+};
+
+type PureModelEvaluationResult = {
+  completion: {
+    model: string;
+  };
+  validated: ValidatedPureModelCampaignResponse;
+  attempts: number;
+  tokensIn: number;
+  tokensOut: number;
+  tokensTotal: number;
 };
 
 const loadAllFactRows = async (
@@ -224,6 +245,7 @@ const coerceRequest = async (request: Request): Promise<{
   spendThreshold: number;
   respectLegacyExclusions: boolean;
   runMode: AIPrefillRunMode;
+  prefillStrategy: AIPrefillStrategy;
   requestedCampaignNames: string[];
 }> => {
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
@@ -233,6 +255,9 @@ const coerceRequest = async (request: Request): Promise<{
   const dateTo = String(body?.date_to || "").trim();
   const spendThresholdRaw = Number(body?.spend_threshold ?? 0);
   const runModeRaw = String(body?.run_mode || "preview").trim().toLowerCase();
+  const prefillStrategyRaw = String(body?.prefill_strategy || "heuristic_synthesis")
+    .trim()
+    .toLowerCase();
   const requestedCampaignNames = Array.isArray(body?.campaign_names)
     ? [...new Set(body.campaign_names.map((value) => String(value || "").trim()).filter(Boolean))]
     : [];
@@ -252,6 +277,17 @@ const coerceRequest = async (request: Request): Promise<{
   if (runModeRaw !== "preview" && runModeRaw !== "full") {
     throw new Error("run_mode must be either 'preview' or 'full'");
   }
+  if (prefillStrategyRaw !== "heuristic_synthesis" && prefillStrategyRaw !== "pure_model_single_campaign") {
+    throw new Error("prefill_strategy must be either 'heuristic_synthesis' or 'pure_model_single_campaign'");
+  }
+  if (prefillStrategyRaw === "pure_model_single_campaign") {
+    if (runModeRaw !== "preview") {
+      throw new Error("pure_model_single_campaign is currently supported only for preview runs.");
+    }
+    if (requestedCampaignNames.length !== 1) {
+      throw new Error("pure_model_single_campaign requires exactly one selected campaign.");
+    }
+  }
 
   return {
     profileId,
@@ -261,6 +297,7 @@ const coerceRequest = async (request: Request): Promise<{
     spendThreshold: spendThresholdRaw,
     respectLegacyExclusions: body?.respect_legacy_exclusions !== false,
     runMode: runModeRaw as AIPrefillRunMode,
+    prefillStrategy: prefillStrategyRaw as AIPrefillStrategy,
     requestedCampaignNames,
   };
 };
@@ -284,6 +321,7 @@ export async function POST(request: Request) {
       spendThreshold,
       respectLegacyExclusions,
       runMode,
+      prefillStrategy,
       requestedCampaignNames,
     } =
       await coerceRequest(request);
@@ -295,8 +333,14 @@ export async function POST(request: Request) {
       loadAllFactRows(profileId, adProduct, dateFrom, dateTo),
     ]);
 
-    if (catalogWarning) {
+      if (catalogWarning) {
       warnings.push(catalogWarning);
+    }
+
+    if (prefillStrategy === "pure_model_single_campaign") {
+      warnings.push(
+        "Pure-model pivot preview is active for one campaign. Full AI workbook generation still uses the shipped heuristic path during transition.",
+      );
     }
 
     const catalogProducts = prepareAIPrefillCatalogProducts(listings);
@@ -380,21 +424,76 @@ export async function POST(request: Request) {
         );
       }
 
-      const evaluation = await evaluateCampaignWithValidationRetry({
-        campaign,
-        catalogProducts,
-        terms,
-        marketplaceCode: catalogProfile.marketplaceCode,
-        model: NGRAM_MODEL_OVERRIDE || undefined,
-        maxTokens: estimateNgramCampaignMaxTokens(terms.length),
-      });
+      const heuristicEvaluation =
+        prefillStrategy === "heuristic_synthesis"
+          ? await evaluateCampaignWithValidationRetry({
+              campaign,
+              catalogProducts,
+              terms,
+              marketplaceCode: catalogProfile.marketplaceCode,
+              model: NGRAM_MODEL_OVERRIDE || undefined,
+              maxTokens: estimateNgramCampaignMaxTokens(terms.length),
+            })
+          : null;
+      let pureModelEvaluation: PureModelEvaluationResult | null = null;
+      if (prefillStrategy === "pure_model_single_campaign") {
+        const termChunks: AggregatedSearchTerm[][] = [];
+        for (let index = 0; index < terms.length; index += PURE_MODEL_MAX_TERMS_PER_CHUNK) {
+          termChunks.push(terms.slice(index, index + PURE_MODEL_MAX_TERMS_PER_CHUNK));
+        }
 
-      tokensIn += evaluation.tokensIn;
-      tokensOut += evaluation.tokensOut;
-      tokensTotal += evaluation.tokensTotal;
-      model = evaluation.completion.model || model;
+        if (termChunks.length > 1) {
+          warnings.push(
+            `${campaign.campaignName}: pure-model preview chunked ${terms.length} terms into ${termChunks.length} batches of up to ${PURE_MODEL_MAX_TERMS_PER_CHUNK}.`,
+          );
+        }
 
-      const validated = evaluation.validated;
+        let chunkTokensIn = 0;
+        let chunkTokensOut = 0;
+        let chunkTokensTotal = 0;
+        let chunkModel = "";
+        const chunkValidated: ValidatedPureModelCampaignResponse[] = [];
+
+        for (const termChunk of termChunks) {
+          const chunkEvaluation = await evaluateCampaignWithPureModelValidationRetry({
+            campaign,
+            catalogProducts,
+            terms: termChunk,
+            marketplaceCode: catalogProfile.marketplaceCode,
+            model: NGRAM_MODEL_OVERRIDE || undefined,
+            maxTokens: estimateNgramCampaignMaxTokens(termChunk.length),
+          });
+
+          chunkTokensIn += chunkEvaluation.tokensIn;
+          chunkTokensOut += chunkEvaluation.tokensOut;
+          chunkTokensTotal += chunkEvaluation.tokensTotal;
+          chunkModel = chunkEvaluation.completion.model || chunkModel;
+          chunkValidated.push(chunkEvaluation.validated);
+        }
+
+        pureModelEvaluation = {
+          completion: {
+            model: chunkModel,
+          },
+          validated: mergePureModelCampaignResponses(chunkValidated),
+          attempts: termChunks.length,
+          tokensIn: chunkTokensIn,
+          tokensOut: chunkTokensOut,
+          tokensTotal: chunkTokensTotal,
+        };
+      }
+
+      const activeEvaluation = pureModelEvaluation ?? heuristicEvaluation;
+      if (!activeEvaluation) {
+        throw new Error(`${campaign.campaignName}: missing AI evaluation result.`);
+      }
+
+      tokensIn += activeEvaluation.tokensIn;
+      tokensOut += activeEvaluation.tokensOut;
+      tokensTotal += activeEvaluation.tokensTotal;
+      model = activeEvaluation.completion.model || model;
+
+      const validated = activeEvaluation.validated;
 
       const lowConfidenceNoMatch = !validated.matchedProduct && validated.matchConfidence === "LOW";
       if (lowConfidenceNoMatch) {
@@ -402,9 +501,10 @@ export async function POST(request: Request) {
         aiLowConfidenceCampaigns += 1;
       }
 
-      const evaluations = lowConfidenceNoMatch
-        ? []
-        : validated.termRecommendations.map((evaluation, index) => {
+      const evaluations =
+        lowConfidenceNoMatch && prefillStrategy !== "pure_model_single_campaign"
+          ? []
+          : validated.termRecommendations.map((evaluation, index) => {
             const term = terms[index];
             return {
               ...evaluation,
@@ -419,7 +519,17 @@ export async function POST(request: Request) {
             };
           });
 
+      const modelPrefills =
+        pureModelEvaluation?.validated.modelPrefills ?? {
+          exact: [],
+          mono: [],
+          bi: [],
+          tri: [],
+        };
+      const phraseNegatives = pureModelEvaluation?.validated.phraseNegatives ?? [];
+
       previewResults.push({
+        prefillStrategy,
         campaignName: campaign.campaignName,
         totalSpend: Number(campaign.totalSpend.toFixed(2)),
         eligibleSpend: Number(terms.reduce((sum, term) => sum + term.spend, 0).toFixed(2)),
@@ -443,6 +553,8 @@ export async function POST(request: Request) {
         synthesizedPrefills: lowConfidenceNoMatch
           ? { mono: [], bi: [], tri: [] }
           : synthesizeCampaignScratchpad(evaluations, spendThreshold),
+        modelPrefills,
+        phraseNegatives,
         evaluations,
       });
     }
@@ -496,8 +608,12 @@ export async function POST(request: Request) {
       ambiguous_campaigns: ambiguousCampaigns,
       intentionally_skipped_campaigns: intentionallySkippedCampaigns,
       recommendation_counts: recommendationCounts,
+      prefill_strategy: prefillStrategy,
       model: model || null,
-      prompt_version: NGRAM_AI_PROMPT_VERSION,
+      prompt_version:
+        prefillStrategy === "pure_model_single_campaign"
+          ? NGRAM_PURE_MODEL_PROMPT_VERSION
+          : NGRAM_AI_PROMPT_VERSION,
       campaigns: previewResults,
       warnings,
     };
@@ -516,6 +632,7 @@ export async function POST(request: Request) {
         date_from: dateFrom,
         date_to: dateTo,
         run_mode: runMode,
+        prefill_strategy: prefillStrategy,
         spend_threshold: spendThreshold,
         selected_campaigns: requestedCampaignNames,
         preview_campaigns: previewResults.length,
@@ -537,7 +654,10 @@ export async function POST(request: Request) {
       spendThreshold,
       respectLegacyExclusions,
       model: model || null,
-      promptVersion: NGRAM_AI_PROMPT_VERSION,
+      promptVersion:
+        prefillStrategy === "pure_model_single_campaign"
+          ? NGRAM_PURE_MODEL_PROMPT_VERSION
+          : NGRAM_AI_PROMPT_VERSION,
       promptTokens: tokensIn,
       completionTokens: tokensOut,
       totalTokens: tokensTotal,

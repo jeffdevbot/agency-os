@@ -127,3 +127,79 @@ def test_build_workbook_writes_ai_prefills_to_scratchpad_columns():
         assert "MATCH(N7,BA:BA,0)" in ws["X7"].value
     finally:
         os.unlink(workbook_path)
+
+
+def test_build_workbook_uses_explicit_exact_prefills_when_present():
+    raw = pd.DataFrame(
+        [
+            {
+                "Search Term": "portable monitor travel case",
+                "Impression": 100,
+                "Click": 10,
+                "Spend": 8.5,
+                "Order 14d": 0,
+                "Sales 14d": 0,
+                "NE/NP": "",
+                "Comments": "",
+            },
+            {
+                "Search Term": "travel screen protector bundle",
+                "Impression": 80,
+                "Click": 8,
+                "Spend": 6.2,
+                "Order 14d": 0,
+                "Sales 14d": 0,
+                "NE/NP": "",
+                "Comments": "",
+            },
+        ]
+    )
+
+    campaign_name = "Screen Shine - Pro | SPM | MKW | Br.M | 2 - computer | Perf"
+    workbook_path = build_workbook(
+        [
+            {
+                "campaign_name": campaign_name,
+                "category_raw": "Pro",
+                "category_key": "pro",
+                "mono": _make_ngram_df(["monitor"]),
+                "bi": _make_ngram_df(["screen protector"]),
+                "tri": _make_ngram_df(["travel monitor case"]),
+                "raw": raw,
+                "notes": [],
+            }
+        ],
+        "test-version",
+        ai_prefills={
+            campaign_name: {
+                "exact": ["portable monitor travel case"],
+                "mono": [],
+                "bi": ["screen protector"],
+                "tri": [],
+            }
+        },
+        ai_term_reviews={
+            campaign_name: {
+                "portable monitor travel case": {
+                    "recommendation": "NEGATE",
+                    "confidence": "HIGH",
+                    "reason_tag": "accessory_only_intent",
+                },
+                "travel screen protector bundle": {
+                    "recommendation": "NEGATE",
+                    "confidence": "HIGH",
+                    "reason_tag": "wrong_product_form",
+                },
+            }
+        },
+    )
+
+    try:
+        wb = load_workbook(workbook_path, data_only=False)
+        ws = wb[wb.sheetnames[1]]
+
+        assert ws["AT7"].value == "NE"
+        assert ws["AT8"].value in (None, "")
+        assert ws["BA7"].value == "screen protector"
+    finally:
+        os.unlink(workbook_path)

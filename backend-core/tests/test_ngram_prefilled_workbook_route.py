@@ -83,6 +83,12 @@ def test_native_prefilled_workbook_route_uses_saved_preview_run(monkeypatch):
                 "campaigns": [
                     {
                         "campaignName": "Screen Shine - Pro 2 | SPM | MKW",
+                        "modelPrefills": {
+                            "exact": ["portable monitor travel case"],
+                            "mono": [],
+                            "bi": ["laptop cloth"],
+                            "tri": [],
+                        },
                         "synthesizedPrefills": {
                             "mono": [{"gram": "travel"}],
                             "bi": [{"gram": "travel size"}],
@@ -129,6 +135,7 @@ def test_native_prefilled_workbook_route_uses_saved_preview_run(monkeypatch):
             "respect_legacy_exclusions": True,
             "ai_prefills": {
                 "Screen Shine - Pro 2 | SPM | MKW": {
+                    "exact": ["portable monitor travel case"],
                     "mono": ["travel"],
                     "bi": ["travel size"],
                     "tri": ["travel size screen"],
