@@ -85,8 +85,11 @@ describe("ngram-2 ai prefill preview route prompt", () => {
     expect(userMessage?.content).toContain('"campaign_identifier": "Screen Shine - Duo"');
     expect(userMessage?.content).toContain('"catalog_products"');
     expect(PURE_MODEL_CONTEXT_SYSTEM_PROMPT).toContain("Your job in this pass is only to lock product context");
+    expect(PURE_MODEL_CONTEXT_SYSTEM_PROMPT).toContain("Distinguish product-family ambiguity from product ambiguity.");
+    expect(PURE_MODEL_CONTEXT_SYSTEM_PROMPT).toContain("return the single catalog row that best represents that family with match_confidence = MEDIUM");
+    expect(PURE_MODEL_CONTEXT_SYSTEM_PROMPT).toContain("SKU prefixes and repeated catalog naming patterns are meaningful evidence.");
     expect(PURE_MODEL_CONTEXT_SYSTEM_PROMPT).toContain("Do not evaluate search terms in this pass.");
-    expect(NGRAM_PURE_MODEL_PROMPT_VERSION).toBe("ngram_pure_model_two_step_v2026_04_01");
+    expect(NGRAM_PURE_MODEL_PROMPT_VERSION).toBe("ngram_pure_model_two_step_v2026_04_01_family_match");
   });
 
   it("defines the pure-model term-triage pass contract", () => {

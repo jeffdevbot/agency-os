@@ -12,7 +12,7 @@ export interface AIPromptMessage {
 }
 
 export const NGRAM_AI_PROMPT_VERSION = "ngram_step3_calibrated_v2026_03_30";
-export const NGRAM_PURE_MODEL_PROMPT_VERSION = "ngram_pure_model_two_step_v2026_04_01";
+export const NGRAM_PURE_MODEL_PROMPT_VERSION = "ngram_pure_model_two_step_v2026_04_01_family_match";
 
 export const SYSTEM_PROMPT = `You evaluate Amazon Sponsored Products shopper queries for N-Gram negative keyword prefill.
 
@@ -40,6 +40,9 @@ Rules:
 - First, identify the best matching product from the provided Windsor catalog rows.
 - If you cannot confidently identify one product, set matched_product to null and match_confidence to LOW.
 - When you select a product, copy the exact child_asin, child_sku, and product_name values from the catalog.
+- Distinguish product-family ambiguity from product ambiguity. If the campaign name or identifier clearly implies a product family but does not resolve to one exact variant or SKU, return the single catalog row that best represents that family with match_confidence = MEDIUM, not LOW.
+- SKU prefixes and repeated catalog naming patterns are meaningful evidence. When several catalog rows share a prefix or family token in child_sku, product_name, or item_description, use that shared family signal to infer product context.
+- Prefer the catalog row whose child_sku, product_name, and item_description best represent the shared family language, even when exact variant detail is unresolved.
 - Judge each search term in the context of both the matched product and the campaign theme.
 - Return one term_recommendation for every input search term and preserve the exact search_term text.
 - If matched_product is null, return REVIEW / LOW for every term and use reason_tag = ambiguous_intent.
@@ -129,6 +132,9 @@ Rules:
 - First, identify the best matching product from the provided Windsor catalog rows.
 - If you cannot confidently identify one product, set matched_product to null and match_confidence to LOW.
 - When you select a product, copy the exact child_asin, child_sku, and product_name values from the catalog.
+- Distinguish product-family ambiguity from product ambiguity. If the campaign name or identifier clearly implies a product family but does not resolve to one exact variant or SKU, return the single catalog row that best represents that family with match_confidence = MEDIUM, not LOW.
+- SKU prefixes and repeated catalog naming patterns are meaningful evidence. When several catalog rows share a prefix or family token in child_sku, product_name, or item_description, use that shared family signal to infer product context.
+- Prefer the catalog row whose child_sku, product_name, and item_description best represent the shared family language, even when exact variant detail is unresolved.
 - Return one term_recommendation for every input search term and preserve the exact search_term text.
 - If matched_product is null, return REVIEW / LOW for every term, return no exact_negatives, return no phrase_negatives, and use reason_tag = ambiguous_intent.
 - exact_negatives must only contain search terms that appear in the input list exactly.
@@ -183,7 +189,10 @@ Return strict JSON with this shape:
 Rules:
 - Your job in this pass is only to lock product context for the campaign.
 - Use the campaign name, campaign identifier, and campaign theme to select the best matching catalog product.
-- If you cannot confidently identify one product, set matched_product to null and match_confidence to LOW.
+- Distinguish product-family ambiguity from product ambiguity. If the campaign name or identifier clearly implies a product family but does not resolve to one exact variant or SKU, return the single catalog row that best represents that family with match_confidence = MEDIUM, not LOW.
+- SKU prefixes and repeated catalog naming patterns are meaningful evidence. When several catalog rows share a prefix or family token in child_sku, product_name, or item_description, use that shared family signal to infer product context.
+- Prefer the catalog row whose child_sku, product_name, and item_description best represent the shared family language, even when exact variant detail is unresolved.
+- If you cannot confidently identify even the product family, set matched_product to null and match_confidence to LOW.
 - When you select a product, copy the exact child_asin, child_sku, and product_name values from the catalog.
 - Do not evaluate search terms in this pass.
 - Do not include markdown or explanation outside the JSON object.`;
