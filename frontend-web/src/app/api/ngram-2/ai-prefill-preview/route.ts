@@ -16,7 +16,6 @@ import {
   AI_PREFILL_PREVIEW_MAX_TERMS_PER_CAMPAIGN,
   buildCampaignAggregates,
   isAsinQuery,
-  isIntentionallySkippedCampaign,
   isLegacyExcludedCampaign,
   mergePureModelTermTriageResponses,
   parseCampaignProductIdentifier,
@@ -368,12 +367,10 @@ export async function POST(request: Request) {
       respectLegacyExclusions,
     });
 
-    const runnableCampaigns = candidateCampaigns.filter((campaign) => {
-      const productIdentifier = parseCampaignProductIdentifier(campaign.campaignName);
-      return Boolean(productIdentifier) && !isIntentionallySkippedCampaign(campaign.campaignName);
-    });
-    const intentionallySkippedCampaigns =
-      candidateCampaigns.length - runnableCampaigns.length;
+    const runnableCampaigns = candidateCampaigns.filter((campaign) =>
+      Boolean(parseCampaignProductIdentifier(campaign.campaignName)),
+    );
+    const intentionallySkippedCampaigns = 0;
     const previewCampaigns = selectCampaignsForAIPrefill(runnableCampaigns, runMode, requestedCampaignNames);
     const hasRequestedCampaigns = requestedCampaignNames.length > 0;
     const missingRequestedCampaigns = hasRequestedCampaigns
@@ -610,14 +607,8 @@ export async function POST(request: Request) {
     if (previewResults.length === 0) {
       warnings.push(
         candidateCampaigns.length > 0
-          ? "No runnable campaigns were found after skipping brand/mix/defensive lanes."
+          ? "No runnable campaigns were found after the current filters."
           : "No eligible campaigns were found above the selected spend threshold.",
-      );
-    }
-
-    if (intentionallySkippedCampaigns > 0) {
-      warnings.push(
-        `${intentionallySkippedCampaigns} preview campaign(s) were intentionally skipped because they are brand/mix/defensive.`,
       );
     }
 
