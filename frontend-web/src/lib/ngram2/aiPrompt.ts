@@ -11,6 +11,8 @@ export interface AIPromptMessage {
   content: string;
 }
 
+const stringifyPromptPayload = (payload: Record<string, unknown>): string => JSON.stringify(payload);
+
 export const NGRAM_AI_PROMPT_VERSION = "ngram_step3_calibrated_v2026_03_30";
 export const NGRAM_PURE_MODEL_PROMPT_VERSION = "ngram_pure_model_two_step_v2026_04_01_family_match";
 
@@ -273,35 +275,31 @@ export const buildCampaignPrompt = (
   { role: "system", content: SYSTEM_PROMPT },
   {
     role: "user",
-    content: JSON.stringify(
-      {
-        campaign_name: campaign.campaignName,
-        campaign_theme: parseCampaignTheme(campaign.campaignName),
-        campaign_identifier: parseCampaignProductIdentifier(campaign.campaignName),
-        marketplace_code: marketplaceCode,
-        catalog_products: catalogProducts.map((product) => ({
-          child_asin: product.childAsin,
-          child_sku: product.childSku,
-          product_name: product.productName,
-          category: product.category,
-          item_description: product.itemDescription,
-        })),
-        search_terms: terms.map((term) => ({
-          search_term: term.searchTerm,
-          impressions: term.impressions,
-          clicks: term.clicks,
-          spend: Number(term.spend.toFixed(2)),
-          orders: term.orders,
-          sales: Number(term.sales.toFixed(2)),
-          keyword: term.keyword,
-          keyword_type: term.keywordType,
-          targeting: term.targeting,
-          match_type: term.matchType,
-        })),
-      },
-      null,
-      2,
-    ),
+    content: stringifyPromptPayload({
+      campaign_name: campaign.campaignName,
+      campaign_theme: parseCampaignTheme(campaign.campaignName),
+      campaign_identifier: parseCampaignProductIdentifier(campaign.campaignName),
+      marketplace_code: marketplaceCode,
+      catalog_products: catalogProducts.map((product) => ({
+        child_asin: product.childAsin,
+        child_sku: product.childSku,
+        product_name: product.productName,
+        category: product.category,
+        item_description: product.itemDescription,
+      })),
+      search_terms: terms.map((term) => ({
+        search_term: term.searchTerm,
+        impressions: term.impressions,
+        clicks: term.clicks,
+        spend: Number(term.spend.toFixed(2)),
+        orders: term.orders,
+        sales: Number(term.sales.toFixed(2)),
+        keyword: term.keyword,
+        keyword_type: term.keywordType,
+        targeting: term.targeting,
+        match_type: term.matchType,
+      })),
+    }),
   },
 ];
 
@@ -314,35 +312,31 @@ export const buildPureModelCampaignPrompt = (
   { role: "system", content: PURE_MODEL_SYSTEM_PROMPT },
   {
     role: "user",
-    content: JSON.stringify(
-      {
-        campaign_name: campaign.campaignName,
-        campaign_theme: parseCampaignTheme(campaign.campaignName),
-        campaign_identifier: parseCampaignProductIdentifier(campaign.campaignName),
-        marketplace_code: marketplaceCode,
-        catalog_products: catalogProducts.map((product) => ({
-          child_asin: product.childAsin,
-          child_sku: product.childSku,
-          product_name: product.productName,
-          category: product.category,
-          item_description: product.itemDescription,
-        })),
-        search_terms: terms.map((term) => ({
-          search_term: term.searchTerm,
-          impressions: term.impressions,
-          clicks: term.clicks,
-          spend: Number(term.spend.toFixed(2)),
-          orders: term.orders,
-          sales: Number(term.sales.toFixed(2)),
-          keyword: term.keyword,
-          keyword_type: term.keywordType,
-          targeting: term.targeting,
-          match_type: term.matchType,
-        })),
-      },
-      null,
-      2,
-    ),
+    content: stringifyPromptPayload({
+      campaign_name: campaign.campaignName,
+      campaign_theme: parseCampaignTheme(campaign.campaignName),
+      campaign_identifier: parseCampaignProductIdentifier(campaign.campaignName),
+      marketplace_code: marketplaceCode,
+      catalog_products: catalogProducts.map((product) => ({
+        child_asin: product.childAsin,
+        child_sku: product.childSku,
+        product_name: product.productName,
+        category: product.category,
+        item_description: product.itemDescription,
+      })),
+      search_terms: terms.map((term) => ({
+        search_term: term.searchTerm,
+        impressions: term.impressions,
+        clicks: term.clicks,
+        spend: Number(term.spend.toFixed(2)),
+        orders: term.orders,
+        sales: Number(term.sales.toFixed(2)),
+        keyword: term.keyword,
+        keyword_type: term.keywordType,
+        targeting: term.targeting,
+        match_type: term.matchType,
+      })),
+    }),
   },
 ];
 
@@ -354,23 +348,19 @@ export const buildPureModelContextPrompt = (
   { role: "system", content: PURE_MODEL_CONTEXT_SYSTEM_PROMPT },
   {
     role: "user",
-    content: JSON.stringify(
-      {
-        campaign_name: campaign.campaignName,
-        campaign_theme: parseCampaignTheme(campaign.campaignName),
-        campaign_identifier: parseCampaignProductIdentifier(campaign.campaignName),
-        marketplace_code: marketplaceCode,
-        catalog_products: catalogProducts.map((product) => ({
-          child_asin: product.childAsin,
-          child_sku: product.childSku,
-          product_name: product.productName,
-          category: product.category,
-          item_description: product.itemDescription,
-        })),
-      },
-      null,
-      2,
-    ),
+    content: stringifyPromptPayload({
+      campaign_name: campaign.campaignName,
+      campaign_theme: parseCampaignTheme(campaign.campaignName),
+      campaign_identifier: parseCampaignProductIdentifier(campaign.campaignName),
+      marketplace_code: marketplaceCode,
+      catalog_products: catalogProducts.map((product) => ({
+        child_asin: product.childAsin,
+        child_sku: product.childSku,
+        product_name: product.productName,
+        category: product.category,
+        item_description: product.itemDescription,
+      })),
+    }),
   },
 ];
 
@@ -385,36 +375,32 @@ export const buildPureModelTermTriagePrompt = (
   { role: "system", content: PURE_MODEL_TERM_TRIAGE_SYSTEM_PROMPT },
   {
     role: "user",
-    content: JSON.stringify(
-      {
-        campaign_name: campaign.campaignName,
-        campaign_theme: parseCampaignTheme(campaign.campaignName),
-        campaign_identifier: parseCampaignProductIdentifier(campaign.campaignName),
-        marketplace_code: marketplaceCode,
-        locked_product_context: {
-          child_asin: matchedProduct.childAsin,
-          child_sku: matchedProduct.childSku,
-          product_name: matchedProduct.productName,
-          category: matchedProduct.category,
-          item_description: matchedProduct.itemDescription,
-          match_confidence: matchConfidence,
-          match_reason: matchReason,
-        },
-        search_terms: terms.map((term) => ({
-          search_term: term.searchTerm,
-          impressions: term.impressions,
-          clicks: term.clicks,
-          spend: Number(term.spend.toFixed(2)),
-          orders: term.orders,
-          sales: Number(term.sales.toFixed(2)),
-          keyword: term.keyword,
-          keyword_type: term.keywordType,
-          targeting: term.targeting,
-          match_type: term.matchType,
-        })),
+    content: stringifyPromptPayload({
+      campaign_name: campaign.campaignName,
+      campaign_theme: parseCampaignTheme(campaign.campaignName),
+      campaign_identifier: parseCampaignProductIdentifier(campaign.campaignName),
+      marketplace_code: marketplaceCode,
+      locked_product_context: {
+        child_asin: matchedProduct.childAsin,
+        child_sku: matchedProduct.childSku,
+        product_name: matchedProduct.productName,
+        category: matchedProduct.category,
+        item_description: matchedProduct.itemDescription,
+        match_confidence: matchConfidence,
+        match_reason: matchReason,
       },
-      null,
-      2,
-    ),
+      search_terms: terms.map((term) => ({
+        search_term: term.searchTerm,
+        impressions: term.impressions,
+        clicks: term.clicks,
+        spend: Number(term.spend.toFixed(2)),
+        orders: term.orders,
+        sales: Number(term.sales.toFixed(2)),
+        keyword: term.keyword,
+        keyword_type: term.keywordType,
+        targeting: term.targeting,
+        match_type: term.matchType,
+      })),
+    }),
   },
 ];

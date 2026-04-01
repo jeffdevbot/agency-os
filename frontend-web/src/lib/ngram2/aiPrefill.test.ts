@@ -5,7 +5,9 @@ import {
   buildNgramsForQuery,
   buildCampaignAggregates,
   chooseBestListingMatch,
+  buildPreparedCatalogProductIndex,
   selectCampaignsForAIPrefill,
+  selectCatalogCandidatesForCampaign,
   selectTermsForAIPrefillCampaign,
   isIntentionallySkippedCampaign,
   isExpectedAmbiguousCampaign,
@@ -156,6 +158,78 @@ describe("ngram2 aiPrefill helpers", () => {
     expect(serumMatch.matchedTitle).toContain("Night Repair");
     expect(cleanserMatch.status).toBe("matched");
     expect(cleanserMatch.matchedTitle).toContain("Vitamin C Gel Cleanser");
+  });
+
+  it("ranks catalog candidates with SKU and family signals before AI sees the shortlist", () => {
+    const catalogProducts = [
+      {
+        childAsin: "A1",
+        childSku: "NGR-001",
+        productName: "Ahimsa NGR Ceramic Dinner Plates Set",
+        category: "dinnerware",
+        itemDescription: "ceramic dinner plates for everyday use",
+      },
+      {
+        childAsin: "A2",
+        childSku: "BWL-002",
+        productName: "Ahimsa Ceramic Bowls Set",
+        category: "dinnerware",
+        itemDescription: "ceramic serving bowls",
+      },
+      {
+        childAsin: "A3",
+        childSku: "MAT-003",
+        productName: "Ahimsa Yoga Mat Carry Strap",
+        category: "fitness accessories",
+        itemDescription: "adjustable carrying strap",
+      },
+    ];
+
+    const ranked = selectCatalogCandidatesForCampaign(
+      "NGR | SPM | MKW | Br. | 2 - plates | Perf",
+      buildPreparedCatalogProductIndex(catalogProducts),
+      { limit: 2 },
+    );
+
+    expect(ranked).toHaveLength(2);
+    expect(ranked[0]?.product.childAsin).toBe("A1");
+    expect(ranked[0]?.signals).toEqual(expect.arrayContaining(["sku_phrase"]));
+    expect(ranked[0]?.score).toBeGreaterThan(ranked[1]?.score ?? 0);
+  });
+
+  it("uses theme and description overlap when the identifier alone is weak", () => {
+    const catalogProducts = [
+      {
+        childAsin: "B1",
+        childSku: "CORE-001",
+        productName: "Whoosh Screen Cleaner Kit",
+        category: "electronics cleaner",
+        itemDescription: "screen cleaning spray for laptop and monitor care",
+      },
+      {
+        childAsin: "B2",
+        childSku: "SPORT-002",
+        productName: "Whoosh Glasses Cleaning Kit",
+        category: "eyeglasses cleaner",
+        itemDescription: "travel cleaner for glasses and sunglasses",
+      },
+      {
+        childAsin: "B3",
+        childSku: "PAD-003",
+        productName: "Whoosh Mouse Pad Cleaner",
+        category: "computer accessories",
+        itemDescription: "foam cleaner for gaming desk mats",
+      },
+    ];
+
+    const ranked = selectCatalogCandidatesForCampaign(
+      "Travel Kit | SPM | MKW | Br. | 2 - laptop | Perf",
+      catalogProducts,
+      { limit: 3 },
+    );
+
+    expect(ranked[0]?.product.childAsin).toBe("B1");
+    expect(ranked[0]?.score).toBeGreaterThan(ranked[1]?.score ?? 0);
   });
 
   it("aggregates rows and builds campaign totals with threshold and legacy exclusion filters", () => {

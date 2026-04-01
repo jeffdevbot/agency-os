@@ -15,12 +15,14 @@ import {
   AI_PREFILL_PREVIEW_MAX_CAMPAIGNS,
   AI_PREFILL_PREVIEW_MAX_TERMS_PER_CAMPAIGN,
   buildCampaignAggregates,
+  buildPreparedCatalogProductIndex,
   isAsinQuery,
   isLegacyExcludedCampaign,
   mergePureModelTermTriageResponses,
   parseCampaignProductIdentifier,
   parseCampaignTheme,
   prepareAIPrefillCatalogProducts,
+  selectCatalogCandidatesForCampaign,
   selectCampaignsForAIPrefill,
   selectTermsForAIPrefillCampaign,
   synthesizeCampaignScratchpad,
@@ -69,6 +71,9 @@ const SUPPORTED_AD_PRODUCT = "SPONSORED_PRODUCTS";
 const PROFILE_SELECT = ["id", "client_id", "display_name", "marketplace_code", "status"].join(",");
 const NGRAM_MODEL_OVERRIDE = process.env.OPENAI_MODEL_NGRAM?.trim() || null;
 const PURE_MODEL_MAX_TERMS_PER_CHUNK = 100;
+const HEURISTIC_CATALOG_CANDIDATE_LIMIT = 24;
+const PURE_MODEL_CONTEXT_CANDIDATE_LIMIT = 18;
+const PURE_MODEL_CONTEXT_EXPANDED_CANDIDATE_LIMIT = 36;
 
 type CampaignPreview = {
   prefillStrategy: AIPrefillStrategy;
@@ -351,6 +356,7 @@ export async function POST(request: Request) {
         "No active Windsor child ASIN catalog rows were found for this profile. Import Windsor listings for this marketplace before running AI preview.",
       );
     }
+    const preparedCatalogIndex = buildPreparedCatalogProductIndex(catalogProducts);
 
     const usableRows = rows.filter((row) => {
       const campaignName = String(row.campaign_name || "").trim();
@@ -413,6 +419,16 @@ export async function POST(request: Request) {
       ).length;
       const productIdentifier = parseCampaignProductIdentifier(campaign.campaignName);
       const theme = parseCampaignTheme(campaign.campaignName);
+      const rankedCatalogCandidates = selectCatalogCandidatesForCampaign(
+        campaign.campaignName,
+        preparedCatalogIndex,
+        {
+          limit:
+            prefillStrategy === "pure_model_single_campaign"
+              ? PURE_MODEL_CONTEXT_EXPANDED_CANDIDATE_LIMIT
+              : HEURISTIC_CATALOG_CANDIDATE_LIMIT,
+        },
+      );
 
       if (
         !hasRequestedCampaigns &&
@@ -428,7 +444,9 @@ export async function POST(request: Request) {
         prefillStrategy === "heuristic_synthesis"
           ? await evaluateCampaignWithValidationRetry({
               campaign,
-              catalogProducts,
+              catalogProducts: rankedCatalogCandidates
+                .slice(0, HEURISTIC_CATALOG_CANDIDATE_LIMIT)
+                .map((candidate) => candidate.product),
               terms,
               marketplaceCode: catalogProfile.marketplaceCode,
               model: NGRAM_MODEL_OVERRIDE || undefined,
@@ -448,18 +466,47 @@ export async function POST(request: Request) {
           );
         }
 
-        const contextEvaluation = await evaluateCampaignWithPureModelValidationRetry({
+        const initialContextCandidates = rankedCatalogCandidates
+          .slice(0, PURE_MODEL_CONTEXT_CANDIDATE_LIMIT)
+          .map((candidate) => candidate.product);
+        let contextPasses = 1;
+        let contextEvaluation = await evaluateCampaignWithPureModelValidationRetry({
           campaign,
-          catalogProducts,
+          catalogProducts: initialContextCandidates,
           marketplaceCode: catalogProfile.marketplaceCode,
           model: NGRAM_MODEL_OVERRIDE || undefined,
           maxTokens: 2200,
         });
+        let contextTokensIn = contextEvaluation.tokensIn;
+        let contextTokensOut = contextEvaluation.tokensOut;
+        let contextTokensTotal = contextEvaluation.tokensTotal;
+        let contextModel = contextEvaluation.completion.model || "";
+        if (
+          !contextEvaluation.validated.matchedProduct &&
+          contextEvaluation.validated.matchConfidence === "LOW" &&
+          rankedCatalogCandidates.length > PURE_MODEL_CONTEXT_CANDIDATE_LIMIT
+        ) {
+          const expandedContextEvaluation = await evaluateCampaignWithPureModelValidationRetry({
+            campaign,
+            catalogProducts: rankedCatalogCandidates
+              .slice(0, PURE_MODEL_CONTEXT_EXPANDED_CANDIDATE_LIMIT)
+              .map((candidate) => candidate.product),
+            marketplaceCode: catalogProfile.marketplaceCode,
+            model: NGRAM_MODEL_OVERRIDE || undefined,
+            maxTokens: 2200,
+          });
+          contextEvaluation = expandedContextEvaluation;
+          contextTokensIn += expandedContextEvaluation.tokensIn;
+          contextTokensOut += expandedContextEvaluation.tokensOut;
+          contextTokensTotal += expandedContextEvaluation.tokensTotal;
+          contextModel = expandedContextEvaluation.completion.model || contextModel;
+          contextPasses += 1;
+        }
 
-        let chunkTokensIn = contextEvaluation.tokensIn;
-        let chunkTokensOut = contextEvaluation.tokensOut;
-        let chunkTokensTotal = contextEvaluation.tokensTotal;
-        let chunkModel = contextEvaluation.completion.model || "";
+        let chunkTokensIn = contextTokensIn;
+        let chunkTokensOut = contextTokensOut;
+        let chunkTokensTotal = contextTokensTotal;
+        let chunkModel = contextModel;
         let mergedTriage: ValidatedPureModelTermTriageResponse = {
           termRecommendations: [],
           exactNegatives: [],
@@ -511,7 +558,7 @@ export async function POST(request: Request) {
           },
           context: contextEvaluation.validated,
           triage: mergedTriage,
-          attempts: 1 + (contextEvaluation.validated.matchedProduct ? termChunks.length : 0),
+          attempts: contextPasses + (contextEvaluation.validated.matchedProduct ? termChunks.length : 0),
           tokensIn: chunkTokensIn,
           tokensOut: chunkTokensOut,
           tokensTotal: chunkTokensTotal,

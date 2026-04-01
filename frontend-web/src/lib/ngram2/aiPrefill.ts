@@ -134,6 +134,31 @@ export type AIPrefillCatalogProduct = {
   itemDescription: string | null;
 };
 
+export type PreparedCatalogProductIndex = {
+  commonTokens: Set<string>;
+  tokenFrequency: Map<string, number>;
+  products: Array<
+    AIPrefillCatalogProduct & {
+      normalizedTitle: string;
+      normalizedSku: string;
+      normalizedCategory: string;
+      normalizedDescription: string;
+      titleTokens: string[];
+      skuTokens: string[];
+      categoryTokens: string[];
+      descriptionTokens: string[];
+      familyTokens: string[];
+      familyKey: string;
+    }
+  >;
+};
+
+export type RankedCatalogProductCandidate = {
+  product: AIPrefillCatalogProduct;
+  score: number;
+  signals: string[];
+};
+
 export type AIPrefillRunMode = "preview" | "full";
 
 export const ALLOWED_REASON_TAGS = [
@@ -433,6 +458,14 @@ const dedupeTokens = (tokens: string[]): string[] => [...new Set(tokens)];
 
 const toNonEmptyString = (value: unknown): string => String(value || "").trim();
 
+const truncateCatalogText = (
+  value: string | null | undefined,
+  maxLength: number,
+): string | null => {
+  const normalized = toNonEmptyString(value);
+  return normalized ? normalized.slice(0, maxLength) : null;
+};
+
 const parseRecommendationStrict = (value: unknown): "KEEP" | "NEGATE" | "REVIEW" => {
   const normalized = toNonEmptyString(value).toUpperCase();
   if (normalized === "KEEP" || normalized === "NEGATE" || normalized === "REVIEW") {
@@ -555,10 +588,10 @@ export const prepareAIPrefillCatalogProducts = (listings: NgramListingRow[]): AI
     const existing = deduped.get(childAsin);
     const candidate: AIPrefillCatalogProduct = {
       childAsin,
-      childSku: toNonEmptyString(listing.child_sku) || null,
-      productName,
-      category: toNonEmptyString(listing.category) || null,
-      itemDescription: toNonEmptyString(listing.item_description) || null,
+      childSku: truncateCatalogText(toNonEmptyString(listing.child_sku) || null, 80),
+      productName: truncateCatalogText(productName, 220) || productName,
+      category: truncateCatalogText(toNonEmptyString(listing.category) || null, 120),
+      itemDescription: truncateCatalogText(toNonEmptyString(listing.item_description) || null, 280),
     };
 
     if (!existing) {
@@ -572,6 +605,68 @@ export const prepareAIPrefillCatalogProducts = (listings: NgramListingRow[]): AI
   }
 
   return [...deduped.values()].sort((left, right) => left.productName.localeCompare(right.productName));
+};
+
+export const buildPreparedCatalogProductIndex = (
+  catalogProducts: AIPrefillCatalogProduct[],
+): PreparedCatalogProductIndex => {
+  const baseProducts = catalogProducts
+    .map((product) => {
+      const productName = toNonEmptyString(product.productName);
+      const childAsin = toNonEmptyString(product.childAsin);
+      if (!productName || !childAsin) return null;
+
+      const normalizedTitle = normalizeProductMatcherText(productName);
+      const normalizedSku = normalizeProductMatcherText(product.childSku);
+      const normalizedCategory = normalizeProductMatcherText(product.category);
+      const normalizedDescription = normalizeProductMatcherText(product.itemDescription);
+      const titleTokens = dedupeTokens(normalizedTitle.split(" ").filter(isMeaningfulProductToken));
+      const skuTokens = dedupeTokens(normalizedSku.split(" ").filter(isMeaningfulProductToken));
+
+      return {
+        ...product,
+        normalizedTitle,
+        normalizedSku,
+        normalizedCategory,
+        normalizedDescription,
+        titleTokens,
+        skuTokens,
+        categoryTokens: dedupeTokens(normalizedCategory.split(" ").filter(isMeaningfulProductToken)),
+        descriptionTokens: dedupeTokens(normalizedDescription.split(" ").filter(isMeaningfulProductToken)),
+      };
+    })
+    .filter((product): product is NonNullable<typeof product> => Boolean(product));
+
+  const tokenFrequency = new Map<string, number>();
+  for (const product of baseProducts) {
+    const tokens = dedupeTokens([...product.titleTokens, ...product.skuTokens]);
+    for (const token of tokens) {
+      tokenFrequency.set(token, (tokenFrequency.get(token) ?? 0) + 1);
+    }
+  }
+
+  const commonTokenThreshold = Math.max(2, Math.ceil(baseProducts.length * 0.6));
+  const commonTokens = new Set(
+    [...tokenFrequency.entries()]
+      .filter(([, count]) => count >= commonTokenThreshold)
+      .map(([token]) => token),
+  );
+
+  return {
+    commonTokens,
+    tokenFrequency,
+    products: baseProducts.map((product) => {
+      const familyTokens = buildFamilyTokens(
+        [product.normalizedTitle, product.normalizedSku].filter(Boolean).join(" "),
+        commonTokens,
+      );
+      return {
+        ...product,
+        familyTokens,
+        familyKey: familyTokens.join(" "),
+      };
+    }),
+  };
 };
 
 export const validateAIPrefillCampaignResponse = (
@@ -1218,6 +1313,172 @@ const scorePreparedListingMatch = (
     (identifierWeight + listingWeight - matchedWeight || 1);
 
   return coverage * 0.72 + precision * 0.18 + jaccard * 0.1;
+};
+
+const scoreWeightedTokenOverlap = (
+  queryTokens: string[],
+  candidateTokens: string[],
+  tokenFrequency: Map<string, number>,
+): number => {
+  if (!queryTokens.length || !candidateTokens.length) return 0;
+
+  const candidateSet = new Set(candidateTokens);
+  const matchedTokens = dedupeTokens(queryTokens.filter((token) => candidateSet.has(token)));
+  if (matchedTokens.length === 0) return 0;
+
+  const queryWeight = queryTokens.reduce((sum, token) => sum + tokenWeight(token, tokenFrequency), 0);
+  const candidateWeight = candidateTokens.reduce((sum, token) => sum + tokenWeight(token, tokenFrequency), 0);
+  const matchedWeight = matchedTokens.reduce((sum, token) => sum + tokenWeight(token, tokenFrequency), 0);
+
+  const coverage = queryWeight > 0 ? matchedWeight / queryWeight : 0;
+  const precision = candidateWeight > 0 ? matchedWeight / candidateWeight : 0;
+  return coverage * 0.68 + precision * 0.32;
+};
+
+const buildCatalogCampaignQuery = (
+  campaignName: string,
+  catalog: PreparedCatalogProductIndex,
+): {
+  normalizedIdentifier: string;
+  normalizedTheme: string;
+  familyTokens: string[];
+  familyKey: string;
+  campaignTokens: string[];
+  themeTokens: string[];
+} => {
+  const identifier = parseCampaignProductIdentifier(campaignName);
+  const theme = parseCampaignTheme(campaignName);
+  const normalizedIdentifier = normalizeProductMatcherText(identifier);
+  const normalizedTheme = normalizeProductMatcherText(theme);
+  const familyTokens = buildFamilyTokens(normalizedIdentifier, catalog.commonTokens);
+  const themeTokens = dedupeTokens(normalizedTheme.split(" ").filter(isMeaningfulProductToken));
+  const campaignTokens = dedupeTokens(
+    [...familyTokens, ...themeTokens, ...tokenize(campaignName)].filter(isMeaningfulProductToken),
+  );
+
+  return {
+    normalizedIdentifier,
+    normalizedTheme,
+    familyTokens,
+    familyKey: familyTokens.join(" "),
+    campaignTokens,
+    themeTokens,
+  };
+};
+
+const scoreCatalogProductCandidate = (
+  query: ReturnType<typeof buildCatalogCampaignQuery>,
+  product: PreparedCatalogProductIndex["products"][number],
+  tokenFrequency: Map<string, number>,
+): { score: number; signals: string[] } => {
+  const signals: string[] = [];
+  const familyScore = query.familyTokens.length
+    ? scoreWeightedTokenOverlap(query.familyTokens, product.familyTokens, tokenFrequency)
+    : 0;
+  const titleScore = scoreWeightedTokenOverlap(query.campaignTokens, product.titleTokens, tokenFrequency);
+  const skuScore = scoreWeightedTokenOverlap(query.campaignTokens, product.skuTokens, tokenFrequency);
+  const themeSourceTokens = query.themeTokens.length > 0 ? query.themeTokens : query.campaignTokens;
+  const descriptionScore = scoreWeightedTokenOverlap(themeSourceTokens, product.descriptionTokens, tokenFrequency);
+  const categoryScore = scoreWeightedTokenOverlap(themeSourceTokens, product.categoryTokens, tokenFrequency);
+
+  let score =
+    familyScore * 0.88 +
+    titleScore * 0.52 +
+    skuScore * 1.06 +
+    descriptionScore * 0.14 +
+    categoryScore * 0.08;
+
+  if (query.familyKey && product.familyKey && query.familyKey === product.familyKey) {
+    score += 0.72;
+    signals.push("family_exact");
+  } else if (familyScore >= 0.9) {
+    signals.push("family_strong");
+  }
+
+  if (query.normalizedIdentifier && product.normalizedSku) {
+    if (product.normalizedSku === query.normalizedIdentifier) {
+      score += 1.25;
+      signals.push("sku_exact");
+    } else if (
+      product.normalizedSku.includes(query.normalizedIdentifier) ||
+      query.normalizedIdentifier.includes(product.normalizedSku)
+    ) {
+      score += 0.86;
+      signals.push("sku_phrase");
+    }
+  }
+
+  if (query.normalizedIdentifier && product.normalizedTitle) {
+    if (product.normalizedTitle === query.normalizedIdentifier) {
+      score += 1.0;
+      signals.push("title_exact");
+    } else if (
+      product.normalizedTitle.includes(query.normalizedIdentifier) ||
+      query.normalizedIdentifier.includes(product.normalizedTitle)
+    ) {
+      score += 0.58;
+      signals.push("title_phrase");
+    }
+  }
+
+  if (query.normalizedTheme && product.normalizedCategory.includes(query.normalizedTheme)) {
+    score += 0.12;
+    signals.push("category_theme");
+  }
+
+  if (query.normalizedTheme && product.normalizedDescription.includes(query.normalizedTheme)) {
+    score += 0.1;
+    signals.push("description_theme");
+  }
+
+  return {
+    score,
+    signals,
+  };
+};
+
+export const selectCatalogCandidatesForCampaign = (
+  campaignName: string,
+  catalogProducts: AIPrefillCatalogProduct[] | PreparedCatalogProductIndex,
+  options?: {
+    limit?: number;
+  },
+): RankedCatalogProductCandidate[] => {
+  const catalog = Array.isArray(catalogProducts)
+    ? buildPreparedCatalogProductIndex(catalogProducts)
+    : catalogProducts;
+  const query = buildCatalogCampaignQuery(campaignName, catalog);
+  const ranked = catalog.products
+    .map((product) => {
+      const { score, signals } = scoreCatalogProductCandidate(query, product, catalog.tokenFrequency);
+      return {
+        product: {
+          childAsin: product.childAsin,
+          childSku: product.childSku,
+          productName: product.productName,
+          category: product.category,
+          itemDescription: product.itemDescription,
+        },
+        score: Number(score.toFixed(4)),
+        signals,
+      };
+    })
+    .sort(
+      (left, right) =>
+        right.score - left.score ||
+        right.signals.length - left.signals.length ||
+        left.product.productName.localeCompare(right.product.productName),
+    );
+
+  const limit = Math.max(1, Math.floor(options?.limit ?? 24));
+  const positiveRanked = ranked.filter((candidate) => candidate.score > 0);
+  if (positiveRanked.length >= limit || positiveRanked.length === 0) {
+    return (positiveRanked.length > 0 ? positiveRanked : ranked).slice(0, limit);
+  }
+
+  const selectedKeys = new Set(positiveRanked.map((candidate) => candidate.product.childAsin));
+  const fallbackRanked = ranked.filter((candidate) => !selectedKeys.has(candidate.product.childAsin));
+  return [...positiveRanked, ...fallbackRanked].slice(0, limit);
 };
 
 export const chooseBestListingMatch = (

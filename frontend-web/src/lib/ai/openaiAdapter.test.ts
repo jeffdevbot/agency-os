@@ -12,6 +12,7 @@ describe("openai adapter", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
     global.fetch = originalFetch;
     delete process.env.OPENAI_MODEL_PRIMARY;
@@ -128,5 +129,49 @@ describe("openai adapter", () => {
         },
       },
     });
+  });
+
+  it("retries rate-limited requests after the suggested delay", async () => {
+    process.env.OPENAI_MODEL_PRIMARY = "gpt-5.4";
+    vi.useFakeTimers();
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 429,
+        statusText: "Too Many Requests",
+        headers: new Headers(),
+        text: async () =>
+          JSON.stringify({
+            error: {
+              message:
+                "Rate limit reached for gpt-5.4. Please try again in 1.5s.",
+            },
+          }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: "{\"ok\":true}" } }],
+          usage: { prompt_tokens: 12, completion_tokens: 4, total_tokens: 16 },
+          model: "gpt-5.4-2026-03-05",
+        }),
+      });
+    global.fetch = fetchMock as typeof fetch;
+
+    const resultPromise = createChatCompletion([{ role: "user", content: "hello" }], {
+      maxTokens: 120,
+    });
+
+    await Promise.resolve();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(1750);
+    const result = await resultPromise;
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.model).toBe("gpt-5.4-2026-03-05");
+    expect(result.tokensTotal).toBe(16);
   });
 });

@@ -50,6 +50,8 @@ export interface JsonObjectResponseFormat {
 
 export type ResponseFormat = JsonSchemaResponseFormat | JsonObjectResponseFormat;
 
+const MAX_RATE_LIMIT_RETRIES = 2;
+
 const getDefaultModel = (): string => {
   const model = process.env.OPENAI_MODEL_PRIMARY || "gpt-5.1-nano";
   return model;
@@ -72,6 +74,33 @@ const getApiKey = (): string => {
   return apiKey;
 };
 
+const sleep = async (durationMs: number): Promise<void> =>
+  new Promise((resolve) => {
+    setTimeout(resolve, durationMs);
+  });
+
+const parseRateLimitDelayMs = (response: Response, errorBody: string): number | null => {
+  const retryAfterMs = Number.parseFloat(response.headers.get("retry-after-ms") || "");
+  if (Number.isFinite(retryAfterMs) && retryAfterMs > 0) {
+    return retryAfterMs;
+  }
+
+  const retryAfterSeconds = Number.parseFloat(response.headers.get("retry-after") || "");
+  if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0) {
+    return retryAfterSeconds * 1000;
+  }
+
+  const bodyMatch = errorBody.match(/Please try again in\s+([\d.]+)s/i);
+  if (bodyMatch?.[1]) {
+    const seconds = Number.parseFloat(bodyMatch[1]);
+    if (Number.isFinite(seconds) && seconds > 0) {
+      return seconds * 1000;
+    }
+  }
+
+  return null;
+};
+
 const callOpenAIHttp = async (
   messages: ChatMessage[],
   model: string,
@@ -79,6 +108,7 @@ const callOpenAIHttp = async (
   maxTokens?: number,
   tools?: Tool[],
   responseFormat?: ResponseFormat,
+  retryCount = 0,
 ): Promise<ChatCompletionResult> => {
   const startTime = Date.now();
 
@@ -121,6 +151,22 @@ const callOpenAIHttp = async (
 
   if (!response.ok) {
     const errorBody = await response.text().catch(() => "");
+    if (response.status === 429 && retryCount < MAX_RATE_LIMIT_RETRIES) {
+      const retryDelayMs = Math.min(
+        15000,
+        Math.max(1000, Math.ceil((parseRateLimitDelayMs(response, errorBody) ?? 1000) + 250)),
+      );
+      await sleep(retryDelayMs);
+      return callOpenAIHttp(
+        messages,
+        model,
+        temperature,
+        maxTokens,
+        tools,
+        responseFormat,
+        retryCount + 1,
+      );
+    }
     throw new Error(
       `OpenAI API error (${response.status}): ${errorBody || response.statusText}`,
     );

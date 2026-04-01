@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { startTransition, useEffect, useRef, useState } from "react";
+import { startTransition, useEffect, useState } from "react";
 
 import { getBrowserSupabaseClient } from "@/lib/supabaseClient";
 import {
@@ -26,8 +26,6 @@ import {
 const defaultDates = buildNativeNgramDefaultDateRange();
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
 const AI_PREVIEW_RESULT_LIMIT = 10;
-const ACTIVITY_LINE_LIMIT = 18;
-
 if (!BACKEND_URL) {
   throw new Error("NEXT_PUBLIC_BACKEND_URL is not configured");
 }
@@ -180,8 +178,6 @@ type AIPrefillPreview = {
   warnings: string[];
 };
 
-type ActivityMode = "preview" | "full_workbook" | "preview_workbook";
-
 const formatNumber = (value: number): string => value.toLocaleString();
 
 const formatCurrency = (value: number, currencyCode: string | null | undefined): string =>
@@ -263,10 +259,7 @@ export default function NgramTwoPage() {
   const [collectingNegatives, setCollectingNegatives] = useState(false);
   const [collectError, setCollectError] = useState<string | null>(null);
   const [expandedPreviewRows, setExpandedPreviewRows] = useState<Record<string, number>>({});
-  const [activityLines, setActivityLines] = useState<string[]>([]);
-  const [activityMode, setActivityMode] = useState<ActivityMode | null>(null);
   const [toast, setToast] = useState<string | null>(null);
-  const activityScrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const supabase = getBrowserSupabaseClient();
@@ -381,22 +374,6 @@ export default function NgramTwoPage() {
     ? "Campaign names containing Ex., SDI, or SDV will be skipped."
     : "All campaign names in the selected window will be included.";
 
-  const appendActivity = (line: string) => {
-    setActivityLines((current) => [...current.slice(-(ACTIVITY_LINE_LIMIT - 1)), line]);
-  };
-
-  const startActivity = (mode: ActivityMode, initialLines: string[]) => {
-    setActivityMode(mode);
-    setActivityLines(initialLines);
-  };
-
-  const finishActivity = (finalLine?: string) => {
-    setActivityMode(null);
-    if (finalLine) {
-      appendActivity(finalLine);
-    }
-  };
-
   const handleGenerateAiWorkbook = async () => {
     if (!canGenerateWorkbook || !selectedProfile) return;
 
@@ -408,11 +385,6 @@ export default function NgramTwoPage() {
 
     setAiWorkbookGenerating(true);
     setAiWorkbookError(null);
-    startActivity("full_workbook", [
-      "Loading search-term data",
-      "Preparing campaign set",
-      "Running AI context pass",
-    ]);
 
     try {
       const previewResponse = await fetch("/api/ngram-2/ai-prefill-preview", {
@@ -447,9 +419,6 @@ export default function NgramTwoPage() {
         throw new Error("Full AI workbook run did not return a saved run id.");
       }
 
-      appendActivity("Running AI term analysis");
-      appendActivity("Saving AI run");
-
       const supabase = getBrowserSupabaseClient();
       const { data } = await supabase.auth.getSession();
       const accessToken = data.session?.access_token;
@@ -459,8 +428,6 @@ export default function NgramTwoPage() {
         setAiWorkbookGenerating(false);
         return;
       }
-
-      appendActivity("Preparing workbook");
       const response = await fetch(`${BACKEND_URL}/ngram/native-workbook-prefilled`, {
         method: "POST",
         headers: {
@@ -517,11 +484,9 @@ export default function NgramTwoPage() {
       anchor.remove();
       window.URL.revokeObjectURL(downloadUrl);
 
-      finishActivity("Done");
       setToast("Full AI review workbook download started.");
       window.setTimeout(() => setToast(null), 3200);
     } catch (generateError) {
-      finishActivity("AI workbook run failed");
       setAiWorkbookError(
         generateError instanceof Error ? generateError.message : "Full AI review workbook generation failed",
       );
@@ -535,11 +500,6 @@ export default function NgramTwoPage() {
 
     setAiPreviewWorkbookGenerating(true);
     setAiWorkbookError(null);
-    startActivity("preview_workbook", [
-      "Preparing preview workbook",
-      "Loading saved preview run",
-      "Preparing workbook download",
-    ]);
 
     try {
       const supabase = getBrowserSupabaseClient();
@@ -588,11 +548,9 @@ export default function NgramTwoPage() {
       anchor.remove();
       window.URL.revokeObjectURL(downloadUrl);
 
-      finishActivity("Done");
       setToast("Preview workbook download started.");
       window.setTimeout(() => setToast(null), 3200);
     } catch (generateError) {
-      finishActivity("Preview workbook run failed");
       setAiWorkbookError(
         generateError instanceof Error ? generateError.message : "Preview workbook generation failed",
       );
@@ -617,11 +575,6 @@ export default function NgramTwoPage() {
 
     setCollectingNegatives(true);
     setCollectError(null);
-    startActivity("preview_workbook", [
-      "Uploading reviewed workbook",
-      "Reading analyst selections",
-      "Preparing negatives summary",
-    ]);
 
     try {
       const supabase = getBrowserSupabaseClient();
@@ -665,11 +618,9 @@ export default function NgramTwoPage() {
       anchor.remove();
       window.URL.revokeObjectURL(downloadUrl);
 
-      finishActivity("Done");
       setToast("Negatives summary download started.");
       window.setTimeout(() => setToast(null), 3200);
     } catch (collectNegativesError) {
-      finishActivity("Negatives summary failed");
       setCollectError(
         collectNegativesError instanceof Error
           ? collectNegativesError.message
@@ -693,11 +644,6 @@ export default function NgramTwoPage() {
     setAiPreviewError(null);
     setAiPreview(null);
     setAiPreviewRunId(null);
-    startActivity("preview", [
-      "Loading search-term data",
-      "Preparing campaign preview",
-      "Running AI analysis",
-    ]);
 
     try {
       const response = await fetch("/api/ngram-2/ai-prefill-preview", {
@@ -726,12 +672,9 @@ export default function NgramTwoPage() {
         preview?: AIPrefillPreview;
         preview_run_id?: string | null;
       };
-      appendActivity("Saving preview run");
       setAiPreview(payload.preview ?? null);
       setAiPreviewRunId(payload.preview_run_id ?? null);
-      finishActivity("Done");
     } catch (previewError) {
-      finishActivity("Preview failed");
       setAiPreviewError(
         previewError instanceof Error ? previewError.message : "AI prefill preview failed",
       );
@@ -859,53 +802,7 @@ export default function NgramTwoPage() {
     setCollectError(null);
     setSelectedAiCampaignNames([]);
     setAiCampaignQuery("");
-    setActivityLines([]);
-    setActivityMode(null);
   }, [selectedProfile?.profileId, selectedProduct, dateFrom, dateTo, legacyExclusions]);
-
-  useEffect(() => {
-    if (!activityMode) return;
-
-    const waitingScripts: Record<ActivityMode, string[]> = {
-      preview: [
-        "Checking campaign context",
-        "Reviewing above-threshold terms",
-        "Waiting for preview response",
-        "Still generating AI recommendations",
-        "Preparing saved preview payload",
-      ],
-      full_workbook: [
-        "Checking campaign context",
-        "Reviewing above-threshold terms",
-        "Waiting for AI campaign results",
-        "Building review workbook rows",
-        "Finalizing workbook payload",
-      ],
-      preview_workbook: [
-        "Checking saved preview payload",
-        "Mapping AI review rows",
-        "Preparing workbook file",
-        "Waiting for download payload",
-      ],
-    };
-
-    let scriptIndex = 0;
-    const script = waitingScripts[activityMode];
-    const intervalId = window.setInterval(() => {
-      appendActivity(script[scriptIndex % script.length] ?? "Working…");
-      scriptIndex += 1;
-    }, 900);
-
-    return () => {
-      window.clearInterval(intervalId);
-    };
-  }, [activityMode]);
-
-  useEffect(() => {
-    const element = activityScrollRef.current;
-    if (!element) return;
-    element.scrollTop = element.scrollHeight;
-  }, [activityLines]);
 
   return (
     <div className="flex min-h-screen flex-col bg-gradient-to-br from-[#eaf2ff] via-[#dce8ff] to-[#cddcf8]">
@@ -1273,34 +1170,6 @@ export default function NgramTwoPage() {
               </div>
             )}
           </div>
-
-          {activityLines.length > 0 ? (
-            <div className="rounded-3xl border border-[#d9e4f3] bg-[#0f172a] p-5 shadow-[0_20px_50px_rgba(15,23,42,0.24)]">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#93c5fd]">
-                  Activity
-                </p>
-                <button
-                  type="button"
-                  onClick={() => setActivityLines([])}
-                  className="text-xs font-semibold uppercase tracking-[0.18em] text-[#94a3b8] transition hover:text-white"
-                >
-                  Clear
-                </button>
-              </div>
-              <div
-                ref={activityScrollRef}
-                className="mt-3 max-h-64 space-y-2 overflow-y-auto pr-2 font-mono text-sm text-[#dbeafe]"
-              >
-                {activityLines.map((line, index) => (
-                  <p key={`${line}-${index}`}>
-                    <span className="mr-2 text-[#38bdf8]">$</span>
-                    {line}
-                  </p>
-                ))}
-              </div>
-            </div>
-          ) : null}
 
           <div className="rounded-3xl border border-dashed border-[#c7d8f5] bg-white/90 p-6 shadow-[0_24px_60px_rgba(10,59,130,0.12)]">
             <div>
