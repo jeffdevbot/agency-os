@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState, startTransition } from "react";
+import { startTransition, useEffect, useState } from "react";
 
 import { getBrowserSupabaseClient } from "@/lib/supabaseClient";
 import {
@@ -25,6 +25,7 @@ import {
 
 const defaultDates = buildNativeNgramDefaultDateRange();
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
+const AI_PREVIEW_RESULT_LIMIT = 10;
 
 if (!BACKEND_URL) {
   throw new Error("NEXT_PUBLIC_BACKEND_URL is not configured");
@@ -112,9 +113,33 @@ type AIPrefillCampaignPreview = {
   itemDescription: string | null;
   matchScore: number | null;
   synthesizedPrefills: {
-    mono: Array<{ gram: string; supportTerms: string[]; negateCount: number; keepCount: number; reviewCount: number; negateSpend: number; weightedScore: number }>;
-    bi: Array<{ gram: string; supportTerms: string[]; negateCount: number; keepCount: number; reviewCount: number; negateSpend: number; weightedScore: number }>;
-    tri: Array<{ gram: string; supportTerms: string[]; negateCount: number; keepCount: number; reviewCount: number; negateSpend: number; weightedScore: number }>;
+    mono: Array<{
+      gram: string;
+      supportTerms: string[];
+      negateCount: number;
+      keepCount: number;
+      reviewCount: number;
+      negateSpend: number;
+      weightedScore: number;
+    }>;
+    bi: Array<{
+      gram: string;
+      supportTerms: string[];
+      negateCount: number;
+      keepCount: number;
+      reviewCount: number;
+      negateSpend: number;
+      weightedScore: number;
+    }>;
+    tri: Array<{
+      gram: string;
+      supportTerms: string[];
+      negateCount: number;
+      keepCount: number;
+      reviewCount: number;
+      negateSpend: number;
+      weightedScore: number;
+    }>;
   };
   modelPrefills: {
     exact: string[];
@@ -163,13 +188,46 @@ const formatCurrency = (value: number, currencyCode: string | null | undefined):
     minimumFractionDigits: 2,
   }).format(value);
 
+const formatRecommendationLabel = (
+  recommendation: AIPrefillRecommendation["recommendation"],
+): string => {
+  if (recommendation === "NEGATE") return "LIKELY NEGATE";
+  if (recommendation === "KEEP") return "SAFE KEEP";
+  return "REVIEW";
+};
+
+const formatReasonTag = (reasonTag: string): string =>
+  reasonTag
+    .split("_")
+    .filter(Boolean)
+    .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
+    .join(" ");
+
+const sortPreviewEvaluations = (
+  evaluations: AIPrefillRecommendation[],
+): AIPrefillRecommendation[] => {
+  const recommendationRank: Record<AIPrefillRecommendation["recommendation"], number> = {
+    NEGATE: 0,
+    REVIEW: 1,
+    KEEP: 2,
+  };
+
+  return [...evaluations].sort((left, right) => {
+    const recommendationDiff =
+      recommendationRank[left.recommendation] - recommendationRank[right.recommendation];
+    if (recommendationDiff !== 0) return recommendationDiff;
+    if (right.spend !== left.spend) return right.spend - left.spend;
+    return left.search_term.localeCompare(right.search_term);
+  });
+};
+
 export default function NgramTwoPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [failures, setFailures] = useState<string[]>([]);
   const [summaries, setSummaries] = useState<ClientProfileSummary[]>([]);
-  const [selectedClientId, setSelectedClientId] = useState<string>("");
-  const [selectedProfileId, setSelectedProfileId] = useState<string>("");
+  const [selectedClientId, setSelectedClientId] = useState("");
+  const [selectedProfileId, setSelectedProfileId] = useState("");
   const [selectedProduct, setSelectedProduct] = useState<SearchTermAdProductKey>("sp");
   const [dateFrom, setDateFrom] = useState(defaultDates.from);
   const [dateTo, setDateTo] = useState(defaultDates.to);
@@ -182,13 +240,14 @@ export default function NgramTwoPage() {
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [summaryError, setSummaryError] = useState<string | null>(null);
   const [summary, setSummary] = useState<NativeNgramSummary | null>(null);
-  const [spendThreshold, setSpendThreshold] = useState("3");
+  const [spendThreshold, setSpendThreshold] = useState("0.00");
   const [aiCampaignQuery, setAiCampaignQuery] = useState("");
   const [selectedAiCampaignNames, setSelectedAiCampaignNames] = useState<string[]>([]);
   const [aiPreviewLoading, setAiPreviewLoading] = useState(false);
   const [aiPreviewError, setAiPreviewError] = useState<string | null>(null);
   const [aiPreview, setAiPreview] = useState<AIPrefillPreview | null>(null);
   const [aiPreviewRunId, setAiPreviewRunId] = useState<string | null>(null);
+  const [activityLines, setActivityLines] = useState<string[]>([]);
   const [toast, setToast] = useState<string | null>(null);
 
   useEffect(() => {
@@ -203,7 +262,7 @@ export default function NgramTwoPage() {
         const accessToken = data.session?.access_token;
 
         if (!accessToken) {
-          setError("Sign in first to preview native N-Gram setup.");
+          setError("Sign in first to load N-Gram 2.0.");
           setLoading(false);
           return;
         }
@@ -225,7 +284,7 @@ export default function NgramTwoPage() {
           setSelectedProfileId(profileOptions[0]?.profileId ?? "");
         });
       } catch (loadError) {
-        setError(loadError instanceof Error ? loadError.message : "Failed to load native N-Gram setup.");
+        setError(loadError instanceof Error ? loadError.message : "Failed to load N-Gram 2.0.");
       } finally {
         setLoading(false);
       }
@@ -239,7 +298,7 @@ export default function NgramTwoPage() {
   const profileOptions = buildNativeNgramProfileOptions(summaries, activeClientId);
   const activeProfileId = selectedProfileId || profileOptions[0]?.profileId || "";
   const selectedProfile = profileOptions.find((profile) => profile.profileId === activeProfileId) ?? null;
-  const activeClientSummary = summaries.find((summary) => summary.client.id === activeClientId) ?? null;
+  const activeClientSummary = summaries.find((summaryRow) => summaryRow.client.id === activeClientId) ?? null;
   const activeClientSlug = activeClientSummary ? slugifyClientName(activeClientSummary.client.name) : "";
   const validationChecklist = getNativeNgramValidationChecklist(selectedProduct);
   const dayCount = countInclusiveDays(dateFrom, dateTo);
@@ -258,6 +317,8 @@ export default function NgramTwoPage() {
         }).toString()}`
       : null;
   const summaryAllowsWorkbook = Boolean(summary && summary.eligible_rows > 0);
+  const selectedAiCampaignName = selectedAiCampaignNames[0] ?? "";
+  const hasSelectedAiCampaign = Boolean(selectedAiCampaignName);
   const canGenerateWorkbook =
     !loading &&
     !workbookGenerating &&
@@ -268,7 +329,7 @@ export default function NgramTwoPage() {
     !summaryLoading &&
     !summaryError &&
     summaryAllowsWorkbook;
-  const canRunAiPreview =
+  const canRunPreviewBase =
     !loading &&
     !aiPreviewLoading &&
     selectedProduct === "sp" &&
@@ -278,29 +339,13 @@ export default function NgramTwoPage() {
     !summaryLoading &&
     !summaryError &&
     summaryAllowsWorkbook;
-  const aiScratchpadCounts = aiPreview
-    ? aiPreview.campaigns.reduce(
-        (counts, campaign) => {
-          if (campaign.prefillStrategy === "pure_model_single_campaign") {
-            counts.mono += campaign.modelPrefills.mono.length;
-            counts.bi += campaign.modelPrefills.bi.length;
-            counts.tri += campaign.modelPrefills.tri.length;
-          } else {
-            counts.mono += campaign.synthesizedPrefills.mono.length;
-            counts.bi += campaign.synthesizedPrefills.bi.length;
-            counts.tri += campaign.synthesizedPrefills.tri.length;
-          }
-          return counts;
-        },
-        { mono: 0, bi: 0, tri: 0 },
-      )
-    : { mono: 0, bi: 0, tri: 0 };
-  const aiExactPrefillCount = aiPreview
-    ? aiPreview.campaigns.reduce((count, campaign) => count + campaign.modelPrefills.exact.length, 0)
-    : 0;
   const canGenerateAiWorkbook = canGenerateWorkbook && !aiWorkbookGenerating;
   const canGenerateAiPreviewWorkbook =
-    canGenerateWorkbook && !aiPreviewWorkbookGenerating && Boolean(aiPreviewRunId) && Boolean(selectedProfile?.profileId);
+    canGenerateWorkbook &&
+    !aiPreviewWorkbookGenerating &&
+    Boolean(aiPreviewRunId) &&
+    Boolean(selectedProfile?.profileId);
+  const canRunPureModelPreview = canRunPreviewBase && hasSelectedAiCampaign;
   const filteredCampaignOptions = (summary?.campaigns ?? [])
     .filter((campaign) =>
       aiCampaignQuery.trim()
@@ -308,21 +353,30 @@ export default function NgramTwoPage() {
         : true,
     )
     .slice(0, 24);
-  const hasSelectedAiCampaignSubset = selectedAiCampaignNames.length > 0;
-  const canRunPureModelPreview = canRunAiPreview && selectedAiCampaignNames.length === 1;
-
-  const runStateClasses =
+  const statusToneClasses =
     runState.tone === "ready"
       ? "border-[#c7ebd4] bg-[#edf9f1] text-[#1f6b37]"
       : runState.tone === "caution"
-        ? "border-[#f1dfbe] bg-[#fff7eb] text-[#8a5a15]"
-        : "border-[#e2d7d7] bg-[#fff6f6] text-[#8f1d1d]";
+        ? "border-[#f0d9b1] bg-[#fff8ee] text-[#8a5a15]"
+        : "border-[#f3d0d0] bg-[#fff5f5] text-[#8f1d1d]";
+  const campaignExclusionHelper = legacyExclusions
+    ? "Campaign names containing Ex., SDI, or SDV will be skipped."
+    : "All campaign names in the selected window will be included.";
+
+  const resetActivity = (firstLine?: string) => {
+    setActivityLines(firstLine ? [firstLine] : []);
+  };
+
+  const appendActivity = (line: string) => {
+    setActivityLines((current) => [...current.slice(-6), line]);
+  };
 
   const handleGenerateWorkbook = async () => {
     if (!canGenerateWorkbook || !selectedProfile) return;
 
     setWorkbookGenerating(true);
     setWorkbookError(null);
+    resetActivity("Loading search-term data");
 
     try {
       const supabase = getBrowserSupabaseClient();
@@ -335,6 +389,7 @@ export default function NgramTwoPage() {
         return;
       }
 
+      appendActivity("Preparing workbook");
       const response = await fetch(`${BACKEND_URL}/ngram/native-workbook`, {
         method: "POST",
         headers: {
@@ -352,7 +407,7 @@ export default function NgramTwoPage() {
 
       if (!response.ok) {
         const detail = await response.json().catch(() => undefined);
-        throw new Error(detail?.detail || "Native workbook generation failed");
+        throw new Error(detail?.detail || "Workbook generation failed");
       }
 
       const blob = await response.blob();
@@ -369,11 +424,13 @@ export default function NgramTwoPage() {
       anchor.remove();
       window.URL.revokeObjectURL(downloadUrl);
 
-      setToast("Native workbook download started.");
+      appendActivity("Done");
+      setToast("Workbook download started.");
       window.setTimeout(() => setToast(null), 3200);
     } catch (generateError) {
+      appendActivity("Workbook run failed");
       setWorkbookError(
-        generateError instanceof Error ? generateError.message : "Native workbook generation failed",
+        generateError instanceof Error ? generateError.message : "Workbook generation failed",
       );
     } finally {
       setWorkbookGenerating(false);
@@ -391,8 +448,11 @@ export default function NgramTwoPage() {
 
     setAiWorkbookGenerating(true);
     setAiWorkbookError(null);
+    resetActivity("Loading search-term data");
 
     try {
+      appendActivity("Preparing campaign set");
+      appendActivity("Running AI context and term analysis");
       const previewResponse = await fetch("/api/ngram-2/ai-prefill-preview", {
         method: "POST",
         headers: {
@@ -425,6 +485,8 @@ export default function NgramTwoPage() {
         throw new Error("Full AI workbook run did not return a saved run id.");
       }
 
+      appendActivity("Saving AI run");
+
       const supabase = getBrowserSupabaseClient();
       const { data } = await supabase.auth.getSession();
       const accessToken = data.session?.access_token;
@@ -435,6 +497,7 @@ export default function NgramTwoPage() {
         return;
       }
 
+      appendActivity("Preparing workbook");
       const response = await fetch(`${BACKEND_URL}/ngram/native-workbook-prefilled`, {
         method: "POST",
         headers: {
@@ -491,9 +554,11 @@ export default function NgramTwoPage() {
       anchor.remove();
       window.URL.revokeObjectURL(downloadUrl);
 
+      appendActivity("Done");
       setToast("Full AI review workbook download started.");
       window.setTimeout(() => setToast(null), 3200);
     } catch (generateError) {
+      appendActivity("AI workbook run failed");
       setAiWorkbookError(
         generateError instanceof Error ? generateError.message : "Full AI review workbook generation failed",
       );
@@ -507,6 +572,7 @@ export default function NgramTwoPage() {
 
     setAiPreviewWorkbookGenerating(true);
     setAiWorkbookError(null);
+    resetActivity("Preparing preview workbook");
 
     try {
       const supabase = getBrowserSupabaseClient();
@@ -519,6 +585,7 @@ export default function NgramTwoPage() {
         return;
       }
 
+      appendActivity("Loading saved preview run");
       const response = await fetch(`${BACKEND_URL}/ngram/native-workbook-prefilled`, {
         method: "POST",
         headers: {
@@ -555,9 +622,11 @@ export default function NgramTwoPage() {
       anchor.remove();
       window.URL.revokeObjectURL(downloadUrl);
 
-      setToast("AI preview workbook download started.");
+      appendActivity("Done");
+      setToast("Preview workbook download started.");
       window.setTimeout(() => setToast(null), 3200);
     } catch (generateError) {
+      appendActivity("Preview workbook run failed");
       setAiWorkbookError(
         generateError instanceof Error ? generateError.message : "Preview workbook generation failed",
       );
@@ -566,10 +635,8 @@ export default function NgramTwoPage() {
     }
   };
 
-  const runAiPreview = async (prefillStrategy: AIPrefillStrategy) => {
-    if (!selectedProfile) return;
-    if (prefillStrategy === "heuristic_synthesis" && !canRunAiPreview) return;
-    if (prefillStrategy === "pure_model_single_campaign" && !canRunPureModelPreview) return;
+  const handleRunPureModelPreview = async () => {
+    if (!selectedProfile || !canRunPureModelPreview) return;
 
     const parsedThreshold = Number.parseFloat(spendThreshold);
     if (!Number.isFinite(parsedThreshold) || parsedThreshold < 0) {
@@ -581,8 +648,11 @@ export default function NgramTwoPage() {
     setAiPreviewError(null);
     setAiPreview(null);
     setAiPreviewRunId(null);
+    resetActivity("Loading search-term data");
 
     try {
+      appendActivity("Preparing campaign preview");
+      appendActivity("Running AI analysis");
       const response = await fetch("/api/ngram-2/ai-prefill-preview", {
         method: "POST",
         headers: {
@@ -596,7 +666,7 @@ export default function NgramTwoPage() {
           spend_threshold: parsedThreshold,
           respect_legacy_exclusions: legacyExclusions,
           campaign_names: selectedAiCampaignNames,
-          prefill_strategy: prefillStrategy,
+          prefill_strategy: "pure_model_single_campaign",
         }),
       });
 
@@ -609,9 +679,12 @@ export default function NgramTwoPage() {
         preview?: AIPrefillPreview;
         preview_run_id?: string | null;
       };
+      appendActivity("Saving preview run");
       setAiPreview(payload.preview ?? null);
       setAiPreviewRunId(payload.preview_run_id ?? null);
+      appendActivity("Done");
     } catch (previewError) {
+      appendActivity("Preview failed");
       setAiPreviewError(
         previewError instanceof Error ? previewError.message : "AI prefill preview failed",
       );
@@ -620,16 +693,8 @@ export default function NgramTwoPage() {
     }
   };
 
-  const handleRunAiPreview = async () => runAiPreview("heuristic_synthesis");
-
-  const handleRunPureModelPreview = async () => runAiPreview("pure_model_single_campaign");
-
   const toggleSelectedAiCampaignName = (campaignName: string) => {
-    setSelectedAiCampaignNames((current) =>
-      current.includes(campaignName)
-        ? current.filter((value) => value !== campaignName)
-        : [...current, campaignName],
-    );
+    setSelectedAiCampaignNames((current) => (current[0] === campaignName ? [] : [campaignName]));
   };
 
   useEffect(() => {
@@ -698,7 +763,7 @@ export default function NgramTwoPage() {
 
         if (!response.ok) {
           const detail = await response.json().catch(() => undefined);
-          throw new Error(detail?.detail || "Native summary failed");
+          throw new Error(detail?.detail || "Data summary failed");
         }
 
         const payload = (await response.json()) as { summary?: NativeNgramSummary };
@@ -708,7 +773,7 @@ export default function NgramTwoPage() {
       } catch (loadError) {
         if (!cancelled) {
           setSummary(null);
-          setSummaryError(loadError instanceof Error ? loadError.message : "Native summary failed");
+          setSummaryError(loadError instanceof Error ? loadError.message : "Data summary failed");
         }
       } finally {
         if (!cancelled) {
@@ -740,58 +805,38 @@ export default function NgramTwoPage() {
     setAiWorkbookError(null);
     setSelectedAiCampaignNames([]);
     setAiCampaignQuery("");
+    setActivityLines([]);
   }, [selectedProfile?.profileId, selectedProduct, dateFrom, dateTo, legacyExclusions]);
 
   return (
     <div className="flex min-h-screen flex-col bg-gradient-to-br from-[#eaf2ff] via-[#dce8ff] to-[#cddcf8]">
       <header className="border-b border-slate-200 bg-white px-6 py-4 shadow-sm">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-baseline gap-3">
-          <h1 className="text-xl font-bold tracking-tight text-slate-900">N-GRAM 2.0</h1>
-          <p className="text-sm text-slate-500">
-            Native search-term input for the current workbook flow.
-          </p>
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 className="text-xl font-bold tracking-tight text-slate-900">N-GRAM 2.0</h1>
+            <p className="text-sm text-slate-500">
+              Build an N-Gram workbook from Agency OS search-term data.
+            </p>
+          </div>
+          <Link
+            href="/ngram"
+            className="rounded-full border border-[#c9d8f8] bg-[#eff5ff] px-4 py-2 text-sm font-semibold text-[#2453a6] transition hover:bg-[#e1ecff]"
+          >
+            Open Classic N-Gram
+          </Link>
         </div>
       </header>
 
       <div className="flex flex-1 items-start justify-center px-4 pb-16 pt-10">
         <div className="w-full max-w-5xl space-y-10">
           <div className="rounded-3xl bg-white/95 p-8 shadow-[0_30px_80px_rgba(10,59,130,0.15)]">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div>
-                <div className="flex flex-wrap items-center gap-3">
-                  <span className="rounded-full border border-[#d8c4a4] bg-[#fff7eb] px-3 py-1 text-xs font-semibold uppercase tracking-[0.22em] text-[#8a5a15]">
-                    Experimental
-                  </span>
-                  <span className="rounded-full border border-[#cad8f7] bg-[#eff5ff] px-3 py-1 text-xs font-semibold uppercase tracking-[0.22em] text-[#2453a6]">
-                    Workbook First
-                  </span>
-                </div>
-                <p className="mt-4 max-w-3xl text-sm leading-6 text-[#4c576f]">
-                  Replace the old Pacvue export/upload step first. Generate the same practical workbook from native Agency OS data, while the legacy{" "}
-                  <Link
-                    href="/ngram"
-                    className="font-semibold text-[#0a6fd6] underline decoration-[#9abfff] underline-offset-4"
-                  >
-                    N-Gram Processor
-                  </Link>{" "}
-                  stays live and untouched.
-                </p>
-              </div>
-              <Link
-                href="/ngram"
-                className="rounded-full border border-[#c9d8f8] bg-[#eff5ff] px-4 py-2 text-sm font-semibold text-[#2453a6] transition hover:bg-[#e1ecff]"
-              >
-                Open Classic N-Gram
-              </Link>
-            </div>
-          </div>
-
-          <div className="rounded-3xl bg-white/95 p-8 shadow-[0_30px_80px_rgba(10,59,130,0.15)]">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.25em] text-[#94a3b8]">Step 1</p>
-              <h2 className="mt-1 text-lg font-semibold text-[#0f172a]">Select native search-term data</h2>
+              <h2 className="mt-1 text-lg font-semibold text-[#0f172a]">
+                Choose Account, Marketplace, Date Range, and Ad Type
+              </h2>
               <p className="text-sm text-[#4c576f]">
-                Choose the client, marketplace, ad product, and date range that should feed the workbook.
+                Choose the search-term window that should feed the workbook and the AI review pass.
               </p>
             </div>
 
@@ -801,9 +846,13 @@ export default function NgramTwoPage() {
                 <select
                   value={activeClientId}
                   onChange={(event) => setSelectedClientId(event.target.value)}
+                  disabled={loading}
                   className="w-full rounded-2xl border border-[#d4ddea] bg-white px-4 py-3 text-sm text-[#1b2430] shadow-sm outline-none transition focus:border-[#8bb6ff] focus:ring-4 focus:ring-[#d8e8ff]"
                 >
-                  {clientOptions.length === 0 ? <option value="">No connected clients found</option> : null}
+                  {loading ? <option value="">Loading clients…</option> : null}
+                  {!loading && clientOptions.length === 0 ? (
+                    <option value="">No clients available</option>
+                  ) : null}
                   {clientOptions.map((client) => (
                     <option key={client.clientId} value={client.clientId}>
                       {client.clientName} ({client.profileCount})
@@ -817,9 +866,13 @@ export default function NgramTwoPage() {
                 <select
                   value={activeProfileId}
                   onChange={(event) => setSelectedProfileId(event.target.value)}
+                  disabled={loading}
                   className="w-full rounded-2xl border border-[#d4ddea] bg-white px-4 py-3 text-sm text-[#1b2430] shadow-sm outline-none transition focus:border-[#8bb6ff] focus:ring-4 focus:ring-[#d8e8ff]"
                 >
-                  {profileOptions.length === 0 ? <option value="">No connected marketplace found</option> : null}
+                  {loading ? <option value="">Loading marketplaces…</option> : null}
+                  {!loading && profileOptions.length === 0 ? (
+                    <option value="">No marketplaces available</option>
+                  ) : null}
                   {profileOptions.map((profile) => (
                     <option key={profile.profileId} value={profile.profileId}>
                       {profile.displayName} ({profile.marketplaceCode})
@@ -849,15 +902,18 @@ export default function NgramTwoPage() {
               </label>
             </div>
 
+            <p className="mt-3 text-xs text-[#7d8ba1]">
+              Missing a client or marketplace? Contact the admin (Jeff) to have it added.
+            </p>
+
             <div className="mt-8">
-              <p className="text-sm font-semibold text-[#1b2430]">Ad product</p>
-              <p className="mt-1 text-sm text-[#4c576f]">
-                Keep the native flow anchored to the validated Amazon report contract for each ad product.
-              </p>
+              <p className="text-sm font-semibold text-[#1b2430]">Ad type</p>
 
               <div className="mt-4 grid gap-4 lg:grid-cols-3">
                 {ACTIVE_SEARCH_TERM_AD_PRODUCTS.map((product) => {
                   const selected = selectedProduct === product.key;
+                  const statusLabel = product.key === "sb" ? "live" : product.status;
+
                   return (
                     <button
                       key={product.key}
@@ -878,16 +934,15 @@ export default function NgramTwoPage() {
                         </div>
                         <span
                           className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] ${
-                            product.status === "live"
+                            statusLabel === "live"
                               ? "bg-[#eaf7ee] text-[#1c7a3b]"
                               : "bg-[#fff2df] text-[#9c6b1f]"
                           }`}
                         >
-                          {product.status}
+                          {statusLabel}
                         </span>
                       </div>
                       <p className="mt-4 text-sm leading-6 text-[#526074]">{product.summary}</p>
-                      <p className="mt-3 text-xs leading-5 text-[#7a879b]">{product.availabilityNote}</p>
                     </button>
                   );
                 })}
@@ -909,59 +964,46 @@ export default function NgramTwoPage() {
                       </span>
                     </div>
                     <p className="mt-4 text-sm leading-6 text-[#526074]">{product.summary}</p>
-                    <p className="mt-3 text-xs leading-5 text-[#7a879b]">{product.availabilityNote}</p>
                   </div>
                 ))}
               </div>
             </div>
 
-            <div className="mt-8">
+            <div className="mt-8 grid gap-4 md:grid-cols-[1fr_280px]">
               <button
                 type="button"
                 onClick={() => setLegacyExclusions((current) => !current)}
-                className={`w-full rounded-2xl border px-4 py-4 text-left transition ${
-                  legacyExclusions
-                    ? "border-[#c7d9ff] bg-[#eef5ff]"
-                    : "border-[#d7dfec] bg-white"
+                className={`rounded-2xl border px-4 py-4 text-left transition ${
+                  legacyExclusions ? "border-[#c7d9ff] bg-[#eef5ff]" : "border-[#d7dfec] bg-white"
                 }`}
               >
-                <p className="text-sm font-semibold text-[#1b2430]">Respect legacy exclusions</p>
-                <p className="mt-1 text-sm text-[#4c576f]">
-                  Exclude campaign names containing <span className="font-semibold text-[#1b2430]">Ex.</span>, <span className="font-semibold text-[#1b2430]">SDI</span>, or <span className="font-semibold text-[#1b2430]">SDV</span> so the native workbook matches the current analyst flow.
-                </p>
+                <p className="text-sm font-semibold text-[#1b2430]">Campaign exclusions</p>
+                <p className="mt-1 text-sm text-[#4c576f]">{campaignExclusionHelper}</p>
               </button>
+
+              <label className="space-y-2">
+                <span className="text-sm font-semibold text-[#1b2430]">Minimum Spend per Search Term</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={spendThreshold}
+                  onChange={(event) => setSpendThreshold(event.target.value)}
+                  className="w-full rounded-2xl border border-[#d4ddea] bg-white px-4 py-3 text-sm text-[#1b2430] shadow-sm outline-none transition focus:border-[#8bb6ff] focus:ring-4 focus:ring-[#d8e8ff]"
+                />
+                <p className="text-xs text-[#7d8ba1]">
+                  AI review only looks at terms at or above this spend.
+                </p>
+              </label>
             </div>
 
-            <div className="mt-6 rounded-2xl border border-[#dbe4f0] bg-[#f7faff] p-4">
+            <div className={`mt-4 rounded-2xl border px-4 py-3 text-sm ${statusToneClasses}`}>
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm font-semibold text-[#0f172a]">Run readiness</p>
-                  <p className="mt-1 text-sm text-[#4c576f]">{runState.note}</p>
-                </div>
-                <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] ${runStateClasses}`}>
-                  {runState.label}
-                </span>
-              </div>
-
-              <div className="mt-4 grid gap-3 md:grid-cols-3">
-                <div className="rounded-xl border border-[#dbe4f0] bg-white px-4 py-3">
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7d8ba1]">Range span</p>
-                  <p className="mt-2 text-base font-semibold text-[#0f172a]">
-                    {dayCount === null ? "Invalid dates" : `${dayCount} day${dayCount === 1 ? "" : "s"}`}
-                  </p>
-                </div>
-                <div className="rounded-xl border border-[#dbe4f0] bg-white px-4 py-3">
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7d8ba1]">Selected lane</p>
-                  <p className="mt-2 text-base font-semibold text-[#0f172a]">
-                    {selectedProductConfig?.label ?? "Unknown"}
-                  </p>
-                </div>
-                <div className="rounded-xl border border-[#dbe4f0] bg-white px-4 py-3">
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7d8ba1]">Nightly sync</p>
-                  <p className="mt-2 text-base font-semibold text-[#0f172a]">
-                    {selectedProfile?.nightlyByProduct[selectedProduct] ? "Enabled" : "Manual / on demand"}
-                  </p>
-                </div>
+                <p>
+                  {runState.note}
+                  {dayCount !== null ? ` Selected range: ${dayCount} day${dayCount === 1 ? "" : "s"}.` : ""}
+                </p>
+                <span className="font-semibold uppercase tracking-[0.18em]">{runState.label}</span>
               </div>
             </div>
 
@@ -982,9 +1024,9 @@ export default function NgramTwoPage() {
           <div className="rounded-3xl bg-white/95 p-8 shadow-[0_30px_80px_rgba(10,59,130,0.15)]">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.25em] text-[#94a3b8]">Step 2</p>
-              <h2 className="mt-1 text-lg font-semibold text-[#0f172a]">Review imported summary</h2>
+              <h2 className="mt-1 text-lg font-semibold text-[#0f172a]">Data Summary</h2>
               <p className="text-sm text-[#4c576f]">
-                Check the selected window totals before generating the workbook. Inspect rows only when something looks off.
+                Give the selected window a quick totals check before you generate the workbook.
               </p>
             </div>
 
@@ -998,7 +1040,7 @@ export default function NgramTwoPage() {
 
                 {summaryLoading && !summary ? (
                   <div className="mt-6 rounded-2xl border border-[#dbe4f0] bg-[#f7faff] p-5 text-sm text-[#4c576f]">
-                    Loading native preflight summary...
+                    Loading data summary...
                   </div>
                 ) : null}
 
@@ -1015,49 +1057,104 @@ export default function NgramTwoPage() {
                           </div>
                         ))}
                       </div>
-                    ) : (
-                      <div className="mt-6 rounded-xl border border-[#c7ebd4] bg-[#edf9f1] px-4 py-3 text-sm text-[#1f6b37]">
-                        Selected window looks healthy for native workbook generation.
-                      </div>
-                    )}
+                    ) : null}
 
                     <div className="mt-6 grid gap-4 md:grid-cols-2">
                       <div className="rounded-2xl border border-[#dbe4f0] bg-[#f7faff] p-4">
-                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7d8ba1]">Imported totals</p>
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7d8ba1]">
+                          Imported totals
+                        </p>
                         <div className="mt-3 space-y-2 text-sm text-[#4c576f]">
-                          <p>Clicks: <span className="font-semibold text-[#0f172a]">{formatNumber(summary.imported_totals.clicks)}</span></p>
-                          <p>Spend: <span className="font-semibold text-[#0f172a]">{formatCurrency(summary.imported_totals.spend, selectedProfile?.currencyCode)}</span></p>
-                          <p>Orders: <span className="font-semibold text-[#0f172a]">{formatNumber(summary.imported_totals.orders)}</span></p>
-                          <p>Sales: <span className="font-semibold text-[#0f172a]">{formatCurrency(summary.imported_totals.sales, selectedProfile?.currencyCode)}</span></p>
+                          <p>
+                            Clicks:{" "}
+                            <span className="font-semibold text-[#0f172a]">
+                              {formatNumber(summary.imported_totals.clicks)}
+                            </span>
+                          </p>
+                          <p>
+                            Spend:{" "}
+                            <span className="font-semibold text-[#0f172a]">
+                              {formatCurrency(summary.imported_totals.spend, selectedProfile?.currencyCode)}
+                            </span>
+                          </p>
+                          <p>
+                            Orders:{" "}
+                            <span className="font-semibold text-[#0f172a]">
+                              {formatNumber(summary.imported_totals.orders)}
+                            </span>
+                          </p>
+                          <p>
+                            Sales:{" "}
+                            <span className="font-semibold text-[#0f172a]">
+                              {formatCurrency(summary.imported_totals.sales, selectedProfile?.currencyCode)}
+                            </span>
+                          </p>
                         </div>
                       </div>
+
                       <div className="rounded-2xl border border-[#dbe4f0] bg-[#f7faff] p-4">
-                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7d8ba1]">Workbook input</p>
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7d8ba1]">
+                          Workbook input
+                        </p>
                         <div className="mt-3 space-y-2 text-sm text-[#4c576f]">
-                          <p>Eligible rows: <span className="font-semibold text-[#0f172a]">{formatNumber(summary.eligible_rows)}</span></p>
-                          <p>Campaigns: <span className="font-semibold text-[#0f172a]">{formatNumber(summary.campaigns_included)}</span></p>
-                          <p>Search terms: <span className="font-semibold text-[#0f172a]">{formatNumber(summary.unique_search_terms)}</span></p>
-                          <p>Coverage: <span className="font-semibold text-[#0f172a]">{summary.coverage_start ?? "—"} to {summary.coverage_end ?? "—"}</span></p>
-                          <p>ASIN rows removed: <span className="font-semibold text-[#0f172a]">{formatNumber(summary.excluded_asin_rows)}</span></p>
-                          <p>Legacy skips: <span className="font-semibold text-[#0f172a]">{formatNumber(summary.campaigns_skipped)}</span></p>
+                          <p>
+                            Eligible rows:{" "}
+                            <span className="font-semibold text-[#0f172a]">
+                              {formatNumber(summary.eligible_rows)}
+                            </span>
+                          </p>
+                          <p>
+                            Campaigns:{" "}
+                            <span className="font-semibold text-[#0f172a]">
+                              {formatNumber(summary.campaigns_included)}
+                            </span>
+                          </p>
+                          <p>
+                            Search terms:{" "}
+                            <span className="font-semibold text-[#0f172a]">
+                              {formatNumber(summary.unique_search_terms)}
+                            </span>
+                          </p>
+                          <p>
+                            Coverage:{" "}
+                            <span className="font-semibold text-[#0f172a]">
+                              {summary.coverage_start ?? "—"} to {summary.coverage_end ?? "—"}
+                            </span>
+                          </p>
+                          <p>
+                            ASIN rows removed:{" "}
+                            <span className="font-semibold text-[#0f172a]">
+                              {formatNumber(summary.excluded_asin_rows)}
+                            </span>
+                          </p>
+                          <p>
+                            Campaigns skipped:{" "}
+                            <span className="font-semibold text-[#0f172a]">
+                              {formatNumber(summary.campaigns_skipped)}
+                            </span>
+                          </p>
                         </div>
                       </div>
                     </div>
 
-                    <div className="mt-6 rounded-2xl border border-[#dbe4f0] bg-[#f7faff] p-4">
-                      <p className="text-sm font-semibold text-[#0f172a]">Spot-check rows only when needed</p>
-                      <p className="mt-1 text-sm text-[#4c576f]">
-                        Use the admin Search Term Data view for onboarding, debugging, or investigating a warning. It is not meant to be a required step on every run.
-                      </p>
+                    <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#dbe4f0] bg-[#fbfdff] px-4 py-3 text-sm text-[#4c576f]">
+                      <div>
+                        <p className="font-semibold text-[#0f172a]">
+                          Spot-check rows only if you want a closer look.
+                        </p>
+                        <p className="mt-1 text-xs text-[#7d8ba1]">
+                          Campaign exclusions are {legacyExclusions ? "on" : "off"}. Open Search Term Data in a new tab if you want to inspect a few rows or investigate a warning.
+                        </p>
+                      </div>
                       {inspectRowsHref ? (
-                        <div className="mt-4">
-                          <Link
-                            href={inspectRowsHref}
-                            className="inline-flex rounded-full bg-white px-5 py-2 text-sm font-semibold text-[#0a6fd6] shadow"
-                          >
-                            Inspect rows
-                          </Link>
-                        </div>
+                        <Link
+                          href={inspectRowsHref}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex rounded-full bg-white px-5 py-2 text-sm font-semibold text-[#0a6fd6] shadow"
+                        >
+                          Open Search Term Data
+                        </Link>
                       ) : null}
                     </div>
                   </>
@@ -1066,7 +1163,10 @@ export default function NgramTwoPage() {
             ) : (
               <div className="mt-6 space-y-3">
                 {validationChecklist.map((item) => (
-                  <div key={item} className="rounded-xl border border-[#dbe4f0] bg-[#f7faff] px-4 py-3 text-sm text-[#4c576f]">
+                  <div
+                    key={item}
+                    className="rounded-xl border border-[#dbe4f0] bg-[#f7faff] px-4 py-3 text-sm text-[#4c576f]"
+                  >
                     {item}
                   </div>
                 ))}
@@ -1074,70 +1174,77 @@ export default function NgramTwoPage() {
             )}
           </div>
 
-          <div className="rounded-3xl bg-white/95 p-8 shadow-[0_30px_80px_rgba(10,59,130,0.15)]">
+          {activityLines.length > 0 ? (
+            <div className="rounded-3xl border border-[#d9e4f3] bg-[#0f172a] p-5 shadow-[0_20px_50px_rgba(15,23,42,0.24)]">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#93c5fd]">
+                  Activity
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setActivityLines([])}
+                  className="text-xs font-semibold uppercase tracking-[0.18em] text-[#94a3b8] transition hover:text-white"
+                >
+                  Clear
+                </button>
+              </div>
+              <div className="mt-3 space-y-2 font-mono text-sm text-[#dbeafe]">
+                {activityLines.map((line, index) => (
+                  <p key={`${line}-${index}`}>
+                    <span className="mr-2 text-[#38bdf8]">$</span>
+                    {line}
+                  </p>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          <div className="rounded-3xl border border-dashed border-[#c7d8f5] bg-white/90 p-6 shadow-[0_24px_60px_rgba(10,59,130,0.12)]">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.25em] text-[#94a3b8]">Step 3</p>
-              <h2 className="mt-1 text-lg font-semibold text-[#0f172a]">Preview AI prefill</h2>
+              <h2 className="mt-1 text-lg font-semibold text-[#0f172a]">
+                Optional: Preview AI Analysis on a Few Campaigns
+              </h2>
               <p className="text-sm text-[#4c576f]">
-                Optional term-level AI recommendations on the selected native window. This is a review surface only for now, not a direct workbook write.
+                Use this if you want a quick spot-check before generating the workbook. Pick one campaign, run a small preview, and review the AI triage.
               </p>
             </div>
 
-            <div className="mt-6 grid gap-4 md:grid-cols-[220px_1fr]">
-              <label className="space-y-2">
-                <span className="text-sm font-semibold text-[#1b2430]">Spend threshold</span>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={spendThreshold}
-                  onChange={(event) => setSpendThreshold(event.target.value)}
-                  className="w-full rounded-2xl border border-[#d4ddea] bg-white px-4 py-3 text-sm text-[#1b2430] shadow-sm outline-none transition focus:border-[#8bb6ff] focus:ring-4 focus:ring-[#d8e8ff]"
-                />
-              </label>
-
-              <div className="rounded-2xl border border-[#dbe4f0] bg-[#f7faff] p-4">
-                <p className="text-sm font-semibold text-[#0f172a]">Per-run filter</p>
-                <p className="mt-1 text-sm text-[#4c576f]">
-                  Terms below this spend threshold stay untouched. Leave campaign selection empty to use the capped top-spend preview, or pick one or more campaigns to run a cheaper full-term subset pass and export that preview workbook.
-                </p>
-                <div className="mt-4 flex flex-wrap gap-3">
-                  <button
-                    type="button"
-                    disabled={!canRunAiPreview}
-                    onClick={handleRunAiPreview}
-                    className="inline-flex rounded-full bg-[#0f172a] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#1e293b] disabled:cursor-not-allowed disabled:bg-[#a8b4c8]"
-                  >
-                    {aiPreviewLoading ? "Running AI preview…" : "Run Shipped AI Preview"}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={!canRunPureModelPreview}
-                    onClick={handleRunPureModelPreview}
-                    className="inline-flex rounded-full border border-[#b9c9e6] bg-white px-5 py-2.5 text-sm font-semibold text-[#0f172a] transition hover:border-[#8bb6ff] hover:bg-[#eef5ff] disabled:cursor-not-allowed disabled:border-[#d7deea] disabled:text-[#94a3b8]"
-                  >
-                    {aiPreviewLoading ? "Running pivot preview…" : "Run Pure-Model Pivot Preview"}
-                  </button>
-                </div>
-                <p className="mt-3 text-xs text-[#7d8ba1]">
-                  Pure-model pivot preview currently requires exactly one selected campaign and keeps Step 4 full workbook generation on the shipped heuristic path.
-                </p>
+            <div className="mt-4 rounded-2xl border border-[#dbe4f0] bg-[#f7faff] p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-sm font-semibold text-[#0f172a]">Preview one campaign</p>
+                <button
+                  type="button"
+                  disabled={!canRunPureModelPreview}
+                  onClick={handleRunPureModelPreview}
+                  className="inline-flex rounded-full bg-[#0f172a] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#1e293b] disabled:cursor-not-allowed disabled:bg-[#a8b4c8]"
+                >
+                  {aiPreviewLoading ? "Running preview…" : "Run AI Preview"}
+                </button>
               </div>
+              <p className="mt-2 text-sm text-[#4c576f]">
+                The preview stays small on purpose. Step 4 still handles the full workbook run for the selected window and threshold.
+              </p>
+              <p className="mt-2 text-xs text-[#7d8ba1]">
+                {hasSelectedAiCampaign
+                  ? `Selected campaign: ${selectedAiCampaignName}`
+                  : "Select one campaign below to enable the preview."}
+              </p>
             </div>
 
             {summary?.campaigns?.length ? (
               <div className="mt-4 rounded-2xl border border-[#dbe4f0] bg-[#fbfdff] p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <p className="text-sm font-semibold text-[#0f172a]">Optional campaign subset</p>
+                    <p className="text-sm font-semibold text-[#0f172a]">Campaign selector</p>
                     <p className="mt-1 text-sm text-[#4c576f]">
-                      Pick campaign(s) to bypass the preview caps and evaluate all eligible terms for just those lanes.
+                      Choose one campaign for the preview. The full workbook run is still available in Step 4.
                     </p>
                   </div>
                   <button
                     type="button"
                     onClick={() => setSelectedAiCampaignNames([])}
-                    disabled={selectedAiCampaignNames.length === 0}
+                    disabled={!hasSelectedAiCampaign}
                     className="rounded-full border border-[#cbd5e1] bg-white px-3 py-1.5 text-xs font-semibold text-[#334155] transition hover:border-[#94a3b8] disabled:cursor-not-allowed disabled:text-[#94a3b8]"
                   >
                     Clear selection
@@ -1155,17 +1262,15 @@ export default function NgramTwoPage() {
                       className="w-full rounded-2xl border border-[#d4ddea] bg-white px-4 py-3 text-sm text-[#1b2430] shadow-sm outline-none transition focus:border-[#8bb6ff] focus:ring-4 focus:ring-[#d8e8ff]"
                     />
                     <p className="text-xs text-[#7d8ba1]">
-                      {hasSelectedAiCampaignSubset
-                        ? `${formatNumber(selectedAiCampaignNames.length)} selected for a full-term subset preview${selectedAiCampaignNames.length === 1 ? " or pure-model pivot preview" : ""}`
-                        : "No selection: preview stays on the capped top-spend auto slice"}
+                      {hasSelectedAiCampaign ? "One campaign selected for preview." : "No campaign selected yet."}
                     </p>
                   </label>
 
                   <div className="rounded-2xl border border-[#dbe4f0] bg-white p-2">
-                    <div className="max-h-64 space-y-2 overflow-y-auto px-2 py-1">
+                    <div className="max-h-56 space-y-2 overflow-y-auto px-2 py-1">
                       {filteredCampaignOptions.length > 0 ? (
                         filteredCampaignOptions.map((campaign) => {
-                          const checked = selectedAiCampaignNames.includes(campaign.campaign_name);
+                          const checked = selectedAiCampaignName === campaign.campaign_name;
                           return (
                             <label
                               key={campaign.campaign_name}
@@ -1182,9 +1287,12 @@ export default function NgramTwoPage() {
                                 className="mt-1 h-4 w-4 rounded border-[#94a3b8] text-[#0a6fd6] focus:ring-[#bfdbfe]"
                               />
                               <span className="min-w-0 flex-1">
-                                <span className="block text-sm font-semibold text-[#0f172a]">{campaign.campaign_name}</span>
+                                <span className="block text-sm font-semibold text-[#0f172a]">
+                                  {campaign.campaign_name}
+                                </span>
                                 <span className="mt-1 block text-xs text-[#64748b]">
-                                  {formatCurrency(campaign.spend, selectedProfile?.currencyCode)} spend • {formatNumber(campaign.search_terms)} search terms
+                                  {formatCurrency(campaign.spend, selectedProfile?.currencyCode)} spend •{" "}
+                                  {formatNumber(campaign.search_terms)} search terms
                                 </span>
                               </span>
                             </label>
@@ -1208,7 +1316,7 @@ export default function NgramTwoPage() {
             {aiPreview ? (
               <>
                 {aiPreview.warnings.length > 0 ? (
-                  <div className="mt-6 space-y-3">
+                  <div className="mt-4 space-y-3">
                     {aiPreview.warnings.map((warning) => (
                       <div
                         key={warning}
@@ -1220,224 +1328,179 @@ export default function NgramTwoPage() {
                   </div>
                 ) : null}
 
-                <div className="mt-6 grid gap-4 md:grid-cols-4">
-                  <div className="rounded-2xl border border-[#dbe4f0] bg-[#f7faff] p-4">
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7d8ba1]">Campaigns</p>
-                    <p className="mt-2 text-lg font-semibold text-[#0f172a]">{formatNumber(aiPreview.preview_campaigns)}</p>
-                    <p className="mt-1 text-xs text-[#7d8ba1]">from {formatNumber(aiPreview.candidate_campaigns)} eligible</p>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  <div className="rounded-2xl border border-[#dbe4f0] bg-white p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7d8ba1]">
+                      Campaigns previewed
+                    </p>
+                    <p className="mt-2 text-lg font-semibold text-[#0f172a]">
+                      {formatNumber(aiPreview.preview_campaigns)}
+                    </p>
                   </div>
-                  <div className="rounded-2xl border border-[#dbe4f0] bg-[#f7faff] p-4">
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7d8ba1]">Recommendations</p>
-                    <p className="mt-2 text-lg font-semibold text-[#0f172a]">{formatNumber(aiPreview.recommendation_counts.negate)}</p>
-                    <p className="mt-1 text-xs text-[#7d8ba1]">negate calls</p>
+                  <div className="rounded-2xl border border-[#dbe4f0] bg-white p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7d8ba1]">
+                      Likely negatives
+                    </p>
+                    <p className="mt-2 text-lg font-semibold text-[#0f172a]">
+                      {formatNumber(aiPreview.recommendation_counts.negate)}
+                    </p>
                   </div>
-                  <div className="rounded-2xl border border-[#dbe4f0] bg-[#f7faff] p-4">
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7d8ba1]">Review</p>
-                    <p className="mt-2 text-lg font-semibold text-[#0f172a]">{formatNumber(aiPreview.recommendation_counts.review)}</p>
-                    <p className="mt-1 text-xs text-[#7d8ba1]">manual checks</p>
+                  <div className="rounded-2xl border border-[#dbe4f0] bg-white p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7d8ba1]">Reviews</p>
+                    <p className="mt-2 text-lg font-semibold text-[#0f172a]">
+                      {formatNumber(aiPreview.recommendation_counts.review)}
+                    </p>
                   </div>
-                  <div className="rounded-2xl border border-[#dbe4f0] bg-[#f7faff] p-4">
+                  <div className="rounded-2xl border border-[#dbe4f0] bg-white p-4">
                     <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7d8ba1]">Model</p>
                     <p className="mt-2 text-sm font-semibold text-[#0f172a]">{aiPreview.model ?? "n/a"}</p>
                     <p className="mt-1 text-xs text-[#7d8ba1]">
-                      {aiPreview.prefill_strategy === "pure_model_single_campaign" ? "pure-model pivot" : "shipped heuristic"} • threshold {formatCurrency(aiPreview.spend_threshold, selectedProfile?.currencyCode)}
+                      Threshold {formatCurrency(aiPreview.spend_threshold, selectedProfile?.currencyCode)}
                     </p>
                   </div>
                 </div>
 
-                <div className="mt-4 grid gap-4 md:grid-cols-3">
-                  <div className="rounded-2xl border border-[#dbe4f0] bg-[#f7faff] p-4">
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7d8ba1]">
-                      {aiPreview.prefill_strategy === "pure_model_single_campaign" ? "Model exact" : "Synthesized mono"}
-                    </p>
-                    <p className="mt-2 text-lg font-semibold text-[#0f172a]">
-                      {formatNumber(
-                        aiPreview.prefill_strategy === "pure_model_single_campaign"
-                          ? aiExactPrefillCount
-                          : aiScratchpadCounts.mono,
-                      )}
-                    </p>
-                  </div>
-                  <div className="rounded-2xl border border-[#dbe4f0] bg-[#f7faff] p-4">
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7d8ba1]">
-                      {aiPreview.prefill_strategy === "pure_model_single_campaign" ? "Model phrase" : "Synthesized bi"}
-                    </p>
-                    <p className="mt-2 text-lg font-semibold text-[#0f172a]">
-                      {formatNumber(
-                        aiPreview.prefill_strategy === "pure_model_single_campaign"
-                          ? aiScratchpadCounts.mono + aiScratchpadCounts.bi + aiScratchpadCounts.tri
-                          : aiScratchpadCounts.bi,
-                      )}
-                    </p>
-                  </div>
-                  <div className="rounded-2xl border border-[#dbe4f0] bg-[#f7faff] p-4">
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7d8ba1]">
-                      {aiPreview.prefill_strategy === "pure_model_single_campaign" ? "Phrase buckets" : "Synthesized tri"}
-                    </p>
-                    <p className="mt-2 text-lg font-semibold text-[#0f172a]">
-                      {formatNumber(
-                        aiPreview.prefill_strategy === "pure_model_single_campaign"
-                          ? aiScratchpadCounts.mono + aiScratchpadCounts.bi + aiScratchpadCounts.tri
-                          : aiScratchpadCounts.tri,
-                      )}
-                    </p>
-                  </div>
-                </div>
+                {canGenerateAiPreviewWorkbook ? (
+                  <button
+                    type="button"
+                    disabled={!canGenerateAiPreviewWorkbook}
+                    onClick={handleGenerateAiPreviewWorkbook}
+                    className="mt-4 inline-flex rounded-full border border-[#b9c9e6] bg-white px-5 py-2.5 text-sm font-semibold text-[#0f172a] transition hover:border-[#8bb6ff] hover:bg-[#eef5ff] disabled:cursor-not-allowed disabled:border-[#d7deea] disabled:text-[#94a3b8]"
+                  >
+                    {aiPreviewWorkbookGenerating ? "Generating preview workbook…" : "Download Preview Workbook"}
+                  </button>
+                ) : null}
 
-                <button
-                  type="button"
-                  disabled={!canGenerateAiPreviewWorkbook}
-                  onClick={handleGenerateAiPreviewWorkbook}
-                  className="mt-4 inline-flex rounded-full bg-[#0f172a] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#1e293b] disabled:cursor-not-allowed disabled:bg-[#a8b4c8]"
-                >
-                  {aiPreviewWorkbookGenerating ? "Generating review workbook…" : "Download AI Review Workbook"}
-                </button>
+                <div className="mt-4 space-y-3">
+                  {aiPreview.campaigns.map((campaign) => {
+                    const sortedEvaluations = sortPreviewEvaluations(campaign.evaluations);
+                    const visibleEvaluations = sortedEvaluations.slice(0, AI_PREVIEW_RESULT_LIMIT);
+                    const hiddenEvaluationCount = Math.max(
+                      sortedEvaluations.length - visibleEvaluations.length,
+                      0,
+                    );
+                    const campaignCounts = sortedEvaluations.reduce<
+                      Record<AIPrefillRecommendation["recommendation"], number>
+                    >(
+                      (counts, evaluation) => {
+                        counts[evaluation.recommendation] += 1;
+                        return counts;
+                      },
+                      { KEEP: 0, NEGATE: 0, REVIEW: 0 },
+                    );
 
-                <div className="mt-6 space-y-4">
-                  {aiPreview.campaigns.map((campaign) => (
-                    <div key={campaign.campaignName} className="rounded-2xl border border-[#dbe4f0] bg-[#fbfdff] p-5">
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div>
-                          <p className="text-base font-semibold text-[#0f172a]">{campaign.campaignName}</p>
-                          <p className="mt-1 text-sm text-[#4c576f]">
-                            {campaign.matchedTitle
-                              ? `${campaign.matchedTitle}${campaign.theme ? ` • theme: ${campaign.theme}` : ""}${campaign.matchSource === "ai_combined" ? " • AI matched" : ""}`
-                              : campaign.matchStatus === "intentionally_skipped"
-                                ? "Intentionally skipped campaign (brand / mix / defensive)."
-                                : "AI could not confidently identify a single product."}
-                          </p>
-                        </div>
-                        <div className="rounded-full border border-[#dbe4f0] bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-[#64748b]">
-                          {campaign.prefillStrategy === "pure_model_single_campaign" ? "pure-model" : "heuristic"} •{" "}
-                          {campaign.matchStatus === "matched"
-                            ? campaign.matchSource === "ai_combined"
-                              ? "ai match"
-                              : "matched"
-                            : campaign.matchStatus === "intentionally_skipped"
-                              ? "skipped"
-                              : "ambiguous"}
-                        </div>
-                      </div>
-
-                      <div className="mt-4 grid gap-3 md:grid-cols-4">
-                        <div className="rounded-xl border border-[#e3ebf6] bg-white px-4 py-3 text-sm text-[#4c576f]">
-                          Eligible spend: <span className="font-semibold text-[#0f172a]">{formatCurrency(campaign.eligibleSpend, selectedProfile?.currencyCode)}</span>
-                        </div>
-                        <div className="rounded-xl border border-[#e3ebf6] bg-white px-4 py-3 text-sm text-[#4c576f]">
-                          Terms above threshold: <span className="font-semibold text-[#0f172a]">{formatNumber(campaign.eligibleTerms)}</span>
-                        </div>
-                        <div className="rounded-xl border border-[#e3ebf6] bg-white px-4 py-3 text-sm text-[#4c576f]">
-                          Skipped below threshold: <span className="font-semibold text-[#0f172a]">{formatNumber(campaign.skippedBelowThresholdTerms)}</span>
-                        </div>
-                        <div className="rounded-xl border border-[#e3ebf6] bg-white px-4 py-3 text-sm text-[#4c576f]">
-                          Identifier: <span className="font-semibold text-[#0f172a]">{campaign.productIdentifier ?? "—"}</span>
-                        </div>
-                      </div>
-
-                      {campaign.evaluations.length > 0 ? (
-                        <div className="mt-4 space-y-3">
-                          {campaign.evaluations.map((evaluation) => {
-                            const pillClasses =
-                              evaluation.recommendation === "NEGATE"
-                                ? "border-[#f3c1c1] bg-[#fff3f3] text-[#991b1b]"
-                                : evaluation.recommendation === "KEEP"
-                                  ? "border-[#c7ebd4] bg-[#edf9f1] text-[#1f6b37]"
-                                  : "border-[#f0d9b1] bg-[#fff8ee] text-[#7d5a1d]";
-                            return (
-                              <div key={evaluation.search_term} className="rounded-xl border border-[#e3ebf6] bg-white px-4 py-3">
-                                <div className="flex flex-wrap items-start justify-between gap-3">
-                                  <div>
-                                    <p className="text-sm font-semibold text-[#0f172a]">{evaluation.search_term}</p>
-                                    <p className="mt-1 text-xs text-[#64748b]">
-                                      Spend {formatCurrency(evaluation.spend, selectedProfile?.currencyCode)} • Clicks {formatNumber(evaluation.clicks)} • Orders {formatNumber(evaluation.orders)}
-                                    </p>
-                                  </div>
-                                  <div className={`rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${pillClasses}`}>
-                                    {evaluation.recommendation} • {evaluation.confidence}
-                                  </div>
-                                </div>
-                                <p className="mt-2 text-sm text-[#334155]">
-                                  <span className="font-semibold text-[#0f172a]">{evaluation.reason_tag}</span>
-                                  {evaluation.rationale ? ` • ${evaluation.rationale}` : ""}
-                                </p>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      ) : null}
-
-                      {campaign.prefillStrategy === "pure_model_single_campaign" &&
-                      campaign.modelPrefills.exact.length +
-                        campaign.modelPrefills.mono.length +
-                        campaign.modelPrefills.bi.length +
-                        campaign.modelPrefills.tri.length >
-                        0 ? (
-                        <div className="mt-4 rounded-xl border border-[#dbe4f0] bg-[#f7faff] p-4">
-                          <p className="text-sm font-semibold text-[#0f172a]">Pure-model prefills</p>
-                          <div className="mt-2 space-y-2 text-sm text-[#4c576f]">
-                            {campaign.modelPrefills.exact.length > 0 ? (
-                              <p>
-                                Exact: <span className="font-semibold text-[#0f172a]">{campaign.modelPrefills.exact.join(", ")}</span>
+                    return (
+                      <details
+                        key={campaign.campaignName}
+                        className="rounded-2xl border border-[#dbe4f0] bg-white px-4 py-4"
+                      >
+                        <summary className="cursor-pointer list-none">
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div>
+                              <p className="text-sm font-semibold text-[#0f172a]">{campaign.campaignName}</p>
+                              <p className="mt-1 text-xs text-[#64748b]">
+                                {campaign.matchedTitle
+                                  ? `${campaign.matchedTitle}${campaign.theme ? ` • theme: ${campaign.theme}` : ""}`
+                                  : "AI could not confidently identify one product."}
                               </p>
-                            ) : null}
-                            {campaign.modelPrefills.mono.length > 0 ? (
-                              <p>
-                                Mono: <span className="font-semibold text-[#0f172a]">{campaign.modelPrefills.mono.join(", ")}</span>
-                              </p>
-                            ) : null}
-                            {campaign.modelPrefills.bi.length > 0 ? (
-                              <p>
-                                Bi: <span className="font-semibold text-[#0f172a]">{campaign.modelPrefills.bi.join(", ")}</span>
-                              </p>
-                            ) : null}
-                            {campaign.modelPrefills.tri.length > 0 ? (
-                              <p>
-                                Tri: <span className="font-semibold text-[#0f172a]">{campaign.modelPrefills.tri.join(", ")}</span>
-                              </p>
-                            ) : null}
-                          </div>
-                          {campaign.phraseNegatives.length > 0 ? (
-                            <div className="mt-3 space-y-2">
-                              {campaign.phraseNegatives.map((phrase) => (
-                                <div key={`${campaign.campaignName}-${phrase.bucket}-${phrase.phrase}`} className="rounded-lg border border-[#e3ebf6] bg-white px-3 py-2 text-sm text-[#334155]">
-                                  <span className="font-semibold text-[#0f172a]">{phrase.bucket}</span>: {phrase.phrase} • {phrase.confidence}
-                                  {phrase.sourceTerms.length > 0 ? ` • from ${phrase.sourceTerms.join(", ")}` : ""}
-                                  {phrase.rationale ? ` • ${phrase.rationale}` : ""}
-                                </div>
-                              ))}
                             </div>
-                          ) : null}
-                        </div>
-                      ) : null}
+                            <div className="flex flex-wrap gap-2 text-[11px] font-semibold uppercase tracking-[0.18em]">
+                              <span className="rounded-full border border-[#f3c1c1] bg-[#fff3f3] px-3 py-1 text-[#991b1b]">
+                                {campaignCounts.NEGATE} likely negate
+                              </span>
+                              <span className="rounded-full border border-[#f0d9b1] bg-[#fff8ee] px-3 py-1 text-[#7d5a1d]">
+                                {campaignCounts.REVIEW} review
+                              </span>
+                              <span className="rounded-full border border-[#c7ebd4] bg-[#edf9f1] px-3 py-1 text-[#1f6b37]">
+                                {campaignCounts.KEEP} safe keep
+                              </span>
+                            </div>
+                          </div>
+                        </summary>
 
-                      {campaign.prefillStrategy !== "pure_model_single_campaign" &&
-                      campaign.synthesizedPrefills.mono.length +
-                        campaign.synthesizedPrefills.bi.length +
-                        campaign.synthesizedPrefills.tri.length >
-                        0 ? (
-                        <div className="mt-4 rounded-xl border border-[#dbe4f0] bg-[#f7faff] p-4">
-                          <p className="text-sm font-semibold text-[#0f172a]">Synthesized scratchpad</p>
-                          <div className="mt-2 space-y-2 text-sm text-[#4c576f]">
-                            {campaign.synthesizedPrefills.mono.length > 0 ? (
-                              <p>
-                                Mono: <span className="font-semibold text-[#0f172a]">{campaign.synthesizedPrefills.mono.map((item) => item.gram).join(", ")}</span>
-                              </p>
-                            ) : null}
-                            {campaign.synthesizedPrefills.bi.length > 0 ? (
-                              <p>
-                                Bi: <span className="font-semibold text-[#0f172a]">{campaign.synthesizedPrefills.bi.map((item) => item.gram).join(", ")}</span>
-                              </p>
-                            ) : null}
-                            {campaign.synthesizedPrefills.tri.length > 0 ? (
-                              <p>
-                                Tri: <span className="font-semibold text-[#0f172a]">{campaign.synthesizedPrefills.tri.map((item) => item.gram).join(", ")}</span>
+                        <div className="mt-4 grid gap-3 md:grid-cols-4">
+                          <div className="rounded-xl border border-[#e3ebf6] bg-[#fbfdff] px-4 py-3 text-sm text-[#4c576f]">
+                            Eligible spend:{" "}
+                            <span className="font-semibold text-[#0f172a]">
+                              {formatCurrency(campaign.eligibleSpend, selectedProfile?.currencyCode)}
+                            </span>
+                          </div>
+                          <div className="rounded-xl border border-[#e3ebf6] bg-[#fbfdff] px-4 py-3 text-sm text-[#4c576f]">
+                            Terms above threshold:{" "}
+                            <span className="font-semibold text-[#0f172a]">
+                              {formatNumber(campaign.eligibleTerms)}
+                            </span>
+                          </div>
+                          <div className="rounded-xl border border-[#e3ebf6] bg-[#fbfdff] px-4 py-3 text-sm text-[#4c576f]">
+                            Skipped below threshold:{" "}
+                            <span className="font-semibold text-[#0f172a]">
+                              {formatNumber(campaign.skippedBelowThresholdTerms)}
+                            </span>
+                          </div>
+                          <div className="rounded-xl border border-[#e3ebf6] bg-[#fbfdff] px-4 py-3 text-sm text-[#4c576f]">
+                            Identifier:{" "}
+                            <span className="font-semibold text-[#0f172a]">
+                              {campaign.productIdentifier ?? "—"}
+                            </span>
+                          </div>
+                        </div>
+
+                        {visibleEvaluations.length > 0 ? (
+                          <div className="mt-4 space-y-3">
+                            {visibleEvaluations.map((evaluation) => {
+                              const pillClasses =
+                                evaluation.recommendation === "NEGATE"
+                                  ? "border-[#f3c1c1] bg-[#fff3f3] text-[#991b1b]"
+                                  : evaluation.recommendation === "KEEP"
+                                    ? "border-[#c7ebd4] bg-[#edf9f1] text-[#1f6b37]"
+                                    : "border-[#f0d9b1] bg-[#fff8ee] text-[#7d5a1d]";
+
+                              return (
+                                <div
+                                  key={evaluation.search_term}
+                                  className="rounded-xl border border-[#e3ebf6] bg-[#fbfdff] px-4 py-3"
+                                >
+                                  <div className="flex flex-wrap items-start justify-between gap-3">
+                                    <div>
+                                      <p className="text-sm font-semibold text-[#0f172a]">
+                                        {evaluation.search_term}
+                                      </p>
+                                      <p className="mt-1 text-xs text-[#64748b]">
+                                        Spend{" "}
+                                        {formatCurrency(evaluation.spend, selectedProfile?.currencyCode)} •
+                                        Clicks {formatNumber(evaluation.clicks)} • Orders{" "}
+                                        {formatNumber(evaluation.orders)}
+                                      </p>
+                                    </div>
+                                    <div
+                                      className={`rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${pillClasses}`}
+                                    >
+                                      {formatRecommendationLabel(evaluation.recommendation)} •{" "}
+                                      {evaluation.confidence}
+                                    </div>
+                                  </div>
+                                  <p className="mt-2 text-sm text-[#334155]">
+                                    <span className="font-semibold text-[#0f172a]">
+                                      {formatReasonTag(evaluation.reason_tag)}
+                                    </span>
+                                    {evaluation.rationale ? ` • ${evaluation.rationale}` : ""}
+                                  </p>
+                                </div>
+                              );
+                            })}
+
+                            {hiddenEvaluationCount > 0 ? (
+                              <p className="text-xs text-[#7d8ba1]">
+                                Showing the first {formatNumber(AI_PREVIEW_RESULT_LIMIT)} rows for this
+                                campaign. {formatNumber(hiddenEvaluationCount)} more rows are hidden to keep
+                                the preview compact.
                               </p>
                             ) : null}
                           </div>
-                        </div>
-                      ) : null}
-                    </div>
-                  ))}
+                        ) : null}
+                      </details>
+                    );
+                  })}
                 </div>
               </>
             ) : null}
@@ -1446,12 +1509,12 @@ export default function NgramTwoPage() {
           <div className="rounded-3xl bg-white/95 p-8 shadow-[0_30px_80px_rgba(10,59,130,0.15)]">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.25em] text-[#94a3b8]">Step 4</p>
-              <h2 className="mt-1 text-lg font-semibold text-[#0f172a]">Generate the native workbook</h2>
+              <h2 className="mt-1 text-lg font-semibold text-[#0f172a]">Generate Workbook</h2>
               <p className="text-sm text-[#4c576f]">
-                Produce the familiar mono/bi/tri workbook from native data so the current analyst and manager review flow stays intact.
+                Download the workbook for the selected window. You can keep it fully manual or run the full AI triage pass first.
               </p>
               <p className="mt-1 text-xs text-[#94a3b8]">
-                Preview stays capped and cheap; the AI workbook button below runs the full uncapped AI pass for the selected window and threshold.
+                The AI workbook uses the same selected date range and minimum spend from Step 1, then writes triage guidance without filling `NE/NP` or scratchpad negatives.
               </p>
             </div>
 
@@ -1461,7 +1524,7 @@ export default function NgramTwoPage() {
               onClick={handleGenerateWorkbook}
               className="mt-6 w-full rounded-2xl bg-[#0a6fd6] px-4 py-3 text-sm font-semibold text-white shadow-[0_15px_30px_rgba(10,111,214,0.35)] transition hover:bg-[#0959ab] disabled:cursor-not-allowed disabled:bg-[#b7cbea]"
             >
-              {workbookGenerating ? "Generating workbook…" : "Generate Native Workbook"}
+              {workbookGenerating ? "Generating workbook…" : "Generate Workbook"}
             </button>
 
             <button
@@ -1470,13 +1533,13 @@ export default function NgramTwoPage() {
               onClick={handleGenerateAiWorkbook}
               className="mt-4 w-full rounded-2xl bg-[#0f172a] px-4 py-3 text-sm font-semibold text-white shadow-[0_15px_30px_rgba(15,23,42,0.24)] transition hover:bg-[#1e293b] disabled:cursor-not-allowed disabled:bg-[#b8c1d1]"
             >
-              {aiWorkbookGenerating ? "Running full AI + generating workbook…" : "Generate Full AI Review Workbook"}
+              {aiWorkbookGenerating ? "Running full AI and generating workbook…" : "Generate AI Review Workbook"}
             </button>
 
             <div className="mt-4 rounded-2xl border border-[#dbe4f0] bg-[#f7faff] p-4">
               <p className="text-sm text-[#4c576f]">
                 {selectedProduct === "sp"
-                  ? "Uses native Sponsored Products search-term facts for the selected window and keeps the legacy exclusion rules. The AI button runs the full uncapped AI evaluation, then writes an AI review workbook from that saved run without auto-filling NE/NP or scratchpad negatives."
+                  ? "The manual workbook uses the imported search-term rows directly. The AI workbook runs the full selected window, writes SAFE KEEP / LIKELY NEGATE / REVIEW guidance, and leaves final analyst expression blank."
                   : "Workbook generation is intentionally limited to Sponsored Products first."}
               </p>
             </div>
@@ -1494,9 +1557,7 @@ export default function NgramTwoPage() {
             ) : null}
           </div>
 
-          {loading ? (
-            <p className="text-sm text-[#4c576f]">Loading client and marketplace options…</p>
-          ) : null}
+          {loading ? <p className="text-sm text-[#4c576f]">Loading client and marketplace options…</p> : null}
         </div>
       </div>
 
