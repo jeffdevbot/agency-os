@@ -95,14 +95,15 @@ def test_native_prefilled_workbook_route_uses_saved_preview_run(monkeypatch):
                             "tri": [{"gram": "travel size screen"}],
                         },
                         "evaluations": [
-                            {
-                                "search_term": "travel size screen cleaner",
-                                "recommendation": "REVIEW",
-                                "confidence": "MEDIUM",
-                                "reason_tag": "ambiguous_intent",
-                            }
-                        ],
-                    }
+                                {
+                                    "search_term": "travel size screen cleaner",
+                                    "recommendation": "REVIEW",
+                                    "confidence": "MEDIUM",
+                                    "reason_tag": "ambiguous_intent",
+                                    "rationale": "The campaign could map to multiple bottle variants.",
+                                }
+                            ],
+                        }
                 ],
             },
         },
@@ -147,6 +148,7 @@ def test_native_prefilled_workbook_route_uses_saved_preview_run(monkeypatch):
                         "recommendation": "REVIEW",
                         "confidence": "MEDIUM",
                         "reason_tag": "ambiguous_intent",
+                        "rationale": "The campaign could map to multiple bottle variants.",
                     }
                 }
             },

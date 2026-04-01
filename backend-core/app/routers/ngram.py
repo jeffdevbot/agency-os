@@ -70,6 +70,7 @@ class CampaignTermReviewPrefill(BaseModel):
     recommendation: str = Field(..., min_length=1)
     confidence: str = Field(..., min_length=1)
     reason_tag: str = Field(..., min_length=1)
+    rationale: str | None = None
 
 
 class NativePrefilledWorkbookRequest(NativeWorkbookRequest):
@@ -104,6 +105,7 @@ def _build_prefill_context_from_request(
                 "recommendation": review.recommendation,
                 "confidence": review.confidence,
                 "reason_tag": review.reason_tag,
+                "rationale": review.rationale,
             }
             for review in reviews
             if _normalize_search_term_key(review.search_term)
@@ -213,6 +215,7 @@ def _build_prefill_context_from_saved_preview(
                     "recommendation": _to_non_empty_text(evaluation.get("recommendation")),
                     "confidence": _to_non_empty_text(evaluation.get("confidence")),
                     "reason_tag": _to_non_empty_text(evaluation.get("reason_tag")),
+                    "rationale": _to_non_empty_text(evaluation.get("rationale")) or None,
                 }
             if review_lookup:
                 ai_term_reviews[campaign_name] = review_lookup

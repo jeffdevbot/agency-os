@@ -464,6 +464,7 @@ export default function NgramTwoPage() {
                 recommendation: evaluation.recommendation,
                 confidence: evaluation.confidence,
                 reason_tag: evaluation.reason_tag,
+                rationale: evaluation.rationale,
               })),
             ]),
           ),
