@@ -1,23 +1,30 @@
 # N-Gram 2.0 Pure Prompt Pivot Plan
 
-_Last updated: 2026-03-31 (ET)_
+_Last updated: 2026-04-01 (ET)_
 
 ## Purpose
 
-Define the pivot away from deterministic gram-synthesis logic in `/ngram-2`
-toward a frontier-model-led exact + phrase negative workflow.
+Define the current strategic conclusion for the `/ngram-2` pivot away from
+deterministic gram synthesis.
 
-This document is intended to be the operating brief for the next session.
+This document explains what we learned after shipping the first pure-model
+prototype, testing it across brands, and reframing the AI job around analyst
+leverage instead of analyst replacement.
 
 ## Core goal
 
 The goal is **not** to replace the analyst.
 
-The goal is to save analyst time by letting AI do as much high-quality
-prework as possible while keeping the analyst in control of the final result.
+The goal is to save analyst time by letting AI handle:
 
-If AI can consistently get us `70%` to `86%` of the way there on exact and
-phrase negatives, that is an exceptional operational win.
+1. product-context inference
+2. first-pass semantic triage
+3. obvious keep vs likely-negate vs needs-review separation
+
+while keeping the analyst in control of the final workbook actions.
+
+If AI can consistently remove a large amount of cold review work and leave a
+fast edit pass for the analyst, that is an exceptional operational win.
 
 Success means:
 
@@ -26,7 +33,7 @@ Success means:
 3. keeping analysts and managers in control of final judgment
 4. generalizing across brands without growing a brittle rules engine
 
-## Why we are pivoting
+## Why we pivoted
 
 The recent pure-prompt experiment on:
 
@@ -40,10 +47,10 @@ Key finding:
 1. combined frontier-model exact recall reached `12/14` analyst exact
    negatives on that campaign
 2. that is `86%` exact recall with no deterministic phrase-synthesis layer
-3. the remaining problem was mostly phrase overproduction, not inability to
-   reason about relevance
+3. the remaining problem was mostly phrase overproduction and `NE` / `NP`
+   expression choice, not inability to reason about relevance
 
-This strongly suggests:
+This initially suggested:
 
 1. the hard part of N-Gram AI prefill is semantic judgment and phrase
    compression
@@ -51,12 +58,22 @@ This strongly suggests:
 3. our current synthesis path in `aiPrefill.ts` is likely the wrong
    abstraction for this problem
 
+Subsequent live testing on Whoosh, Ahimsa, and Distex clarified the stronger
+conclusion:
+
+1. the model is good at deciding what looks relevant vs wrong-fit
+2. the model is not yet reliably strong at expressing analyst-style final
+   negatives in the right exact-vs-phrase shape
+3. the best current product direction is therefore **AI triage**, not AI-owned
+   final negation encoding
+
 ## Strategic conclusion
 
-Deterministic code should not be responsible for deciding the analyst-style
+Deterministic code should not be responsible for deciding analyst-style
 mono/bi/tri phrase output.
 
-That part should be model-owned.
+However, the current product also should not force the model to own the final
+`NE` / `NP` / gram decision just because deterministic code stepped back.
 
 Code should remain responsible for:
 
@@ -73,14 +90,20 @@ Code should stop being responsible for:
 2. compressing semantic judgment into mono/bi/tri with deterministic rules
 3. encoding analyst taste as a growing list of content-word exceptions
 
+The analyst should currently remain responsible for:
+
+1. final `NE` / `NP` choice
+2. mono/bi/tri abstraction
+3. final workbook expression
+
 ## Product framing
 
 This pivot should be communicated clearly:
 
 1. we are not trying to automate away analyst judgment
 2. we are trying to remove as much repetitive first-pass work as possible
-3. a system that gets a strong first draft and leaves the last 15% to 30% for
-   analyst review is still a major win
+3. a system that gets a strong triage draft and leaves the final workbook
+   expression to the analyst is still a major win
 
 Non-goals:
 
@@ -88,8 +111,9 @@ Non-goals:
 2. Amazon writeback
 3. deterministic parity with every analyst phrase choice
 4. Whoosh-only optimization
+5. a growing client-specific rules engine
 
-## New target architecture
+## Current target architecture
 
 ### 1. Inputs to the model
 
@@ -97,26 +121,32 @@ The model should continue to receive:
 
 1. campaign name
 2. campaign theme
-3. matched product/catalog context
+3. catalog context
 4. search terms with spend/performance metrics
 5. spend threshold / scope boundaries for the run
 
-### 2. Model-owned output
+### 2. Current preferred model-owned output
 
-The model should directly return:
+The current preferred model output is:
 
-1. matched product
+1. matched product or product-family representative row
 2. match confidence
-3. term-level judgments
-4. exact negatives
-5. phrase negatives
-6. optional rationale / reason tags
-7. optional confidence fields where helpful
+3. term-level recommendation:
+   - `KEEP`
+   - `NEGATE`
+   - `REVIEW`
+4. per-term confidence
+5. reason tag
+6. one-sentence rationale
 
-Important change:
+The pure-model path can still produce exact and phrase negatives in preview for
+research purposes, but that is no longer the preferred product contract.
 
-1. the model should decide the minimum meaningful phrase negative directly
-2. the system should not synthesize phrase negatives afterward with code
+Current preferred workbook expression:
+
+1. the workbook shows triage guidance
+2. the workbook does **not** prefill `NE/NP`
+3. the workbook does **not** prefill mono/bi/tri scratchpad values
 
 ### 3. Code-owned responsibilities
 
@@ -133,7 +163,7 @@ If any post-processing remains, it should be extremely thin:
 
 1. remove exact duplicates
 2. reject blank strings / malformed rows
-3. possibly reject obviously broken values
+3. reject obviously broken values
 
 It should not attempt semantic phrase correction.
 
@@ -147,11 +177,11 @@ Primary question:
 
 Secondary metrics:
 
-1. exact recall vs analyst
-2. phrase recall vs analyst
-3. junk phrase rate
-4. overbroad phrase rate
-5. analyst edit volume after prefill
+1. percentage of clear `SAFE KEEP` rows the analyst can ignore
+2. percentage of clearly useful `LIKELY NEGATE` flags
+3. false-positive `REVIEW` rate
+4. analyst edit volume after triage
+5. cross-brand stability of product-context matching
 
 Working success threshold:
 
@@ -159,63 +189,53 @@ Working success threshold:
 2. `80%+` on some accounts/campaigns is excellent
 3. if the AI output is directionally right and easy to edit, it is valuable
 
-## Validation plan
+## Validation path that already happened
 
-### Phase 1: rebuild one campaign end-to-end
+### Phase 1: pure-model campaign prototype
 
-Implement a pure-model campaign path for:
+A pure-model campaign path was implemented for:
 
 1. one Whoosh campaign with known analyst output
 
-Run:
-
-1. same input window
-2. same campaign
-3. same analyst benchmark
-4. no deterministic phrase synthesis
-
-Compare:
-
-1. exact negatives
-2. phrase negatives
-3. junk phrases
-4. missing analyst signals
+It was then expanded to additional campaigns and brands.
 
 ### Phase 2: cross-brand check
 
-Do not stop at Whoosh.
+The path was tested on:
 
-Run the same pure-model pattern on:
-
-1. one additional Whoosh campaign
+1. Whoosh campaigns
 2. one Ahimsa campaign
 3. one Distex campaign
 
-This is the key anti-overfitting check.
+Key outcome:
+
+1. Ahimsa showed that the prompt was not purely Whoosh-shaped
+2. Distex exposed a family-level context-matching gap
+3. the generalized family-match prompt rule improved Distex materially
 
 ### Phase 3: architecture decision
 
-If the pure-model workflow consistently outperforms the heuristic synthesis
-layer, move to:
+The first architecture decision has already been made:
 
-1. model-generated exact negatives
-2. model-generated phrase negatives
-3. thin validation only
+1. pure-model triage is better than more deterministic synthesis work
+2. analyst-owned final negation expression is the safer product contract for
+   now
+3. the next focus is analyst usability, not another immediate attempt to force
+   AI-owned mono/bi/tri output
 
-If it fails badly cross-brand, revisit the contract and prompting before
-reintroducing deterministic synthesis.
+Future question, not current milestone:
 
-## Implementation order
+1. whether a later version should reintroduce a tightly constrained AI-owned
+   negative-expression layer after more evidence
+
+## Implementation order from here
 
 1. freeze further deterministic synthesis tuning in `aiPrefill.ts`
-2. define a new strict structured-output schema for:
-   - exact negatives
-   - phrase negatives
-   - optional review bucket
-3. build a bounded single-campaign pure-model path in `/ngram-2`
-4. export the result into the existing workbook shape
-5. compare against analyst-reviewed outputs
-6. validate on at least one non-Whoosh brand before concluding the pivot works
+2. keep the bounded pure-model preview path in `/ngram-2`
+3. keep the two-step context-plus-triage flow
+4. keep workbook behavior triage-only
+5. simplify the `/ngram-2` UI for analyst usage
+6. optionally add app-generated progress feedback without adding model tokens
 
 ## Practical design constraints
 
@@ -229,7 +249,7 @@ reintroducing deterministic synthesis.
 
 ### Replace
 
-1. heuristic gram synthesis for mono/bi/tri prefills
+1. heuristic gram synthesis as the preferred product direction
 
 ### Preserve as fallback
 
@@ -241,8 +261,8 @@ reintroducing deterministic synthesis.
 Let frontier models do what they are good at:
 
 1. semantic judgment
-2. phrase compression
-3. minimum meaningful negative selection
+2. product-family inference
+3. first-pass triage
 
 Let code do what code is good at:
 
@@ -252,15 +272,22 @@ Let code do what code is good at:
 4. exports
 5. auditability
 
-If we feel pressure to keep adding content-word rules to make the system work,
-that should be treated as evidence that the deterministic layer is the wrong
-tool for the job.
+Let analysts do what analysts are good at:
+
+1. final negation expression
+2. abstraction into reusable negatives
+3. judgment on borderline business-context cases
+
+If we feel pressure to keep adding content-word rules or client-specific reason
+tags to make the system work, that should be treated as evidence that the old
+deterministic layer and overfit taxonomy are the wrong tools for this problem.
 
 ## Immediate next-session brief
 
 Start the next session with this assumption:
 
 1. deterministic phrase synthesis is no longer the preferred direction
-2. the next milestone is a pure-model single-campaign prototype in `/ngram-2`
+2. AI-owned final `NE` / `NP` output is also not the current product target
 3. the benchmark is analyst time saved, not exact rule-based parity
-4. success is a strong editable first draft, not autonomous perfection
+4. success is a strong triage workbook, not autonomous perfection
+5. the next milestone is UI simplification and analyst usability on `/ngram-2`

@@ -1,10 +1,23 @@
 # Changelog — Ecomlabs Tools
 
-_Last updated: 2026-03-30 (ET)_
+_Last updated: 2026-04-01 (ET)_
 
 > Development history for the project. For setup instructions and project overview, see [AGENTS.md](AGENTS.md).
 
 ---
+
+## 2026-04-01 (ET)
+- **`/ngram-2` pivoted from AI-prefill execution toward analyst-triage review as the preferred product direction:** Recent Whoosh, Ahimsa, and Distex testing showed the model is strong at product-context inference and search-term triage, but materially weaker at analyst-style `NE` vs `NP` expression and safe mono/bi/tri compression, so the current product framing is now “save analyst time” rather than “replace the analyst’s encoding work.”
+- **The pure-model `/ngram-2` preview path is now a real two-step AI flow instead of one combined pass:** The active pivot lane now runs a context pass first to lock the matched product or product family, then runs term-triage against that locked context, while keeping Step 4 workbook generation and the existing review flow intact.
+- **The pure-model preview is now chunk-safe for large single-campaign runs:** Large campaigns such as the Whoosh US `Screen Shine - Duo | SPM | MKW | Br.M | 9 - laptop | Perf` lane no longer fail when one response cannot fit every term recommendation; the route now chunks large campaign term sets and merges the results back into one preview run.
+- **`/ngram-2` workbooks are now triage-oriented review artifacts instead of AI-filled negation sheets:** Workbook exports now keep `NE/NP` and mono/bi/tri scratchpad fields blank in triage-only mode, while still writing `AI Recommendation`, `AI Confidence`, `AI Reason`, and `AI Rationale` to support fast analyst review.
+- **AI recommendation labels now match the analyst-leverage framing and are color coded in the workbook:** `KEEP` now displays as `SAFE KEEP`, `NEGATE` as `LIKELY NEGATE`, and `REVIEW` remains `REVIEW`, with matching green / red / yellow formatting in the exported workbook so analysts can quickly ignore clear keeps and focus on likely negatives and reviews.
+- **`AI Rationale` now survives the full preview-to-workbook path:** The export path previously added the workbook column but dropped the saved rationale field before replay; workbook downloads now preserve the per-term explanation sentence already visible in the UI.
+- **The pure-model prompt now explicitly pushes down overuse of `REVIEW`:** The live prompt now has a KEEP-side forcing rule, tighter `REVIEW` guidance, and Apple-in-tech-context disambiguation so terms like `apple approved screen cleaner` are less likely to collapse into unnecessary medium-confidence reviews.
+- **The reason-tag taxonomy is now less Whoosh-shaped:** `cloth_primary_intent` was removed from the strict enum and cloth-only standalone intent now rolls up under the broader `accessory_only_intent` tag, which is safer across brands and avoids implying that every cloth query is wrong for every client.
+- **Brand / mix / defensive campaign exclusions were removed from the preview path after proving to be a mistake:** The accidental `/ngram-2` preview filter that skipped campaigns containing `Brand`, `Mix`, or `Def` is gone, so explicitly selected campaigns like Ahimsa’s `Divided Plates - Balanced Bites-$P | Brand | SPM | MKW | Ph. | Mix. | Def` now run normally instead of yielding empty workbooks.
+- **Distex campaign-family matching improved after a generalized family-level context rule was added to the prompt:** The context pass now treats “family match but unresolved exact variant” as `MEDIUM` confidence instead of `LOW` or null, which materially improved the `New Air - NGR | SPA | Los. | Rsrch` Distex result by allowing the model to recognize the `NGR` family as a glass-door refrigerator family without pretending it knew the exact SKU variant.
+- **The current next milestone for `/ngram-2` is UI simplification and analyst usability, not more prompt plumbing:** The next planned pass is to simplify the page, remove obsolete migration/debug language and the shipped-preview button, move the spend threshold into Step 1, make Step 3 obviously optional and less vertically heavy, and later add an inline terminal-style progress panel driven by app-generated status lines only so the UI feels alive without adding Responses API complexity or extra token cost.
 
 ## 2026-03-30 (ET)
 - **The `/ngram-2` full AI workbook path is now live-validated enough to move into analyst-vs-AI comparison work:** After the Structured Outputs / retry / workbook-write fixes, a limited Whoosh CA full run for `2026-03-27` through `2026-03-29` completed successfully on `gpt-5.4`, persisted `43` runnable campaigns / `145` evaluated terms / `477,233` total tokens, and confirmed that the current next milestone is a full 7-day Whoosh US analyst-reviewed worksheet comparison rather than more pipeline plumbing.

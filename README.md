@@ -56,6 +56,7 @@ This does **not** replace The Claw in Slack. The current surface split is:
 
 ### Shipped Tools (Web UI)
 - **N-Gram Processor** — `/ngram` (two-step flow: generate workbook, then upload filled workbook to download a formatted negatives summary).
+- **N-Gram 2.0** — `/ngram-2` (Agency OS search-term workbook generation plus optional AI triage preview. Current direction is analyst-leverage review: `SAFE KEEP` / `LIKELY NEGATE` / `REVIEW` guidance with rationale, while analysts keep final `NE/NP` and gram decisions). Current docs: `docs/ngram_2_pure_prompt_pivot_plan.md`, `docs/ngram_2_ui_cleanup_plan.md`, `docs/ngram_2_ai_prefill_design.md`, `docs/search_term_automation_resume_prompt.md`.
 - **N-PAT (Negative Product Attribute Targeting)** — `/npat` (ASIN-only inverse of N-Gram with Helium10 enrichment). Specs: `docs/archive/non_agencyclaw/03_npat_prd.md`, plan: `docs/archive/non_agencyclaw/03_npat_plan.md`.
 - **AdScope** — `/adscope` (Amazon Ads audit workspace: upload Bulk + STR; views + chat). Specs: `docs/archive/non_agencyclaw/20_adscope_prd.md`; Amazon export file reference: `docs/archive/non_agencyclaw/21_adscope_schema.md`; live DB schema: `docs/db/schema_master.md`.
 - **Scribe** — `/scribe` (Amazon listing copy generation: project → SKUs → topics → copy). Current specs live under `docs/archive/non_agencyclaw/scribe_lite/`.

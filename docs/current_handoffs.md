@@ -1,6 +1,6 @@
 # Current Handoffs
 
-_Last updated: 2026-03-30 (ET)_
+_Last updated: 2026-04-01 (ET)_
 
 Use this file to decide which restart/handoff docs are current versus merely
 historical reference.
@@ -17,16 +17,19 @@ historical reference.
      workflow and its conservative workbook-writing model.
 4. [N-Gram 2.0 pure prompt pivot plan](/Users/jeff/code/agency-os/docs/ngram_2_pure_prompt_pivot_plan.md)
    - Current pivot brief for moving `/ngram-2` away from deterministic gram
-     synthesis and toward frontier-model-led exact + phrase negative output.
-5. [WBR schema plan](/Users/jeff/code/agency-os/docs/wbr_v2_schema_plan.md)
+     synthesis and toward analyst-leverage AI triage.
+5. [N-Gram 2.0 UI cleanup plan](/Users/jeff/code/agency-os/docs/ngram_2_ui_cleanup_plan.md)
+   - Current next-session implementation brief for simplifying the `/ngram-2`
+     analyst UI and planning the no-extra-token progress panel.
+6. [WBR schema plan](/Users/jeff/code/agency-os/docs/wbr_v2_schema_plan.md)
    - Current schema/reference document for live WBR + STR + N-Gram support
      tables, including `ngram_ai_preview_runs` and `ngram_ai_override_runs`.
-6. [Claude primary surface plan](/Users/jeff/code/agency-os/docs/claude_primary_surface_plan.md)
+7. [Claude primary surface plan](/Users/jeff/code/agency-os/docs/claude_primary_surface_plan.md)
    - Current strategy doc for Claude vs The Claw and future MCP expansion.
-7. [Agency OS MCP implementation plan](/Users/jeff/code/agency-os/docs/agency_os_mcp_implementation_plan.md)
+8. [Agency OS MCP implementation plan](/Users/jeff/code/agency-os/docs/agency_os_mcp_implementation_plan.md)
    - Current implementation-planning reference for the shared Claude/MCP tool
      surface after WBR + Monthly P&L shipped.
-8. [Reports API access and SP-API plan](/Users/jeff/code/agency-os/docs/reports_api_access_and_spapi_plan.md)
+9. [Reports API access and SP-API plan](/Users/jeff/code/agency-os/docs/reports_api_access_and_spapi_plan.md)
    - Current shared reporting auth/source-of-truth planning reference.
 
 ## Highest-priority restart target
@@ -35,20 +38,30 @@ If the next session is about `/ngram-2`, start here:
 
 1. Read the [N-Gram 2.0 pure prompt pivot plan](/Users/jeff/code/agency-os/docs/ngram_2_pure_prompt_pivot_plan.md)
    first.
-2. The current product goal is no longer to refine deterministic gram
-   synthesis. It is to evaluate a pivot toward **frontier-model-led exact +
-   phrase negative output**.
-3. Treat the current AI workflow as functionally shipped reference state, but
-   not the preferred long-term synthesis direction:
+2. Then read the [N-Gram 2.0 UI cleanup plan](/Users/jeff/code/agency-os/docs/ngram_2_ui_cleanup_plan.md).
+3. The current product goal is no longer to refine deterministic gram
+   synthesis or to push harder on AI-owned `NE` / `NP` expression.
+4. The current preferred direction is:
+   - AI triage for analyst leverage
+   - workbook-centered human review
+   - no extra-token progress UI for the first polish pass
+5. Treat the current AI workflow as functionally shipped reference state:
    - Step 3 bounded preview works
    - Step 4 full AI workbook runs work
    - OpenAI Structured Outputs are live
    - prompt version is persisted
    - reviewed workbook uploads now log override diffs
-4. The exact next checkpoint is:
-   - build a single-campaign pure-model prototype for `/ngram-2`
-   - compare direct model exact/phrase output against analyst output
-   - validate on at least one non-Whoosh brand before committing to the pivot
+   - workbook export now writes:
+     - `SAFE KEEP`
+     - `LIKELY NEGATE`
+     - `REVIEW`
+     - `AI Rationale`
+6. The exact next checkpoint is:
+   - simplify the `/ngram-2` page for analyst usability
+   - remove obsolete debug/migration copy and the shipped-preview button
+   - keep the current pure-model triage logic intact
+   - plan a terminal-style progress panel using app-generated status lines,
+     not Responses API streaming or extra model tokens
 
 ## Current operational/reference docs
 
@@ -137,7 +150,7 @@ If the next session is about `/ngram-2`, start here:
    - the tracked upgrade follow-up should not require mass re-auth of Amazon
      Ads or Windsor accounts because those credentials are stored in database
      rows
-6. Search Term Automation / N-Gram 2.0 current state as of 2026-03-30 (ET):
+6. Search Term Automation / N-Gram 2.0 current state as of 2026-04-01 (ET):
    - Stage 1 `Search Term Automation` controls are live on
      `/reports/client-data-access/[clientSlug]`
    - Stage 2 `Search Term Data` is live on
@@ -152,20 +165,32 @@ If the next session is about `/ngram-2`, start here:
      `keyword_type`, and `targeting`
    - `/ngram-2` now intentionally splits AI work into:
      - a bounded Step 3 preview for cheap validation
-     - a full uncapped Step 4 AI workbook run for actual workbook generation
+     - a Step 4 workbook-generation flow for the actual downloadable workbook
    - Step 3/4 campaign evaluation now uses OpenAI Structured Outputs with a
      strict JSON schema instead of prompt-only JSON
    - `/ngram-2` now uses a dedicated model env var:
      `OPENAI_MODEL_NGRAM`
+   - the current preferred AI direction is analyst-leverage triage, not
+     AI-owned final negation expression
+   - the current pure-model preview path is:
+     - single-campaign
+     - two-step
+     - context pass first
+     - term-triage second
    - Step 3 / Step 4 saved runs now persist:
      - exact payloads in `ngram_ai_preview_runs`
      - explicit `prompt_version`
      - prompt/completion/total tokens
    - reviewed workbook uploads through legacy `/ngram` Step 2 now persist
      best-effort AI-vs-analyst diffs in `ngram_ai_override_runs`
-   - workbook output now mirrors human behavior more closely:
-     - 1/2/3-word `NEGATE` terms land in scratchpad mono/bi/tri columns
-     - longer `NEGATE` terms prefill exact `NE` on the search-term row
+   - workbook output is now triage-oriented:
+     - `AI Recommendation` writes:
+       - `SAFE KEEP`
+       - `LIKELY NEGATE`
+       - `REVIEW`
+     - `AI Confidence`, `AI Reason`, and `AI Rationale` are populated
+     - `NE/NP` stays blank
+     - mono/bi/tri scratchpad stays blank
    - STR UI now auto-refreshes every 15 seconds while runs are in `running`
      state, mirroring the WBR Ads sync experience
    - post-worker-redeploy live validation is now confirmed on a real Whoosh US
