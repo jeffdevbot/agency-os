@@ -1,10 +1,19 @@
 # Changelog — Ecomlabs Tools
 
-_Last updated: 2026-04-01 (ET)_
+_Last updated: 2026-04-02 (ET)_
 
 > Development history for the project. For setup instructions and project overview, see [AGENTS.md](AGENTS.md).
 
 ---
+
+## 2026-04-02 (ET)
+- **`/ngram-2` UI cleanup shipped into a simpler analyst flow:** The page now has cleaner Step 1 copy, spend threshold in Step 1, a smaller clearly optional Step 3 preview, one Step 4 AI workbook action instead of the old legacy/manual generate button, multi-select campaign preview selection, expandable preview rows, Step 5 reviewed-workbook upload back into the legacy negatives-summary flow, and a greyed-out Step 6 “coming soon” direct-to-Amazon card.
+- **Search Term Data now exports filtered CSV directly from the live native facts surface:** The report page opened from `/ngram-2` can now download the current filtered search-term slice as CSV, which is useful for spot-checking imported data outside the workbook flow.
+- **The synthetic `/ngram-2` activity terminal was removed after testing:** The first terminal-style activity panel looked visually strong but was mostly client-generated filler rather than truthful backend progress, so it was removed instead of leaving misleading pseudo-progress in production.
+- **`/ngram-2` catalog matching now uses code-first retrieval instead of sending the full catalog into every model call:** The AI route now ranks per-campaign catalog candidates in code and sends only a compact shortlist into the model, with one bounded expanded-shortlist retry for the pure-model context pass. Prompt payloads are also more compact because the route now trims catalog text and sends compact JSON instead of pretty-printed JSON.
+- **OpenAI TPM handling is more resilient for N-Gram runs:** The shared Chat Completions adapter now retries short-lived `429 rate_limit_exceeded` responses with bounded backoff instead of failing immediately on the first minute-level token spike.
+- **A new real Step 4 blocker replaced the earlier rate-limit blocker:** After the retrieval-first prompt slimming work, a Whoosh US month-long full workbook run no longer failed first on token-per-minute pressure but still failed on one campaign with `Screen Shine - Pro | SPM | MKW | Br.M | 2 - computer | Perf: AI response validation failed after 3 attempts: Invalid confidence:`. The current next-session focus should therefore be explaining why blank/malformed `confidence` still surfaced on a large real run despite Structured Outputs and local retry.
+- **The N-Gram handoff/docs were refreshed to match the new reality:** The current docs now describe the shipped UI cleanup, the retrieval-first catalog-matching architecture, the removed synthetic activity panel, and the new Whoosh US full-run blocker as the primary restart target.
 
 ## 2026-04-01 (ET)
 - **`/ngram-2` pivoted from AI-prefill execution toward analyst-triage review as the preferred product direction:** Recent Whoosh, Ahimsa, and Distex testing showed the model is strong at product-context inference and search-term triage, but materially weaker at analyst-style `NE` vs `NP` expression and safe mono/bi/tri compression, so the current product framing is now “save analyst time” rather than “replace the analyst’s encoding work.”

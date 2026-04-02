@@ -2,6 +2,8 @@
 
 _Created: 2026-03-26 (ET)_
 
+_Last updated: 2026-04-02 (ET)_
+
 ## Purpose
 
 Define the phased replacement path for the current Pacvue-export-driven
@@ -74,6 +76,18 @@ The manual workflow still depends on:
 2. uploading that file into N-Gram / N-PAT
 3. using human judgment to decide negatives
 4. copying approved negatives back into Pacvue / Amazon manually
+
+### What is now live beyond the original draft
+
+Since this plan was first written, the following product slices are now live:
+
+1. Stage 1 `Search Term Automation` controls
+2. Stage 2 `Search Term Data`
+3. filtered CSV export from `Search Term Data`
+4. `/ngram-2` Step 3 bounded AI preview
+5. `/ngram-2` Step 4 full AI workbook generation
+6. `/ngram-2` Step 5 reviewed-workbook upload to negatives summary
+7. `/ngram-2` Step 6 placeholder for future direct Amazon push
 
 ### Existing WBR data that is relevant
 
@@ -188,6 +202,23 @@ The system still needs a way to understand campaign intent:
 
 For MVP, the fastest context path should come from campaign-name parsing and
 existing naming conventions, not from coupling this workflow to WBR rollups.
+
+### Important AI-matching architecture update
+
+The current shipped AI path has now moved to a retrieval-first model:
+
+1. code ranks likely catalog candidates per campaign first
+2. the model receives a shortlist instead of the full catalog
+3. this is now the preferred scaling shape for large catalogs
+4. the full profile catalog should not be treated as prompt input on each
+   campaign
+
+This matters because:
+
+1. large catalogs can eventually contain tens of thousands of SKUs
+2. sending the full catalog into the model does not scale
+3. retrieval belongs in code; the model should be the final chooser over a
+   compact candidate set
 
 ### Important implementation correction
 

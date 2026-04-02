@@ -2,6 +2,8 @@
 
 _Created: 2026-03-27 (ET)_
 
+_Last updated: 2026-04-02 (ET)_
+
 ## Purpose
 
 Define the product plan for replacing the current Pacvue-export-driven
@@ -110,18 +112,35 @@ Current scope of this milestone:
 
 ### Recommended next slice
 
-The next build slice should stay narrow and operator-facing:
+The next build slice should stay narrow and operator-facing, but the exact
+focus has now shifted.
 
 1. keep the current `/ngram-2` route separate from legacy `/ngram`
-2. improve the native `SP` path before expanding the AI workflow:
-   - stronger pre-generation validation summary
-   - clearer Step 1 replacement messaging
-   - cleaner operator guidance around date range / client / marketplace
-3. treat `SB` as visible but nuanced:
+2. treat the current `/ngram-2` UI cleanup as effectively shipped:
+   - cleaner Step 1
+   - smaller optional Step 3 preview
+   - one Step 4 generate action
+   - Step 5 reviewed-workbook upload now on `/ngram-2`
+3. the immediate engineering focus should now be full-run reliability on large
+   real `SP` windows, not more UI cleanup
+4. treat `SB` as visible but nuanced:
    - validated on at least one modern live account
    - not guaranteed complete for legacy Sponsored Brands campaign families
-4. do **not** let unresolved legacy `SB` parity block incremental `SP`
+5. do **not** let unresolved legacy `SB` parity block incremental `SP`
    productization
+
+### 2026-04-02 (ET): Current blocker after the UI/productization pass
+
+The current active blocker is a real Step 4 full-run failure on Whoosh US
+month-long data:
+
+1. failing campaign:
+   - `Screen Shine - Pro | SPM | MKW | Br.M | 2 - computer | Perf`
+2. failing error:
+   - `AI response validation failed after 3 attempts: Invalid confidence:`
+
+This means the next session should prioritize AI-run reliability hardening over
+additional product-surface cleanup.
 
 ## Old vs new
 

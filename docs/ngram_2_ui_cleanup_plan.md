@@ -1,17 +1,18 @@
 # N-Gram 2.0 UI Cleanup Plan
 
-_Last updated: 2026-04-01 (ET)_
+_Last updated: 2026-04-02 (ET)_
 
 ## Purpose
 
-This document is the next-session implementation brief for the `/ngram-2`
-productization pass.
+This document now serves as the shipped-state reference for the `/ngram-2`
+productization pass that was completed on `2026-04-01` through `2026-04-02`.
 
 The current AI workflow is directionally strong enough to move out of
 prompt-plumbing mode and into analyst-usage cleanup mode.
 
-The next session should focus on making `/ngram-2` simple, confident, and fast
-to use for analysts.
+The next session should not treat this file as the primary implementation
+brief. The current active milestone has moved back to full-run reliability and
+model-output hardening.
 
 ## Current product reality
 
@@ -54,6 +55,23 @@ Recent testing across Whoosh, Ahimsa, and Distex suggests:
 3. The current best product framing is:
    - AI reduces cold review work
    - analysts keep final control over workbook actions
+
+## Shipped UI state
+
+The following cleanup items are now implemented on `/ngram-2`:
+
+1. obsolete migration/debug copy is gone
+2. spend threshold moved into Step 1
+3. Step 1 status copy is simpler
+4. Step 3 is visually smaller and clearly optional
+5. the old legacy/manual `Generate Workbook` button is removed
+6. preview rows now default to a compact slice with `Show 10 more`, `Show all`,
+   and `Show less`
+7. campaign selector now supports multi-select
+8. Step 5 reviewed-workbook upload now mirrors the legacy `/ngram` collect
+   flow
+9. Step 6 is a greyed-out “coming soon” direct-to-Amazon push card
+10. Search Term Data now offers filtered CSV export
 
 ## V1 UI cleanup goals
 
@@ -148,8 +166,20 @@ Changes:
 
 ## Progress panel decision
 
-The next session should **not** use the Responses API and should **not** add
-extra model output just to make the UI feel alive.
+The UI cleanup pass briefly added an inline activity panel, then removed it.
+
+Why it was removed:
+
+1. the displayed progress was mostly synthetic client-side copy
+2. it did not communicate truthful backend progress
+3. it was visually interesting but operationally low-value
+
+The retained design rule is still the same:
+
+1. do not use the Responses API
+2. do not add extra model output just to make the UI feel alive
+3. if a future progress surface returns, it should be fed by real backend
+   milestones or not exist at all
 
 Reason:
 
@@ -157,7 +187,7 @@ Reason:
 2. streaming alone is not the priority
 3. app-generated progress lines are sufficient for v1
 
-### Recommended first version
+### Historical first version
 
 Add an inline terminal-style activity panel that shows app-generated status
 lines such as:
@@ -191,23 +221,28 @@ Potential supporting files:
 Only touch backend or workbook files if the activity/progress panel needs a
 small contract change later.
 
-## Recommended implementation order
+## Status of the original implementation order
 
-1. remove obsolete copy, labels, and migration/debug sections
-2. move and rename spend threshold into Step 1
-3. simplify Step 1 and Step 2
-4. remove `Run Shipped AI Preview`
-5. make Step 3 smaller, optional, and collapsed by default
-6. simplify Step 4 naming and copy
-7. open the spot-check view in a new tab
-8. add the app-generated terminal/progress panel only after the structural
-   cleanup is stable
+1. obsolete copy, labels, and migration/debug sections were removed
+2. spend threshold was moved and renamed into Step 1
+3. Step 1 and Step 2 were simplified
+4. `Run Shipped AI Preview` was removed
+5. Step 3 became smaller and clearly optional
+6. Step 4 naming/copy was simplified into one AI generate path
+7. the spot-check view opens in a new tab
+8. the temporary app-generated terminal/progress panel was later removed
+
+## What is still relevant from this doc
+
+1. the page should stay simple and analyst-centered
+2. the workbook should stay triage-oriented
+3. synthetic activity UI should not come back
 
 ## Restart checklist for the next session
 
 1. read `docs/current_handoffs.md`
-2. read this file
+2. read `docs/search_term_automation_resume_prompt.md`
 3. read `docs/ngram_2_pure_prompt_pivot_plan.md`
-4. read `docs/search_term_automation_resume_prompt.md`
+4. use this file only as shipped-state reference for the page cleanup
 5. inspect `frontend-web/src/app/ngram-2/page.tsx`
-6. implement the UI cleanup without changing the current AI triage logic
+6. treat full-run reliability, not UI cleanup, as the current open problem

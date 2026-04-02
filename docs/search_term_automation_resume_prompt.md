@@ -1,6 +1,6 @@
 # Search Term Automation Resume Prompt
 
-_Last updated: 2026-04-01 (ET)_
+_Last updated: 2026-04-02 (ET)_
 
 Use this prompt when returning specifically to the `STR / N-Gram 2.0`
 workstream.
@@ -10,14 +10,15 @@ Continue work in `/Users/jeff/code/agency-os`.
 Read first, in this order:
 
 1. `docs/current_handoffs.md`
-2. `docs/ngram_2_ui_cleanup_plan.md`
-3. `docs/ngram_2_pure_prompt_pivot_plan.md`
-4. `docs/search_term_automation_plan.md`
-5. `docs/ngram_native_replacement_plan.md`
-6. `docs/ngram_2_ai_prefill_design.md`
-7. `docs/wbr_v2_schema_plan.md`
-8. `PROJECT_STATUS.md`
-9. `AGENTS.md`
+2. `docs/ngram_2_pure_prompt_pivot_plan.md`
+3. `docs/ngram_2_ai_prefill_design.md`
+4. `docs/search_term_automation_resume_prompt.md`
+5. `docs/ngram_2_ui_cleanup_plan.md`
+6. `docs/search_term_automation_plan.md`
+7. `docs/ngram_native_replacement_plan.md`
+8. `docs/wbr_v2_schema_plan.md`
+9. `PROJECT_STATUS.md`
+10. `AGENTS.md`
 
 ## Current shipped reality
 
@@ -35,7 +36,10 @@ Read first, in this order:
    - legacy Step 2 accepts it and returns the expected workbook output
 6. `/ngram-2` AI workflow is now materially beyond preview-only plumbing work:
    - Step 3 bounded preview works
-   - Step 4 workbook generation works
+   - Step 4 workbook generation works on validated windows, but large-window
+     reliability is still being hardened
+   - Step 5 reviewed-workbook upload to negatives summary works
+   - Step 6 is a greyed-out direct-Amazon placeholder
    - campaign evaluation uses OpenAI Structured Outputs with strict JSON
      schema enforcement
    - the model lane is tool-specific through `OPENAI_MODEL_NGRAM`
@@ -56,6 +60,18 @@ Read first, in this order:
    - `AI Confidence`, `AI Reason`, and `AI Rationale` are populated
    - `NE/NP` stays blank
    - mono/bi/tri scratchpad stays blank
+9. `/ngram-2` analyst UI cleanup is now effectively shipped:
+   - Step 1 is simpler and contains the spend threshold
+   - Step 3 is smaller and clearly optional
+   - campaign selector supports multi-select
+   - preview rows can expand beyond the default compact cap
+   - Search Term Data now offers filtered CSV export
+   - the synthetic activity terminal was removed
+10. The current matching path now uses code-first retrieval before AI:
+   - code ranks catalog candidates per campaign
+   - the model receives a shortlist instead of the full catalog
+   - the pure-model context pass gets one bounded expanded-shortlist retry
+   - short-lived OpenAI `429` errors now retry with bounded backoff
 
 ## Prompt / model state
 
@@ -67,6 +83,8 @@ Read first, in this order:
 3. The current live AI path is a two-step flow:
    - context pass locks the best product or product-family representative row
    - term-triage pass evaluates terms against that locked context
+   - product-context matching now depends on a retrieval shortlist rather than
+     the full catalog
 4. The current prompt calibration intentionally does all of the following:
    - tightens `REVIEW` vs `NEGATE`
    - adds a KEEP-side forcing rule
@@ -128,37 +146,37 @@ Read first, in this order:
 1. The first override-capture layer is live:
    - reviewed workbook uploads persist AI-vs-analyst diffs in
      `ngram_ai_override_runs`
-2. The current pure-model triage path is shipped enough to move out of prompt
-   debugging and into analyst-usage cleanup.
-3. The current page still contains too much migration/debug copy and too much
-   vertical sprawl for day-to-day analyst use.
+2. The current pure-model triage path is shipped enough for real analyst
+   testing.
+3. The current UI cleanup pass is no longer the active blocker.
+4. The current blocker is a real large-window full-run reliability issue:
+   - Whoosh US month-long Step 4 full workbook run failed with:
+     `Screen Shine - Pro | SPM | MKW | Br.M | 2 - computer | Perf: AI response validation failed after 3 attempts: Invalid confidence:`
 
 ## Exact next-session goal
 
 The next session should start from this concrete milestone:
 
-1. simplify the `/ngram-2` page for analyst use
-2. remove obsolete migration/debug language and the old shipped-preview button
-3. move spend threshold into Step 1 and simplify the page structure
-4. make Step 3 clearly optional and much smaller on screen
-5. keep the current AI triage logic intact while improving usability
-6. plan an inline terminal-style progress surface using app-generated status
-   lines only, with **no Responses API migration and no extra model-output
-   tokens** in the first version
+1. investigate the remaining full-run reliability failure on large real runs
+2. inspect raw invalid model payload shape behind the blank `confidence` error
+3. keep the current analyst-triage workbook contract intact while debugging
+4. prefer persisted runs / logs / prompt-size evidence over more prompt churn
+5. do not reopen UI cleanup unless testing exposes a new specific usability
+   issue
 
 ## Rules for the next session
 
-1. Do not reopen OpenAI API integration debates unless a fresh run shows a new
-   real failure.
-2. Do not treat missing `SB` legacy parity as the blocking issue.
-3. Do not spend the next session on Responses API migration or model-generated
+1. Do not treat missing `SB` legacy parity as the blocking issue.
+2. Do not spend the next session on Responses API migration or model-generated
    “thinking” summaries.
-4. Prefer inspecting persisted `ngram_ai_preview_runs` and
+3. Prefer inspecting persisted `ngram_ai_preview_runs` and
    `ngram_ai_override_runs` rows over inferring behavior from screenshots.
-5. Keep the legacy `/ngram` workbook format as the contract unless explicitly
+4. Keep the legacy `/ngram` workbook format as the contract unless explicitly
    asked to redesign the review flow.
-6. If model changes are considered, compare against real override data rather
+5. If model changes are considered, compare against real override data rather
    than intuition.
+6. Treat the Whoosh US blank-`confidence` failure as the first thing to
+   explain before making more product-surface changes.
 
 ## Restart prompt for the next session
 
@@ -169,12 +187,12 @@ Continue the Agency OS STR / N-Gram 2.0 workstream.
 
 Read first:
 1. docs/current_handoffs.md
-2. docs/ngram_2_ui_cleanup_plan.md
-3. docs/ngram_2_pure_prompt_pivot_plan.md
+2. docs/ngram_2_pure_prompt_pivot_plan.md
+3. docs/ngram_2_ai_prefill_design.md
 4. docs/search_term_automation_resume_prompt.md
-5. docs/search_term_automation_plan.md
-6. docs/ngram_native_replacement_plan.md
-7. docs/ngram_2_ai_prefill_design.md
+5. docs/ngram_2_ui_cleanup_plan.md
+6. docs/search_term_automation_plan.md
+7. docs/ngram_native_replacement_plan.md
 8. docs/wbr_v2_schema_plan.md
 9. PROJECT_STATUS.md
 10. AGENTS.md
@@ -184,7 +202,9 @@ Current reality:
 - SB works on validated modern accounts but still has a likely legacy-campaign
   gap on at least one older Whoosh US campaign family
 - /ngram-2 Step 3 preview works
-- /ngram-2 Step 4 workbook generation works
+- /ngram-2 Step 4 workbook generation works on validated windows, but
+  large-window reliability is still being hardened
+- /ngram-2 Step 5 reviewed workbook upload works
 - OpenAI Structured Outputs are now live for campaign evaluation
 - saved runs persist in `ngram_ai_preview_runs`
 - reviewed uploads now persist override diffs in `ngram_ai_override_runs`
@@ -198,11 +218,12 @@ Current reality:
   - `AI Rationale`
   - blank `NE/NP`
   - blank mono/bi/tri scratchpad
-- the next exact milestone is UI simplification and analyst usability on
-  `/ngram-2`, not more prompt plumbing
+- the `/ngram-2` UI cleanup pass is effectively shipped
+- the current matching path uses code-first candidate retrieval before AI
+- the current blocker is a Whoosh US month-long Step 4 failure:
+  `Screen Shine - Pro | SPM | MKW | Br.M | 2 - computer | Perf: AI response validation failed after 3 attempts: Invalid confidence:`
 
-Implement the UI cleanup described in `docs/ngram_2_ui_cleanup_plan.md`.
-Keep the current AI triage logic intact. Do not migrate to Responses API.
-If you add an inline activity panel, make it app-generated only so it adds no
-meaningful token cost.
+Investigate the current full-run reliability issue without changing the
+analyst-triage workbook contract. Use the existing docs for context, prefer
+real persisted evidence over intuition, and do not migrate to Responses API.
 ```

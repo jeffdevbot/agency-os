@@ -1,6 +1,6 @@
 # N-Gram 2.0 AI Prefill Design
 
-_Last updated: 2026-03-30 (ET)_
+_Last updated: 2026-04-02 (ET)_
 
 ## Purpose
 
@@ -45,20 +45,23 @@ The proposed AI path is:
 2. user sets a spend threshold
 3. system can run a **bounded preview** for cheap validation or a **full run**
    for workbook generation
-4. system provides campaign context plus Windsor catalog context to AI
-5. AI evaluates qualifying search terms
-6. system converts term-level judgments into **conservative gram prefills**
-7. workbook is generated in the same practical shape as legacy N-Gram
+4. system uses code-first retrieval to rank likely catalog candidates per
+   campaign
+5. system provides campaign context plus a compact catalog shortlist to AI
+6. AI evaluates qualifying search terms
+7. workbook is generated as a triage-oriented review artifact
 8. analyst reviews, edits, and overrides
 9. downstream upload / cleanup / publishing flow stays the same
 
 Important nuance:
 
-- The AI should not jump directly from one bad search term to one bad gram.
-- It should judge search terms first, then only prefill grams when the
-  evidence is sufficiently strong across multiple terms.
-
-That is the main safety layer in this design.
+1. the AI should not jump directly from one bad search term to one bad gram
+2. the preferred product contract is now term-level triage, not AI-owned final
+   `NE` / `NP` expression
+3. the main safety layer is now:
+   - code-first catalog retrieval
+   - structured-output validation
+   - triage-oriented workbook writing
 
 ## Inputs
 
@@ -138,16 +141,28 @@ Examples:
 
 Current implemented direction:
 
-1. skip clearly non-product-specific brand / mix / defensive lanes up front
-2. for runnable campaigns, send the campaign name and compact Windsor catalog
-   rows to the model in the **same call** as search-term evaluation
-3. ask the model to return:
+1. do not silently block explicitly selected brand / mix / defensive lanes;
+   ambiguous lanes should fall through to low-confidence / review behavior
+2. rank likely catalog candidates in code before the model sees any catalog
+   rows
+3. for runnable campaigns, send the campaign name and a compact candidate
+   shortlist to the model
+4. ask the model to return:
    - `matched_product`
    - `match_confidence`
    - `match_reason`
    - `term_recommendations[]`
-4. if product confidence is low, mark the campaign as review/ambiguous rather
+5. if product confidence is low, mark the campaign as review/ambiguous rather
    than forcing prefills
+
+Current shortlist rules:
+
+1. code ranks candidates using campaign identifier, SKU overlap, title/family
+   overlap, and weaker category/description overlap
+2. heuristic/full path uses a compact candidate set instead of the full
+   profile catalog
+3. pure-model context matching is allowed one bounded expanded-shortlist retry
+   when the first shortlist returns `LOW` / no confident match
 
 If mapping is ambiguous or missing:
 
@@ -252,6 +267,14 @@ This split is deliberate:
 3. the user can inspect a cheap slice first, then explicitly pay for the full
    run when ready
 
+### Current prompt-shaping hardening
+
+The current prompt path now also does all of the following:
+
+1. sends compact JSON instead of pretty-printed JSON to reduce prompt tokens
+2. trims catalog text fields before they become prompt input
+3. retries short-lived OpenAI `429` responses with bounded backoff
+
 ### Current validation checkpoint
 
 As of `2026-03-30`, this workflow has moved beyond prototype-only status.
@@ -259,7 +282,8 @@ As of `2026-03-30`, this workflow has moved beyond prototype-only status.
 Current shipped/validated checkpoint:
 
 1. Step 3 bounded preview works on live Whoosh data
-2. Step 4 full AI workbook generation works
+2. Step 4 full AI workbook generation has succeeded on validated windows, but
+   large-window reliability is still being hardened
 3. OpenAI Structured Outputs are live for the campaign-evaluation contract
 4. saved runs persist in `ngram_ai_preview_runs`
 5. reviewed workbook uploads now persist best-effort diffs in
@@ -271,14 +295,21 @@ Current shipped/validated checkpoint:
    - `477,233` total tokens
    - approx `$1.42` cost on `gpt-5.4`
 
-That means the next useful milestone is no longer “make the pipeline work.”
-The next useful milestone is:
+That milestone is still important, but it is no longer the immediate blocker.
 
-1. compare a full 7-day Whoosh US analyst-reviewed worksheet against the
-   `/ngram-2` full AI-prefilled workbook
-2. inspect the real campaign / term / gram diffs
-3. decide whether the current prompt/model/workbook behavior is good enough or
-   needs targeted correction
+The immediate blocker as of `2026-04-02` is:
+
+1. a real Whoosh US month-long Step 4 full workbook run failed on:
+   - `Screen Shine - Pro | SPM | MKW | Br.M | 2 - computer | Perf`
+2. failing error:
+   - `AI response validation failed after 3 attempts: Invalid confidence:`
+
+That means the next useful milestone is now:
+
+1. explain why malformed or blank `confidence` still surfaced on a real large
+   run despite Structured Outputs and local retry
+2. inspect raw invalid payload shape, prompt sizing, and retry behavior
+3. only after that, return to deeper analyst-vs-AI worksheet comparison work
 
 ## Step 4: AI relevance evaluation
 

@@ -1,6 +1,6 @@
 # N-Gram 2.0 Pure Prompt Pivot Plan
 
-_Last updated: 2026-04-01 (ET)_
+_Last updated: 2026-04-02 (ET)_
 
 ## Purpose
 
@@ -78,11 +78,12 @@ However, the current product also should not force the model to own the final
 Code should remain responsible for:
 
 1. input shaping
-2. structured-output validation
-3. persistence
-4. workbook export
-5. auditability
-6. minimal malformed-output safety checks
+2. code-first catalog retrieval and shortlist construction
+3. structured-output validation
+4. persistence
+5. workbook export
+6. auditability
+7. minimal malformed-output safety checks
 
 Code should stop being responsible for:
 
@@ -121,9 +122,17 @@ The model should continue to receive:
 
 1. campaign name
 2. campaign theme
-3. catalog context
+3. compact catalog candidate context, not the full catalog
 4. search terms with spend/performance metrics
 5. spend threshold / scope boundaries for the run
+
+Important implementation update:
+
+1. the current path no longer sends the full profile catalog into every
+   campaign context prompt
+2. code now ranks candidate products per campaign and sends only a compact
+   shortlist into the model
+3. this is now the preferred scaling direction for large catalogs
 
 ### 2. Current preferred model-owned output
 
@@ -152,12 +161,13 @@ Current preferred workbook expression:
 
 Code should still handle:
 
-1. structured output contract enforcement
-2. dedupe
-3. empty / malformed output rejection
-4. persistence in `ngram_ai_preview_runs`
-5. workbook writing
-6. override capture for analyst-reviewed uploads
+1. deterministic candidate retrieval before AI matching
+2. structured output contract enforcement
+3. dedupe
+4. empty / malformed output rejection
+5. persistence in `ngram_ai_preview_runs`
+6. workbook writing
+7. override capture for analyst-reviewed uploads
 
 If any post-processing remains, it should be extremely thin:
 
@@ -166,6 +176,28 @@ If any post-processing remains, it should be extremely thin:
 3. reject obviously broken values
 
 It should not attempt semantic phrase correction.
+
+## Current retrieval architecture
+
+The current matching architecture should now be thought of as:
+
+1. code ranks catalog candidates from the full catalog using:
+   - campaign identifier
+   - SKU overlap
+   - title overlap
+   - family-token overlap
+   - category/description overlap as weaker signals
+2. AI sees only the top shortlist for context locking
+3. pure-model preview is allowed one bounded expanded-shortlist retry if the
+   first context pass returns `LOW` / no confident match
+4. term-triage then runs only after product context is locked
+
+Why this is the right direction:
+
+1. the full catalog should not be treated as prompt input
+2. large profiles can eventually contain tens of thousands of SKUs
+3. code can search/rank large catalogs cheaply; the model should only be the
+   final chooser over a compact candidate set
 
 ## Evaluation framework
 
@@ -234,8 +266,28 @@ Future question, not current milestone:
 2. keep the bounded pure-model preview path in `/ngram-2`
 3. keep the two-step context-plus-triage flow
 4. keep workbook behavior triage-only
-5. simplify the `/ngram-2` UI for analyst usage
-6. optionally add app-generated progress feedback without adding model tokens
+5. keep the retrieval-first shortlist architecture in front of AI matching
+6. harden full-run reliability on large real-account windows before doing more
+   product polish
+
+## Current blocker after retrieval hardening
+
+The current active issue is no longer UI cleanup.
+
+The current active issue is a real full-run failure on a Whoosh US month-long
+Step 4 workbook generation:
+
+1. failing campaign:
+   - `Screen Shine - Pro | SPM | MKW | Br.M | 2 - computer | Perf`
+2. failing error:
+   - `AI response validation failed after 3 attempts: Invalid confidence:`
+
+What this means:
+
+1. malformed or blank `confidence` still surfaced on a real large run
+2. that happened despite Structured Outputs plus local validation/retry
+3. the next session should investigate raw invalid payload shape, retry
+   behavior, and per-campaign prompt sizing before making more UI changes
 
 ## Practical design constraints
 

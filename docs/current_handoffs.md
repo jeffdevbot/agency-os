@@ -1,6 +1,6 @@
 # Current Handoffs
 
-_Last updated: 2026-04-01 (ET)_
+_Last updated: 2026-04-02 (ET)_
 
 Use this file to decide which restart/handoff docs are current versus merely
 historical reference.
@@ -13,14 +13,17 @@ historical reference.
 2. [PROJECT_STATUS.md](/Users/jeff/code/agency-os/PROJECT_STATUS.md)
    - Fastest high-level snapshot of what is already shipped.
 3. [N-Gram 2.0 AI prefill design](/Users/jeff/code/agency-os/docs/ngram_2_ai_prefill_design.md)
-   - Current product/design reference for the shipped Step 3 / Step 4 AI
-     workflow and its conservative workbook-writing model.
+   - Current product/design reference for the shipped Step 3 / Step 4 / Step 5
+     workflow, the retrieval-first catalog-matching design, and the current
+     full-run reliability blocker.
 4. [N-Gram 2.0 pure prompt pivot plan](/Users/jeff/code/agency-os/docs/ngram_2_pure_prompt_pivot_plan.md)
    - Current pivot brief for moving `/ngram-2` away from deterministic gram
-     synthesis and toward analyst-leverage AI triage.
+     synthesis and toward analyst-leverage AI triage, with code-first catalog
+     retrieval ahead of model matching.
 5. [N-Gram 2.0 UI cleanup plan](/Users/jeff/code/agency-os/docs/ngram_2_ui_cleanup_plan.md)
-   - Current next-session implementation brief for simplifying the `/ngram-2`
-     analyst UI and planning the no-extra-token progress panel.
+   - Historical/current reference for the now-shipped `/ngram-2` analyst UI
+     cleanup pass and the later decision to remove the synthetic activity
+     panel.
 6. [WBR schema plan](/Users/jeff/code/agency-os/docs/wbr_v2_schema_plan.md)
    - Current schema/reference document for live WBR + STR + N-Gram support
      tables, including `ngram_ai_preview_runs` and `ngram_ai_override_runs`.
@@ -38,30 +41,47 @@ If the next session is about `/ngram-2`, start here:
 
 1. Read the [N-Gram 2.0 pure prompt pivot plan](/Users/jeff/code/agency-os/docs/ngram_2_pure_prompt_pivot_plan.md)
    first.
-2. Then read the [N-Gram 2.0 UI cleanup plan](/Users/jeff/code/agency-os/docs/ngram_2_ui_cleanup_plan.md).
-3. The current product goal is no longer to refine deterministic gram
+2. Then read the [N-Gram 2.0 AI prefill design](/Users/jeff/code/agency-os/docs/ngram_2_ai_prefill_design.md).
+3. Then read the [Search term automation resume prompt](/Users/jeff/code/agency-os/docs/search_term_automation_resume_prompt.md).
+4. Use the [N-Gram 2.0 UI cleanup plan](/Users/jeff/code/agency-os/docs/ngram_2_ui_cleanup_plan.md)
+   as shipped-state reference, not as the current milestone.
+5. The current product goal is no longer to refine deterministic gram
    synthesis or to push harder on AI-owned `NE` / `NP` expression.
-4. The current preferred direction is:
+6. The current preferred direction is:
    - AI triage for analyst leverage
    - workbook-centered human review
-   - no extra-token progress UI for the first polish pass
-5. Treat the current AI workflow as functionally shipped reference state:
+   - code-first catalog retrieval before AI matching
+7. Treat the current AI workflow as functionally shipped reference state:
    - Step 3 bounded preview works
-   - Step 4 full AI workbook runs work
+   - Step 4 full AI workbook runs have succeeded on validated windows, but
+     large-window reliability is still being hardened
+   - Step 5 reviewed workbook upload to negatives summary works
+   - Step 6 is a greyed-out direct-Amazon placeholder
    - OpenAI Structured Outputs are live
    - prompt version is persisted
    - reviewed workbook uploads now log override diffs
+   - Search Term Data now supports filtered CSV export
    - workbook export now writes:
      - `SAFE KEEP`
      - `LIKELY NEGATE`
      - `REVIEW`
      - `AI Rationale`
-6. The exact next checkpoint is:
-   - simplify the `/ngram-2` page for analyst usability
-   - remove obsolete debug/migration copy and the shipped-preview button
-   - keep the current pure-model triage logic intact
-   - plan a terminal-style progress panel using app-generated status lines,
-     not Responses API streaming or extra model tokens
+8. The `/ngram-2` UI cleanup pass is effectively shipped:
+   - obsolete migration/debug copy was removed
+   - spend threshold moved into Step 1
+   - Step 3 is smaller and clearly optional
+   - the legacy manual Generate Workbook button is gone
+   - campaign selector is multi-select
+   - preview rows can expand past the default 10-row cap
+   - the synthetic activity panel was removed after proving too low-value
+9. The exact next checkpoint is:
+   - harden full Step 4 workbook reliability on large real-account windows
+   - investigate the remaining full-run failure on Whoosh US month-long data:
+     `Screen Shine - Pro | SPM | MKW | Br.M | 2 - computer | Perf: AI response validation failed after 3 attempts: Invalid confidence:`
+   - preserve the current analyst-triage workbook contract while debugging
+     this reliability gap
+   - prefer persisted run data, raw invalid model payloads, and per-campaign
+     prompt sizing over more UI work
 
 ## Current operational/reference docs
 
@@ -150,7 +170,7 @@ If the next session is about `/ngram-2`, start here:
    - the tracked upgrade follow-up should not require mass re-auth of Amazon
      Ads or Windsor accounts because those credentials are stored in database
      rows
-6. Search Term Automation / N-Gram 2.0 current state as of 2026-04-01 (ET):
+6. Search Term Automation / N-Gram 2.0 current state as of 2026-04-02 (ET):
    - Stage 1 `Search Term Automation` controls are live on
      `/reports/client-data-access/[clientSlug]`
    - Stage 2 `Search Term Data` is live on
@@ -173,10 +193,19 @@ If the next session is about `/ngram-2`, start here:
    - the current preferred AI direction is analyst-leverage triage, not
      AI-owned final negation expression
    - the current pure-model preview path is:
-     - single-campaign
+     - multi-campaign selection in the UI
      - two-step
      - context pass first
      - term-triage second
+   - `/ngram-2` UI cleanup is now shipped enough for analyst testing:
+     - spend threshold now lives in Step 1
+     - Step 3 preview is smaller and optional
+     - Step 4 now uses one AI generate action only
+     - Step 5 mirrors legacy `/ngram` reviewed-workbook upload
+     - Step 6 is a disabled “coming soon” direct-to-Amazon card
+     - Search Term Data now offers filtered CSV export
+   - the attempted terminal-style activity panel was removed because it was
+     mostly synthetic and not honest enough to keep
    - Step 3 / Step 4 saved runs now persist:
      - exact payloads in `ngram_ai_preview_runs`
      - explicit `prompt_version`
@@ -191,6 +220,23 @@ If the next session is about `/ngram-2`, start here:
      - `AI Confidence`, `AI Reason`, and `AI Rationale` are populated
      - `NE/NP` stays blank
      - mono/bi/tri scratchpad stays blank
+   - the current catalog-matching path now uses code-first retrieval before
+     AI:
+     - rank per-campaign catalog candidates in code
+     - pass a compact shortlist to the model instead of the full catalog
+     - allow one bounded expanded-shortlist retry for the pure-model context
+       pass
+     - send compact JSON prompt payloads instead of pretty-printed JSON
+     - retry short-lived OpenAI `429` rate-limit responses with bounded
+       backoff
+   - this retrieval-first hardening materially reduced token pressure, but a
+     new reliability issue is now the active blocker:
+     - a Whoosh US month-long Step 4 full workbook run failed on
+       `2026-04-02 (ET)` with:
+       `Screen Shine - Pro | SPM | MKW | Br.M | 2 - computer | Perf: AI response validation failed after 3 attempts: Invalid confidence:`
+     - this means malformed or blank `confidence` still surfaced on a real
+       large run despite Structured Outputs plus local retry
+     - the next session should treat that as the primary open issue
    - STR UI now auto-refreshes every 15 seconds while runs are in `running`
      state, mirroring the WBR Ads sync experience
    - post-worker-redeploy live validation is now confirmed on a real Whoosh US
