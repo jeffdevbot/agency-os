@@ -6,6 +6,7 @@ import { logUsage } from "@/lib/ai/usageLogger";
 import { NGRAM_AI_PROMPT_VERSION, NGRAM_PURE_MODEL_PROMPT_VERSION } from "@/lib/ngram2/aiPrompt";
 import {
   estimateNgramCampaignMaxTokens,
+  NgramStructuredOutputValidationError,
   evaluateCampaignWithValidationRetry,
   evaluateCampaignTermTriageWithValidationRetry,
   evaluateCampaignWithPureModelValidationRetry,
@@ -288,10 +289,7 @@ const coerceRequest = async (request: Request): Promise<{
     throw new Error("prefill_strategy must be either 'heuristic_synthesis' or 'pure_model_single_campaign'");
   }
   if (prefillStrategyRaw === "pure_model_single_campaign") {
-    if (runModeRaw !== "preview") {
-      throw new Error("pure_model_single_campaign is currently supported only for preview runs.");
-    }
-    if (requestedCampaignNames.length === 0) {
+    if (runModeRaw === "preview" && requestedCampaignNames.length === 0) {
       throw new Error("pure_model_single_campaign requires at least one selected campaign.");
     }
   }
@@ -319,6 +317,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ detail: "Unauthorized" }, { status: 401 });
   }
 
+  let requestMeta: Record<string, unknown> = {};
+
   try {
     const {
       profileId,
@@ -333,6 +333,18 @@ export async function POST(request: Request) {
     } =
       await coerceRequest(request);
 
+    requestMeta = {
+      profile_id: profileId,
+      ad_product: adProduct,
+      date_from: dateFrom,
+      date_to: dateTo,
+      spend_threshold: spendThreshold,
+      respect_legacy_exclusions: respectLegacyExclusions,
+      run_mode: runMode,
+      prefill_strategy: prefillStrategy,
+      requested_campaign_names: requestedCampaignNames,
+    };
+
     const warnings: string[] = [];
 
     const [{ profile: catalogProfile, listings, warning: catalogWarning }, rows] = await Promise.all([
@@ -346,7 +358,9 @@ export async function POST(request: Request) {
 
     if (prefillStrategy === "pure_model_single_campaign") {
       warnings.push(
-        `Pure-model pivot preview is active for ${requestedCampaignNames.length} selected campaign(s). Full AI workbook generation still uses the shipped heuristic path during transition.`,
+        runMode === "preview"
+          ? `Pure-model two-step preview is active for ${requestedCampaignNames.length} selected campaign(s).`
+          : "Pure-model two-step evaluation is active for full workbook generation.",
       );
     }
 
@@ -766,6 +780,13 @@ export async function POST(request: Request) {
       userId: user.id,
       userEmail: user.email,
       message,
+      meta:
+        error instanceof NgramStructuredOutputValidationError
+          ? {
+              ...requestMeta,
+              structured_output_failure: error.meta,
+            }
+          : requestMeta,
     });
     return NextResponse.json({ detail: message }, { status: 500 });
   }

@@ -5,6 +5,7 @@ import {
   type ChatCompletionResult,
   type ResponseFormat,
 } from "@/lib/composer/ai/openai";
+import { logAppError } from "@/lib/ai/errorLogger";
 
 import {
   validateAIPrefillCampaignResponse,
@@ -28,6 +29,17 @@ const MIN_RESPONSE_MAX_TOKENS = 2200;
 const MAX_RESPONSE_MAX_TOKENS = 14000;
 const RESPONSE_OVERHEAD_TOKENS = 800;
 const RESPONSE_TOKENS_PER_TERM = 60;
+
+export class NgramStructuredOutputValidationError extends Error {
+  readonly meta: Record<string, unknown>;
+
+  constructor(message: string, meta: Record<string, unknown>) {
+    super(message);
+    this.name = "NgramStructuredOutputValidationError";
+    this.meta = meta;
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
 
 const NGRAM_RESPONSE_FORMAT: ResponseFormat = {
   type: "json_schema",
@@ -282,6 +294,68 @@ const buildPureModelTermTriageValidationRetryMessage = (errorMessage: string): C
   ].join("\n"),
 });
 
+const measurePromptChars = (messages: ChatMessage[]): number =>
+  messages.reduce((sum, message) => sum + message.content.length, 0);
+
+const buildAttemptDiagnostic = ({
+  attempt,
+  messages,
+  completion,
+  errorMessage,
+  maxTokens,
+}: {
+  attempt: number;
+  messages: ChatMessage[];
+  completion: ChatCompletionResult;
+  errorMessage: string;
+  maxTokens: number;
+}): Record<string, unknown> => ({
+  attempt,
+  prompt_chars: measurePromptChars(messages),
+  response_chars: (completion.content || "").length,
+  max_tokens: maxTokens,
+  finish_reason: completion.finishReason ?? null,
+  model: completion.model,
+  tokens_in: completion.tokensIn,
+  tokens_out: completion.tokensOut,
+  tokens_total: completion.tokensTotal,
+  duration_ms: completion.durationMs,
+  validation_error: errorMessage,
+  response_content: completion.content,
+});
+
+const logStructuredOutputFailure = async ({
+  stage,
+  campaign,
+  marketplaceCode,
+  maxTokens,
+  diagnostics,
+  meta,
+}: {
+  stage: "combined_campaign" | "pure_model_context" | "pure_model_term_triage";
+  campaign: AggregatedCampaign;
+  marketplaceCode: string | null;
+  maxTokens: number;
+  diagnostics: Record<string, unknown>[];
+  meta?: Record<string, unknown>;
+}): Promise<void> => {
+  await logAppError({
+    tool: "ngram",
+    severity: "error",
+    message: `${campaign.campaignName}: structured output validation failed`,
+    meta: {
+      evaluator_stage: stage,
+      campaign_name: campaign.campaignName,
+      campaign_total_spend: campaign.totalSpend,
+      campaign_term_count: campaign.termCount,
+      marketplace_code: marketplaceCode,
+      max_tokens: maxTokens,
+      attempt_diagnostics: diagnostics,
+      ...(meta ?? {}),
+    },
+  });
+};
+
 export const estimateNgramCampaignMaxTokens = (termCount: number): number => {
   const safeTermCount = Number.isFinite(termCount) ? Math.max(0, Math.floor(termCount)) : 0;
   return Math.min(
@@ -321,6 +395,7 @@ export const evaluateCampaignWithValidationRetry = async ({
   let tokensTotal = 0;
   let lastError: Error | null = null;
   let lastContent: string | null = null;
+  const diagnostics: Record<string, unknown>[] = [];
 
   for (let attempt = 1; attempt <= MAX_VALIDATION_ATTEMPTS; attempt += 1) {
     const messages =
@@ -368,9 +443,42 @@ export const evaluateCampaignWithValidationRetry = async ({
       };
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
+      diagnostics.push(
+        buildAttemptDiagnostic({
+          attempt,
+          messages,
+          completion,
+          errorMessage: lastError.message,
+          maxTokens,
+        }),
+      );
       if (attempt === MAX_VALIDATION_ATTEMPTS) {
-        throw new Error(
+        await logStructuredOutputFailure({
+          stage: "combined_campaign",
+          campaign,
+          marketplaceCode,
+          maxTokens,
+          diagnostics,
+          meta: {
+            catalog_product_count: catalogProducts.length,
+            term_count: terms.length,
+            response_format_name: NGRAM_RESPONSE_FORMAT.json_schema.name,
+          },
+        });
+        throw new NgramStructuredOutputValidationError(
           `${campaign.campaignName}: AI response validation failed after ${MAX_VALIDATION_ATTEMPTS} attempts: ${lastError.message}`,
+          {
+            evaluator_stage: "combined_campaign",
+            campaign_name: campaign.campaignName,
+            campaign_total_spend: campaign.totalSpend,
+            campaign_term_count: campaign.termCount,
+            marketplace_code: marketplaceCode,
+            max_tokens: maxTokens,
+            catalog_product_count: catalogProducts.length,
+            term_count: terms.length,
+            response_format_name: NGRAM_RESPONSE_FORMAT.json_schema.name,
+            attempt_diagnostics: diagnostics,
+          },
         );
       }
     }
@@ -405,6 +513,7 @@ export const evaluateCampaignWithPureModelValidationRetry = async ({
   let tokensTotal = 0;
   let lastError: Error | null = null;
   let lastContent: string | null = null;
+  const diagnostics: Record<string, unknown>[] = [];
 
   for (let attempt = 1; attempt <= MAX_VALIDATION_ATTEMPTS; attempt += 1) {
     const messages =
@@ -448,9 +557,40 @@ export const evaluateCampaignWithPureModelValidationRetry = async ({
       };
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
+      diagnostics.push(
+        buildAttemptDiagnostic({
+          attempt,
+          messages,
+          completion,
+          errorMessage: lastError.message,
+          maxTokens,
+        }),
+      );
       if (attempt === MAX_VALIDATION_ATTEMPTS) {
-        throw new Error(
+        await logStructuredOutputFailure({
+          stage: "pure_model_context",
+          campaign,
+          marketplaceCode,
+          maxTokens,
+          diagnostics,
+          meta: {
+            catalog_product_count: catalogProducts.length,
+            response_format_name: NGRAM_PURE_MODEL_CONTEXT_RESPONSE_FORMAT.json_schema.name,
+          },
+        });
+        throw new NgramStructuredOutputValidationError(
           `${campaign.campaignName}: AI response validation failed after ${MAX_VALIDATION_ATTEMPTS} attempts: ${lastError.message}`,
+          {
+            evaluator_stage: "pure_model_context",
+            campaign_name: campaign.campaignName,
+            campaign_total_spend: campaign.totalSpend,
+            campaign_term_count: campaign.termCount,
+            marketplace_code: marketplaceCode,
+            max_tokens: maxTokens,
+            catalog_product_count: catalogProducts.length,
+            response_format_name: NGRAM_PURE_MODEL_CONTEXT_RESPONSE_FORMAT.json_schema.name,
+            attempt_diagnostics: diagnostics,
+          },
         );
       }
     }
@@ -498,6 +638,7 @@ export const evaluateCampaignTermTriageWithValidationRetry = async ({
   let tokensTotal = 0;
   let lastError: Error | null = null;
   let lastContent: string | null = null;
+  const diagnostics: Record<string, unknown>[] = [];
 
   for (let attempt = 1; attempt <= MAX_VALIDATION_ATTEMPTS; attempt += 1) {
     const messages =
@@ -544,9 +685,44 @@ export const evaluateCampaignTermTriageWithValidationRetry = async ({
       };
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
+      diagnostics.push(
+        buildAttemptDiagnostic({
+          attempt,
+          messages,
+          completion,
+          errorMessage: lastError.message,
+          maxTokens,
+        }),
+      );
       if (attempt === MAX_VALIDATION_ATTEMPTS) {
-        throw new Error(
+        await logStructuredOutputFailure({
+          stage: "pure_model_term_triage",
+          campaign,
+          marketplaceCode,
+          maxTokens,
+          diagnostics,
+          meta: {
+            matched_product_child_asin: matchedProduct.childAsin,
+            match_confidence: matchConfidence,
+            response_format_name: NGRAM_PURE_MODEL_TERM_TRIAGE_RESPONSE_FORMAT.json_schema.name,
+            term_count: terms.length,
+          },
+        });
+        throw new NgramStructuredOutputValidationError(
           `${campaign.campaignName}: AI response validation failed after ${MAX_VALIDATION_ATTEMPTS} attempts: ${lastError.message}`,
+          {
+            evaluator_stage: "pure_model_term_triage",
+            campaign_name: campaign.campaignName,
+            campaign_total_spend: campaign.totalSpend,
+            campaign_term_count: campaign.termCount,
+            marketplace_code: marketplaceCode,
+            max_tokens: maxTokens,
+            matched_product_child_asin: matchedProduct.childAsin,
+            match_confidence: matchConfidence,
+            response_format_name: NGRAM_PURE_MODEL_TERM_TRIAGE_RESPONSE_FORMAT.json_schema.name,
+            term_count: terms.length,
+            attempt_diagnostics: diagnostics,
+          },
         );
       }
     }

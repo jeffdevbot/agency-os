@@ -27,6 +27,7 @@ export interface ChatCompletionResult {
   content: string | null;
   toolCalls?: ToolCall[];
   refusal?: string | null;
+  finishReason?: string | null;
   tokensIn: number;
   tokensOut: number;
   tokensTotal: number;
@@ -174,6 +175,7 @@ const callOpenAIHttp = async (
 
   const data = (await response.json()) as {
     choices: Array<{
+      finish_reason?: string | null;
       message?: {
         content?: string | null;
         tool_calls?: ToolCall[];
@@ -197,6 +199,7 @@ const callOpenAIHttp = async (
     content: choice.message.content ?? null,
     toolCalls: choice.message.tool_calls,
     refusal: choice.message.refusal ?? null,
+    finishReason: choice.finish_reason ?? null,
     tokensIn,
     tokensOut,
     tokensTotal,

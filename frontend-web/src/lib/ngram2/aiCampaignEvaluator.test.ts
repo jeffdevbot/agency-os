@@ -1,15 +1,20 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
 
 vi.mock("server-only", () => ({}));
+vi.mock("@/lib/ai/errorLogger", () => ({
+  logAppError: vi.fn().mockResolvedValue(undefined),
+}));
 
 import {
   estimateNgramCampaignMaxTokens,
   evaluateCampaignWithValidationRetry,
   evaluateCampaignTermTriageWithValidationRetry,
   evaluateCampaignWithPureModelValidationRetry,
+  NgramStructuredOutputValidationError,
 } from "./aiCampaignEvaluator";
 import type { AIPrefillCatalogProduct, AggregatedCampaign, AggregatedSearchTerm } from "./aiPrefill";
 import * as openaiModule from "@/lib/composer/ai/openai";
+import * as errorLoggerModule from "@/lib/ai/errorLogger";
 
 describe("evaluateCampaignWithValidationRetry", () => {
   afterEach(() => {
@@ -163,6 +168,7 @@ describe("evaluateCampaignWithValidationRetry", () => {
       terms: [],
     };
 
+    const logSpy = vi.spyOn(errorLoggerModule, "logAppError").mockResolvedValue();
     vi.spyOn(openaiModule, "createChatCompletion").mockResolvedValue({
       content: JSON.stringify({
         matched_product: null,
@@ -171,14 +177,16 @@ describe("evaluateCampaignWithValidationRetry", () => {
         term_recommendations: [],
       }),
       tokensIn: 10,
-      tokensOut: 5,
-      tokensTotal: 15,
-      model: "gpt-5.4-2026-03-05",
-      durationMs: 1,
-    });
+        tokensOut: 5,
+        tokensTotal: 15,
+        model: "gpt-5.4-2026-03-05",
+        finishReason: "length",
+        durationMs: 1,
+      });
 
-    await expect(
-      evaluateCampaignWithValidationRetry({
+    let thrown: unknown;
+    try {
+      await evaluateCampaignWithValidationRetry({
         campaign,
         catalogProducts: [],
         terms: [
@@ -199,8 +207,32 @@ describe("evaluateCampaignWithValidationRetry", () => {
         marketplaceCode: "CA",
         model: "gpt-5.4-2026-03-05",
         maxTokens: 2200,
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(NgramStructuredOutputValidationError);
+    expect((thrown as Error).message).toContain("AI response validation failed after 3 attempts");
+    expect((thrown as NgramStructuredOutputValidationError).meta).toMatchObject({
+      evaluator_stage: "combined_campaign",
+      campaign_name: campaign.campaignName,
+      marketplace_code: "CA",
+      max_tokens: 2200,
+      term_count: 1,
+      response_format_name: "ngram_campaign_prefill_response",
+    });
+    expect((thrown as NgramStructuredOutputValidationError).meta.attempt_diagnostics).toHaveLength(3);
+    expect(
+      ((thrown as NgramStructuredOutputValidationError).meta.attempt_diagnostics as Array<Record<string, unknown>>)[0]
+        ?.finish_reason,
+    ).toBe("length");
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tool: "ngram",
+        message: `${campaign.campaignName}: structured output validation failed`,
       }),
-    ).rejects.toThrow("AI response validation failed after 3 attempts");
+    );
   });
 
   it("fails clearly if the model refuses structured output", async () => {

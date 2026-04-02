@@ -1,3 +1,9 @@
+-- Archived on 2026-04-02.
+-- This migration is not present in the live Supabase migration ledger for the
+-- current production database, and the target table does not exist live.
+-- Keep the historical SQL here, but do not treat it as part of the active
+-- canonical migration sequence.
+
 create table if not exists public.wbr_business_parent_asin_conflicts (
   id uuid primary key default gen_random_uuid(),
   profile_id uuid not null references public.wbr_profiles(id) on delete cascade,

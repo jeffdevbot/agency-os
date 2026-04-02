@@ -400,6 +400,7 @@ export default function NgramTwoPage() {
           spend_threshold: parsedThreshold,
           respect_legacy_exclusions: legacyExclusions,
           run_mode: "full",
+          prefill_strategy: "pure_model_single_campaign" satisfies AIPrefillStrategy,
         }),
       });
 
