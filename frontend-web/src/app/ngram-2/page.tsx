@@ -178,6 +178,30 @@ type AIPrefillPreview = {
   warnings: string[];
 };
 
+type SavedNgramRun = {
+  id: string;
+  created_at: string | null;
+  ad_product: string | null;
+  date_from: string | null;
+  date_to: string | null;
+  spend_threshold: number;
+  respect_legacy_exclusions: boolean;
+  model: string | null;
+  prompt_version: string | null;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  run_mode: "preview" | "full";
+  prefill_strategy: string | null;
+  preview_campaigns: number;
+  runnable_campaigns: number;
+  recommendation_counts: {
+    keep: number;
+    negate: number;
+    review: number;
+  } | null;
+};
+
 const formatNumber = (value: number): string => value.toLocaleString();
 
 const formatCurrency = (value: number, currencyCode: string | null | undefined): string =>
@@ -196,6 +220,16 @@ const parseAttachmentFilename = (response: Response, fallback: string): string =
   }
   const plainMatch = disposition.match(/filename="?([^";]+)"?/i);
   return plainMatch?.[1] || fallback;
+};
+
+const formatSavedRunTimestamp = (value: string | null): string => {
+  if (!value) return "Unknown time";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return new Intl.DateTimeFormat("en-US", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(parsed);
 };
 
 const formatRecommendationLabel = (
@@ -255,6 +289,11 @@ export default function NgramTwoPage() {
   const [aiPreviewError, setAiPreviewError] = useState<string | null>(null);
   const [aiPreview, setAiPreview] = useState<AIPrefillPreview | null>(null);
   const [aiPreviewRunId, setAiPreviewRunId] = useState<string | null>(null);
+  const [savedRuns, setSavedRuns] = useState<SavedNgramRun[]>([]);
+  const [savedRunsLoading, setSavedRunsLoading] = useState(false);
+  const [savedRunsError, setSavedRunsError] = useState<string | null>(null);
+  const [savedRunsReloadToken, setSavedRunsReloadToken] = useState(0);
+  const [savedRunWorkbookId, setSavedRunWorkbookId] = useState<string | null>(null);
   const [selectedFilledWorkbook, setSelectedFilledWorkbook] = useState<File | null>(null);
   const [collectingNegatives, setCollectingNegatives] = useState(false);
   const [collectError, setCollectError] = useState<string | null>(null);
@@ -355,6 +394,7 @@ export default function NgramTwoPage() {
     !aiPreviewWorkbookGenerating &&
     Boolean(aiPreviewRunId) &&
     Boolean(selectedProfile?.profileId);
+  const hasSavedRuns = savedRuns.length > 0;
   const canRunPureModelPreview = canRunPreviewBase && hasSelectedAiCampaignSubset;
   const canCollectNegatives = Boolean(selectedFilledWorkbook) && !collectingNegatives;
   const filteredCampaignOptions = (summary?.campaigns ?? [])
@@ -474,6 +514,7 @@ export default function NgramTwoPage() {
 
       setToast("Full AI review workbook download started.");
       window.setTimeout(() => setToast(null), 3200);
+      setSavedRunsReloadToken((current) => current + 1);
     } catch (generateError) {
       setAiWorkbookError(
         generateError instanceof Error ? generateError.message : "Full AI review workbook generation failed",
@@ -544,6 +585,71 @@ export default function NgramTwoPage() {
       );
     } finally {
       setAiPreviewWorkbookGenerating(false);
+    }
+  };
+
+  const handleGenerateWorkbookFromSavedRun = async (previewRunId: string) => {
+    if (!selectedProfile) return;
+
+    setSavedRunWorkbookId(previewRunId);
+    setAiWorkbookError(null);
+
+    try {
+      const supabase = getBrowserSupabaseClient();
+      const { data } = await supabase.auth.getSession();
+      const accessToken = data.session?.access_token;
+
+      if (!accessToken) {
+        setAiWorkbookError("Please sign in again.");
+        setSavedRunWorkbookId(null);
+        return;
+      }
+
+      const response = await fetch(`${BACKEND_URL}/ngram/native-workbook-prefilled`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          profile_id: selectedProfile.profileId,
+          ad_product: selectedProductConfig?.amazonAdsAdProduct,
+          date_from: dateFrom,
+          date_to: dateTo,
+          respect_legacy_exclusions: legacyExclusions,
+          preview_run_id: previewRunId,
+        }),
+      });
+
+      if (!response.ok) {
+        const detail = await response.json().catch(() => undefined);
+        throw new Error(detail?.detail || "Saved-run workbook generation failed");
+      }
+
+      const blob = await response.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const disposition = response.headers.get("content-disposition") || "";
+      const match = disposition.match(/filename=\"?([^\";]+)\"?/i);
+      const filename =
+        match?.[1] || `${selectedProfile.displayName.replace(/\s+/g, "_")}_ai_saved_run_native_ngrams.xlsx`;
+
+      const anchor = document.createElement("a");
+      anchor.href = downloadUrl;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.URL.revokeObjectURL(downloadUrl);
+
+      setAiPreviewRunId(previewRunId);
+      setToast("Saved-run workbook download started.");
+      window.setTimeout(() => setToast(null), 3200);
+    } catch (error) {
+      setAiWorkbookError(
+        error instanceof Error ? error.message : "Saved-run workbook generation failed",
+      );
+    } finally {
+      setSavedRunWorkbookId(null);
     }
   };
 
@@ -662,6 +768,7 @@ export default function NgramTwoPage() {
       };
       setAiPreview(payload.preview ?? null);
       setAiPreviewRunId(payload.preview_run_id ?? null);
+      setSavedRunsReloadToken((current) => current + 1);
     } catch (previewError) {
       setAiPreviewError(
         previewError instanceof Error ? previewError.message : "AI prefill preview failed",
@@ -783,6 +890,8 @@ export default function NgramTwoPage() {
   useEffect(() => {
     setAiPreview(null);
     setAiPreviewRunId(null);
+    setSavedRuns([]);
+    setSavedRunsError(null);
     setExpandedPreviewRows({});
     setAiPreviewError(null);
     setAiWorkbookError(null);
@@ -791,6 +900,78 @@ export default function NgramTwoPage() {
     setSelectedAiCampaignNames([]);
     setAiCampaignQuery("");
   }, [selectedProfile?.profileId, selectedProduct, dateFrom, dateTo, legacyExclusions]);
+
+  useEffect(() => {
+    if (
+      loading ||
+      !selectedProfile?.profileId ||
+      !selectedProductConfig?.amazonAdsAdProduct ||
+      dayCount === null
+    ) {
+      setSavedRuns([]);
+      setSavedRunsLoading(false);
+      setSavedRunsError(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadSavedRuns = async () => {
+      setSavedRunsLoading(true);
+      setSavedRunsError(null);
+
+      try {
+        const response = await fetch(
+          `/api/ngram-2/saved-runs?${new URLSearchParams({
+            profile_id: selectedProfile.profileId,
+            ad_product: selectedProductConfig.amazonAdsAdProduct ?? "",
+            date_from: dateFrom,
+            date_to: dateTo,
+            respect_legacy_exclusions: String(legacyExclusions),
+            limit: "5",
+          }).toString()}`,
+          {
+            method: "GET",
+            cache: "no-store",
+          },
+        );
+
+        if (!response.ok) {
+          const detail = await response.json().catch(() => undefined);
+          throw new Error(detail?.detail || "Failed to load saved runs");
+        }
+
+        const payload = (await response.json()) as { runs?: SavedNgramRun[] };
+        if (!cancelled) {
+          setSavedRuns(Array.isArray(payload.runs) ? payload.runs : []);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setSavedRuns([]);
+          setSavedRunsError(error instanceof Error ? error.message : "Failed to load saved runs");
+        }
+      } finally {
+        if (!cancelled) {
+          setSavedRunsLoading(false);
+        }
+      }
+    };
+
+    void loadSavedRuns();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    loading,
+    selectedProfile?.profileId,
+    selectedProductConfig?.amazonAdsAdProduct,
+    dateFrom,
+    dateTo,
+    legacyExclusions,
+    dayCount,
+    savedRunsReloadToken,
+  ]);
 
   return (
     <div className="flex min-h-screen flex-col bg-gradient-to-br from-[#eaf2ff] via-[#dce8ff] to-[#cddcf8]">
@@ -1554,6 +1735,68 @@ export default function NgramTwoPage() {
                 <p className="mt-2 text-xs text-[#7d8ba1]">
                   A saved AI run is available for this session, so workbook generation can be retried without rerunning AI.
                 </p>
+              ) : null}
+            </div>
+
+            <div className="mt-4 rounded-2xl border border-[#dbe4f0] bg-[#fbfdff] p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-[#0f172a]">Recent Saved Runs</p>
+                  <p className="mt-1 text-xs text-[#7d8ba1]">
+                    These runs are filtered to your account plus the current marketplace, ad type, date range, and exclusion setting.
+                  </p>
+                </div>
+                {savedRunsLoading ? (
+                  <span className="text-xs font-semibold uppercase tracking-[0.18em] text-[#94a3b8]">
+                    Loading…
+                  </span>
+                ) : null}
+              </div>
+
+              {savedRunsError ? (
+                <p className="mt-3 rounded-xl border border-[#f87171]/40 bg-[#fee2e2] px-3 py-2 text-sm text-[#991b1b]">
+                  {savedRunsError}
+                </p>
+              ) : null}
+
+              {!savedRunsLoading && !savedRunsError && !hasSavedRuns ? (
+                <p className="mt-3 text-sm text-[#4c576f]">
+                  No saved runs yet for this exact selection.
+                </p>
+              ) : null}
+
+              {hasSavedRuns ? (
+                <div className="mt-3 space-y-3">
+                  {savedRuns.map((run) => (
+                    <div
+                      key={run.id}
+                      className="rounded-2xl border border-[#dbe4f0] bg-white px-4 py-3"
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold text-[#0f172a]">
+                            {run.run_mode === "full" ? "Full AI run" : "Preview AI run"}
+                          </p>
+                          <p className="mt-1 text-xs text-[#7d8ba1]">
+                            Saved {formatSavedRunTimestamp(run.created_at)}
+                          </p>
+                          <p className="mt-1 text-xs text-[#7d8ba1]">
+                            {formatNumber(run.preview_campaigns)} campaign{run.preview_campaigns === 1 ? "" : "s"} ·{" "}
+                            {formatNumber(run.total_tokens)} tokens · {run.prompt_version ?? "unknown prompt"}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={Boolean(savedRunWorkbookId)}
+                          onClick={() => handleGenerateWorkbookFromSavedRun(run.id)}
+                          className="rounded-full border border-[#b9c9e6] bg-white px-4 py-2 text-sm font-semibold text-[#0f172a] transition hover:border-[#8bb6ff] hover:bg-[#eef5ff] disabled:cursor-not-allowed disabled:border-[#d7deea] disabled:text-[#94a3b8]"
+                        >
+                          {savedRunWorkbookId === run.id ? "Downloading…" : "Download Workbook"}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               ) : null}
             </div>
 
