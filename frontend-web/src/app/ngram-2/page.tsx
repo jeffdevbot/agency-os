@@ -420,6 +420,10 @@ export default function NgramTwoPage() {
         throw new Error("Full AI workbook run did not return a saved run id.");
       }
 
+      // Persist the saved run id locally so workbook generation can be retried
+      // without paying for the full AI pass again if the second request fails.
+      setAiPreviewRunId(fullRunId);
+
       const supabase = getBrowserSupabaseClient();
       const { data } = await supabase.auth.getSession();
       const accessToken = data.session?.access_token;
@@ -442,32 +446,15 @@ export default function NgramTwoPage() {
           date_to: dateTo,
           respect_legacy_exclusions: legacyExclusions,
           preview_run_id: fullRunId,
-          campaign_prefills: fullRun.campaigns
-            .map((campaign) => ({
-              campaign_name: campaign.campaignName,
-              mono: campaign.synthesizedPrefills.mono.map((item) => item.gram),
-              bi: campaign.synthesizedPrefills.bi.map((item) => item.gram),
-              tri: campaign.synthesizedPrefills.tri.map((item) => item.gram),
-            }))
-            .filter((campaign) => campaign.mono.length + campaign.bi.length + campaign.tri.length > 0),
-          campaign_term_reviews: Object.fromEntries(
-            fullRun.campaigns.map((campaign) => [
-              campaign.campaignName,
-              campaign.evaluations.map((evaluation) => ({
-                search_term: evaluation.search_term,
-                recommendation: evaluation.recommendation,
-                confidence: evaluation.confidence,
-                reason_tag: evaluation.reason_tag,
-                rationale: evaluation.rationale,
-              })),
-            ]),
-          ),
         }),
       });
 
       if (!response.ok) {
         const detail = await response.json().catch(() => undefined);
-        throw new Error(detail?.detail || "AI review workbook generation failed");
+        throw new Error(
+          detail?.detail ||
+            "AI run completed and was saved, but workbook generation failed. Retry from the saved run.",
+        );
       }
 
       const blob = await response.blob();
@@ -1544,12 +1531,30 @@ export default function NgramTwoPage() {
               {aiWorkbookGenerating ? "Running AI and generating workbook…" : "Generate Workbook"}
             </button>
 
+            {canGenerateAiPreviewWorkbook ? (
+              <button
+                type="button"
+                disabled={!canGenerateAiPreviewWorkbook}
+                onClick={handleGenerateAiPreviewWorkbook}
+                className="mt-3 w-full rounded-2xl border border-[#b9c9e6] bg-white px-4 py-3 text-sm font-semibold text-[#0f172a] transition hover:border-[#8bb6ff] hover:bg-[#eef5ff] disabled:cursor-not-allowed disabled:border-[#d7deea] disabled:text-[#94a3b8]"
+              >
+                {aiPreviewWorkbookGenerating
+                  ? "Retrying workbook from saved run…"
+                  : "Retry Workbook From Saved Run"}
+              </button>
+            ) : null}
+
             <div className="mt-4 rounded-2xl border border-[#dbe4f0] bg-[#f7faff] p-4">
               <p className="text-sm text-[#4c576f]">
                 {selectedProduct === "sp"
                   ? "The generated workbook writes SAFE KEEP / LIKELY NEGATE / REVIEW guidance across the full selected window and leaves final analyst expression blank."
                   : "Workbook generation is intentionally limited to Sponsored Products first."}
               </p>
+              {aiPreviewRunId ? (
+                <p className="mt-2 text-xs text-[#7d8ba1]">
+                  A saved AI run is available for this session, so workbook generation can be retried without rerunning AI.
+                </p>
+              ) : null}
             </div>
 
             {aiWorkbookError ? (
