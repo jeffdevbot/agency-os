@@ -15,6 +15,7 @@ import {
   aggregateSearchTerms,
   AI_PREFILL_PREVIEW_MAX_CAMPAIGNS,
   AI_PREFILL_PREVIEW_MAX_TERMS_PER_CAMPAIGN,
+  type AIPrefillBrandContext,
   buildCampaignAggregates,
   buildPreparedCatalogProductIndex,
   isAsinQuery,
@@ -222,6 +223,73 @@ const loadSiblingCatalogCandidates = async (
       listings: await loadListings(String(row.id || "").trim()),
     })),
   );
+};
+
+const normalizeBrandName = (value: unknown): string | null => {
+  const trimmed = String(value || "").trim();
+  return trimmed || null;
+};
+
+const isNonEmptyString = (value: string | null): value is string => Boolean(value);
+
+const loadClientBrandContext = async (
+  profile: CatalogSourceProfile,
+): Promise<AIPrefillBrandContext> => {
+  if (!profile.clientId) {
+    return {
+      clientName: null,
+      knownBrandNames: [],
+      marketplaceBrandNames: [],
+    };
+  }
+
+  const supabase = createSupabaseServiceClient();
+  const { data, error } = await supabase
+    .from("agency_clients")
+    .select("name, brands(name, amazon_marketplaces)")
+    .eq("id", profile.clientId)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+
+  const clientRow =
+    data && typeof data === "object" && !Array.isArray(data) ? (data as Record<string, unknown>) : null;
+  const rawBrands =
+    clientRow && Array.isArray((clientRow as { brands?: unknown }).brands)
+      ? (((clientRow as { brands?: unknown }).brands as unknown[]) ?? [])
+      : [];
+
+  const clientName = normalizeBrandName(clientRow?.name);
+  const knownBrandNames = [
+    ...new Set(
+      rawBrands
+        .map((brand) => normalizeBrandName((brand as Record<string, unknown>)?.name))
+        .filter(isNonEmptyString),
+    ),
+  ];
+  const profileMarketplace = String(profile.marketplaceCode || "").trim().toUpperCase();
+  const marketplaceBrandNames = [
+    ...new Set(
+      rawBrands
+        .filter((brand) => {
+          const marketplaces = Array.isArray((brand as { amazon_marketplaces?: unknown }).amazon_marketplaces)
+            ? ((brand as { amazon_marketplaces?: unknown }).amazon_marketplaces as unknown[])
+                .map((value) => String(value || "").trim().toUpperCase())
+                .filter(Boolean)
+            : [];
+          return marketplaces.length === 0 || !profileMarketplace || marketplaces.includes(profileMarketplace);
+        })
+        .map((brand) => normalizeBrandName((brand as Record<string, unknown>)?.name))
+        .filter(isNonEmptyString),
+    ),
+  ];
+
+  return {
+    clientName,
+    knownBrandNames,
+    marketplaceBrandNames,
+  };
 };
 
 const resolveCatalogListings = async (
@@ -530,6 +598,7 @@ export async function POST(request: Request) {
       );
     }
 
+    const brandContext = await loadClientBrandContext(catalogProfile);
     const catalogProducts = prepareAIPrefillCatalogProducts(listings);
     if (catalogProducts.length === 0) {
       throw new Error(
@@ -553,9 +622,7 @@ export async function POST(request: Request) {
       respectLegacyExclusions,
     });
 
-    const runnableCampaigns = candidateCampaigns.filter((campaign) =>
-      Boolean(parseCampaignProductIdentifier(campaign.campaignName)),
-    );
+    const runnableCampaigns = candidateCampaigns;
     const intentionallySkippedCampaigns = 0;
     const previewCampaigns = selectCampaignsForAIPrefill(runnableCampaigns, runMode, requestedCampaignNames);
     const hasRequestedCampaigns = requestedCampaignNames.length > 0;
@@ -629,6 +696,7 @@ export async function POST(request: Request) {
                 .map((candidate) => candidate.product),
               terms,
               marketplaceCode: catalogProfile.marketplaceCode,
+              brandContext,
               model: NGRAM_MODEL_OVERRIDE || undefined,
               maxTokens: estimateNgramCampaignMaxTokens(terms.length),
             })
@@ -654,6 +722,7 @@ export async function POST(request: Request) {
           campaign,
           catalogProducts: initialContextCandidates,
           marketplaceCode: catalogProfile.marketplaceCode,
+          brandContext,
           model: NGRAM_MODEL_OVERRIDE || undefined,
           maxTokens: 2200,
         });
@@ -672,6 +741,7 @@ export async function POST(request: Request) {
               .slice(0, PURE_MODEL_CONTEXT_EXPANDED_CANDIDATE_LIMIT)
               .map((candidate) => candidate.product),
             marketplaceCode: catalogProfile.marketplaceCode,
+            brandContext,
             model: NGRAM_MODEL_OVERRIDE || undefined,
             maxTokens: 2200,
           });
@@ -705,6 +775,7 @@ export async function POST(request: Request) {
               marketplaceCode: catalogProfile.marketplaceCode,
               matchConfidence: contextEvaluation.validated.matchConfidence,
               matchReason: contextEvaluation.validated.matchReason,
+              brandContext,
               model: NGRAM_MODEL_OVERRIDE || undefined,
               maxTokens: estimateNgramCampaignMaxTokens(termChunk.length),
             });

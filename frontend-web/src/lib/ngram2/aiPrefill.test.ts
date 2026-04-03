@@ -34,7 +34,7 @@ describe("ngram2 aiPrefill helpers", () => {
 
   it("treats brand or defensive lanes as expected ambiguous", () => {
     expect(isExpectedAmbiguousCampaign("Brand | SPM | MKW | Br. | Mix. | Def")).toBe(true);
-    expect(isIntentionallySkippedCampaign("Brand | SPM | MKW | Br. | Mix. | Def")).toBe(true);
+    expect(isIntentionallySkippedCampaign("Brand | SPM | MKW | Br. | Mix. | Def")).toBe(false);
     expect(isExpectedAmbiguousCampaign("Screen Shine - Pro | SPM | MKW | Br.M | 2 - computer | Perf")).toBe(
       false,
     );
@@ -64,7 +64,7 @@ describe("ngram2 aiPrefill helpers", () => {
     expect(match.matchedTitle).toContain("Screen Shine Duo");
   });
 
-  it("classifies brand or mix campaigns as intentionally skipped instead of ambiguous", () => {
+  it("classifies brand or mix campaigns as ambiguous instead of intentionally skipped", () => {
     const match = chooseBestListingMatch("Brand | SPM | MKW | Br. | Mix. | Def", [
       {
         child_asin: "A1",
@@ -76,7 +76,7 @@ describe("ngram2 aiPrefill helpers", () => {
       },
     ]);
 
-    expect(match.status).toBe("intentionally_skipped");
+    expect(match.status).toBe("ambiguous");
     expect(match.skipReason).toBe("brand_mix_defensive");
   });
 

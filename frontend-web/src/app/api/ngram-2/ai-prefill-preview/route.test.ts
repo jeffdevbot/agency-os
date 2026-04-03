@@ -49,7 +49,8 @@ describe("ngram-2 ai prefill preview route prompt", () => {
     const messages = buildCampaignPrompt(campaign, catalogProducts, terms, "CA");
     const userMessage = messages.find((message) => message.role === "user");
 
-    expect(userMessage?.content).toContain('"marketplace_code": "CA"');
+    expect(userMessage?.content).toContain('"marketplace_code":"CA"');
+    expect(userMessage?.content).toContain('"client_context"');
     expect(NGRAM_AI_PROMPT_VERSION).toBe("ngram_step3_calibrated_v2026_03_30");
   });
 
@@ -61,6 +62,7 @@ describe("ngram-2 ai prefill preview route prompt", () => {
     expect(SYSTEM_PROMPT).toContain("On CA marketplace profiles, French-language terms are expected");
     expect(SYSTEM_PROMPT).toContain("REVIEW should represent a small minority of terms, typically 5-10% of the input.");
     expect(SYSTEM_PROMPT).toContain('treat "apple" as referring to Apple devices unless the term contains a clear counter-signal such as "juice" or "fruit"');
+    expect(SYSTEM_PROMPT).toContain("Brand campaigns are valid input and must still be evaluated");
   });
 
   it("defines the pure-model context pass contract", () => {
@@ -82,9 +84,11 @@ describe("ngram-2 ai prefill preview route prompt", () => {
     const messages = buildPureModelContextPrompt(campaign, catalogProducts, "US");
     const userMessage = messages.find((message) => message.role === "user");
 
-    expect(userMessage?.content).toContain('"campaign_identifier": "Screen Shine - Duo"');
+    expect(userMessage?.content).toContain('"campaign_identifier":"Screen Shine - Duo"');
+    expect(userMessage?.content).toContain('"client_context"');
     expect(userMessage?.content).toContain('"catalog_products"');
     expect(PURE_MODEL_CONTEXT_SYSTEM_PROMPT).toContain("Your job in this pass is only to lock product context");
+    expect(PURE_MODEL_CONTEXT_SYSTEM_PROMPT).toContain("Use the provided client_context when campaign naming is broad, branded, defensive, or family-level.");
     expect(PURE_MODEL_CONTEXT_SYSTEM_PROMPT).toContain("Distinguish product-family ambiguity from product ambiguity.");
     expect(PURE_MODEL_CONTEXT_SYSTEM_PROMPT).toContain("return the single catalog row that best represents that family with match_confidence = MEDIUM");
     expect(PURE_MODEL_CONTEXT_SYSTEM_PROMPT).toContain("SKU prefixes and repeated catalog naming patterns are meaningful evidence.");
@@ -132,12 +136,14 @@ describe("ngram-2 ai prefill preview route prompt", () => {
     );
     const userMessage = messages.find((message) => message.role === "user");
 
-    expect(userMessage?.content).toContain('"search_term": "laptop cloth"');
+    expect(userMessage?.content).toContain('"search_term":"laptop cloth"');
+    expect(userMessage?.content).toContain('"client_context"');
     expect(userMessage?.content).toContain('"locked_product_context"');
-    expect(userMessage?.content).toContain('"match_confidence": "HIGH"');
+    expect(userMessage?.content).toContain('"match_confidence":"HIGH"');
     expect(PURE_MODEL_TERM_TRIAGE_SYSTEM_PROMPT).toContain('"exact_negatives"');
     expect(PURE_MODEL_TERM_TRIAGE_SYSTEM_PROMPT).toContain('"phrase_negatives"');
     expect(PURE_MODEL_TERM_TRIAGE_SYSTEM_PROMPT).toContain("matched product context is already locked");
+    expect(PURE_MODEL_TERM_TRIAGE_SYSTEM_PROMPT).toContain("Use the provided client_context to interpret broad branded, defensive, or family-level campaign naming");
     expect(PURE_MODEL_TERM_TRIAGE_SYSTEM_PROMPT).toContain("that is a KEEP, not a REVIEW");
     expect(PURE_MODEL_TERM_TRIAGE_SYSTEM_PROMPT).toContain("REVIEW should represent a small minority of terms, typically 5-10% of the input.");
     expect(PURE_MODEL_TERM_TRIAGE_SYSTEM_PROMPT).toContain('treat "apple" as referring to Apple devices unless the term contains a clear counter-signal such as "juice" or "fruit"');

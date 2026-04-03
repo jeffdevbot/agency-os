@@ -13,6 +13,7 @@ import {
   validatePureModelTermTriageResponse,
   type AggregatedCampaign,
   type AggregatedSearchTerm,
+  type AIPrefillBrandContext,
   type AIPrefillCatalogProduct,
   type ValidatedAIPrefillCampaignResponse,
   type ValidatedPureModelContextResponse,
@@ -372,6 +373,7 @@ export const evaluateCampaignWithValidationRetry = async ({
   catalogProducts,
   terms,
   marketplaceCode,
+  brandContext,
   model,
   maxTokens,
 }: {
@@ -379,6 +381,7 @@ export const evaluateCampaignWithValidationRetry = async ({
   catalogProducts: AIPrefillCatalogProduct[];
   terms: AggregatedSearchTerm[];
   marketplaceCode: string | null;
+  brandContext?: AIPrefillBrandContext;
   model?: string;
   maxTokens: number;
 }): Promise<{
@@ -389,7 +392,7 @@ export const evaluateCampaignWithValidationRetry = async ({
   tokensOut: number;
   tokensTotal: number;
 }> => {
-  const baseMessages = buildCampaignPrompt(campaign, catalogProducts, terms, marketplaceCode);
+  const baseMessages = buildCampaignPrompt(campaign, catalogProducts, terms, marketplaceCode, brandContext);
   let tokensIn = 0;
   let tokensOut = 0;
   let tokensTotal = 0;
@@ -491,12 +494,14 @@ export const evaluateCampaignWithPureModelValidationRetry = async ({
   campaign,
   catalogProducts,
   marketplaceCode,
+  brandContext,
   model,
   maxTokens,
 }: {
   campaign: AggregatedCampaign;
   catalogProducts: AIPrefillCatalogProduct[];
   marketplaceCode: string | null;
+  brandContext?: AIPrefillBrandContext;
   model?: string;
   maxTokens: number;
 }): Promise<{
@@ -507,7 +512,7 @@ export const evaluateCampaignWithPureModelValidationRetry = async ({
   tokensOut: number;
   tokensTotal: number;
 }> => {
-  const baseMessages = buildPureModelContextPrompt(campaign, catalogProducts, marketplaceCode);
+  const baseMessages = buildPureModelContextPrompt(campaign, catalogProducts, marketplaceCode, brandContext);
   let tokensIn = 0;
   let tokensOut = 0;
   let tokensTotal = 0;
@@ -606,6 +611,7 @@ export const evaluateCampaignTermTriageWithValidationRetry = async ({
   marketplaceCode,
   matchConfidence,
   matchReason,
+  brandContext,
   model,
   maxTokens,
 }: {
@@ -615,6 +621,7 @@ export const evaluateCampaignTermTriageWithValidationRetry = async ({
   marketplaceCode: string | null;
   matchConfidence: "HIGH" | "MEDIUM" | "LOW";
   matchReason: string;
+  brandContext?: AIPrefillBrandContext;
   model?: string;
   maxTokens: number;
 }): Promise<{
@@ -632,6 +639,7 @@ export const evaluateCampaignTermTriageWithValidationRetry = async ({
     marketplaceCode,
     matchConfidence,
     matchReason,
+    brandContext,
   );
   let tokensIn = 0;
   let tokensOut = 0;

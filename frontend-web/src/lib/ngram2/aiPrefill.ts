@@ -161,6 +161,12 @@ export type RankedCatalogProductCandidate = {
 
 export type AIPrefillRunMode = "preview" | "full";
 
+export type AIPrefillBrandContext = {
+  clientName: string | null;
+  knownBrandNames: string[];
+  marketplaceBrandNames: string[];
+};
+
 export const ALLOWED_REASON_TAGS = [
   "core_use_case",
   "wrong_category",
@@ -364,11 +370,10 @@ export const parseCampaignProductIdentifier = (campaignName: string): string | n
     .split("|")[0]
     ?.trim();
   if (!firstChunk) return null;
-  if (/^brand$/i.test(firstChunk)) return null;
   return firstChunk;
 };
 
-export const isIntentionallySkippedCampaign = (campaignName: string): boolean => {
+export const isExpectedAmbiguousCampaign = (campaignName: string): boolean => {
   const parts = String(campaignName || "")
     .split("|")
     .map((part) => part.trim().toLowerCase())
@@ -381,8 +386,7 @@ export const isIntentionallySkippedCampaign = (campaignName: string): boolean =>
   return false;
 };
 
-export const isExpectedAmbiguousCampaign = (campaignName: string): boolean =>
-  isIntentionallySkippedCampaign(campaignName);
+export const isIntentionallySkippedCampaign = (_campaignName: string): boolean => false;
 
 export const parseCampaignTheme = (campaignName: string): string | null => {
   const parts = String(campaignName || "")
@@ -1487,12 +1491,12 @@ export const chooseBestListingMatch = (
 ): CampaignProductMatch => {
   const identifier = parseCampaignProductIdentifier(campaignName);
   const theme = parseCampaignTheme(campaignName);
-  const intentionallySkipped = isIntentionallySkippedCampaign(campaignName);
+  const expectedAmbiguous = isExpectedAmbiguousCampaign(campaignName);
   const catalog = Array.isArray(listings) ? buildPreparedListingCatalog(listings) : listings;
 
-  if (!identifier || intentionallySkipped) {
+  if (!identifier || expectedAmbiguous) {
     return {
-      status: intentionallySkipped ? "intentionally_skipped" : "ambiguous",
+      status: "ambiguous",
       identifier,
       matchedTitle: null,
       category: null,
@@ -1500,7 +1504,7 @@ export const chooseBestListingMatch = (
       score: null,
       theme,
       matchSource: "none",
-      skipReason: intentionallySkipped ? "brand_mix_defensive" : "missing_identifier",
+      skipReason: expectedAmbiguous ? "brand_mix_defensive" : "missing_identifier",
       candidates: [],
     };
   }

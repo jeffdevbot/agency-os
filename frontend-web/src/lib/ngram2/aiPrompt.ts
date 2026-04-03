@@ -1,6 +1,7 @@
 import {
   parseCampaignProductIdentifier,
   parseCampaignTheme,
+  type AIPrefillBrandContext,
   type AIPrefillCatalogProduct,
   type AggregatedCampaign,
   type AggregatedSearchTerm,
@@ -40,9 +41,11 @@ Return strict JSON with this shape:
 
 Rules:
 - First, identify the best matching product from the provided Windsor catalog rows.
+- Use the provided client_context when campaign naming is broad, branded, defensive, or family-level. Brand campaigns are valid input and must still be evaluated; do not silently treat them as out of scope.
 - If you cannot confidently identify one product, set matched_product to null and match_confidence to LOW.
 - When you select a product, copy the exact child_asin, child_sku, and product_name values from the catalog.
 - Distinguish product-family ambiguity from product ambiguity. If the campaign name or identifier clearly implies a product family but does not resolve to one exact variant or SKU, return the single catalog row that best represents that family with match_confidence = MEDIUM, not LOW.
+- If the campaign is a broad brand or defensive lane and the exact variant is unclear, use client_context plus the catalog rows to infer the most likely brand/product family. Family-level MEDIUM is better than null when the brand family is clear.
 - SKU prefixes and repeated catalog naming patterns are meaningful evidence. When several catalog rows share a prefix or family token in child_sku, product_name, or item_description, use that shared family signal to infer product context.
 - Prefer the catalog row whose child_sku, product_name, and item_description best represent the shared family language, even when exact variant detail is unresolved.
 - Judge each search term in the context of both the matched product and the campaign theme.
@@ -132,9 +135,11 @@ Return strict JSON with this shape:
 
 Rules:
 - First, identify the best matching product from the provided Windsor catalog rows.
+- Use the provided client_context when campaign naming is broad, branded, defensive, or family-level. Brand campaigns are valid input and must still be evaluated; do not silently treat them as out of scope.
 - If you cannot confidently identify one product, set matched_product to null and match_confidence to LOW.
 - When you select a product, copy the exact child_asin, child_sku, and product_name values from the catalog.
 - Distinguish product-family ambiguity from product ambiguity. If the campaign name or identifier clearly implies a product family but does not resolve to one exact variant or SKU, return the single catalog row that best represents that family with match_confidence = MEDIUM, not LOW.
+- If the campaign is a broad brand or defensive lane and the exact variant is unclear, use client_context plus the catalog rows to infer the most likely brand/product family. Family-level MEDIUM is better than null when the brand family is clear.
 - SKU prefixes and repeated catalog naming patterns are meaningful evidence. When several catalog rows share a prefix or family token in child_sku, product_name, or item_description, use that shared family signal to infer product context.
 - Prefer the catalog row whose child_sku, product_name, and item_description best represent the shared family language, even when exact variant detail is unresolved.
 - Return one term_recommendation for every input search term and preserve the exact search_term text.
@@ -191,7 +196,9 @@ Return strict JSON with this shape:
 Rules:
 - Your job in this pass is only to lock product context for the campaign.
 - Use the campaign name, campaign identifier, and campaign theme to select the best matching catalog product.
+- Use the provided client_context when campaign naming is broad, branded, defensive, or family-level. Brand campaigns are valid input and must still be mapped to the best product family you can support from the catalog.
 - Distinguish product-family ambiguity from product ambiguity. If the campaign name or identifier clearly implies a product family but does not resolve to one exact variant or SKU, return the single catalog row that best represents that family with match_confidence = MEDIUM, not LOW.
+- If the campaign is a broad brand or defensive lane and the exact variant is unclear, use client_context plus the catalog rows to infer the most likely brand/product family. Family-level MEDIUM is better than null when the brand family is clear.
 - SKU prefixes and repeated catalog naming patterns are meaningful evidence. When several catalog rows share a prefix or family token in child_sku, product_name, or item_description, use that shared family signal to infer product context.
 - Prefer the catalog row whose child_sku, product_name, and item_description best represent the shared family language, even when exact variant detail is unresolved.
 - If you cannot confidently identify even the product family, set matched_product to null and match_confidence to LOW.
@@ -228,6 +235,7 @@ Return strict JSON with this shape:
 
 Rules:
 - In this pass, matched product context is already locked. Do not remap the campaign to a different product.
+- Use the provided client_context to interpret broad branded, defensive, or family-level campaign naming while keeping the locked product context fixed.
 - Judge each search term in the context of both the locked product and the campaign theme.
 - Return one term_recommendation for every input search term and preserve the exact search_term text.
 - exact_negatives must only contain search terms that appear in the input list exactly.
@@ -266,11 +274,18 @@ Reason tag definitions:
 - foreign_language: term is in a language not expected for this marketplace
 - ambiguous_intent: intent cannot be determined from the term alone; use only when no other tag fits.`;
 
+const buildClientContextPayload = (brandContext?: AIPrefillBrandContext) => ({
+  client_name: brandContext?.clientName ?? null,
+  known_brand_names: brandContext?.knownBrandNames ?? [],
+  marketplace_brand_names: brandContext?.marketplaceBrandNames ?? [],
+});
+
 export const buildCampaignPrompt = (
   campaign: AggregatedCampaign,
   catalogProducts: AIPrefillCatalogProduct[],
   terms: AggregatedSearchTerm[],
   marketplaceCode: string | null,
+  brandContext?: AIPrefillBrandContext,
 ): AIPromptMessage[] => [
   { role: "system", content: SYSTEM_PROMPT },
   {
@@ -280,6 +295,7 @@ export const buildCampaignPrompt = (
       campaign_theme: parseCampaignTheme(campaign.campaignName),
       campaign_identifier: parseCampaignProductIdentifier(campaign.campaignName),
       marketplace_code: marketplaceCode,
+      client_context: buildClientContextPayload(brandContext),
       catalog_products: catalogProducts.map((product) => ({
         child_asin: product.childAsin,
         child_sku: product.childSku,
@@ -308,6 +324,7 @@ export const buildPureModelCampaignPrompt = (
   catalogProducts: AIPrefillCatalogProduct[],
   terms: AggregatedSearchTerm[],
   marketplaceCode: string | null,
+  brandContext?: AIPrefillBrandContext,
 ): AIPromptMessage[] => [
   { role: "system", content: PURE_MODEL_SYSTEM_PROMPT },
   {
@@ -317,6 +334,7 @@ export const buildPureModelCampaignPrompt = (
       campaign_theme: parseCampaignTheme(campaign.campaignName),
       campaign_identifier: parseCampaignProductIdentifier(campaign.campaignName),
       marketplace_code: marketplaceCode,
+      client_context: buildClientContextPayload(brandContext),
       catalog_products: catalogProducts.map((product) => ({
         child_asin: product.childAsin,
         child_sku: product.childSku,
@@ -344,6 +362,7 @@ export const buildPureModelContextPrompt = (
   campaign: AggregatedCampaign,
   catalogProducts: AIPrefillCatalogProduct[],
   marketplaceCode: string | null,
+  brandContext?: AIPrefillBrandContext,
 ): AIPromptMessage[] => [
   { role: "system", content: PURE_MODEL_CONTEXT_SYSTEM_PROMPT },
   {
@@ -353,6 +372,7 @@ export const buildPureModelContextPrompt = (
       campaign_theme: parseCampaignTheme(campaign.campaignName),
       campaign_identifier: parseCampaignProductIdentifier(campaign.campaignName),
       marketplace_code: marketplaceCode,
+      client_context: buildClientContextPayload(brandContext),
       catalog_products: catalogProducts.map((product) => ({
         child_asin: product.childAsin,
         child_sku: product.childSku,
@@ -371,6 +391,7 @@ export const buildPureModelTermTriagePrompt = (
   marketplaceCode: string | null,
   matchConfidence: "HIGH" | "MEDIUM" | "LOW",
   matchReason: string,
+  brandContext?: AIPrefillBrandContext,
 ): AIPromptMessage[] => [
   { role: "system", content: PURE_MODEL_TERM_TRIAGE_SYSTEM_PROMPT },
   {
@@ -380,6 +401,7 @@ export const buildPureModelTermTriagePrompt = (
       campaign_theme: parseCampaignTheme(campaign.campaignName),
       campaign_identifier: parseCampaignProductIdentifier(campaign.campaignName),
       marketplace_code: marketplaceCode,
+      client_context: buildClientContextPayload(brandContext),
       locked_product_context: {
         child_asin: matchedProduct.childAsin,
         child_sku: matchedProduct.childSku,
