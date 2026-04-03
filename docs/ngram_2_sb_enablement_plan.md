@@ -1,6 +1,6 @@
 # N-Gram 2.0 Sponsored Brands Enablement Plan
 
-_Created: 2026-04-02 (ET)_
+_Created: 2026-04-02 (ET); updated: 2026-04-03 (ET)_
 
 ## Purpose
 
@@ -175,15 +175,33 @@ Product metadata is already exposed in
 Presentation-layer caution messaging already exists in
 [ngram2Presentation.ts](/Users/jeff/code/agency-os/frontend-web/src/app/ngram-2/ngram2Presentation.ts).
 
-### Not yet implemented
+### Historical blockers now resolved
 
-The remaining blockers are explicit SP-only gates:
+The explicit SP-only gates that originally blocked SB have now been removed:
 
-1. `/ngram-2` frontend only enables preview/workbook actions when
+1. `/ngram-2` no longer restricts preview/workbook actions to
    `selectedProduct === "sp"`
-2. the `/api/ngram-2/ai-prefill-preview` route only allows
-   `SPONSORED_PRODUCTS`
-3. backend native summary/workbook services reject any non-SP ad product
+2. the `/api/ngram-2/ai-prefill-preview` route now allows
+   `SPONSORED_BRANDS`
+3. backend native summary/workbook services now allow SB while still
+   rejecting SD
+
+## Status update
+
+As of 2026-04-03:
+
+1. the SP-only gates described above have now been removed
+2. SB is mechanically enabled in `/ngram-2` for:
+   - native summary
+   - Step 3 AI preview
+   - Step 4 workbook generation
+3. SB caution messaging remains intact
+4. SD remains blocked
+5. the first real single-campaign SB Step 3 preview run has succeeded end to
+   end in the live UI
+
+That means this doc is now primarily useful as architecture/reference context.
+The active remaining work is validation depth rather than core implementation.
 
 ## Relevant schema
 

@@ -1,6 +1,6 @@
 # Search Term Automation Resume Prompt
 
-_Last updated: 2026-04-02 (ET)_
+_Last updated: 2026-04-03 (ET)_
 
 Use this prompt when returning specifically to the `STR / N-Gram 2.0`
 workstream.
@@ -155,6 +155,11 @@ Read first, in this order:
    - saved-run recovery and recent-run reuse are now shipped
 5. The current focus is quality/cost validation on the latest prompt path plus
    SB controlled-validation enablement.
+6. The first real SB live-preview milestone is now complete:
+   - one real single-campaign SB Step 3 preview run succeeded end to end
+   - that means the immediate SB risk is no longer “does the route work at
+     all?”
+   - the next SB risk is quality / coverage / full-workflow validation
 
 ## Exact next-session goal
 
@@ -162,7 +167,9 @@ The next session should start from this concrete milestone:
 
 1. validate the current SP full-run path on a real large run under the latest
    prompt versions
-2. continue SB enablement / validation without changing the workbook contract
+2. continue SB validation without changing the workbook contract:
+   - next SB checkpoint should be a small-window Step 4 workbook run
+   - then a Step 5 reviewed upload check if Step 4 succeeds
 3. keep the current analyst-triage workbook contract intact
 4. prefer persisted runs / logs / measured token impact over more prompt churn
 5. do not reopen UI cleanup unless testing exposes a new specific usability
@@ -229,6 +236,8 @@ Current reality:
 - KEEP rationale is now sparse / usually null to reduce output-token spend
 - SB is mechanically enabled in `/ngram-2` for native summary, AI preview, and
   workbook generation with caution messaging intact; SD remains blocked
+- one real SB single-campaign preview has already succeeded end to end, so the
+  next SB work should start from validation depth rather than first-run wiring
 
 Continue `/ngram-2` quality/cost hardening and SB validation without changing
 the analyst-triage workbook contract. Use the existing docs for context,

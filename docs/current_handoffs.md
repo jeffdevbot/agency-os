@@ -1,6 +1,6 @@
 # Current Handoffs
 
-_Last updated: 2026-04-02 (ET)_
+_Last updated: 2026-04-03 (ET)_
 
 Use this file to decide which restart/handoff docs are current versus merely
 historical reference.
@@ -81,8 +81,13 @@ If the next session is about `/ngram-2`, start here:
    - preview rows can expand past the default 10-row cap
    - the synthetic activity panel was removed after proving too low-value
 9. The exact next checkpoint is:
-   - continue SB enablement as a separate active tranche using the dedicated
+   - continue SB validation as the active tranche using the dedicated
      SB plan/checklist docs
+   - treat the first successful real SB single-campaign Step 3 preview as a
+     completed milestone, not an open wiring question
+   - next SB checkpoints should be:
+     - a small-window Step 4 SB workbook generation run
+     - then a Step 5 reviewed-workbook upload check if Step 4 remains stable
    - for `/ngram-2` SP quality/cost follow-up, validate another real full Whoosh
      month run under the latest prompt versions instead of reopening the old
      `Invalid confidence` blocker by default
@@ -177,7 +182,7 @@ If the next session is about `/ngram-2`, start here:
    - the tracked upgrade follow-up should not require mass re-auth of Amazon
      Ads or Windsor accounts because those credentials are stored in database
      rows
-6. Search Term Automation / N-Gram 2.0 current state as of 2026-04-02 (ET):
+6. Search Term Automation / N-Gram 2.0 current state as of 2026-04-03 (ET):
    - Stage 1 `Search Term Automation` controls are live on
      `/reports/client-data-access/[clientSlug]`
    - Stage 2 `Search Term Data` is live on
@@ -199,6 +204,9 @@ If the next session is about `/ngram-2`, start here:
      `Sponsored Brands` in controlled validation mode:
      - SB caution messaging stays visible in the UI and preview warnings
      - SD remains blocked
+     - the first real SB single-campaign Step 3 preview has now succeeded end
+       to end in the live UI
+     - the current open SB work is follow-on validation, not basic enablement
    - Step 3/4 campaign evaluation now uses OpenAI Structured Outputs with a
      strict JSON schema instead of prompt-only JSON
    - `/ngram-2` now uses a dedicated model env var:

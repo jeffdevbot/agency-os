@@ -1,10 +1,13 @@
 # Changelog — Ecomlabs Tools
 
-_Last updated: 2026-04-02 (ET)_
+_Last updated: 2026-04-03 (ET)_
 
 > Development history for the project. For setup instructions and project overview, see [AGENTS.md](AGENTS.md).
 
 ---
+
+## 2026-04-03 (ET)
+- **`/ngram-2` Sponsored Brands passed the first real live preview smoke test:** After the SB enablement work landed, a real single-campaign SB Step 3 preview run completed successfully end to end in the live UI. That confirms the native summary -> AI preview request -> campaign evaluation -> UI rendering path is alive for SB on at least one real campaign. The remaining work is broader SB quality and workflow validation, not basic wiring.
 
 ## 2026-04-02 (ET)
 - **`/ngram-2` now allows Sponsored Brands in controlled validation mode across native summary, AI preview, and workbook generation:** The old SP-only gates were removed from the native summary/backend workbook allowlist, the AI preview route, and the main `/ngram-2` page flow. SB now runs through the same mechanical path as SP with explicit caution messaging, while Sponsored Display remains blocked.
