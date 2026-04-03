@@ -75,6 +75,7 @@ const PURE_MODEL_MAX_TERMS_PER_CHUNK = 100;
 const HEURISTIC_CATALOG_CANDIDATE_LIMIT = 24;
 const PURE_MODEL_CONTEXT_CANDIDATE_LIMIT = 18;
 const PURE_MODEL_CONTEXT_EXPANDED_CANDIDATE_LIMIT = 36;
+const RECENT_RUN_REUSE_WINDOW_MS = 2 * 60 * 60 * 1000;
 
 type CampaignPreview = {
   prefillStrategy: AIPrefillStrategy;
@@ -307,6 +308,130 @@ const coerceRequest = async (request: Request): Promise<{
   };
 };
 
+const normalizeRequestedCampaignNames = (value: unknown): string[] =>
+  Array.isArray(value)
+    ? [...new Set(value.map((item) => String(item || "").trim()).filter(Boolean))].sort((left, right) =>
+        left.localeCompare(right),
+      )
+    : [];
+
+const isRecentMatchingSavedRun = (
+  row: Record<string, unknown>,
+  request: {
+    requestedByAuthUserId: string;
+    profileId: string;
+    adProduct: string;
+    dateFrom: string;
+    dateTo: string;
+    spendThreshold: number;
+    respectLegacyExclusions: boolean;
+    runMode: AIPrefillRunMode;
+    prefillStrategy: AIPrefillStrategy;
+    requestedCampaignNames: string[];
+    expectedPromptVersion: string;
+  },
+): boolean => {
+  const createdAtRaw = String(row.created_at || "").trim();
+  if (!createdAtRaw) return false;
+  const createdAtMs = Date.parse(createdAtRaw);
+  if (!Number.isFinite(createdAtMs)) return false;
+  if (Date.now() - createdAtMs > RECENT_RUN_REUSE_WINDOW_MS) return false;
+
+  if (String(row.requested_by_auth_user_id || "").trim() !== request.requestedByAuthUserId) return false;
+  if (String(row.profile_id || "").trim() !== request.profileId) return false;
+  if (String(row.ad_product || "").trim().toUpperCase() !== request.adProduct) return false;
+  if (String(row.date_from || "").trim() !== request.dateFrom) return false;
+  if (String(row.date_to || "").trim() !== request.dateTo) return false;
+  if (Number(row.spend_threshold ?? 0) !== request.spendThreshold) return false;
+  if (Boolean(row.respect_legacy_exclusions) !== request.respectLegacyExclusions) return false;
+  if (String(row.prompt_version || "").trim() !== request.expectedPromptVersion) return false;
+
+  const payload =
+    row.preview_payload && typeof row.preview_payload === "object" && !Array.isArray(row.preview_payload)
+      ? (row.preview_payload as Record<string, unknown>)
+      : null;
+  if (!payload) return false;
+
+  const payloadRunMode = String(payload.run_mode || "preview").trim().toLowerCase();
+  const payloadStrategy = String(payload.prefill_strategy || "heuristic_synthesis").trim().toLowerCase();
+  if (payloadRunMode !== request.runMode) return false;
+  if (payloadStrategy !== request.prefillStrategy) return false;
+
+  const payloadCampaignNames = normalizeRequestedCampaignNames(payload.selected_campaigns);
+  const requestCampaignNames = [...request.requestedCampaignNames].sort((left, right) =>
+    left.localeCompare(right),
+  );
+  if (payloadCampaignNames.length !== requestCampaignNames.length) return false;
+  return payloadCampaignNames.every((value, index) => value === requestCampaignNames[index]);
+};
+
+const loadRecentMatchingSavedRun = async (request: {
+  requestedByAuthUserId: string;
+  profileId: string;
+  adProduct: string;
+  dateFrom: string;
+  dateTo: string;
+  spendThreshold: number;
+  respectLegacyExclusions: boolean;
+  runMode: AIPrefillRunMode;
+  prefillStrategy: AIPrefillStrategy;
+  requestedCampaignNames: string[];
+  expectedPromptVersion: string;
+}): Promise<{ id: string; createdAt: string | null; previewPayload: Record<string, unknown> } | null> => {
+  const supabase = createSupabaseServiceClient();
+  const { data, error } = await supabase
+    .from("ngram_ai_preview_runs")
+    .select(
+      [
+        "id",
+        "created_at",
+        "requested_by_auth_user_id",
+        "profile_id",
+        "ad_product",
+        "date_from",
+        "date_to",
+        "spend_threshold",
+        "respect_legacy_exclusions",
+        "prompt_version",
+        "preview_payload",
+      ].join(","),
+    )
+    .eq("requested_by_auth_user_id", request.requestedByAuthUserId)
+    .eq("profile_id", request.profileId)
+    .eq("ad_product", request.adProduct)
+    .eq("date_from", request.dateFrom)
+    .eq("date_to", request.dateTo)
+    .eq("respect_legacy_exclusions", request.respectLegacyExclusions)
+    .eq("prompt_version", request.expectedPromptVersion)
+    .eq("spend_threshold", request.spendThreshold)
+    .order("created_at", { ascending: false })
+    .limit(5);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const rows = Array.isArray(data) ? data : [];
+  const match = rows.find((row) =>
+    row && typeof row === "object" && isRecentMatchingSavedRun(row as Record<string, unknown>, request),
+  ) as Record<string, unknown> | undefined;
+
+  if (!match) return null;
+
+  const previewPayload =
+    match.preview_payload && typeof match.preview_payload === "object" && !Array.isArray(match.preview_payload)
+      ? (match.preview_payload as Record<string, unknown>)
+      : null;
+
+  if (!previewPayload) return null;
+
+  return {
+    id: String(match.id || "").trim(),
+    createdAt: typeof match.created_at === "string" ? match.created_at : null,
+    previewPayload,
+  };
+};
+
 export async function POST(request: Request) {
   const supabase = await createSupabaseRouteClient();
   const {
@@ -344,6 +469,47 @@ export async function POST(request: Request) {
       prefill_strategy: prefillStrategy,
       requested_campaign_names: requestedCampaignNames,
     };
+
+    const expectedPromptVersion =
+      prefillStrategy === "pure_model_single_campaign"
+        ? NGRAM_PURE_MODEL_PROMPT_VERSION
+        : NGRAM_AI_PROMPT_VERSION;
+
+    if (runMode === "full") {
+      const recentSavedRun = await loadRecentMatchingSavedRun({
+        requestedByAuthUserId: user.id,
+        profileId,
+        adProduct,
+        dateFrom,
+        dateTo,
+        spendThreshold,
+        respectLegacyExclusions,
+        runMode,
+        prefillStrategy,
+        requestedCampaignNames,
+        expectedPromptVersion,
+      });
+
+      if (recentSavedRun) {
+        const previewPayload = {
+          ...recentSavedRun.previewPayload,
+          warnings: [
+            ...((Array.isArray(recentSavedRun.previewPayload.warnings)
+              ? recentSavedRun.previewPayload.warnings
+              : []) as string[]),
+            "Reused a recent identical saved AI run instead of rerunning the model.",
+          ],
+        };
+
+        return NextResponse.json({
+          ok: true,
+          reused_saved_run: true,
+          preview_run_id: recentSavedRun.id,
+          preview_created_at: recentSavedRun.createdAt,
+          preview: previewPayload,
+        });
+      }
+    }
 
     const warnings: string[] = [];
 
@@ -711,9 +877,7 @@ export async function POST(request: Request) {
       prefill_strategy: prefillStrategy,
       model: model || null,
       prompt_version:
-        prefillStrategy === "pure_model_single_campaign"
-          ? NGRAM_PURE_MODEL_PROMPT_VERSION
-          : NGRAM_AI_PROMPT_VERSION,
+        expectedPromptVersion,
       campaigns: previewResults,
       warnings,
     };
@@ -755,9 +919,7 @@ export async function POST(request: Request) {
       respectLegacyExclusions,
       model: model || null,
       promptVersion:
-        prefillStrategy === "pure_model_single_campaign"
-          ? NGRAM_PURE_MODEL_PROMPT_VERSION
-          : NGRAM_AI_PROMPT_VERSION,
+        expectedPromptVersion,
       promptTokens: tokensIn,
       completionTokens: tokensOut,
       totalTokens: tokensTotal,
