@@ -86,8 +86,8 @@ class NativeNgramWorkbookService:
         ai_summary: dict[str, str | float | None] | None = None,
     ) -> NativeNgramWorkbookResult:
         normalized_ad_product = str(ad_product or "").strip().upper()
-        if normalized_ad_product != "SPONSORED_PRODUCTS":
-            raise ValueError("Native workbook generation is currently enabled for Sponsored Products only.")
+        if normalized_ad_product not in ("SPONSORED_PRODUCTS", "SPONSORED_BRANDS"):
+            raise ValueError("Native workbook generation is currently enabled for Sponsored Products and Sponsored Brands only.")
 
         profile = self._get_profile(profile_id)
         rows = self._load_search_term_rows(
@@ -144,8 +144,8 @@ class NativeNgramWorkbookService:
         respect_legacy_exclusions: bool,
     ) -> NativeNgramPreflightSummary:
         normalized_ad_product = str(ad_product or "").strip().upper()
-        if normalized_ad_product != "SPONSORED_PRODUCTS":
-            raise ValueError("Native preflight summary is currently enabled for Sponsored Products only.")
+        if normalized_ad_product not in ("SPONSORED_PRODUCTS", "SPONSORED_BRANDS"):
+            raise ValueError("Native preflight summary is currently enabled for Sponsored Products and Sponsored Brands only.")
 
         profile = self._get_profile(profile_id)
         rows = self._load_search_term_rows(

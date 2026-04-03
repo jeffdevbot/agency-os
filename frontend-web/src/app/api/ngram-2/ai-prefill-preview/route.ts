@@ -69,7 +69,7 @@ const LISTING_SELECT = [
 ].join(",");
 
 const MAX_BATCH_SIZE = 1000;
-const SUPPORTED_AD_PRODUCT = "SPONSORED_PRODUCTS";
+const SUPPORTED_AD_PRODUCTS = new Set(["SPONSORED_PRODUCTS", "SPONSORED_BRANDS"]);
 const PROFILE_SELECT = ["id", "client_id", "display_name", "marketplace_code", "status"].join(",");
 const NGRAM_MODEL_OVERRIDE = process.env.OPENAI_MODEL_NGRAM?.trim() || null;
 const PURE_MODEL_MAX_TERMS_PER_CHUNK = 100;
@@ -342,8 +342,8 @@ const coerceRequest = async (request: Request): Promise<{
   if (!profileId || !adProduct || !dateFrom || !dateTo) {
     throw new Error("profile_id, ad_product, date_from, and date_to are required");
   }
-  if (adProduct !== SUPPORTED_AD_PRODUCT) {
-    throw new Error("AI prefill preview is currently enabled for Sponsored Products only.");
+  if (!SUPPORTED_AD_PRODUCTS.has(adProduct)) {
+    throw new Error("AI prefill preview is currently enabled for Sponsored Products and Sponsored Brands only.");
   }
   if (!Number.isFinite(spendThresholdRaw) || spendThresholdRaw < 0) {
     throw new Error("spend_threshold must be a number greater than or equal to 0");
@@ -580,6 +580,12 @@ export async function POST(request: Request) {
     }
 
     const warnings: string[] = [];
+
+    if (adProduct === "SPONSORED_BRANDS") {
+      warnings.push(
+        "Sponsored Brands is in controlled validation. Coverage may be incomplete for legacy SB campaign families pre-dating Amazon\u2019s v3 reporting API.",
+      );
+    }
 
     const [{ profile: catalogProfile, listings, warning: catalogWarning }, rows] = await Promise.all([
       resolveCatalogListings(profileId),

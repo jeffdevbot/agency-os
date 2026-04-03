@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
 from app.routers import ngram
-from app.services.ngram.native import NativeNgramCampaignSummary, NativeNgramPreflightSummary, NativeNgramTotals
+from app.services.ngram.native import NativeNgramCampaignSummary, NativeNgramPreflightSummary, NativeNgramTotals, NativeNgramWorkbookService
 
 
 class _FakeNativeNgramService:
@@ -146,3 +147,96 @@ def test_native_summary_route_rejects_invalid_date_range(monkeypatch):
 
     assert response.status_code == 400
     assert response.json()["detail"] == "date_from must be on or before date_to"
+
+
+def test_native_summary_route_accepts_sponsored_brands():
+    fake_service = _FakeNativeNgramService()
+    app.dependency_overrides[ngram.require_user] = _override_user
+    app.dependency_overrides[ngram._get_native_service] = lambda: fake_service
+
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/ngram/native-summary",
+                json={
+                    "profile_id": "profile-sb-1",
+                    "ad_product": "SPONSORED_BRANDS",
+                    "date_from": "2026-03-01",
+                    "date_to": "2026-03-14",
+                    "respect_legacy_exclusions": True,
+                },
+            )
+    finally:
+        app.dependency_overrides.pop(ngram.require_user, None)
+        app.dependency_overrides.pop(ngram._get_native_service, None)
+
+    assert response.status_code == 200
+    assert fake_service.calls[0]["ad_product"] == "SPONSORED_BRANDS"
+
+
+def test_native_summary_route_rejects_sponsored_display():
+    app.dependency_overrides[ngram.require_user] = _override_user
+
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/ngram/native-summary",
+                json={
+                    "profile_id": "profile-sd-1",
+                    "ad_product": "SPONSORED_DISPLAY",
+                    "date_from": "2026-03-01",
+                    "date_to": "2026-03-14",
+                    "respect_legacy_exclusions": True,
+                },
+            )
+    finally:
+        app.dependency_overrides.pop(ngram.require_user, None)
+
+    assert response.status_code == 400
+    assert "Sponsored Brands" in response.json()["detail"]
+
+
+@pytest.mark.parametrize("ad_product", ["SPONSORED_PRODUCTS", "SPONSORED_BRANDS"])
+def test_native_service_build_summary_accepts_allowlisted_products(ad_product):
+    service = NativeNgramWorkbookService.__new__(NativeNgramWorkbookService)
+
+    with pytest.raises(Exception) as exc_info:
+        from datetime import date
+        service.build_summary_from_search_term_facts(
+            profile_id="profile-1",
+            ad_product=ad_product,
+            date_from=date(2026, 3, 1),
+            date_to=date(2026, 3, 14),
+            respect_legacy_exclusions=True,
+        )
+
+    assert "currently enabled for Sponsored Products" not in str(exc_info.value)
+
+
+def test_native_service_build_summary_rejects_sponsored_display():
+    service = NativeNgramWorkbookService.__new__(NativeNgramWorkbookService)
+
+    with pytest.raises(ValueError, match="currently enabled for Sponsored Products and Sponsored Brands only"):
+        from datetime import date
+        service.build_summary_from_search_term_facts(
+            profile_id="profile-1",
+            ad_product="SPONSORED_DISPLAY",
+            date_from=date(2026, 3, 1),
+            date_to=date(2026, 3, 14),
+            respect_legacy_exclusions=True,
+        )
+
+
+def test_native_service_build_workbook_rejects_sponsored_display():
+    service = NativeNgramWorkbookService.__new__(NativeNgramWorkbookService)
+
+    with pytest.raises(ValueError, match="currently enabled for Sponsored Products and Sponsored Brands only"):
+        from datetime import date
+        service.build_workbook_from_search_term_facts(
+            profile_id="profile-1",
+            ad_product="SPONSORED_DISPLAY",
+            date_from=date(2026, 3, 1),
+            date_to=date(2026, 3, 14),
+            respect_legacy_exclusions=True,
+            app_version="test",
+        )

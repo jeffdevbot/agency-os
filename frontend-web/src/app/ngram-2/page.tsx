@@ -358,7 +358,7 @@ export default function NgramTwoPage() {
       (product) => product.key === selectedProduct,
     ) ?? null;
   const inspectRowsHref =
-    selectedProduct === "sp" && selectedProfile?.profileId && activeClientSlug
+    (selectedProduct === "sp" || selectedProduct === "sb") && selectedProfile?.profileId && activeClientSlug
       ? `/reports/search-term-data/${activeClientSlug}?${new URLSearchParams({
           profile_id: selectedProfile.profileId,
           date_from: dateFrom,
@@ -371,8 +371,7 @@ export default function NgramTwoPage() {
   const canGenerateWorkbook =
     !loading &&
     !aiWorkbookGenerating &&
-    selectedProduct === "sp" &&
-    runState.tone === "ready" &&
+    runState.tone !== "blocked" &&
     Boolean(selectedProfile?.profileId) &&
     dayCount !== null &&
     !summaryLoading &&
@@ -381,8 +380,7 @@ export default function NgramTwoPage() {
   const canRunPreviewBase =
     !loading &&
     !aiPreviewLoading &&
-    selectedProduct === "sp" &&
-    runState.tone === "ready" &&
+    runState.tone !== "blocked" &&
     Boolean(selectedProfile?.profileId) &&
     dayCount !== null &&
     !summaryLoading &&
@@ -812,7 +810,7 @@ export default function NgramTwoPage() {
       return;
     }
 
-    if (selectedProduct !== "sp") {
+    if (selectedProduct !== "sp" && selectedProduct !== "sb") {
       setSummary(null);
       setSummaryError(null);
       setSummaryLoading(false);
@@ -1196,7 +1194,7 @@ export default function NgramTwoPage() {
               </p>
             </div>
 
-            {selectedProduct === "sp" ? (
+            {selectedProduct === "sp" || selectedProduct === "sb" ? (
               <>
                 {summaryError ? (
                   <p className="mt-6 rounded-xl border border-[#f87171]/40 bg-[#fee2e2] px-4 py-3 text-sm text-[#991b1b]">
@@ -1727,9 +1725,11 @@ export default function NgramTwoPage() {
 
             <div className="mt-4 rounded-2xl border border-[#dbe4f0] bg-[#f7faff] p-4">
               <p className="text-sm text-[#4c576f]">
-                {selectedProduct === "sp"
-                  ? "The generated workbook writes SAFE KEEP / LIKELY NEGATE / REVIEW guidance across the full selected window and leaves final analyst expression blank."
-                  : "Workbook generation is intentionally limited to Sponsored Products first."}
+                {selectedProduct === "sd"
+                  ? "Workbook generation is not available for Sponsored Display."
+                  : selectedProduct === "sb"
+                    ? "The generated workbook writes SAFE KEEP / LIKELY NEGATE / REVIEW guidance across the full selected window. Sponsored Brands is in controlled validation \u2014 coverage may be incomplete for some legacy campaign families."
+                    : "The generated workbook writes SAFE KEEP / LIKELY NEGATE / REVIEW guidance across the full selected window and leaves final analyst expression blank."}
               </p>
               {aiPreviewRunId ? (
                 <p className="mt-2 text-xs text-[#7d8ba1]">
