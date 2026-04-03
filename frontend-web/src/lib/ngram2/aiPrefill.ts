@@ -760,12 +760,15 @@ export const validateAIPrefillCampaignResponse = (
     }
     seen.add(key);
 
+    const parsedRecommendation = parseRecommendationStrict(recommendation.recommendation);
+    const normalizedRationale = normalizeRationale(recommendation.rationale);
+
     recommendationsByKey.set(key, {
       search_term: expectedByKey.get(key) || searchTerm,
-      recommendation: parseRecommendationStrict(recommendation.recommendation),
+      recommendation: parsedRecommendation,
       confidence: parseConfidenceStrict(recommendation.confidence),
       reason_tag: normalizeReasonTag(recommendation.reason_tag),
-      rationale: normalizeRationale(recommendation.rationale),
+      rationale: parsedRecommendation === "KEEP" ? null : normalizedRationale,
     });
   }
 
@@ -1031,12 +1034,15 @@ export const validatePureModelTermTriageResponse = (
     }
     seen.add(key);
 
+    const parsedRecommendation = parseRecommendationStrict(recommendation.recommendation);
+    const normalizedRationale = normalizeRationale(recommendation.rationale);
+
     recommendationsByKey.set(key, {
       search_term: expectedByKey.get(key) || searchTerm,
-      recommendation: parseRecommendationStrict(recommendation.recommendation),
+      recommendation: parsedRecommendation,
       confidence: parseConfidenceStrict(recommendation.confidence),
       reason_tag: normalizeReasonTag(recommendation.reason_tag),
-      rationale: normalizeRationale(recommendation.rationale),
+      rationale: parsedRecommendation === "KEEP" ? null : normalizedRationale,
     });
   }
 

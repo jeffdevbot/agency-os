@@ -15,8 +15,8 @@ export interface AIPromptMessage {
 
 const stringifyPromptPayload = (payload: Record<string, unknown>): string => JSON.stringify(payload);
 
-export const NGRAM_AI_PROMPT_VERSION = "ngram_step3_calibrated_v2026_04_02_brand_portfolio";
-export const NGRAM_PURE_MODEL_PROMPT_VERSION = "ngram_pure_model_two_step_v2026_04_02_brand_portfolio";
+export const NGRAM_AI_PROMPT_VERSION = "ngram_step3_calibrated_v2026_04_02_sparse_keep_rationale";
+export const NGRAM_PURE_MODEL_PROMPT_VERSION = "ngram_pure_model_two_step_v2026_04_02_sparse_keep_rationale";
 
 export const SYSTEM_PROMPT = `You evaluate Amazon Sponsored Products shopper queries for N-Gram negative keyword prefill.
 
@@ -35,7 +35,7 @@ Return strict JSON with this shape:
       "recommendation": "KEEP" | "NEGATE" | "REVIEW",
       "confidence": "HIGH" | "MEDIUM" | "LOW",
       "reason_tag": "one of: core_use_case, wrong_category, wrong_product_form, wrong_size_variant, wrong_audience_theme, competitor_brand, accessory_only_intent, foreign_language, ambiguous_intent",
-      "rationale": "one short sentence"
+      "rationale": "one short sentence or null"
     }
   ]
 }
@@ -62,6 +62,8 @@ Recommendation definitions:
 - KEEP: the term is relevant to this product and campaign. The shopper is plausibly looking for something this product satisfies.
 - NEGATE: the term is clearly irrelevant or wrong-fit. The shopper is looking for something this product does not satisfy.
 - REVIEW: the term is genuinely ambiguous and you cannot determine with reasonable confidence which direction it leans. REVIEW should represent a small minority of terms, typically 5-10% of the input. Do not use REVIEW as a hedge when the most likely interpretation is clear. Do not use REVIEW when the term clearly targets a different product form, accessory category, or product category.
+- To save tokens, KEEP rows should usually set rationale = null. Only provide a KEEP rationale when a very short clarification is genuinely necessary.
+- NEGATE and REVIEW rows should still include a short rationale.
 - When you can write a clear one-sentence rationale for why the term is plausibly relevant to this product, that is a KEEP, not a REVIEW.
 - When you can write a clear one-sentence rationale for why the term is wrong-fit, that is a NEGATE, not a REVIEW.
 
@@ -121,7 +123,7 @@ Return strict JSON with this shape:
       "recommendation": "KEEP" | "NEGATE" | "REVIEW",
       "confidence": "HIGH" | "MEDIUM" | "LOW",
       "reason_tag": "one of: core_use_case, wrong_category, wrong_product_form, wrong_size_variant, wrong_audience_theme, competitor_brand, accessory_only_intent, foreign_language, ambiguous_intent",
-      "rationale": "one short sentence"
+      "rationale": "one short sentence or null"
     }
   ],
   "exact_negatives": [
@@ -133,7 +135,7 @@ Return strict JSON with this shape:
       "bucket": "mono" | "bi" | "tri",
       "confidence": "HIGH" | "MEDIUM" | "LOW",
       "source_terms": ["one or more NEGATE search terms copied exactly from the input"],
-      "rationale": "one short sentence"
+      "rationale": "one short sentence or null"
     }
   ]
 }
@@ -165,6 +167,8 @@ Recommendation definitions:
 - KEEP: the term is relevant to this product and campaign. The shopper is plausibly looking for something this product satisfies.
 - NEGATE: the term is clearly irrelevant or wrong-fit. The shopper is looking for something this product does not satisfy.
 - REVIEW: the term is genuinely ambiguous and you cannot determine with reasonable confidence which direction it leans. REVIEW should represent a small minority of terms, typically 5-10% of the input. Do not use REVIEW as a hedge when the most likely interpretation is clear. Do not use REVIEW when the term clearly targets a different product form, accessory category, or product category.
+- To save tokens, KEEP rows should usually set rationale = null. Only provide a KEEP rationale when a very short clarification is genuinely necessary.
+- NEGATE and REVIEW rows should still include a short rationale.
 - When you can write a clear one-sentence rationale for why the term is plausibly relevant to this product, that is a KEEP, not a REVIEW.
 - When you can write a clear one-sentence rationale for why the term is wrong-fit, that is a NEGATE, not a REVIEW.
 
@@ -227,7 +231,7 @@ Return strict JSON with this shape:
       "recommendation": "KEEP" | "NEGATE" | "REVIEW",
       "confidence": "HIGH" | "MEDIUM" | "LOW",
       "reason_tag": "one of: core_use_case, wrong_category, wrong_product_form, wrong_size_variant, wrong_audience_theme, competitor_brand, accessory_only_intent, foreign_language, ambiguous_intent",
-      "rationale": "one short sentence"
+      "rationale": "one short sentence or null"
     }
   ],
   "exact_negatives": [
@@ -239,7 +243,7 @@ Return strict JSON with this shape:
       "bucket": "mono" | "bi" | "tri",
       "confidence": "HIGH" | "MEDIUM" | "LOW",
       "source_terms": ["one or more NEGATE search terms copied exactly from the input"],
-      "rationale": "one short sentence"
+      "rationale": "one short sentence or null"
     }
   ]
 }
@@ -265,6 +269,8 @@ Recommendation definitions:
 - KEEP: the term is relevant to this product and campaign. The shopper is plausibly looking for something this product satisfies.
 - NEGATE: the term is clearly irrelevant or wrong-fit. The shopper is looking for something this product does not satisfy.
 - REVIEW: the term is genuinely ambiguous and you cannot determine with reasonable confidence which direction it leans. REVIEW should represent a small minority of terms, typically 5-10% of the input. Do not use REVIEW as a hedge when the most likely interpretation is clear. Do not use REVIEW when the term clearly targets a different product form, accessory category, or product category.
+- To save tokens, KEEP rows should usually set rationale = null. Only provide a KEEP rationale when a very short clarification is genuinely necessary.
+- NEGATE and REVIEW rows should still include a short rationale.
 - When you can write a clear one-sentence rationale for why the term is plausibly relevant to this product, that is a KEEP, not a REVIEW.
 - When you can write a clear one-sentence rationale for why the term is wrong-fit, that is a NEGATE, not a REVIEW.
 

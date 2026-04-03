@@ -432,6 +432,7 @@ describe("ngram2 aiPrefill helpers", () => {
       bi: ["laptop cloth"],
       tri: [],
     });
+    expect(validated.termRecommendations.find((item) => item.recommendation === "KEEP")?.rationale).toBeNull();
     expect(validated.phraseNegatives[0]?.sourceTerms).toEqual(["laptop cloth"]);
   });
 
@@ -495,6 +496,7 @@ describe("ngram2 aiPrefill helpers", () => {
     );
 
     expect(validated.termRecommendations).toHaveLength(2);
+    expect(validated.termRecommendations.find((item) => item.recommendation === "KEEP")?.rationale).toBeNull();
     expect(validated.modelPrefills.bi).toEqual(["laptop cloth"]);
     expect(validated.phraseNegatives[0]?.sourceTerms).toEqual(["laptop cloth"]);
   });

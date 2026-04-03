@@ -52,7 +52,7 @@ describe("ngram-2 ai prefill preview route prompt", () => {
     expect(userMessage?.content).toContain('"marketplace_code":"CA"');
     expect(userMessage?.content).toContain('"campaign_scope":"product_family"');
     expect(userMessage?.content).toContain('"client_context"');
-    expect(NGRAM_AI_PROMPT_VERSION).toBe("ngram_step3_calibrated_v2026_04_02_brand_portfolio");
+    expect(NGRAM_AI_PROMPT_VERSION).toBe("ngram_step3_calibrated_v2026_04_02_sparse_keep_rationale");
   });
 
   it("documents the cloth-only and CA French decision rules", () => {
@@ -65,6 +65,7 @@ describe("ngram-2 ai prefill preview route prompt", () => {
     expect(SYSTEM_PROMPT).toContain('treat "apple" as referring to Apple devices unless the term contains a clear counter-signal such as "juice" or "fruit"');
     expect(SYSTEM_PROMPT).toContain("Brand campaigns are valid input and must still be evaluated");
     expect(SYSTEM_PROMPT).toContain("If campaign_scope = brand_portfolio, the selected matched_product is only a representative anchor");
+    expect(SYSTEM_PROMPT).toContain("KEEP rows should usually set rationale = null");
   });
 
   it("marks brand defensive lanes as brand_portfolio scope", () => {
@@ -140,7 +141,7 @@ describe("ngram-2 ai prefill preview route prompt", () => {
     expect(PURE_MODEL_CONTEXT_SYSTEM_PROMPT).toContain("return the single catalog row that best represents that family with match_confidence = MEDIUM");
     expect(PURE_MODEL_CONTEXT_SYSTEM_PROMPT).toContain("SKU prefixes and repeated catalog naming patterns are meaningful evidence.");
     expect(PURE_MODEL_CONTEXT_SYSTEM_PROMPT).toContain("Do not evaluate search terms in this pass.");
-    expect(NGRAM_PURE_MODEL_PROMPT_VERSION).toBe("ngram_pure_model_two_step_v2026_04_02_brand_portfolio");
+    expect(NGRAM_PURE_MODEL_PROMPT_VERSION).toBe("ngram_pure_model_two_step_v2026_04_02_sparse_keep_rationale");
   });
 
   it("defines the pure-model term-triage pass contract", () => {
@@ -193,6 +194,7 @@ describe("ngram-2 ai prefill preview route prompt", () => {
     expect(PURE_MODEL_TERM_TRIAGE_SYSTEM_PROMPT).toContain("matched product context is already locked");
     expect(PURE_MODEL_TERM_TRIAGE_SYSTEM_PROMPT).toContain("Use the provided client_context to interpret broad branded, defensive, or family-level campaign naming");
     expect(PURE_MODEL_TERM_TRIAGE_SYSTEM_PROMPT).toContain("If campaign_scope = brand_portfolio, treat the locked product context as a representative anchor");
+    expect(PURE_MODEL_TERM_TRIAGE_SYSTEM_PROMPT).toContain("KEEP rows should usually set rationale = null");
     expect(PURE_MODEL_TERM_TRIAGE_SYSTEM_PROMPT).toContain("that is a KEEP, not a REVIEW");
     expect(PURE_MODEL_TERM_TRIAGE_SYSTEM_PROMPT).toContain("REVIEW should represent a small minority of terms, typically 5-10% of the input.");
     expect(PURE_MODEL_TERM_TRIAGE_SYSTEM_PROMPT).toContain('treat "apple" as referring to Apple devices unless the term contains a clear counter-signal such as "juice" or "fruit"');
