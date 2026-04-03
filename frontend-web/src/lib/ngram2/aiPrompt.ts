@@ -1,4 +1,5 @@
 import {
+  deriveCampaignScope,
   parseCampaignProductIdentifier,
   parseCampaignTheme,
   type AIPrefillBrandContext,
@@ -14,8 +15,8 @@ export interface AIPromptMessage {
 
 const stringifyPromptPayload = (payload: Record<string, unknown>): string => JSON.stringify(payload);
 
-export const NGRAM_AI_PROMPT_VERSION = "ngram_step3_calibrated_v2026_03_30";
-export const NGRAM_PURE_MODEL_PROMPT_VERSION = "ngram_pure_model_two_step_v2026_04_01_family_match";
+export const NGRAM_AI_PROMPT_VERSION = "ngram_step3_calibrated_v2026_04_02_brand_portfolio";
+export const NGRAM_PURE_MODEL_PROMPT_VERSION = "ngram_pure_model_two_step_v2026_04_02_brand_portfolio";
 
 export const SYSTEM_PROMPT = `You evaluate Amazon Sponsored Products shopper queries for N-Gram negative keyword prefill.
 
@@ -42,10 +43,14 @@ Return strict JSON with this shape:
 Rules:
 - First, identify the best matching product from the provided Windsor catalog rows.
 - Use the provided client_context when campaign naming is broad, branded, defensive, or family-level. Brand campaigns are valid input and must still be evaluated; do not silently treat them as out of scope.
+- Use campaign_scope from the input payload.
 - If you cannot confidently identify one product, set matched_product to null and match_confidence to LOW.
 - When you select a product, copy the exact child_asin, child_sku, and product_name values from the catalog.
 - Distinguish product-family ambiguity from product ambiguity. If the campaign name or identifier clearly implies a product family but does not resolve to one exact variant or SKU, return the single catalog row that best represents that family with match_confidence = MEDIUM, not LOW.
 - If the campaign is a broad brand or defensive lane and the exact variant is unclear, use client_context plus the catalog rows to infer the most likely brand/product family. Family-level MEDIUM is better than null when the brand family is clear.
+- If campaign_scope = brand_portfolio, the selected matched_product is only a representative anchor for the client's broader brand portfolio, not proof that sibling in-brand families are out of scope.
+- If campaign_scope = brand_portfolio, do not use NEGATE with wrong_product_form or wrong_size_variant solely because a term appears to target another known in-brand family, variant, or brand from client_context.
+- If campaign_scope = brand_portfolio and a term appears relevant to another known in-brand family or brand, prefer KEEP or REVIEW unless there is clear evidence that the term is competitor, wrong-category, foreign-language, or otherwise outside the client's portfolio.
 - SKU prefixes and repeated catalog naming patterns are meaningful evidence. When several catalog rows share a prefix or family token in child_sku, product_name, or item_description, use that shared family signal to infer product context.
 - Prefer the catalog row whose child_sku, product_name, and item_description best represent the shared family language, even when exact variant detail is unresolved.
 - Judge each search term in the context of both the matched product and the campaign theme.
@@ -136,10 +141,14 @@ Return strict JSON with this shape:
 Rules:
 - First, identify the best matching product from the provided Windsor catalog rows.
 - Use the provided client_context when campaign naming is broad, branded, defensive, or family-level. Brand campaigns are valid input and must still be evaluated; do not silently treat them as out of scope.
+- Use campaign_scope from the input payload.
 - If you cannot confidently identify one product, set matched_product to null and match_confidence to LOW.
 - When you select a product, copy the exact child_asin, child_sku, and product_name values from the catalog.
 - Distinguish product-family ambiguity from product ambiguity. If the campaign name or identifier clearly implies a product family but does not resolve to one exact variant or SKU, return the single catalog row that best represents that family with match_confidence = MEDIUM, not LOW.
 - If the campaign is a broad brand or defensive lane and the exact variant is unclear, use client_context plus the catalog rows to infer the most likely brand/product family. Family-level MEDIUM is better than null when the brand family is clear.
+- If campaign_scope = brand_portfolio, the selected matched_product is only a representative anchor for the client's broader brand portfolio, not proof that sibling in-brand families are out of scope.
+- If campaign_scope = brand_portfolio, do not use NEGATE with wrong_product_form or wrong_size_variant solely because a term appears to target another known in-brand family, variant, or brand from client_context.
+- If campaign_scope = brand_portfolio and a term appears relevant to another known in-brand family or brand, prefer KEEP or REVIEW unless there is clear evidence that the term is competitor, wrong-category, foreign-language, or otherwise outside the client's portfolio.
 - SKU prefixes and repeated catalog naming patterns are meaningful evidence. When several catalog rows share a prefix or family token in child_sku, product_name, or item_description, use that shared family signal to infer product context.
 - Prefer the catalog row whose child_sku, product_name, and item_description best represent the shared family language, even when exact variant detail is unresolved.
 - Return one term_recommendation for every input search term and preserve the exact search_term text.
@@ -197,8 +206,10 @@ Rules:
 - Your job in this pass is only to lock product context for the campaign.
 - Use the campaign name, campaign identifier, and campaign theme to select the best matching catalog product.
 - Use the provided client_context when campaign naming is broad, branded, defensive, or family-level. Brand campaigns are valid input and must still be mapped to the best product family you can support from the catalog.
+- Use campaign_scope from the input payload.
 - Distinguish product-family ambiguity from product ambiguity. If the campaign name or identifier clearly implies a product family but does not resolve to one exact variant or SKU, return the single catalog row that best represents that family with match_confidence = MEDIUM, not LOW.
 - If the campaign is a broad brand or defensive lane and the exact variant is unclear, use client_context plus the catalog rows to infer the most likely brand/product family. Family-level MEDIUM is better than null when the brand family is clear.
+- If campaign_scope = brand_portfolio, choose a representative anchor product for the client's broader portfolio rather than treating the matched_product as a strict single-SKU gate.
 - SKU prefixes and repeated catalog naming patterns are meaningful evidence. When several catalog rows share a prefix or family token in child_sku, product_name, or item_description, use that shared family signal to infer product context.
 - Prefer the catalog row whose child_sku, product_name, and item_description best represent the shared family language, even when exact variant detail is unresolved.
 - If you cannot confidently identify even the product family, set matched_product to null and match_confidence to LOW.
@@ -236,7 +247,11 @@ Return strict JSON with this shape:
 Rules:
 - In this pass, matched product context is already locked. Do not remap the campaign to a different product.
 - Use the provided client_context to interpret broad branded, defensive, or family-level campaign naming while keeping the locked product context fixed.
+- Use campaign_scope from the input payload.
 - Judge each search term in the context of both the locked product and the campaign theme.
+- If campaign_scope = brand_portfolio, treat the locked product context as a representative anchor for the client's broader brand portfolio, not proof that sibling in-brand families are out of scope.
+- If campaign_scope = brand_portfolio, do not use NEGATE with wrong_product_form or wrong_size_variant solely because a term appears to target another known in-brand family, variant, or brand from client_context.
+- If campaign_scope = brand_portfolio and a term appears relevant to another known in-brand family or brand, prefer KEEP or REVIEW unless there is clear evidence that the term is competitor, wrong-category, foreign-language, or otherwise outside the client's portfolio.
 - Return one term_recommendation for every input search term and preserve the exact search_term text.
 - exact_negatives must only contain search terms that appear in the input list exactly.
 - phrase_negatives are model-owned reusable phrase negatives for the workbook scratchpad. Use them only when the phrase is the minimum meaningful negative and is unlikely to overblock relevant traffic.
@@ -294,6 +309,7 @@ export const buildCampaignPrompt = (
       campaign_name: campaign.campaignName,
       campaign_theme: parseCampaignTheme(campaign.campaignName),
       campaign_identifier: parseCampaignProductIdentifier(campaign.campaignName),
+      campaign_scope: deriveCampaignScope(campaign.campaignName),
       marketplace_code: marketplaceCode,
       client_context: buildClientContextPayload(brandContext),
       catalog_products: catalogProducts.map((product) => ({
@@ -333,6 +349,7 @@ export const buildPureModelCampaignPrompt = (
       campaign_name: campaign.campaignName,
       campaign_theme: parseCampaignTheme(campaign.campaignName),
       campaign_identifier: parseCampaignProductIdentifier(campaign.campaignName),
+      campaign_scope: deriveCampaignScope(campaign.campaignName),
       marketplace_code: marketplaceCode,
       client_context: buildClientContextPayload(brandContext),
       catalog_products: catalogProducts.map((product) => ({
@@ -371,6 +388,7 @@ export const buildPureModelContextPrompt = (
       campaign_name: campaign.campaignName,
       campaign_theme: parseCampaignTheme(campaign.campaignName),
       campaign_identifier: parseCampaignProductIdentifier(campaign.campaignName),
+      campaign_scope: deriveCampaignScope(campaign.campaignName),
       marketplace_code: marketplaceCode,
       client_context: buildClientContextPayload(brandContext),
       catalog_products: catalogProducts.map((product) => ({
@@ -400,6 +418,7 @@ export const buildPureModelTermTriagePrompt = (
       campaign_name: campaign.campaignName,
       campaign_theme: parseCampaignTheme(campaign.campaignName),
       campaign_identifier: parseCampaignProductIdentifier(campaign.campaignName),
+      campaign_scope: deriveCampaignScope(campaign.campaignName),
       marketplace_code: marketplaceCode,
       client_context: buildClientContextPayload(brandContext),
       locked_product_context: {

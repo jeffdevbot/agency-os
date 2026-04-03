@@ -160,6 +160,7 @@ export type RankedCatalogProductCandidate = {
 };
 
 export type AIPrefillRunMode = "preview" | "full";
+export type AIPrefillCampaignScope = "product_family" | "brand_portfolio";
 
 export type AIPrefillBrandContext = {
   clientName: string | null;
@@ -387,6 +388,9 @@ export const isExpectedAmbiguousCampaign = (campaignName: string): boolean => {
 };
 
 export const isIntentionallySkippedCampaign = (_campaignName: string): boolean => false;
+
+export const deriveCampaignScope = (campaignName: string): AIPrefillCampaignScope =>
+  isExpectedAmbiguousCampaign(campaignName) ? "brand_portfolio" : "product_family";
 
 export const parseCampaignTheme = (campaignName: string): string | null => {
   const parts = String(campaignName || "")
