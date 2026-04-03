@@ -149,18 +149,22 @@ Read first, in this order:
 2. The current pure-model triage path is shipped enough for real analyst
    testing.
 3. The current UI cleanup pass is no longer the active blocker.
-4. The current blocker is a real large-window full-run reliability issue:
-   - Whoosh US month-long Step 4 full workbook run failed with:
-     `Screen Shine - Pro | SPM | MKW | Br.M | 2 - computer | Perf: AI response validation failed after 3 attempts: Invalid confidence:`
+4. The earlier Whoosh US month-long Step 4 blocker was investigated:
+   - the expensive AI pass completed and persisted
+   - the visible failure was workbook generation after AI persistence
+   - saved-run recovery and recent-run reuse are now shipped
+5. The current focus is quality/cost validation on the latest prompt path plus
+   SB controlled-validation enablement.
 
 ## Exact next-session goal
 
 The next session should start from this concrete milestone:
 
-1. investigate the remaining full-run reliability failure on large real runs
-2. inspect raw invalid model payload shape behind the blank `confidence` error
-3. keep the current analyst-triage workbook contract intact while debugging
-4. prefer persisted runs / logs / prompt-size evidence over more prompt churn
+1. validate the current SP full-run path on a real large run under the latest
+   prompt versions
+2. continue SB enablement / validation without changing the workbook contract
+3. keep the current analyst-triage workbook contract intact
+4. prefer persisted runs / logs / measured token impact over more prompt churn
 5. do not reopen UI cleanup unless testing exposes a new specific usability
    issue
 
@@ -175,8 +179,8 @@ The next session should start from this concrete milestone:
    asked to redesign the review flow.
 5. If model changes are considered, compare against real override data rather
    than intuition.
-6. Treat the Whoosh US blank-`confidence` failure as the first thing to
-   explain before making more product-surface changes.
+6. Treat saved-run recovery, recent-run reuse, and brand-portfolio handling as
+   current shipped behavior, not experimental ideas.
 
 ## Restart prompt for the next session
 
@@ -202,14 +206,14 @@ Current reality:
 - SB works on validated modern accounts but still has a likely legacy-campaign
   gap on at least one older Whoosh US campaign family
 - /ngram-2 Step 3 preview works
-- /ngram-2 Step 4 workbook generation works on validated windows, but
-  large-window reliability is still being hardened
+- /ngram-2 Step 4 workbook generation works on validated windows
 - /ngram-2 Step 5 reviewed workbook upload works
 - OpenAI Structured Outputs are now live for campaign evaluation
 - saved runs persist in `ngram_ai_preview_runs`
+- recent saved runs can now be reused/recovered instead of paying for AI again
 - reviewed uploads now persist override diffs in `ngram_ai_override_runs`
 - the current pure-model prompt version is
-  `ngram_pure_model_two_step_v2026_04_01_family_match`
+  `ngram_pure_model_two_step_v2026_04_02_sparse_keep_rationale`
 - the current model lane is `OPENAI_MODEL_NGRAM`
 - the workbook is now triage-oriented:
   - `SAFE KEEP`
@@ -220,10 +224,14 @@ Current reality:
   - blank mono/bi/tri scratchpad
 - the `/ngram-2` UI cleanup pass is effectively shipped
 - the current matching path uses code-first candidate retrieval before AI
-- the current blocker is a Whoosh US month-long Step 4 failure:
-  `Screen Shine - Pro | SPM | MKW | Br.M | 2 - computer | Perf: AI response validation failed after 3 attempts: Invalid confidence:`
+- brand / mix / defensive campaigns now run as `brand_portfolio` scope instead
+  of being skipped or treated as strict single-product lanes
+- KEEP rationale is now sparse / usually null to reduce output-token spend
+- SB is mechanically enabled in `/ngram-2` for native summary, AI preview, and
+  workbook generation with caution messaging intact; SD remains blocked
 
-Investigate the current full-run reliability issue without changing the
-analyst-triage workbook contract. Use the existing docs for context, prefer
-real persisted evidence over intuition, and do not migrate to Responses API.
+Continue `/ngram-2` quality/cost hardening and SB validation without changing
+the analyst-triage workbook contract. Use the existing docs for context,
+prefer real persisted evidence over intuition, and do not migrate to
+Responses API.
 ```

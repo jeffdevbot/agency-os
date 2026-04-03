@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from datetime import date
+from types import SimpleNamespace
+
+import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
@@ -175,7 +179,9 @@ def test_native_summary_route_accepts_sponsored_brands():
 
 
 def test_native_summary_route_rejects_sponsored_display():
+    service = NativeNgramWorkbookService.__new__(NativeNgramWorkbookService)
     app.dependency_overrides[ngram.require_user] = _override_user
+    app.dependency_overrides[ngram._get_native_service] = lambda: service
 
     try:
         with TestClient(app) as client:
@@ -191,33 +197,100 @@ def test_native_summary_route_rejects_sponsored_display():
             )
     finally:
         app.dependency_overrides.pop(ngram.require_user, None)
+        app.dependency_overrides.pop(ngram._get_native_service, None)
 
     assert response.status_code == 400
     assert "Sponsored Brands" in response.json()["detail"]
 
 
-@pytest.mark.parametrize("ad_product", ["SPONSORED_PRODUCTS", "SPONSORED_BRANDS"])
-def test_native_service_build_summary_accepts_allowlisted_products(ad_product):
+def _build_service_with_stubs(monkeypatch: pytest.MonkeyPatch) -> NativeNgramWorkbookService:
     service = NativeNgramWorkbookService.__new__(NativeNgramWorkbookService)
+    service._get_profile = lambda profile_id: {
+        "id": profile_id,
+        "display_name": "Whoosh US",
+        "marketplace_code": "US",
+    }
+    service._load_search_term_rows = lambda **kwargs: [
+        {
+            "report_date": "2026-03-01",
+            "campaign_name": "Screen Shine - Duo | SPM | MKW | Br.M | 2 - computer | Perf",
+            "search_term": "screen cleaner",
+            "impressions": 10,
+            "clicks": 1,
+            "spend": 1.25,
+            "orders": 0,
+            "sales": 0,
+        }
+    ]
+    service._prepare_rows = lambda rows: SimpleNamespace(
+        records=rows,
+        excluded_asin_rows=0,
+        excluded_incomplete_rows=0,
+    )
+    service._build_dataframe = lambda records: pd.DataFrame(
+        [
+            {
+                "Campaign Name": "Screen Shine - Duo | SPM | MKW | Br.M | 2 - computer | Perf",
+                "Query": "screen cleaner",
+                "Impression": 10,
+                "Click": 1,
+                "Spend": 1.25,
+                "Order 14d": 0,
+                "Sales 14d": 0,
+            }
+        ]
+    )
+    monkeypatch.setattr(
+        "app.services.ngram.native.build_campaign_items",
+        lambda df, respect_legacy_exclusions: SimpleNamespace(
+            campaign_items=["campaign-item"],
+            campaigns_skipped=0,
+        ),
+    )
+    monkeypatch.setattr(
+        "app.services.ngram.native.build_workbook",
+        lambda *args, **kwargs: "/tmp/native-ngram.xlsx",
+    )
+    return service
 
-    with pytest.raises(Exception) as exc_info:
-        from datetime import date
-        service.build_summary_from_search_term_facts(
-            profile_id="profile-1",
-            ad_product=ad_product,
-            date_from=date(2026, 3, 1),
-            date_to=date(2026, 3, 14),
-            respect_legacy_exclusions=True,
-        )
 
-    assert "currently enabled for Sponsored Products" not in str(exc_info.value)
+@pytest.mark.parametrize("ad_product", ["SPONSORED_PRODUCTS", "SPONSORED_BRANDS"])
+def test_native_service_build_summary_accepts_allowlisted_products(monkeypatch: pytest.MonkeyPatch, ad_product):
+    service = _build_service_with_stubs(monkeypatch)
+
+    summary = service.build_summary_from_search_term_facts(
+        profile_id="profile-1",
+        ad_product=ad_product,
+        date_from=date(2026, 3, 1),
+        date_to=date(2026, 3, 14),
+        respect_legacy_exclusions=True,
+    )
+
+    assert summary.ad_product == ad_product
+    assert summary.eligible_rows == 1
+
+
+@pytest.mark.parametrize("ad_product", ["SPONSORED_PRODUCTS", "SPONSORED_BRANDS"])
+def test_native_service_build_workbook_accepts_allowlisted_products(monkeypatch: pytest.MonkeyPatch, ad_product):
+    service = _build_service_with_stubs(monkeypatch)
+
+    result = service.build_workbook_from_search_term_facts(
+        profile_id="profile-1",
+        ad_product=ad_product,
+        date_from=date(2026, 3, 1),
+        date_to=date(2026, 3, 14),
+        respect_legacy_exclusions=True,
+        app_version="test",
+    )
+
+    assert result.ad_product == ad_product
+    assert result.campaigns_included == 1
 
 
 def test_native_service_build_summary_rejects_sponsored_display():
     service = NativeNgramWorkbookService.__new__(NativeNgramWorkbookService)
 
     with pytest.raises(ValueError, match="currently enabled for Sponsored Products and Sponsored Brands only"):
-        from datetime import date
         service.build_summary_from_search_term_facts(
             profile_id="profile-1",
             ad_product="SPONSORED_DISPLAY",
@@ -231,7 +304,6 @@ def test_native_service_build_workbook_rejects_sponsored_display():
     service = NativeNgramWorkbookService.__new__(NativeNgramWorkbookService)
 
     with pytest.raises(ValueError, match="currently enabled for Sponsored Products and Sponsored Brands only"):
-        from datetime import date
         service.build_workbook_from_search_term_facts(
             profile_id="profile-1",
             ad_product="SPONSORED_DISPLAY",

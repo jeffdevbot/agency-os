@@ -14,8 +14,8 @@ historical reference.
    - Fastest high-level snapshot of what is already shipped.
 3. [N-Gram 2.0 AI prefill design](/Users/jeff/code/agency-os/docs/ngram_2_ai_prefill_design.md)
    - Current product/design reference for the shipped Step 3 / Step 4 / Step 5
-     workflow, the retrieval-first catalog-matching design, and the current
-     full-run reliability blocker.
+     workflow, the retrieval-first catalog-matching design, saved-run recovery,
+     and the current brand-portfolio handling.
 4. [N-Gram 2.0 pure prompt pivot plan](/Users/jeff/code/agency-os/docs/ngram_2_pure_prompt_pivot_plan.md)
    - Current pivot brief for moving `/ngram-2` away from deterministic gram
      synthesis and toward analyst-leverage AI triage, with code-first catalog
@@ -27,12 +27,18 @@ historical reference.
 6. [WBR schema plan](/Users/jeff/code/agency-os/docs/wbr_v2_schema_plan.md)
    - Current schema/reference document for live WBR + STR + N-Gram support
      tables, including `ngram_ai_preview_runs` and `ngram_ai_override_runs`.
-7. [Claude primary surface plan](/Users/jeff/code/agency-os/docs/claude_primary_surface_plan.md)
+7. [N-Gram 2.0 SB enablement plan](/Users/jeff/code/agency-os/docs/ngram_2_sb_enablement_plan.md)
+   - Current implementation plan for bringing `Sponsored Brands` into
+     `/ngram-2` with the same native summary / preview / workbook / reviewed
+     upload flow shape as `Sponsored Products`.
+8. [N-Gram 2.0 SB enablement checklist](/Users/jeff/code/agency-os/docs/ngram_2_sb_enablement_checklist.md)
+   - Execution/reporting checklist for the active SB enablement tranche.
+9. [Claude primary surface plan](/Users/jeff/code/agency-os/docs/claude_primary_surface_plan.md)
    - Current strategy doc for Claude vs The Claw and future MCP expansion.
-8. [Agency OS MCP implementation plan](/Users/jeff/code/agency-os/docs/agency_os_mcp_implementation_plan.md)
+10. [Agency OS MCP implementation plan](/Users/jeff/code/agency-os/docs/agency_os_mcp_implementation_plan.md)
    - Current implementation-planning reference for the shared Claude/MCP tool
      surface after WBR + Monthly P&L shipped.
-9. [Reports API access and SP-API plan](/Users/jeff/code/agency-os/docs/reports_api_access_and_spapi_plan.md)
+11. [Reports API access and SP-API plan](/Users/jeff/code/agency-os/docs/reports_api_access_and_spapi_plan.md)
    - Current shared reporting auth/source-of-truth planning reference.
 
 ## Highest-priority restart target
@@ -53,8 +59,8 @@ If the next session is about `/ngram-2`, start here:
    - code-first catalog retrieval before AI matching
 7. Treat the current AI workflow as functionally shipped reference state:
    - Step 3 bounded preview works
-   - Step 4 full AI workbook runs have succeeded on validated windows, but
-     large-window reliability is still being hardened
+   - Step 4 full AI workbook runs now persist and can be recovered from saved
+     runs without paying for AI again when workbook generation fails
    - Step 5 reviewed workbook upload to negatives summary works
    - Step 6 is a greyed-out direct-Amazon placeholder
    - OpenAI Structured Outputs are live
@@ -75,13 +81,14 @@ If the next session is about `/ngram-2`, start here:
    - preview rows can expand past the default 10-row cap
    - the synthetic activity panel was removed after proving too low-value
 9. The exact next checkpoint is:
-   - harden full Step 4 workbook reliability on large real-account windows
-   - investigate the remaining full-run failure on Whoosh US month-long data:
-     `Screen Shine - Pro | SPM | MKW | Br.M | 2 - computer | Perf: AI response validation failed after 3 attempts: Invalid confidence:`
-   - preserve the current analyst-triage workbook contract while debugging
-     this reliability gap
-   - prefer persisted run data, raw invalid model payloads, and per-campaign
-     prompt sizing over more UI work
+   - continue SB enablement as a separate active tranche using the dedicated
+     SB plan/checklist docs
+   - for `/ngram-2` SP quality/cost follow-up, validate another real full Whoosh
+     month run under the latest prompt versions instead of reopening the old
+     `Invalid confidence` blocker by default
+   - preserve the current analyst-triage workbook contract
+   - prefer saved-run reuse/recovery, real quality observations, and
+     measured token-cost changes over more UI work
 
 ## Current operational/reference docs
 
@@ -178,14 +185,20 @@ If the next session is about `/ngram-2`, start here:
    - STR ingestion was refactored away from inherited WBR campaign-sync
      assumptions and now uses an Amazon Ads-native contract for the verified
      `spSearchTerm` path
-   - current supported scope is **Sponsored Products only**; SB / SD remain
-     intentionally unverified / unsupported until their exact report contracts
-     are confirmed
+   - current native ingestion truth is:
+     - `SP` is validated and trusted
+     - `SB` has a validated modern-account path plus a known legacy-gap caveat
+       on at least one older Whoosh US family
+     - `SD` remains unsupported in `/ngram-2`
    - `search_term_daily_facts` now preserves `keyword_id`, `keyword`,
      `keyword_type`, and `targeting`
    - `/ngram-2` now intentionally splits AI work into:
      - a bounded Step 3 preview for cheap validation
      - a Step 4 workbook-generation flow for the actual downloadable workbook
+   - `/ngram-2` native summary, AI preview, and workbook generation now allow
+     `Sponsored Brands` in controlled validation mode:
+     - SB caution messaging stays visible in the UI and preview warnings
+     - SD remains blocked
    - Step 3/4 campaign evaluation now uses OpenAI Structured Outputs with a
      strict JSON schema instead of prompt-only JSON
    - `/ngram-2` now uses a dedicated model env var:
@@ -229,14 +242,25 @@ If the next session is about `/ngram-2`, start here:
      - send compact JSON prompt payloads instead of pretty-printed JSON
      - retry short-lived OpenAI `429` rate-limit responses with bounded
        backoff
-   - this retrieval-first hardening materially reduced token pressure, but a
-     new reliability issue is now the active blocker:
-     - a Whoosh US month-long Step 4 full workbook run failed on
-       `2026-04-02 (ET)` with:
-       `Screen Shine - Pro | SPM | MKW | Br.M | 2 - computer | Perf: AI response validation failed after 3 attempts: Invalid confidence:`
-     - this means malformed or blank `confidence` still surfaced on a real
-       large run despite Structured Outputs plus local retry
-     - the next session should treat that as the primary open issue
+   - the previous `Invalid confidence` blocker on the Whoosh US month-long Step
+     4 run was investigated and is no longer the main restart target:
+     - the expensive AI pass completed and persisted successfully
+     - the visible failure was the workbook-generation handoff after AI
+     - Step 4 now sends only `preview_run_id` to workbook generation instead
+       of reposting the giant AI payload
+     - `/ngram-2` now shows recent saved runs and can rebuild a workbook from a
+       persisted run without rerunning AI
+     - recent identical full runs are now reused for a short window to reduce
+       accidental duplicate AI charges
+   - brand / mix / defensive campaigns are now handled as explicit
+     `brand_portfolio` scope instead of being dropped or treated as
+     out-of-scope:
+     - `/ngram-2` now loads client/brand names from Command Center context
+     - mixed brand lanes use softer cross-family prompt rules
+     - sibling in-brand families should no longer be negated by default just
+       because one representative product anchor was selected
+   - the latest token-trim pass now removes `KEEP` rationale by default while
+     preserving `NEGATE` / `REVIEW` rationale
    - STR UI now auto-refreshes every 15 seconds while runs are in `running`
      state, mirroring the WBR Ads sync experience
    - post-worker-redeploy live validation is now confirmed on a real Whoosh US

@@ -206,6 +206,8 @@ Status meanings:
 - Nice to have later:
   - scheduled refreshes
   - readiness notifications
+  - scheduled `/ngram-2` workbook generation runs with internal Slack-channel
+    notification when a new workbook is ready from a saved run
   - AI-assisted negative suggestions for review
 - Not now: direct publish back to Amazon.
 - Main risk: this is not a small extension of the current file-based N-Gram

@@ -1,6 +1,6 @@
 # N-Gram 2.0 AI Prefill Design
 
-_Last updated: 2026-04-02 (ET)_
+_Last updated: 2026-04-02 (ET, later)_
 
 ## Purpose
 
@@ -8,11 +8,15 @@ Define the first AI-assisted `N-Gram 2.0` workflow for Agency OS.
 
 This design assumes:
 
-1. `Sponsored Products` (`SP`) only for v1
-2. native Agency OS search-term facts are already available and trusted enough
+1. `Sponsored Products` (`SP`) is the validated / trusted baseline
+2. `Sponsored Brands` (`SB`) is allowed in the same workflow shape under
+   controlled validation, with honest caution messaging about known legacy-gap
+   caveats
+3. `Sponsored Display` (`SD`) remains out of scope for this workflow
+4. native Agency OS search-term facts are already available and trusted enough
    for workbook generation
-3. the output should remain the familiar N-Gram workbook shape
-4. the manual path remains available in parallel
+5. the output should remain the familiar N-Gram workbook shape
+6. the manual path remains available in parallel
 
 This document is intentionally about the **AI-prefill path**, not the broader
 native-ingestion story.
@@ -41,7 +45,7 @@ The goal is **not**:
 
 The proposed AI path is:
 
-1. user selects native `SP` data in `N-Gram 2.0`
+1. user selects native `SP` or controlled-validation `SB` data in `N-Gram 2.0`
 2. user sets a spend threshold
 3. system can run a **bounded preview** for cheap validation or a **full run**
    for workbook generation
@@ -65,7 +69,7 @@ Important nuance:
 
 ## Inputs
 
-### 1. Native SP search-term facts
+### 1. Native search-term facts
 
 Use the same selected native window already chosen in `N-Gram 2.0`.
 
@@ -177,8 +181,13 @@ Important clarification:
    `Brand | SPM | MKW | Br. | Mix. | Def`
    are expected ambiguous cases
 2. those campaigns often do not map cleanly to one product-family context
-3. they should be treated as a normal `mixed / review` lane
-4. they should **not** be treated as data-quality failures by default
+3. they should be treated as explicit `brand_portfolio` lanes, not as
+   out-of-scope campaigns
+4. in those lanes, one matched catalog row is only a representative anchor for
+   the broader in-brand portfolio
+5. sibling in-brand product families should not be negated by default just
+   because they do not match that one representative anchor exactly
+6. they should **not** be treated as data-quality failures by default
 
 ### Why this matters
 
@@ -282,8 +291,9 @@ As of `2026-03-30`, this workflow has moved beyond prototype-only status.
 Current shipped/validated checkpoint:
 
 1. Step 3 bounded preview works on live Whoosh data
-2. Step 4 full AI workbook generation has succeeded on validated windows, but
-   large-window reliability is still being hardened
+2. Step 4 full AI workbook generation has succeeded on validated windows, and
+   saved full runs can now be recovered from the UI without rerunning AI if
+   workbook generation fails after persistence
 3. OpenAI Structured Outputs are live for the campaign-evaluation contract
 4. saved runs persist in `ngram_ai_preview_runs`
 5. reviewed workbook uploads now persist best-effort diffs in
@@ -295,21 +305,30 @@ Current shipped/validated checkpoint:
    - `477,233` total tokens
    - approx `$1.42` cost on `gpt-5.4`
 
-That milestone is still important, but it is no longer the immediate blocker.
+Important later-2026-04-02 update:
 
-The immediate blocker as of `2026-04-02` is:
-
-1. a real Whoosh US month-long Step 4 full workbook run failed on:
-   - `Screen Shine - Pro | SPM | MKW | Br.M | 2 - computer | Perf`
-2. failing error:
-   - `AI response validation failed after 3 attempts: Invalid confidence:`
+1. the visible Whoosh US month-long Step 4 failure did not mean the expensive
+   AI pass itself failed
+2. the pure-model AI pass actually completed and persisted on the real
+   month-long run
+3. the visible user-facing failure was the workbook-generation handoff after
+   AI persistence
+4. `/ngram-2` now:
+   - rebuilds workbooks from saved runs
+   - exposes recent saved runs in the UI
+   - reuses recent identical full runs for a short window to reduce duplicate
+     spend
+5. brand / mix / defensive campaigns are now included and handled as explicit
+   `brand_portfolio` scope
+6. `KEEP` rationale is now intentionally sparse / usually `null` to reduce
+   output-token spend without changing the workbook contract
 
 That means the next useful milestone is now:
 
-1. explain why malformed or blank `confidence` still surfaced on a real large
-   run despite Structured Outputs and local retry
-2. inspect raw invalid payload shape, prompt sizing, and retry behavior
-3. only after that, return to deeper analyst-vs-AI worksheet comparison work
+1. validate another real full Whoosh US month run under the latest
+   brand-portfolio + sparse-KEEP-rationale prompt versions
+2. continue SB enablement separately without disturbing the current SP triage
+   workbook contract
 
 ## Step 4: AI relevance evaluation
 

@@ -366,12 +366,13 @@ export default function NgramTwoPage() {
           ad_product: selectedProductConfig?.amazonAdsAdProduct ?? "SPONSORED_PRODUCTS",
         }).toString()}`
       : null;
+  const isAiEnabledAdProduct = selectedProduct === "sp" || selectedProduct === "sb";
   const summaryAllowsWorkbook = Boolean(summary && summary.eligible_rows > 0);
   const hasSelectedAiCampaignSubset = selectedAiCampaignNames.length > 0;
   const canGenerateWorkbook =
     !loading &&
     !aiWorkbookGenerating &&
-    runState.tone !== "blocked" &&
+    isAiEnabledAdProduct &&
     Boolean(selectedProfile?.profileId) &&
     dayCount !== null &&
     !summaryLoading &&
@@ -380,7 +381,7 @@ export default function NgramTwoPage() {
   const canRunPreviewBase =
     !loading &&
     !aiPreviewLoading &&
-    runState.tone !== "blocked" &&
+    isAiEnabledAdProduct &&
     Boolean(selectedProfile?.profileId) &&
     dayCount !== null &&
     !summaryLoading &&
