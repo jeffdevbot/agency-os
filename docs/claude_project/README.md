@@ -32,6 +32,7 @@ docs.
   - `get_sync_freshness_status`
   - `query_business_facts`
   - `query_ads_facts`
+  - `query_search_term_facts`
   - `query_catalog_context`
   - `query_monthly_pnl_detail`
 - [ ] Keep `draft_wbr_email` and `draft_monthly_pnl_email` on approval unless/until you want mutating actions to run without confirmation
@@ -86,6 +87,7 @@ docs.
 - [x] Analyst-query MCP surface is shipped in the backend
 - [ ] Analyst-query Claude Project file uploaded
 - [ ] Analyst-query prompts smoke-tested in Claude after deploy / connector refresh
+- [ ] STR analyst prompts smoke-tested in Claude after deploy / connector refresh
 
 ### Next Expansion Options
 

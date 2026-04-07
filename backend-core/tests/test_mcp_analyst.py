@@ -29,6 +29,7 @@ from app.services.analyst_query_tools import (
     query_business_facts,
     query_catalog_context,
     query_monthly_pnl_detail,
+    query_search_term_facts,
 )
 
 
@@ -69,6 +70,10 @@ class _FakeQuery:
         self._filters.append(("in_", key, list(values)))
         return self
 
+    def ilike(self, key: str, pattern: str) -> "_FakeQuery":
+        self._filters.append(("ilike", key, pattern))
+        return self
+
     def order(self, key: str, *_args: Any, desc: bool = False, **_kwargs: Any) -> "_FakeQuery":
         self._order_key = key
         self._order_desc = desc
@@ -94,6 +99,9 @@ class _FakeQuery:
                 rows = [r for r in rows if str(r.get(key) or "") <= str(value)]
             elif op == "in_":
                 rows = [r for r in rows if r.get(key) in value]
+            elif op == "ilike":
+                needle = str(value or "").strip().lower().replace("%", "")
+                rows = [r for r in rows if needle in str(r.get(key) or "").lower()]
 
         if self._order_key:
             rows = sorted(
@@ -205,6 +213,77 @@ _CAMPAIGN_MAP = [
     },
 ]
 
+_SEARCH_TERM_FACTS = [
+    {
+        "id": "str-1",
+        "profile_id": _PROFILE_ID,
+        "report_date": "2026-03-10",
+        "campaign_name": "Brand SP",
+        "campaign_type": "sponsored_products",
+        "ad_product": "SPONSORED_PRODUCTS",
+        "keyword": "screen cleaner",
+        "keyword_type": "BROAD",
+        "search_term": "screen cleaner spray",
+        "match_type": "broad",
+        "impressions": 100,
+        "clicks": 10,
+        "spend": "10.00",
+        "orders": 2,
+        "sales": "50.00",
+    },
+    {
+        "id": "str-2",
+        "profile_id": _PROFILE_ID,
+        "report_date": "2026-03-11",
+        "campaign_name": "Brand SP",
+        "campaign_type": "sponsored_products",
+        "ad_product": "SPONSORED_PRODUCTS",
+        "keyword": "screen cleaner",
+        "keyword_type": "BROAD",
+        "search_term": "screen cleaner spray",
+        "match_type": "broad",
+        "impressions": 120,
+        "clicks": 12,
+        "spend": "12.00",
+        "orders": 2,
+        "sales": "60.00",
+    },
+    {
+        "id": "str-3",
+        "profile_id": _PROFILE_ID,
+        "report_date": "2026-03-10",
+        "campaign_name": "Brand SP",
+        "campaign_type": "sponsored_products",
+        "ad_product": "SPONSORED_PRODUCTS",
+        "keyword": "monitor cleaner",
+        "keyword_type": "EXACT",
+        "search_term": "monitor cleaner",
+        "match_type": "exact",
+        "impressions": 50,
+        "clicks": 5,
+        "spend": "5.00",
+        "orders": 1,
+        "sales": "25.00",
+    },
+    {
+        "id": "str-4",
+        "profile_id": _PROFILE_ID,
+        "report_date": "2026-03-11",
+        "campaign_name": "Brand SB",
+        "campaign_type": "sponsored_brands",
+        "ad_product": "SPONSORED_BRANDS",
+        "keyword": "tv screen cleaner",
+        "keyword_type": "PHRASE",
+        "search_term": "tv screen cleaner",
+        "match_type": "phrase",
+        "impressions": 80,
+        "clicks": 8,
+        "spend": "8.00",
+        "orders": 1,
+        "sales": "24.00",
+    },
+]
+
 
 def _base_db(**overrides: list[dict[str, Any]]) -> _FakeDB:
     """Return a _FakeDB with sensible defaults, optionally overridden per table."""
@@ -290,6 +369,7 @@ def _base_db(**overrides: list[dict[str, Any]]) -> _FakeDB:
         ],
         "wbr_ads_campaign_daily": list(_ADS_FACTS),
         "wbr_pacvue_campaign_map": list(_CAMPAIGN_MAP),
+        "search_term_daily_facts": list(_SEARCH_TERM_FACTS),
     }
     tables.update(overrides)
     return _FakeDB(tables)
@@ -939,6 +1019,7 @@ def test_analyst_tools_registered_in_server(monkeypatch):
         "get_sync_freshness_status",
         "query_business_facts",
         "query_ads_facts",
+        "query_search_term_facts",
         "query_catalog_context",
         "query_monthly_pnl_detail",
     ):
@@ -1275,6 +1356,112 @@ def test_query_ads_facts_raises_unknown_profile():
 
 
 # ===========================================================================
+# Service-layer tests — query_search_term_facts
+# ===========================================================================
+
+
+def test_query_search_term_facts_group_by_keyword_sorted_by_spend():
+    """group_by=keyword returns aggregated keyword rows sorted by spend descending."""
+    db = _base_db()
+    result = query_search_term_facts(
+        db,
+        _PROFILE_ID,
+        "2026-03-10",
+        "2026-03-11",
+        "keyword",
+        sort_by="spend",
+    )
+
+    assert result["group_by"] == "keyword"
+    assert result["sort_by"] == "spend"
+    assert result["row_count"] == 3
+    assert result["rows"][0]["keyword"] == "screen cleaner"
+    assert result["rows"][0]["spend"] == "22.00"
+    assert result["rows"][0]["sales"] == "110.00"
+    assert result["rows"][0]["acos"] == "0.2000"
+    assert result["totals"]["spend"] == "35.00"
+    assert result["totals"]["orders"] == 6
+
+
+def test_query_search_term_facts_filters_to_ad_product():
+    """ad_product filter restricts the search-term fact query."""
+    db = _base_db()
+    result = query_search_term_facts(
+        db,
+        _PROFILE_ID,
+        "2026-03-10",
+        "2026-03-11",
+        "campaign",
+        ad_product="SPONSORED_PRODUCTS",
+    )
+
+    assert result["row_count"] == 1
+    assert result["rows"][0]["campaign_name"] == "Brand SP"
+    assert result["totals"]["spend"] == "27.00"
+
+
+def test_query_search_term_facts_row_scope_uses_campaign_mapping():
+    """row_id scopes STR facts through mapped campaigns."""
+    db = _base_db()
+    result = query_search_term_facts(
+        db,
+        _PROFILE_ID,
+        "2026-03-10",
+        "2026-03-11",
+        "search_term",
+        row_id=_ROW_ID_LEAF,
+    )
+
+    assert result["row_count"] == 2
+    returned_terms = {row["search_term"] for row in result["rows"]}
+    assert returned_terms == {"screen cleaner spray", "monitor cleaner"}
+    assert result["totals"]["spend"] == "27.00"
+
+
+def test_query_search_term_facts_freshness_note():
+    """Freshness note is set when the requested date range exceeds landed STR data."""
+    db = _base_db()
+    result = query_search_term_facts(
+        db,
+        _PROFILE_ID,
+        "2026-03-10",
+        "2026-03-20",
+        "search_term",
+    )
+
+    assert result["freshness"]["latest_available_date"] == "2026-03-11"
+    assert result["freshness"]["note"] is not None
+    assert "2026-03-20" in result["freshness"]["note"]
+
+
+def test_query_search_term_facts_raises_bad_sort_by():
+    db = _base_db()
+    with pytest.raises(AnalystQueryError) as exc_info:
+        query_search_term_facts(
+            db,
+            _PROFILE_ID,
+            "2026-03-10",
+            "2026-03-11",
+            "keyword",
+            sort_by="unit_sales",
+        )
+    assert exc_info.value.error_type == "validation_error"
+
+
+def test_query_search_term_facts_raises_unknown_profile():
+    db = _base_db(wbr_profiles=[])
+    with pytest.raises(AnalystQueryError) as exc_info:
+        query_search_term_facts(
+            db,
+            "bad-profile",
+            "2026-03-10",
+            "2026-03-11",
+            "keyword",
+        )
+    assert exc_info.value.error_type == "not_found"
+
+
+# ===========================================================================
 # Service-layer tests — query_catalog_context
 # ===========================================================================
 
@@ -1442,6 +1629,53 @@ def test_mcp_wrapper_query_ads_facts_error(monkeypatch):
         date_from="2026-03-10",
         date_to="2026-03-16",
         group_by="day",
+    )
+
+    assert result["error"] == "not_found"
+    assert "message" in result
+
+
+def test_mcp_wrapper_query_search_term_facts_success(monkeypatch):
+    """query_search_term_facts wrapper returns service result on success."""
+    fake_db = _base_db()
+    monkeypatch.setattr(
+        "app.mcp.tools.analyst._get_supabase_admin_client", lambda: fake_db
+    )
+    monkeypatch.setattr("app.mcp.tools.analyst.get_current_pilot_user", lambda: None)
+
+    mock_mcp = _make_mock_mcp()
+    register_analyst_tools(mock_mcp)
+
+    fn = next(r["fn"] for r in mock_mcp._registered if r["name"] == "query_search_term_facts")
+    result = fn(
+        profile_id=_PROFILE_ID,
+        date_from="2026-03-10",
+        date_to="2026-03-11",
+        group_by="keyword",
+        sort_by="spend",
+    )
+
+    assert "error" not in result
+    assert result["row_count"] == 3
+
+
+def test_mcp_wrapper_query_search_term_facts_error(monkeypatch):
+    """query_search_term_facts wrapper returns structured error on failure."""
+    fake_db = _base_db(wbr_profiles=[])
+    monkeypatch.setattr(
+        "app.mcp.tools.analyst._get_supabase_admin_client", lambda: fake_db
+    )
+    monkeypatch.setattr("app.mcp.tools.analyst.get_current_pilot_user", lambda: None)
+
+    mock_mcp = _make_mock_mcp()
+    register_analyst_tools(mock_mcp)
+
+    fn = next(r["fn"] for r in mock_mcp._registered if r["name"] == "query_search_term_facts")
+    result = fn(
+        profile_id="nonexistent",
+        date_from="2026-03-10",
+        date_to="2026-03-11",
+        group_by="keyword",
     )
 
     assert result["error"] == "not_found"

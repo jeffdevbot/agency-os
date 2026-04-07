@@ -15,8 +15,9 @@ Current scope:
 3. explain whether WBR business / ads data is current
 4. drill into business facts with bounded grouping
 5. drill into ads facts with bounded grouping
-6. return compact catalog context for ASINs or WBR rows
-7. drill into Monthly P&L detail for a bounded period
+6. answer bounded STR keyword and search-term ranking questions
+7. return compact catalog context for ASINs or WBR rows
+8. drill into Monthly P&L detail for a bounded period
 
 ## Live Tools
 
@@ -146,6 +147,58 @@ Use for questions like:
 1. "Which campaigns spent the most last week?"
 2. "Show campaign spend and sales for this row"
 
+### `query_search_term_facts`
+
+Use for bounded STR keyword or search-term ranking questions.
+
+Input:
+
+```json
+{
+  "profile_id": "uuid",
+  "date_from": "2026-03-01",
+  "date_to": "2026-03-31",
+  "group_by": "keyword",
+  "sort_by": "spend",
+  "limit": 10,
+  "ad_product": "SPONSORED_PRODUCTS"
+}
+```
+
+Allowed `group_by` values:
+
+1. `day`
+2. `search_term`
+3. `keyword`
+4. `campaign`
+5. `keyword_type`
+
+Allowed `sort_by` values:
+
+1. `spend`
+2. `sales`
+3. `orders`
+4. `clicks`
+5. `impressions`
+6. `acos`
+7. `roas`
+8. `ctr`
+9. `cvr`
+10. `cpc`
+
+Use for questions like:
+
+1. "What were Whoosh's top 10 keywords last month?"
+2. "What search terms spent the most for this profile?"
+3. "Show the best Sponsored Brands search terms by ROAS"
+
+Important:
+
+1. `keyword` means the Amazon targeting keyword, not the customer search term
+2. `search_term` means the customer query that actually triggered the ad
+3. prefer `group_by="keyword"` only when the user explicitly asks about keywords
+4. prefer `group_by="search_term"` when the user asks what customers searched
+
 ### `query_catalog_context`
 
 Use for compact product context questions.
@@ -217,7 +270,8 @@ If the user asks for a grouping, comparison, or row-level drill-down:
 
 1. use `query_business_facts` for Windsor/WBR business facts
 2. use `query_ads_facts` for campaign-level ad facts
-3. use `query_catalog_context` for product metadata
+3. use `query_search_term_facts` for bounded keyword or search-term rankings
+4. use `query_catalog_context` for product metadata
 
 ### 3. Row composition questions
 
@@ -234,7 +288,16 @@ If the user asks whether a date is missing because data has not landed yet:
 2. mention the latest landed fact dates explicitly
 3. do not guess whether same-day data should exist
 
-### 5. Monthly P&L detail questions
+### 5. Search-term ranking questions
+
+If the user asks for top keywords, top search terms, or STR-based rankings:
+
+1. use `query_search_term_facts`
+2. default to bounded windows like last week or last month
+3. prefer ranking by `spend` unless the user clearly asks for another metric
+4. state explicitly whether the result is about `keyword` or `search_term`
+
+### 6. Monthly P&L detail questions
 
 If the user wants line-item or month-level P&L drill-down:
 
@@ -256,6 +319,8 @@ If the user wants line-item or month-level P&L drill-down:
    clearly supported by the returned metrics.
 7. Do not expose raw internal UUIDs in normal user-facing answers unless the
    user explicitly asks for them or they are required to resolve ambiguity.
+8. For STR questions, do not conflate `keyword` and `search_term`; name which
+   dimension you are ranking in the answer.
 
 ## Recommended Prompts
 

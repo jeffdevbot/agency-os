@@ -19,6 +19,7 @@ from ...services.analyst_query_tools import (
     query_business_facts as _query_business_facts,
     query_catalog_context as _query_catalog_context,
     query_monthly_pnl_detail as _query_monthly_pnl_detail,
+    query_search_term_facts as _query_search_term_facts,
 )
 from ..auth import get_current_pilot_user
 from ..event_logging import start_mcp_tool_invocation
@@ -220,6 +221,82 @@ def register_analyst_tools(mcp: Any) -> None:
             row_id=row_id,
             campaign_count=len(campaign_names or []),
             limit=limit,
+        )
+        return result
+
+    @mcp.tool(
+        name="query_search_term_facts",
+        description=(
+            "Flexible drill-down over ingested Amazon Ads search-term facts. "
+            "group_by: 'day' | 'search_term' | 'keyword' | 'campaign' | 'keyword_type'. "
+            "Use this for bounded keyword or search-term ranking questions after resolving a WBR profile. "
+            "Supports read-only filters like ad product, campaign type, row scope, and contains filters."
+        ),
+        structured_output=True,
+    )
+    def query_search_term_facts(
+        profile_id: str,
+        date_from: str,
+        date_to: str,
+        group_by: str,
+        ad_product: str | None = None,
+        campaign_type: str | None = None,
+        keyword_type: str | None = None,
+        match_type: str | None = None,
+        campaign_name_contains: str | None = None,
+        search_term_contains: str | None = None,
+        keyword_contains: str | None = None,
+        row_id: str | None = None,
+        metrics: list[str] | None = None,
+        sort_by: str = "spend",
+        limit: int = 25,
+    ) -> dict[str, Any]:
+        invocation = start_mcp_tool_invocation("query_search_term_facts", is_mutation=False)
+        db = _get_supabase_admin_client()
+        try:
+            result = _query_search_term_facts(
+                db,
+                profile_id,
+                date_from,
+                date_to,
+                group_by,
+                ad_product=ad_product,
+                campaign_type=campaign_type,
+                keyword_type=keyword_type,
+                match_type=match_type,
+                campaign_name_contains=campaign_name_contains,
+                search_term_contains=search_term_contains,
+                keyword_contains=keyword_contains,
+                row_id=row_id,
+                metrics=metrics,
+                sort_by=sort_by,
+                limit=limit,
+            )
+        except AnalystQueryError as exc:
+            invocation.error(
+                error_type=exc.error_type,
+                profile_id=profile_id,
+                group_by=group_by,
+                sort_by=sort_by,
+                row_id=row_id,
+                limit=limit,
+                ad_product=ad_product,
+                campaign_type=campaign_type,
+                keyword_type=keyword_type,
+                match_type=match_type,
+            )
+            return {"error": exc.error_type, "message": exc.message}
+        invocation.success(
+            profile_id=profile_id,
+            group_by=group_by,
+            sort_by=sort_by,
+            row_id=row_id,
+            limit=limit,
+            ad_product=ad_product,
+            campaign_type=campaign_type,
+            keyword_type=keyword_type,
+            match_type=match_type,
+            row_count=result.get("row_count", 0),
         )
         return result
 
