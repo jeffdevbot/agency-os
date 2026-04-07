@@ -928,8 +928,6 @@ def test_mcp_wrapper_get_sync_freshness_status_structured_error(monkeypatch):
 def test_analyst_tools_registered_in_server(monkeypatch):
     """create_mcp_server() registers all analyst tools (Slice 1 + Slice 2)."""
     monkeypatch.setattr("app.config.settings.supabase_jwt_secret", "test-secret")
-    monkeypatch.setattr("app.config.settings.mcp_pilot_allowed_user_id", "user-123")
-    monkeypatch.setattr("app.config.settings.mcp_pilot_allowed_email", "test@example.com")
     monkeypatch.setattr("app.config.settings.mcp_public_base_url", "http://localhost/mcp")
 
     server = create_mcp_server()

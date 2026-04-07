@@ -1,12 +1,12 @@
-# Agency OS ClickUp MCP Playbook
+# Ecomlabs Tools ClickUp MCP Playbook
 
-This file is the compact reference Claude should use for the live Agency OS
-ClickUp tool surface.
+This file is historical reference for the older Ecomlabs Tools ClickUp MCP
+surface.
 
 ## Goal
 
-Use Agency OS as the source of truth for client backlog task review and task
-creation inside Claude.
+Use Claude's native ClickUp connector for team task work. Keep this file only
+as historical reference for the older MCP-based ClickUp flow.
 
 Current scope:
 

@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from app.config import settings
 from app.services.clickup import ClickUpTask
 from app.services.clickup_task_tools import (
     ClickUpToolError,
@@ -28,6 +29,11 @@ from app.services.clickup_task_tools import (
     resolve_team_member_query,
     update_task_by_id_or_url,
 )
+
+
+@pytest.fixture(autouse=True)
+def _enable_clickup_mcp_tools(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "mcp_enable_clickup_tools", True)
 
 
 # ---------------------------------------------------------------------------

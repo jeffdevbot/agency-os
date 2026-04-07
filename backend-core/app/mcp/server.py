@@ -1,4 +1,4 @@
-"""Agency OS MCP server bootstrap."""
+"""Ecomlabs Tools MCP server bootstrap."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from starlette.types import ASGIApp
 from typing import Any
 
 from ..config import settings
-from .auth import SupabasePilotTokenVerifier
+from .auth import SupabaseInternalUserTokenVerifier
 from .tools.analyst import register_analyst_tools
 from .tools.clickup import register_clickup_tools
 from .tools.clients import register_client_tools
@@ -31,12 +31,12 @@ _MCP_PROXY_APP: ASGIApp | None = None
 
 def create_mcp_server() -> FastMCP:
     mcp = FastMCP(
-        name="Agency OS",
+        name="Ecomlabs Tools",
         instructions=(
-            "Agency OS is Ecomlabs' internal tool server. Use its tools to "
-            "retrieve canonical internal data before drafting or summarizing."
+            "Ecomlabs Tools is Ecomlabs' internal reporting and operations server. "
+            "Use its tools to retrieve canonical internal data before drafting or summarizing."
         ),
-        token_verifier=SupabasePilotTokenVerifier(),
+        token_verifier=SupabaseInternalUserTokenVerifier(),
         streamable_http_path="/",
         json_response=True,
         stateless_http=True,
@@ -54,7 +54,8 @@ def create_mcp_server() -> FastMCP:
     register_client_tools(mcp)
     register_wbr_tools(mcp)
     register_pnl_tools(mcp)
-    register_clickup_tools(mcp)
+    if settings.mcp_enable_clickup_tools:
+        register_clickup_tools(mcp)
     register_analyst_tools(mcp)
     return mcp
 
@@ -88,7 +89,7 @@ async def handle_mcp_protected_resource_metadata(request: Request):
     metadata = ProtectedResourceMetadata(
         resource=settings.mcp_public_base_url,
         authorization_servers=[settings.supabase_issuer],
-        resource_name="Agency OS MCP",
+        resource_name="Ecomlabs Tools MCP",
         scopes_supported=None,
     )
     handler = ProtectedResourceMetadataHandler(metadata)
@@ -96,7 +97,7 @@ async def handle_mcp_protected_resource_metadata(request: Request):
 
 
 def create_mcp_asgi_app() -> ASGIApp:
-    """Return the stable mounted ASGI app for the Agency OS MCP pilot."""
+    """Return the stable mounted ASGI app for the Ecomlabs Tools MCP server."""
     global _MCP_PROXY_APP
     if _MCP_PROXY_APP is None:
         _MCP_PROXY_APP = MCPProxyApp()

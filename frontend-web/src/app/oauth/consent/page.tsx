@@ -11,7 +11,7 @@ function LoadingFallback() {
         <section className="w-full overflow-hidden rounded-[28px] border border-slate-200/80 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.10)]">
           <div className="border-b border-slate-200 bg-slate-950 px-8 py-6 text-white">
             <p className="text-sm font-medium uppercase tracking-[0.24em] text-slate-300">
-              Agency OS
+              Ecomlabs Tools
             </p>
             <h1 className="mt-3 text-3xl font-semibold">OAuth access request</h1>
           </div>

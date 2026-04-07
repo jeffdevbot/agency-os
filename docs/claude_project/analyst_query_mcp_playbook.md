@@ -1,11 +1,11 @@
-# Agency OS Analyst Query MCP Playbook
+# Ecomlabs Tools Analyst Query MCP Playbook
 
-This file is the compact reference Claude should use for the live Agency OS
+This file is the compact reference Claude should use for the live Ecomlabs Tools
 analyst-query tool surface.
 
 ## Goal
 
-Use Agency OS as the source of truth for ad hoc internal reporting questions
+Use Ecomlabs Tools as the source of truth for ad hoc internal reporting questions
 inside Claude.
 
 Current scope:

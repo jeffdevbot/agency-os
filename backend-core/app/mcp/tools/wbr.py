@@ -150,7 +150,7 @@ def register_wbr_tools(mcp: Any) -> None:
     @mcp.tool(
         name="list_wbr_profiles",
         description=(
-            "List active WBR profiles for a canonical Agency OS client ID. "
+            "List active WBR profiles for a canonical Ecomlabs Tools client ID. "
             "Use this after resolve_client so later tools operate on concrete "
             "profile identifiers."
         ),
@@ -181,7 +181,7 @@ def register_wbr_tools(mcp: Any) -> None:
         name="draft_wbr_email",
         description=(
             "Generate and persist a multi-marketplace weekly WBR client email draft "
-            "for a canonical Agency OS client ID. This is a mutating tool."
+            "for a canonical Ecomlabs Tools client ID. This is a mutating tool."
         ),
         structured_output=True,
     )

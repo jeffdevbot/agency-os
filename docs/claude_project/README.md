@@ -11,13 +11,13 @@ docs.
 - [x] Claude remote connector can authenticate through Supabase OAuth
 - [x] Supabase JWT signing rotated to asymmetric ECC key
 - [x] Backend auth supports JWKS verification with legacy `HS256` fallback
-- [x] Jeff-only MCP allowlist is configured and working
+- [x] Require a real internal Ecomlabs Tools profile for MCP access
 - [ ] Add `OAUTH_STATE_SIGNING_SECRET` to Render to fully decouple OAuth state signing from `SUPABASE_JWT_SECRET`
 - [ ] Decide when to remove the legacy `HS256` fallback after enough time has passed for old tokens to expire
 
 ### Claude Connector
 
-- [x] Private `Agency OS` connector added in Claude Pro
+- [x] Private `Ecomlabs Tools` connector added in Claude
 - [x] Connector can connect successfully
 - [x] Tool permissions configured
 - [ ] Set read-only tools to `Always allow` if you want less friction:
@@ -27,9 +27,6 @@ docs.
   - `list_monthly_pnl_profiles`
   - `get_monthly_pnl_report`
   - `get_monthly_pnl_email_brief`
-  - `list_clickup_tasks`
-  - `get_clickup_task`
-  - `resolve_team_member`
   - `get_asin_sales_window`
   - `list_child_asins_for_row`
   - `get_sync_freshness_status`
@@ -37,20 +34,19 @@ docs.
   - `query_ads_facts`
   - `query_catalog_context`
   - `query_monthly_pnl_detail`
-- [ ] Keep `draft_wbr_email`, `draft_monthly_pnl_email`, and `create_clickup_task` on approval unless/until you want mutating actions to run without confirmation
+- [ ] Keep `draft_wbr_email` and `draft_monthly_pnl_email` on approval unless/until you want mutating actions to run without confirmation
+- [ ] Configure Claude's native ClickUp connector separately for team task workflows
 
 ### Claude Project
 
-- [x] Personal Claude Project created
+- [ ] Shared Claude Team project created
 - [x] `project_instructions.md` added to Project Instructions
 - [x] `wbr_mcp_playbook.md` uploaded to Project Files
 - [x] `monthly_pnl_mcp_playbook.md` uploaded to Project Files once you want Monthly P&L available in Claude
-- [ ] Upload `clickup_mcp_playbook.md` to Project Files once you want ClickUp available in Claude
 - [ ] Upload `analyst_query_mcp_playbook.md` to Project Files once you want analyst-query tools available in Claude
 - [ ] Re-paste the latest `project_instructions.md` if the local file changes
 - [ ] Re-upload the latest `wbr_mcp_playbook.md` if the local file changes
 - [ ] Re-upload the latest `monthly_pnl_mcp_playbook.md` if the local file changes
-- [ ] Re-upload the latest `clickup_mcp_playbook.md` if the local file changes
 - [ ] Re-upload the latest `analyst_query_mcp_playbook.md` if the local file changes
 
 ### WBR Pilot Tools
@@ -76,19 +72,14 @@ docs.
 
 - [x] Monthly P&L Claude surface is live
 - [x] Shared `resolve_client` returns team / brand / marketplace / report metadata
-- [x] WBR and Monthly P&L both work in the same Agency OS Claude Project
+- [x] WBR and Monthly P&L both work in the same Ecomlabs Tools Claude Project
 - [x] Monthly P&L YoY is live in the web app
 - [x] Claude can still reason about YoY using the existing P&L tools
 
 ### ClickUp Current State
 
-- [x] ClickUp Claude surface is live
-- [x] Shared `resolve_client` returns brand / ClickUp routing metadata
-- [x] Claude can review mapped backlog tasks through `list_clickup_tasks`
-- [x] Claude can inspect mapped task links through `get_clickup_task`
-- [x] Claude can preview, create, and edit mapped ClickUp tasks
-- [x] ClickUp MCP surface is now in real pilot testing with the same Claude
-  Project bundle as WBR and Monthly P&L
+- [ ] ClickUp task workflows moved to Claude's native ClickUp connector
+- [ ] Shared `resolve_client` still returns brand / ClickUp routing metadata when helpful
 
 ### Analyst Query Current State
 
@@ -101,7 +92,7 @@ docs.
 - [ ] tighten tool descriptions / output formatting based on pilot usage
 - [ ] reduce approval friction for read-only tools
 - [ ] add additional narrow Claude Project files only when a workflow is stable
-- [ ] decide when to move from Jeff-only Claude Pro usage to a broader Claude Team rollout
+- [ ] complete the Claude Team rollout
 
 ## Operational Notes
 
@@ -144,12 +135,11 @@ Upload only the files Claude needs for durable reference:
 
 1. `wbr_mcp_playbook.md`
 2. `monthly_pnl_mcp_playbook.md`
-3. `clickup_mcp_playbook.md`
-4. `analyst_query_mcp_playbook.md`
+3. `analyst_query_mcp_playbook.md`
 
 Optional later:
 
-1. additional narrow runbooks for other Agency OS workflows
+1. additional narrow runbooks for other Ecomlabs Tools workflows
 2. client/reporting conventions if they are short and stable
 
 ## What Not To Upload
@@ -168,24 +158,21 @@ too large and too broad for a day-to-day Claude Project.
 
 This bundle now supports a small shared reporting surface:
 
-1. Agency OS WBR MCP workflows
-2. Agency OS Monthly P&L MCP workflows
-3. Agency OS ClickUp MCP workflows
-4. Agency OS analyst-query MCP workflows
-5. live WBR tools plus live Monthly P&L analysis / brief / draft tools plus
-   live ClickUp review / preview / create tools plus live analyst-query tools
-6. the expected usage pattern for client resolution, profile resolution,
-   summary retrieval, task inspection, assignee resolution, brief generation,
-   direct analyst lookup, flexible drill-down, and draft / task creation where
+1. Ecomlabs Tools WBR MCP workflows
+2. Ecomlabs Tools Monthly P&L MCP workflows
+3. Ecomlabs Tools analyst-query MCP workflows
+4. live WBR tools plus live Monthly P&L analysis / brief / draft tools plus
+   live analyst-query tools
+5. the expected usage pattern for client resolution, profile resolution,
+   summary retrieval, brief generation, direct analyst lookup, flexible
+   drill-down, and draft creation where
    supported
 
 Current live testing status:
 
 1. WBR is live in Claude
 2. Monthly P&L is live in Claude
-3. ClickUp is now live in Claude and actively being tested on the Jeff-only
-   pilot surface
-4. Analyst-query tools are shipped in the repo and should be added to the
+3. Analyst-query tools are shipped in the repo and should be added to the
    Claude Project bundle once the deployed connector is refreshed
 
 Expand this folder only when a workflow is stable enough to deserve durable

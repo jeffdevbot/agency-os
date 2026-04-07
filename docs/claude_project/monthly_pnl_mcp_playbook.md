@@ -1,11 +1,11 @@
-# Agency OS Monthly P&L MCP Playbook
+# Ecomlabs Tools Monthly P&L MCP Playbook
 
 This file is the compact reference Claude should use for the live Monthly P&L
 tool surface.
 
 ## Goal
 
-Use Agency OS as the source of truth for Monthly P&L workflows inside Claude.
+Use Ecomlabs Tools as the source of truth for Monthly P&L workflows inside Claude.
 
 Current scope:
 
@@ -244,11 +244,11 @@ If the user explicitly wants the client-facing Monthly P&L email:
 3. call `draft_monthly_pnl_email`
 4. present the returned draft cleanly
 5. if the user wants revisions, revise in chat while staying faithful to the
-   Agency OS data and the returned draft
+   Ecomlabs Tools data and the returned draft
 
 ## Working Rules
 
-1. Prefer Agency OS data over memory or guesses for Monthly P&L questions.
+1. Prefer Ecomlabs Tools data over memory or guesses for Monthly P&L questions.
 2. Ask for the smallest possible clarification when ambiguity remains.
 3. Use canonical IDs after resolution is complete.
 4. If no client, no profile, or no reportable data is found, say so explicitly.

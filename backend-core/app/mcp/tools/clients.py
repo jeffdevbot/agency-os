@@ -276,9 +276,9 @@ def register_client_tools(mcp: Any) -> None:
     @mcp.tool(
         name="resolve_client",
         description=(
-            "Resolve a free-text client query to canonical Agency OS clients "
+            "Resolve a free-text client query to canonical Ecomlabs Tools clients "
             "from Command Center data. Returns candidate matches with shared "
-            "Agency OS metadata including WBR coverage, Monthly P&L coverage, "
+            "Ecomlabs Tools metadata including WBR coverage, Monthly P&L coverage, "
             "brand setup, ClickUp destination hints, team assignments, and "
             "client context fields. Does not silently choose a winner."
         ),

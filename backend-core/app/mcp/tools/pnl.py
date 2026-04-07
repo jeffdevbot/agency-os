@@ -229,7 +229,7 @@ def register_pnl_tools(mcp: Any) -> None:
     @mcp.tool(
         name="list_monthly_pnl_profiles",
         description=(
-            "List reportable Monthly P&L profiles for a canonical Agency OS "
+            "List reportable Monthly P&L profiles for a canonical Ecomlabs Tools "
             "client ID. Returns only profiles that currently have active "
             "month coverage."
         ),
@@ -250,7 +250,7 @@ def register_pnl_tools(mcp: Any) -> None:
         description=(
             "Return the Monthly P&L report for one concrete profile ID over a "
             "requested month window. This is a read-only tool that reuses the "
-            "current Agency OS report builder."
+            "current Ecomlabs Tools report builder."
         ),
         structured_output=True,
     )
@@ -275,7 +275,7 @@ def register_pnl_tools(mcp: Any) -> None:
         description=(
             "Build a structured, read-only Monthly P&L email brief for one "
             "client and one report month. Use this when preparing a future "
-            "client-facing P&L highlights draft from canonical Agency OS data."
+            "client-facing P&L highlights draft from canonical Ecomlabs Tools data."
         ),
         structured_output=True,
     )

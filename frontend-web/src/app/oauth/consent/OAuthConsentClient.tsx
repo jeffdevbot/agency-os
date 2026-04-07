@@ -195,7 +195,7 @@ export function OAuthConsentClient() {
         <section className="w-full overflow-hidden rounded-[28px] border border-slate-200/80 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.10)]">
           <div className="border-b border-slate-200 bg-slate-950 px-8 py-6 text-white">
             <p className="text-sm font-medium uppercase tracking-[0.24em] text-slate-300">
-              Agency OS
+              Ecomlabs Tools
             </p>
             <h1 className="mt-3 text-3xl font-semibold">
               OAuth access request
@@ -235,7 +235,7 @@ export function OAuthConsentClient() {
                     Sign in to continue
                   </h2>
                   <p className="text-sm leading-6 text-slate-600">
-                    Claude is requesting access through Agency OS. Sign in with your
+                    Claude is requesting access through Ecomlabs Tools. Sign in with your
                     Ecomlabs account first, then you&apos;ll return here to approve or
                     deny the request.
                   </p>
@@ -263,7 +263,7 @@ export function OAuthConsentClient() {
                         {details.client.client_name}
                       </h2>
                       <p className="text-sm text-slate-600">
-                        This client wants to connect to the private Agency OS MCP
+                        This client wants to connect to the private Ecomlabs Tools MCP
                         integration.
                       </p>
                     </div>
@@ -359,7 +359,7 @@ export function OAuthConsentClient() {
             <div className="border-t border-slate-200 pt-5 text-sm text-slate-500">
               Need to leave this flow? Return to the{" "}
               <Link href="/" className="font-medium text-[#0a6fd6] hover:text-[#085eb5]">
-                Agency OS dashboard
+                Ecomlabs Tools dashboard
               </Link>
               .
             </div>

@@ -115,8 +115,6 @@ def _make_token(*, user_id: str, email: str) -> str:
 
 def test_mcp_mount_requires_bearer_auth(monkeypatch):
     monkeypatch.setattr(settings, "supabase_jwt_secret", "test-secret")
-    monkeypatch.setattr(settings, "mcp_pilot_allowed_user_id", "user-123")
-    monkeypatch.setattr(settings, "mcp_pilot_allowed_email", "jeff@example.com")
     monkeypatch.setattr(settings, "mcp_public_base_url", "http://localhost:8000/mcp")
 
     with TestClient(app) as client:
@@ -127,11 +125,25 @@ def test_mcp_mount_requires_bearer_auth(monkeypatch):
     assert "resource_metadata=" in response.headers["www-authenticate"]
 
 
-def test_mcp_mount_accepts_allowlisted_user(monkeypatch):
+def test_mcp_mount_accepts_internal_user_with_profile(monkeypatch):
     monkeypatch.setattr(settings, "supabase_jwt_secret", "test-secret")
-    monkeypatch.setattr(settings, "mcp_pilot_allowed_user_id", "user-123")
-    monkeypatch.setattr(settings, "mcp_pilot_allowed_email", "jeff@example.com")
     monkeypatch.setattr(settings, "mcp_public_base_url", "http://localhost:8000/mcp")
+    monkeypatch.setattr(settings, "mcp_require_internal_profile", True)
+    monkeypatch.setattr(
+        "app.mcp.auth._get_supabase_admin_client",
+        lambda: _FakeDB(
+            clients=[],
+            profiles=[],
+            team_members=[
+                {
+                    "id": "profile-123",
+                    "auth_user_id": "user-123",
+                    "email": "jeff@example.com",
+                    "employment_status": "active",
+                }
+            ],
+        ),
+    )
 
     token = _make_token(user_id="user-123", email="jeff@example.com")
     with TestClient(app) as client:
@@ -145,11 +157,41 @@ def test_mcp_mount_accepts_allowlisted_user(monkeypatch):
     assert response.status_code < 500
 
 
-def test_mcp_mount_rejects_non_allowlisted_user(monkeypatch):
+def test_mcp_mount_rejects_user_without_internal_profile(monkeypatch):
     monkeypatch.setattr(settings, "supabase_jwt_secret", "test-secret")
-    monkeypatch.setattr(settings, "mcp_pilot_allowed_user_id", "user-123")
-    monkeypatch.setattr(settings, "mcp_pilot_allowed_email", "jeff@example.com")
     monkeypatch.setattr(settings, "mcp_public_base_url", "http://localhost:8000/mcp")
+    monkeypatch.setattr(settings, "mcp_require_internal_profile", True)
+    monkeypatch.setattr(
+        "app.mcp.auth._get_supabase_admin_client",
+        lambda: _FakeDB(clients=[], profiles=[], team_members=[]),
+    )
+
+    token = _make_token(user_id="other-user", email="other@example.com")
+    with TestClient(app) as client:
+        response = client.get("/mcp/", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 401
+    assert response.json()["error"] == "invalid_token"
+
+
+def test_mcp_mount_rejects_inactive_internal_user(monkeypatch):
+    monkeypatch.setattr(settings, "supabase_jwt_secret", "test-secret")
+    monkeypatch.setattr(settings, "mcp_public_base_url", "http://localhost:8000/mcp")
+    monkeypatch.setattr(settings, "mcp_require_internal_profile", True)
+    monkeypatch.setattr(
+        "app.mcp.auth._get_supabase_admin_client",
+        lambda: _FakeDB(
+            clients=[],
+            profiles=[],
+            team_members=[
+                {
+                    "id": "profile-456",
+                    "auth_user_id": "other-user",
+                    "email": "other@example.com",
+                    "employment_status": "inactive",
+                }
+            ],
+        ),
+    )
 
     token = _make_token(user_id="other-user", email="other@example.com")
     with TestClient(app) as client:
@@ -169,7 +211,7 @@ def test_mcp_protected_resource_metadata_route(monkeypatch):
         "resource": "http://localhost:8000/mcp",
         "authorization_servers": [settings.supabase_issuer],
         "bearer_methods_supported": ["header"],
-        "resource_name": "Agency OS MCP",
+        "resource_name": "Ecomlabs Tools MCP",
     }
 
 
@@ -1005,12 +1047,6 @@ def test_wbr_tools_are_registered(monkeypatch):
         "list_wbr_profiles",
         "list_monthly_pnl_profiles",
         "resolve_client",
-        "list_clickup_tasks",
-        "get_clickup_task",
-        "update_clickup_task",
-        "resolve_team_member",
-        "prepare_clickup_task",
-        "create_clickup_task",
         # analyst-query tools (Slice 1)
         "get_asin_sales_window",
         "list_child_asins_for_row",

@@ -1,11 +1,11 @@
-# Agency OS WBR MCP Playbook
+# Ecomlabs Tools WBR MCP Playbook
 
-This file is the compact reference Claude should use for the current Agency OS
+This file is the compact reference Claude should use for the current Ecomlabs Tools
 pilot.
 
 ## Goal
 
-Use Agency OS as the source of truth for WBR workflows inside Claude.
+Use Ecomlabs Tools as the source of truth for WBR workflows inside Claude.
 
 ## Live Tools
 
@@ -135,18 +135,18 @@ For weekly email drafting:
 2. call `draft_wbr_email`
 3. present the returned draft cleanly
 4. if the user wants revisions, revise in chat but stay faithful to the draft
-   and Agency OS data
+   and Ecomlabs Tools data
 5. do not surface the persisted `draft_id` unless the user explicitly asks for
    it
 
 ## Working Rules
 
-1. Prefer Agency OS data over memory or guesses.
+1. Prefer Ecomlabs Tools data over memory or guesses.
 2. Ask for the smallest possible clarification when ambiguity remains.
 3. Use canonical IDs after resolution is complete.
 4. If no client, no profile, or no data is found, say so explicitly.
 5. Treat uploaded external files as supplementary context, not a replacement
-   for Agency OS internal WBR data.
+   for Ecomlabs Tools internal WBR data.
 6. In normal user-facing answers, prefer client names and marketplace labels
    over internal IDs.
 

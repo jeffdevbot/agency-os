@@ -1,4 +1,4 @@
-"""Auth helpers for the Agency OS MCP pilot."""
+"""Auth helpers for the Ecomlabs Tools MCP connector."""
 
 from __future__ import annotations
 
@@ -8,29 +8,47 @@ from typing import Any
 from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.auth.provider import AccessToken, TokenVerifier
 
-from ..auth import verify_supabase_jwt
+from ..auth import _get_supabase_admin_client, verify_supabase_jwt
 from ..config import settings
 
 
 @dataclass(frozen=True)
-class PilotUser:
-    user_id: str
+class MCPUser:
+    profile_id: str
+    auth_user_id: str
     email: str | None
+    employment_status: str | None
+
+    @property
+    def user_id(self) -> str:
+        return self.profile_id
 
 
-class PilotAccessToken(AccessToken):
-    """Access token enriched with Agency OS user identity."""
+class MCPAccessToken(AccessToken):
+    """Access token enriched with Ecomlabs Tools user identity."""
 
-    user_id: str
+    profile_id: str
+    auth_user_id: str
     email: str | None = None
+    employment_status: str | None = None
 
 
-def get_current_pilot_user() -> PilotUser | None:
-    """Return the current authenticated MCP pilot user, if any."""
+def get_current_mcp_user() -> MCPUser | None:
+    """Return the current authenticated MCP user, if any."""
     token = get_access_token()
-    if not isinstance(token, PilotAccessToken):
+    if not isinstance(token, MCPAccessToken):
         return None
-    return PilotUser(user_id=token.user_id, email=token.email)
+    return MCPUser(
+        profile_id=token.profile_id,
+        auth_user_id=token.auth_user_id,
+        email=token.email,
+        employment_status=token.employment_status,
+    )
+
+
+def get_current_pilot_user() -> MCPUser | None:
+    """Backward-compatible alias for existing MCP tool modules."""
+    return get_current_mcp_user()
 
 
 def _parse_scopes(payload: dict[str, Any]) -> list[str]:
@@ -42,50 +60,79 @@ def _parse_scopes(payload: dict[str, Any]) -> list[str]:
     return []
 
 
-def _is_allowlisted(payload: dict[str, Any]) -> tuple[str, str | None] | None:
-    user_id = str(payload.get("sub") or "").strip()
-    email = str(payload.get("email") or "").strip() or None
-
-    allowed_user_id = (settings.mcp_pilot_allowed_user_id or "").strip()
-    allowed_email = (settings.mcp_pilot_allowed_email or "").strip().lower()
-
-    if not allowed_user_id and not allowed_email:
-        return None
-    if allowed_user_id and user_id != allowed_user_id:
-        return None
-    if allowed_email and (email or "").lower() != allowed_email:
-        return None
-    if not user_id:
+def _resolve_internal_profile(auth_user_id: str) -> tuple[str, str | None, str | None] | None:
+    normalized_user_id = str(auth_user_id or "").strip()
+    if not normalized_user_id:
         return None
 
-    return user_id, email
+    db = _get_supabase_admin_client()
+    profile_columns = "id, auth_user_id, email, employment_status"
+    queries = (
+        db.table("profiles").select(profile_columns).eq("auth_user_id", normalized_user_id).limit(1),
+        db.table("profiles").select(profile_columns).eq("id", normalized_user_id).limit(1),
+    )
+
+    for query in queries:
+        response = query.execute()
+        rows = response.data if isinstance(response.data, list) else []
+        if not rows or not isinstance(rows[0], dict):
+            continue
+
+        row = rows[0]
+        profile_id = str(row.get("id") or "").strip()
+        if not profile_id:
+            continue
+
+        employment_status = str(row.get("employment_status") or "").strip().lower() or "active"
+        if employment_status == "inactive":
+            return None
+
+        email = str(row.get("email") or "").strip() or None
+        return profile_id, email, employment_status
+
+    return None
 
 
-class SupabasePilotTokenVerifier(TokenVerifier):
-    """Validate Supabase JWTs for the Jeff-only MCP pilot."""
+class SupabaseInternalUserTokenVerifier(TokenVerifier):
+    """Validate Supabase JWTs for internal Ecomlabs Tools users."""
 
-    async def verify_token(self, token: str) -> PilotAccessToken | None:
+    async def verify_token(self, token: str) -> MCPAccessToken | None:
         try:
             payload = verify_supabase_jwt(token)
         except Exception:  # noqa: BLE001
             return None
 
-        allowlisted = _is_allowlisted(payload)
-        if not allowlisted:
+        auth_user_id = str(payload.get("sub") or "").strip()
+        if not auth_user_id:
             return None
 
-        user_id, email = allowlisted
+        profile_id = auth_user_id
+        email = str(payload.get("email") or "").strip() or None
+        employment_status: str | None = None
+
+        if settings.mcp_require_internal_profile:
+            try:
+                resolved_profile = _resolve_internal_profile(auth_user_id)
+            except Exception:  # noqa: BLE001
+                return None
+            if not resolved_profile:
+                return None
+            profile_id, profile_email, employment_status = resolved_profile
+            email = profile_email or email
+
         expires_at = payload.get("exp")
         try:
             expires = int(expires_at) if expires_at is not None else None
         except (TypeError, ValueError):
             expires = None
 
-        return PilotAccessToken(
+        return MCPAccessToken(
             token=token,
-            client_id=user_id,
-            user_id=user_id,
+            client_id=profile_id,
+            profile_id=profile_id,
+            auth_user_id=auth_user_id,
             email=email,
+            employment_status=employment_status,
             scopes=_parse_scopes(payload),
             expires_at=expires,
             resource=settings.mcp_public_base_url,

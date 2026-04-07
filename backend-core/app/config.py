@@ -7,7 +7,7 @@ from typing import List
 class Settings:
   """Centralized configuration pulled from environment variables."""
 
-  app_name: str = "Agency OS Backend"
+  app_name: str = "Ecomlabs Tools Backend"
   app_version: str = os.getenv("APP_VERSION", "0.0.1")
 
   supabase_jwt_secret: str
@@ -21,11 +21,11 @@ class Settings:
 
   allowed_origins: List[str]
   usage_logging_enabled: bool
-  mcp_pilot_allowed_user_id: str | None
-  mcp_pilot_allowed_email: str | None
   mcp_public_base_url: str
   mcp_allowed_hosts: List[str]
   mcp_allowed_origins: List[str]
+  mcp_require_internal_profile: bool
+  mcp_enable_clickup_tools: bool
 
   def __init__(self) -> None:
     self.supabase_jwt_secret = os.getenv("SUPABASE_JWT_SECRET", "")
@@ -66,9 +66,9 @@ class Settings:
     self.allowed_origins = dedup
 
     self.usage_logging_enabled = os.getenv("ENABLE_USAGE_LOGGING", "0") == "1"
-    self.mcp_pilot_allowed_user_id = os.getenv("MCP_PILOT_ALLOWED_USER_ID") or None
-    self.mcp_pilot_allowed_email = os.getenv("MCP_PILOT_ALLOWED_EMAIL") or None
     self.mcp_public_base_url = os.getenv("MCP_PUBLIC_BASE_URL", "http://localhost:8000/mcp").rstrip("/")
+    self.mcp_require_internal_profile = _env_flag("MCP_REQUIRE_INTERNAL_PROFILE", True)
+    self.mcp_enable_clickup_tools = _env_flag("MCP_ENABLE_CLICKUP_TOOLS", False)
 
     parsed_mcp_url = urlparse(self.mcp_public_base_url)
     host = parsed_mcp_url.netloc
@@ -105,6 +105,18 @@ def _dedupe_csv_values(defaults: List[str], raw_csv: str | None) -> List[str]:
     if value and value not in dedup:
       dedup.append(value)
   return dedup
+
+
+def _env_flag(name: str, default: bool) -> bool:
+  raw = os.getenv(name)
+  if raw is None:
+    return default
+  normalized = raw.strip().lower()
+  if normalized in {"1", "true", "yes", "on"}:
+    return True
+  if normalized in {"0", "false", "no", "off"}:
+    return False
+  return default
 
 
 @lru_cache(maxsize=1)
