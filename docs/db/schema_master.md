@@ -2,7 +2,7 @@
 
 ## Snapshot
 
-- Last verified (UTC): `2026-04-07 03:27:52Z`
+- Last verified (UTC): `2026-04-07 14:09:26Z`
 - Source: live Supabase introspection via MCP (`supabase.execute_sql` against `information_schema` + `pg_catalog`)
 - Schema: `public`
 - Relations: `83` total (`82` tables, `1` view, `0` materialized views)
@@ -11,7 +11,7 @@
 - Foreign key entries: `148`
 - Indexes: `329`
 - RLS policies: `146`
-- Functions: `138`
+- Functions: `139`
 
 ## Scope Note
 

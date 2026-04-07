@@ -1461,6 +1461,57 @@ def test_query_search_term_facts_raises_unknown_profile():
     assert exc_info.value.error_type == "not_found"
 
 
+def test_query_search_term_facts_prefers_rpc_when_available():
+    """When the DB exposes rpc(), the service uses the ranked RPC response."""
+    db = _base_db()
+
+    class _RpcQuery:
+        def execute(self) -> Any:
+            class _Resp:
+                data = [
+                    {
+                        "group_value": "screen cleaner",
+                        "keyword_type_label": "BROAD",
+                        "spend": "22.00",
+                        "sales": "110.00",
+                        "impressions": 220,
+                        "clicks": 22,
+                        "orders": 4,
+                        "acos": "0.2000",
+                        "roas": "5.0000",
+                        "ctr": "0.1000",
+                        "cvr": "0.1818",
+                        "cpc": "1.0000",
+                        "total_group_count": 3,
+                        "total_spend": "35.00",
+                        "total_sales": "159.00",
+                        "total_impressions": 350,
+                        "total_clicks": 35,
+                        "total_orders": 6,
+                    }
+                ]
+
+            return _Resp()
+
+    db.rpc = lambda name, params: _RpcQuery()  # type: ignore[attr-defined]
+
+    result = query_search_term_facts(
+        db,
+        _PROFILE_ID,
+        "2026-03-10",
+        "2026-03-11",
+        "keyword",
+        sort_by="spend",
+        limit=1,
+    )
+
+    assert result["row_count"] == 1
+    assert result["truncated"] is True
+    assert result["rows"][0]["keyword"] == "screen cleaner"
+    assert result["rows"][0]["roas"] == "5.0000"
+    assert result["totals"]["spend"] == "35.00"
+
+
 # ===========================================================================
 # Service-layer tests — query_catalog_context
 # ===========================================================================

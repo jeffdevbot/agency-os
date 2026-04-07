@@ -1241,7 +1241,7 @@ def query_ads_facts(
 # ---------------------------------------------------------------------------
 
 
-def query_search_term_facts(
+def _query_search_term_facts_python(
     db: Any,
     profile_id: str,
     date_from: str,
@@ -1260,7 +1260,7 @@ def query_search_term_facts(
     sort_by: str = "spend",
     limit: int = MAX_RESULT_ROWS,
 ) -> dict[str, Any]:
-    """Flexible STR drill-down grouped by day, search term, keyword, campaign, or keyword type."""
+    """Python fallback for STR drill-down grouped by day, search term, keyword, campaign, or keyword type."""
     _get_profile(db, profile_id)
     from_date, to_date = _validate_date_window(date_from, date_to)
 
@@ -1431,6 +1431,233 @@ def query_search_term_facts(
         "totals": {
             **_fmt_metrics(totals_acc, effective_metrics),
             **_search_term_rank_metrics(totals_acc),
+        },
+        "row_count": len(output_rows),
+        "truncated": truncated,
+        "freshness": {
+            "latest_available_date": search_term_latest_date_str,
+            "note": freshness_note,
+        },
+        "warnings": warnings,
+    }
+
+
+def query_search_term_facts(
+    db: Any,
+    profile_id: str,
+    date_from: str,
+    date_to: str,
+    group_by: str,
+    *,
+    ad_product: str | None = None,
+    campaign_type: str | None = None,
+    keyword_type: str | None = None,
+    match_type: str | None = None,
+    campaign_name_contains: str | None = None,
+    search_term_contains: str | None = None,
+    keyword_contains: str | None = None,
+    row_id: str | None = None,
+    metrics: list[str] | None = None,
+    sort_by: str = "spend",
+    limit: int = MAX_RESULT_ROWS,
+) -> dict[str, Any]:
+    """Flexible STR drill-down grouped by day, search term, keyword, campaign, or keyword type."""
+    _get_profile(db, profile_id)
+    from_date, to_date = _validate_date_window(date_from, date_to)
+
+    group_by = str(group_by or "").strip().lower()
+    if group_by not in _ALLOWED_SEARCH_TERM_GROUP_BY:
+        raise AnalystQueryError(
+            "validation_error",
+            f"group_by must be one of {sorted(_ALLOWED_SEARCH_TERM_GROUP_BY)}. Got '{group_by}'.",
+        )
+
+    effective_metrics = list(_DEFAULT_SEARCH_TERM_METRICS)
+    if metrics is not None:
+        bad = [m for m in metrics if m not in _ALLOWED_SEARCH_TERM_METRICS]
+        if bad:
+            raise AnalystQueryError(
+                "validation_error",
+                f"Unknown metric(s): {bad}. Allowed: {sorted(_ALLOWED_SEARCH_TERM_METRICS)}.",
+            )
+        effective_metrics = [m for m in metrics if m] or list(_DEFAULT_SEARCH_TERM_METRICS)
+
+    sort_by = str(sort_by or "spend").strip().lower()
+    if sort_by not in _ALLOWED_SEARCH_TERM_SORT_BY:
+        raise AnalystQueryError(
+            "validation_error",
+            f"sort_by must be one of {sorted(_ALLOWED_SEARCH_TERM_SORT_BY)}. Got '{sort_by}'.",
+        )
+
+    limit = min(max(1, int(limit)), MAX_RESULT_ROWS)
+
+    scoped_campaigns: set[str] = (
+        _campaign_set_for_row(db, profile_id, row_id) if row_id else set()
+    )
+    if row_id and not scoped_campaigns:
+        return _empty_search_term_facts_result(
+            profile_id, date_from, date_to, group_by, effective_metrics, sort_by
+        )
+
+    if not hasattr(db, "rpc"):
+        return _query_search_term_facts_python(
+            db,
+            profile_id,
+            date_from,
+            date_to,
+            group_by,
+            ad_product=ad_product,
+            campaign_type=campaign_type,
+            keyword_type=keyword_type,
+            match_type=match_type,
+            campaign_name_contains=campaign_name_contains,
+            search_term_contains=search_term_contains,
+            keyword_contains=keyword_contains,
+            row_id=row_id,
+            metrics=effective_metrics,
+            sort_by=sort_by,
+            limit=limit,
+        )
+
+    rpc_payload = {
+        "p_profile_id": profile_id,
+        "p_date_from": from_date.isoformat(),
+        "p_date_to": to_date.isoformat(),
+        "p_group_by": group_by,
+        "p_ad_product": str(ad_product or "").strip() or None,
+        "p_campaign_type": str(campaign_type or "").strip() or None,
+        "p_keyword_type": str(keyword_type or "").strip() or None,
+        "p_match_type": str(match_type or "").strip() or None,
+        "p_campaign_name_contains": str(campaign_name_contains or "").strip() or None,
+        "p_search_term_contains": str(search_term_contains or "").strip() or None,
+        "p_keyword_contains": str(keyword_contains or "").strip() or None,
+        "p_campaign_names": sorted(scoped_campaigns) if scoped_campaigns else None,
+        "p_sort_by": sort_by,
+        "p_limit": limit,
+    }
+
+    try:
+        response = db.rpc("query_search_term_facts_ranked", rpc_payload).execute()
+        rpc_rows = response.data if isinstance(response.data, list) else []
+    except Exception:
+        return _query_search_term_facts_python(
+            db,
+            profile_id,
+            date_from,
+            date_to,
+            group_by,
+            ad_product=ad_product,
+            campaign_type=campaign_type,
+            keyword_type=keyword_type,
+            match_type=match_type,
+            campaign_name_contains=campaign_name_contains,
+            search_term_contains=search_term_contains,
+            keyword_contains=keyword_contains,
+            row_id=row_id,
+            metrics=effective_metrics,
+            sort_by=sort_by,
+            limit=limit,
+        )
+
+    output_rows: list[dict[str, Any]] = []
+    for row in rpc_rows:
+        if not isinstance(row, dict):
+            continue
+
+        grouped_row: dict[str, Any] = {}
+        group_value = str(row.get("group_value") or "").strip()
+        if group_by == "day":
+            grouped_row["date"] = group_value
+        elif group_by == "campaign":
+            grouped_row["campaign_name"] = group_value
+        elif group_by == "keyword":
+            grouped_row["keyword"] = group_value
+            grouped_row["keyword_type"] = str(row.get("keyword_type_label") or "").strip() or None
+        elif group_by == "keyword_type":
+            grouped_row["keyword_type"] = group_value
+        else:
+            grouped_row["search_term"] = group_value
+
+        for metric in effective_metrics:
+            if metric in _DECIMAL_METRICS:
+                grouped_row[metric] = _quantize_decimal(Decimal(str(row.get(metric) or "0")), "0.01")
+            else:
+                grouped_row[metric] = int(row.get(metric) or 0)
+
+        grouped_row.update(
+            {
+                "acos": _fmt_ratio(
+                    Decimal(str(row["acos"])) if row.get("acos") is not None else None
+                ),
+                "roas": _fmt_ratio(
+                    Decimal(str(row["roas"])) if row.get("roas") is not None else None
+                ),
+                "ctr": _fmt_ratio(
+                    Decimal(str(row["ctr"])) if row.get("ctr") is not None else None
+                ),
+                "cvr": _fmt_ratio(
+                    Decimal(str(row["cvr"])) if row.get("cvr") is not None else None
+                ),
+                "cpc": _fmt_ratio(
+                    Decimal(str(row["cpc"])) if row.get("cpc") is not None else None
+                ),
+            }
+        )
+        output_rows.append(grouped_row)
+
+    first_row = rpc_rows[0] if rpc_rows and isinstance(rpc_rows[0], dict) else {}
+    total_group_count = int(first_row.get("total_group_count") or 0) if first_row else 0
+    truncated = total_group_count > len(output_rows)
+
+    search_term_latest_date_str = _latest_available_date(db, "search_term_daily_facts", profile_id)
+    search_term_latest_date = (
+        date.fromisoformat(search_term_latest_date_str) if search_term_latest_date_str else None
+    )
+    freshness_note = (
+        f"Requested end date {date_to} has no landed search-term data yet. "
+        f"Latest available: {search_term_latest_date_str}."
+        if search_term_latest_date and to_date > search_term_latest_date
+        else None
+    )
+
+    warnings: list[str] = []
+    if truncated:
+        warnings.append(
+            f"Result truncated to {limit} rows. Add filters or narrow the date range to inspect more groups."
+        )
+
+    return {
+        "profile_id": profile_id,
+        "date_from": date_from,
+        "date_to": date_to,
+        "group_by": group_by,
+        "metrics": effective_metrics,
+        "sort_by": sort_by,
+        "rows": output_rows,
+        "totals": {
+            **{
+                metric: (
+                    _quantize_decimal(Decimal(str(first_row.get(f"total_{metric}") or "0")), "0.01")
+                    if metric in _DECIMAL_METRICS
+                    else int(first_row.get(f"total_{metric}") or 0)
+                )
+                for metric in effective_metrics
+            },
+            "acos": _fmt_ratio(
+                _safe_ratio(first_row.get("total_spend"), first_row.get("total_sales"))
+            ),
+            "roas": _fmt_ratio(
+                _safe_ratio(first_row.get("total_sales"), first_row.get("total_spend"))
+            ),
+            "ctr": _fmt_ratio(
+                _safe_ratio(first_row.get("total_clicks"), first_row.get("total_impressions"))
+            ),
+            "cvr": _fmt_ratio(
+                _safe_ratio(first_row.get("total_orders"), first_row.get("total_clicks"))
+            ),
+            "cpc": _fmt_ratio(
+                _safe_ratio(first_row.get("total_spend"), first_row.get("total_clicks"))
+            ),
         },
         "row_count": len(output_rows),
         "truncated": truncated,
