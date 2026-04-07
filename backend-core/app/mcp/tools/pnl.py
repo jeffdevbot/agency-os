@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from ...auth import _get_supabase_admin_client
@@ -13,22 +12,7 @@ from ...services.pnl.profiles import PNLNotFoundError, PNLProfileService, PNLVal
 from ...services.pnl.report import PNLReportService
 from .clients import resolve_client_name
 from ..auth import get_current_pilot_user
-
-_logger = logging.getLogger(__name__)
-
-
-def _log_tool_outcome(tool_name: str, outcome: str, **extra: Any) -> None:
-    user = get_current_pilot_user()
-    suffix = " ".join(f"{key}={value}" for key, value in extra.items())
-    if suffix:
-        suffix = f" {suffix}"
-    _logger.info(
-        "MCP tool invocation | tool=%s user_id=%s outcome=%s%s",
-        tool_name,
-        user.user_id if user else None,
-        outcome,
-        suffix,
-    )
+from ..event_logging import start_mcp_tool_invocation
 
 
 def list_monthly_pnl_profiles_for_client(client_id: str) -> dict[str, list[dict[str, Any]]]:
@@ -236,13 +220,13 @@ def register_pnl_tools(mcp: Any) -> None:
         structured_output=True,
     )
     def list_monthly_pnl_profiles(client_id: str) -> dict[str, list[dict[str, Any]]]:
-        _log_tool_outcome("list_monthly_pnl_profiles", "started")
-        result = list_monthly_pnl_profiles_for_client(client_id)
-        _log_tool_outcome(
-            "list_monthly_pnl_profiles",
-            "success",
-            profiles=len(result.get("profiles", [])),
-        )
+        invocation = start_mcp_tool_invocation("list_monthly_pnl_profiles", is_mutation=False)
+        try:
+            result = list_monthly_pnl_profiles_for_client(client_id)
+        except Exception as exc:  # noqa: BLE001
+            invocation.error(error_type=type(exc).__name__, client_id=client_id)
+            raise
+        invocation.success(client_id=client_id, profile_count=len(result.get("profiles", [])))
         return result
 
     @mcp.tool(
@@ -260,14 +244,28 @@ def register_pnl_tools(mcp: Any) -> None:
         start_month: str | None = None,
         end_month: str | None = None,
     ) -> dict[str, Any]:
-        _log_tool_outcome("get_monthly_pnl_report", "started")
-        result = await get_monthly_pnl_report_for_profile(
-            profile_id,
+        invocation = start_mcp_tool_invocation("get_monthly_pnl_report", is_mutation=False)
+        try:
+            result = await get_monthly_pnl_report_for_profile(
+                profile_id,
+                filter_mode=filter_mode,
+                start_month=start_month,
+                end_month=end_month,
+            )
+        except Exception as exc:  # noqa: BLE001
+            invocation.error(
+                error_type=type(exc).__name__,
+                profile_id=profile_id,
+                filter_mode=filter_mode,
+                start_month=start_month,
+                end_month=end_month,
+            )
+            raise
+        invocation.success(
+            profile_id=profile_id,
             filter_mode=filter_mode,
-            start_month=start_month,
-            end_month=end_month,
+            month_count=len(result.get("months", [])),
         )
-        _log_tool_outcome("get_monthly_pnl_report", "success", profile_id=profile_id)
         return result
 
     @mcp.tool(
@@ -285,18 +283,29 @@ def register_pnl_tools(mcp: Any) -> None:
         marketplace_codes: list[str] | None = None,
         comparison_mode: str = "auto",
     ) -> dict[str, Any]:
-        _log_tool_outcome("get_monthly_pnl_email_brief", "started")
-        result = await get_monthly_pnl_email_brief_for_client(
-            client_id,
-            report_month=report_month,
-            marketplace_codes=marketplace_codes,
-            comparison_mode=comparison_mode,
-        )
-        _log_tool_outcome(
-            "get_monthly_pnl_email_brief",
-            "success",
+        invocation = start_mcp_tool_invocation("get_monthly_pnl_email_brief", is_mutation=False)
+        try:
+            result = await get_monthly_pnl_email_brief_for_client(
+                client_id,
+                report_month=report_month,
+                marketplace_codes=marketplace_codes,
+                comparison_mode=comparison_mode,
+            )
+        except Exception as exc:  # noqa: BLE001
+            invocation.error(
+                error_type=type(exc).__name__,
+                client_id=client_id,
+                report_month=report_month,
+                marketplace_code_count=len(marketplace_codes or []),
+                comparison_mode=comparison_mode,
+            )
+            raise
+        invocation.success(
             client_id=client_id,
-            sections=len(result.get("sections", [])),
+            report_month=report_month,
+            section_count=len(result.get("sections", [])),
+            marketplace_code_count=len(marketplace_codes or []),
+            comparison_mode=comparison_mode,
         )
         return result
 
@@ -319,20 +328,32 @@ def register_pnl_tools(mcp: Any) -> None:
         sender_role: str | None = None,
         agency_name: str | None = None,
     ) -> dict[str, Any]:
-        _log_tool_outcome("draft_monthly_pnl_email", "started")
-        result = await draft_monthly_pnl_email_for_client(
-            client_id,
+        invocation = start_mcp_tool_invocation("draft_monthly_pnl_email", is_mutation=True)
+        try:
+            result = await draft_monthly_pnl_email_for_client(
+                client_id,
+                report_month=report_month,
+                marketplace_codes=marketplace_codes,
+                comparison_mode=comparison_mode,
+                recipient_name=recipient_name,
+                sender_name=sender_name,
+                sender_role=sender_role,
+                agency_name=agency_name,
+            )
+        except Exception as exc:  # noqa: BLE001
+            invocation.error(
+                error_type=type(exc).__name__,
+                client_id=client_id,
+                report_month=report_month,
+                marketplace_code_count=len(marketplace_codes or []),
+                comparison_mode=comparison_mode,
+            )
+            raise
+        invocation.success(
+            client_id=client_id,
             report_month=report_month,
-            marketplace_codes=marketplace_codes,
-            comparison_mode=comparison_mode,
-            recipient_name=recipient_name,
-            sender_name=sender_name,
-            sender_role=sender_role,
-            agency_name=agency_name,
-        )
-        _log_tool_outcome(
-            "draft_monthly_pnl_email",
-            "success",
             draft_id=result.get("draft_id"),
+            marketplace_code_count=len(marketplace_codes or []),
+            comparison_mode=result.get("comparison_mode_used") or comparison_mode,
         )
         return result

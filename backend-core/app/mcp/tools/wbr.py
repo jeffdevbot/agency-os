@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-import logging
 from typing import Any
 
 from ...services.wbr.email_drafts import generate_email_draft
@@ -13,22 +12,7 @@ from ...services.wbr.report_snapshots import WBRSnapshotService
 from .clients import resolve_client_name
 from ...auth import _get_supabase_admin_client
 from ..auth import get_current_pilot_user
-
-_logger = logging.getLogger(__name__)
-
-
-def _log_tool_outcome(tool_name: str, outcome: str, **extra: Any) -> None:
-    user = get_current_pilot_user()
-    suffix = " ".join(f"{key}={value}" for key, value in extra.items())
-    if suffix:
-        suffix = f" {suffix}"
-    _logger.info(
-        "MCP tool invocation | tool=%s user_id=%s outcome=%s%s",
-        tool_name,
-        user.user_id if user else None,
-        outcome,
-        suffix,
-    )
+from ..event_logging import start_mcp_tool_invocation
 
 
 def _list_active_profiles(db: Any, client_id: str | None = None) -> list[dict[str, Any]]:
@@ -157,9 +141,13 @@ def register_wbr_tools(mcp: Any) -> None:
         structured_output=True,
     )
     def list_wbr_profiles(client_id: str) -> dict[str, list[dict[str, Any]]]:
-        _log_tool_outcome("list_wbr_profiles", "started")
-        result = list_wbr_profiles_for_client(client_id)
-        _log_tool_outcome("list_wbr_profiles", "success", profiles=len(result.get("profiles", [])))
+        invocation = start_mcp_tool_invocation("list_wbr_profiles", is_mutation=False)
+        try:
+            result = list_wbr_profiles_for_client(client_id)
+        except Exception as exc:  # noqa: BLE001
+            invocation.error(error_type=type(exc).__name__, client_id=client_id)
+            raise
+        invocation.success(client_id=client_id, profile_count=len(result.get("profiles", [])))
         return result
 
     @mcp.tool(
@@ -172,9 +160,13 @@ def register_wbr_tools(mcp: Any) -> None:
         structured_output=True,
     )
     def get_wbr_summary(profile_id: str) -> dict[str, Any]:
-        _log_tool_outcome("get_wbr_summary", "started")
-        result = get_wbr_summary_for_profile(profile_id)
-        _log_tool_outcome("get_wbr_summary", "success", profile_id=profile_id)
+        invocation = start_mcp_tool_invocation("get_wbr_summary", is_mutation=False)
+        try:
+            result = get_wbr_summary_for_profile(profile_id)
+        except Exception as exc:  # noqa: BLE001
+            invocation.error(error_type=type(exc).__name__, profile_id=profile_id)
+            raise
+        invocation.success(profile_id=profile_id)
         return result
 
     @mcp.tool(
@@ -186,7 +178,11 @@ def register_wbr_tools(mcp: Any) -> None:
         structured_output=True,
     )
     async def draft_wbr_email(client_id: str) -> dict[str, Any]:
-        _log_tool_outcome("draft_wbr_email", "started")
-        result = await draft_wbr_email_for_client(client_id)
-        _log_tool_outcome("draft_wbr_email", "success", draft_id=result.get("draft_id"))
+        invocation = start_mcp_tool_invocation("draft_wbr_email", is_mutation=True)
+        try:
+            result = await draft_wbr_email_for_client(client_id)
+        except Exception as exc:  # noqa: BLE001
+            invocation.error(error_type=type(exc).__name__, client_id=client_id)
+            raise
+        invocation.success(client_id=client_id, draft_id=result.get("draft_id"))
         return result

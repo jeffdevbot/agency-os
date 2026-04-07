@@ -7,7 +7,6 @@ reason rather than seeing a server error.
 
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from ...auth import _get_supabase_admin_client
@@ -22,22 +21,7 @@ from ...services.analyst_query_tools import (
     query_monthly_pnl_detail as _query_monthly_pnl_detail,
 )
 from ..auth import get_current_pilot_user
-
-_logger = logging.getLogger(__name__)
-
-
-def _log_tool_outcome(tool_name: str, outcome: str, **extra: Any) -> None:
-    user = get_current_pilot_user()
-    suffix = " ".join(f"{key}={value}" for key, value in extra.items())
-    if suffix:
-        suffix = f" {suffix}"
-    _logger.info(
-        "MCP tool invocation | tool=%s user_id=%s outcome=%s%s",
-        tool_name,
-        user.user_id if user else None,
-        outcome,
-        suffix,
-    )
+from ..event_logging import start_mcp_tool_invocation
 
 
 def register_analyst_tools(mcp: Any) -> None:
@@ -58,7 +42,7 @@ def register_analyst_tools(mcp: Any) -> None:
         date_to: str,
         include_latest_available: bool = True,
     ) -> dict[str, Any]:
-        _log_tool_outcome("get_asin_sales_window", "started", profile_id=profile_id)
+        invocation = start_mcp_tool_invocation("get_asin_sales_window", is_mutation=False)
         db = _get_supabase_admin_client()
         try:
             result = _get_asin_sales_window(
@@ -70,13 +54,15 @@ def register_analyst_tools(mcp: Any) -> None:
                 include_latest_available=include_latest_available,
             )
         except AnalystQueryError as exc:
-            _log_tool_outcome("get_asin_sales_window", "error", error=str(exc))
+            invocation.error(
+                error_type=exc.error_type,
+                profile_id=profile_id,
+                asin_count=len(child_asins),
+            )
             return {"error": exc.error_type, "message": exc.message}
-        _log_tool_outcome(
-            "get_asin_sales_window",
-            "success",
+        invocation.success(
             profile_id=profile_id,
-            asins=len(result.get("asins", [])),
+            asin_count=len(result.get("asins", [])),
         )
         return result
 
@@ -93,21 +79,14 @@ def register_analyst_tools(mcp: Any) -> None:
         profile_id: str,
         row_id: str,
     ) -> dict[str, Any]:
-        _log_tool_outcome(
-            "list_child_asins_for_row", "started", profile_id=profile_id, row_id=row_id
-        )
+        invocation = start_mcp_tool_invocation("list_child_asins_for_row", is_mutation=False)
         db = _get_supabase_admin_client()
         try:
             result = _list_child_asins_for_row(db, profile_id, row_id)
         except AnalystQueryError as exc:
-            _log_tool_outcome("list_child_asins_for_row", "error", error=str(exc))
+            invocation.error(error_type=exc.error_type, profile_id=profile_id, row_id=row_id)
             return {"error": exc.error_type, "message": exc.message}
-        _log_tool_outcome(
-            "list_child_asins_for_row",
-            "success",
-            profile_id=profile_id,
-            total=result.get("total", 0),
-        )
+        invocation.success(profile_id=profile_id, row_id=row_id, result_count=result.get("total", 0))
         return result
 
     @mcp.tool(
@@ -121,14 +100,14 @@ def register_analyst_tools(mcp: Any) -> None:
         structured_output=True,
     )
     def get_sync_freshness_status(profile_id: str) -> dict[str, Any]:
-        _log_tool_outcome("get_sync_freshness_status", "started", profile_id=profile_id)
+        invocation = start_mcp_tool_invocation("get_sync_freshness_status", is_mutation=False)
         db = _get_supabase_admin_client()
         try:
             result = _get_sync_freshness_status(db, profile_id)
         except AnalystQueryError as exc:
-            _log_tool_outcome("get_sync_freshness_status", "error", error=str(exc))
+            invocation.error(error_type=exc.error_type, profile_id=profile_id)
             return {"error": exc.error_type, "message": exc.message}
-        _log_tool_outcome("get_sync_freshness_status", "success", profile_id=profile_id)
+        invocation.success(profile_id=profile_id)
         return result
 
     @mcp.tool(
@@ -153,7 +132,7 @@ def register_analyst_tools(mcp: Any) -> None:
         metrics: list[str] | None = None,
         limit: int = 200,
     ) -> dict[str, Any]:
-        _log_tool_outcome("query_business_facts", "started", profile_id=profile_id)
+        invocation = start_mcp_tool_invocation("query_business_facts", is_mutation=False)
         db = _get_supabase_admin_client()
         try:
             result = _query_business_facts(
@@ -168,13 +147,22 @@ def register_analyst_tools(mcp: Any) -> None:
                 limit=limit,
             )
         except AnalystQueryError as exc:
-            _log_tool_outcome("query_business_facts", "error", error=str(exc))
+            invocation.error(
+                error_type=exc.error_type,
+                profile_id=profile_id,
+                group_by=group_by,
+                row_id=row_id,
+                child_asin_count=len(child_asins or []),
+                limit=limit,
+            )
             return {"error": exc.error_type, "message": exc.message}
-        _log_tool_outcome(
-            "query_business_facts",
-            "success",
+        invocation.success(
             profile_id=profile_id,
+            group_by=group_by,
             row_count=result.get("row_count", 0),
+            row_id=row_id,
+            child_asin_count=len(child_asins or []),
+            limit=limit,
         )
         return result
 
@@ -201,7 +189,7 @@ def register_analyst_tools(mcp: Any) -> None:
         metrics: list[str] | None = None,
         limit: int = 200,
     ) -> dict[str, Any]:
-        _log_tool_outcome("query_ads_facts", "started", profile_id=profile_id)
+        invocation = start_mcp_tool_invocation("query_ads_facts", is_mutation=False)
         db = _get_supabase_admin_client()
         try:
             result = _query_ads_facts(
@@ -216,13 +204,22 @@ def register_analyst_tools(mcp: Any) -> None:
                 limit=limit,
             )
         except AnalystQueryError as exc:
-            _log_tool_outcome("query_ads_facts", "error", error=str(exc))
+            invocation.error(
+                error_type=exc.error_type,
+                profile_id=profile_id,
+                group_by=group_by,
+                row_id=row_id,
+                campaign_count=len(campaign_names or []),
+                limit=limit,
+            )
             return {"error": exc.error_type, "message": exc.message}
-        _log_tool_outcome(
-            "query_ads_facts",
-            "success",
+        invocation.success(
             profile_id=profile_id,
+            group_by=group_by,
             row_count=result.get("row_count", 0),
+            row_id=row_id,
+            campaign_count=len(campaign_names or []),
+            limit=limit,
         )
         return result
 
@@ -243,7 +240,7 @@ def register_analyst_tools(mcp: Any) -> None:
         child_asins: list[str] | None = None,
         row_id: str | None = None,
     ) -> dict[str, Any]:
-        _log_tool_outcome("query_catalog_context", "started", profile_id=profile_id)
+        invocation = start_mcp_tool_invocation("query_catalog_context", is_mutation=False)
         db = _get_supabase_admin_client()
         try:
             result = _query_catalog_context(
@@ -253,13 +250,18 @@ def register_analyst_tools(mcp: Any) -> None:
                 row_id=row_id,
             )
         except AnalystQueryError as exc:
-            _log_tool_outcome("query_catalog_context", "error", error=str(exc))
+            invocation.error(
+                error_type=exc.error_type,
+                profile_id=profile_id,
+                row_id=row_id,
+                child_asin_count=len(child_asins or []),
+            )
             return {"error": exc.error_type, "message": exc.message}
-        _log_tool_outcome(
-            "query_catalog_context",
-            "success",
+        invocation.success(
             profile_id=profile_id,
-            total=result.get("total", 0),
+            row_id=row_id,
+            child_asin_count=len(child_asins or []),
+            result_count=result.get("total", 0),
         )
         return result
 
@@ -283,7 +285,7 @@ def register_analyst_tools(mcp: Any) -> None:
         section: str | None = None,
         limit: int = 50,
     ) -> dict[str, Any]:
-        _log_tool_outcome("query_monthly_pnl_detail", "started", profile_id=profile_id)
+        invocation = start_mcp_tool_invocation("query_monthly_pnl_detail", is_mutation=False)
         db = _get_supabase_admin_client()
         try:
             result = await _query_monthly_pnl_detail(
@@ -297,12 +299,24 @@ def register_analyst_tools(mcp: Any) -> None:
                 limit=limit,
             )
         except AnalystQueryError as exc:
-            _log_tool_outcome("query_monthly_pnl_detail", "error", error=str(exc))
+            invocation.error(
+                error_type=exc.error_type,
+                profile_id=profile_id,
+                group_by=group_by,
+                year_month=year_month,
+                month_from=month_from,
+                month_to=month_to,
+                section=section,
+                limit=limit,
+            )
             return {"error": exc.error_type, "message": exc.message}
-        _log_tool_outcome(
-            "query_monthly_pnl_detail",
-            "success",
+        invocation.success(
             profile_id=profile_id,
+            group_by=group_by,
+            year_month=year_month,
+            month_from=month_from,
+            month_to=month_to,
+            section=section,
             row_count=result.get("row_count", 0),
         )
         return result

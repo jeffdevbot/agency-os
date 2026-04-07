@@ -2,15 +2,15 @@
 
 ## Snapshot
 
-- Last verified (UTC): `2026-03-30 23:58:00Z`
+- Last verified (UTC): `2026-04-07 03:27:52Z`
 - Source: live Supabase introspection via MCP (`supabase.execute_sql` against `information_schema` + `pg_catalog`)
 - Schema: `public`
-- Relations: `82` total (`81` tables, `1` view, `0` materialized views)
-- Columns: `979`
-- Primary key entries: `81`
+- Relations: `83` total (`82` tables, `1` view, `0` materialized views)
+- Columns: `990`
+- Primary key entries: `82`
 - Foreign key entries: `148`
-- Indexes: `324`
-- RLS policies: `145`
+- Indexes: `329`
+- RLS policies: `146`
 - Functions: `138`
 
 ## Scope Note
@@ -60,6 +60,7 @@ refreshed directly from live Supabase MCP instead.
 | `public.monthly_pnl_profiles` | `table` | `yes` |
 | `public.monthly_pnl_raw_rows` | `table` | `yes` |
 | `public.monthly_pnl_sku_cogs` | `table` | `yes` |
+| `public.mcp_tool_events` | `table` | `yes` |
 | `public.ops_chat_sessions` | `table` | `yes` |
 | `public.ngram_ai_override_runs` | `table` | `yes` |
 | `public.ngram_ai_preview_runs` | `table` | `yes` |
@@ -122,6 +123,7 @@ refreshed directly from live Supabase MCP instead.
 - `brand_market_kpi_targets`
 - `usage_events`
 - `app_error_events`
+- `mcp_tool_events`
 - `sops`
 - `ops_chat_sessions`
 
@@ -212,6 +214,31 @@ refreshed directly from live Supabase MCP instead.
 - `monthly_pnl_manual_expenses`
 - `monthly_pnl_email_drafts`
 - `monthly_pnl_cogs_monthly` (legacy / empty retained table)
+
+## Key Ops Logging Tables
+
+### `public.mcp_tool_events`
+
+- RLS enabled: `yes`
+- Primary key: `id`
+- Policies:
+  - `Admins can view MCP tool events` (`SELECT`)
+- Current status: `live Claude / MCP tool invocation log for Ecomlabs Tools`
+- Notes:
+  - backend inserts are service-role writes from the MCP wrapper layer
+  - intended payload is safe metadata only, not Claude chat transcripts
+- Columns:
+  - `id uuid`
+  - `occurred_at timestamptz`
+  - `tool_name text`
+  - `status text`
+  - `duration_ms integer nullable`
+  - `user_id uuid nullable`
+  - `user_email text nullable`
+  - `surface text default 'claude_mcp'`
+  - `connector_name text default 'Ecomlabs Tools'`
+  - `is_mutation bool default false`
+  - `meta jsonb default '{}'`
 
 ## Key Reporting Tables
 

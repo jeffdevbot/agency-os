@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import logging
 from typing import Any
 
-from ..auth import get_current_pilot_user
 from ...services.clickup_task_tools import (
     ClickUpToolError,
     create_task_for_brand,
@@ -15,25 +13,10 @@ from ...services.clickup_task_tools import (
     resolve_team_member_matches,
     update_task_by_id_or_url,
 )
-
-_logger = logging.getLogger(__name__)
+from ..event_logging import start_mcp_tool_invocation
 
 _DEFAULT_LIMIT = 50
 _MAX_LIMIT = 200
-
-
-def _log_tool_outcome(tool_name: str, outcome: str, **extra: Any) -> None:
-    user = get_current_pilot_user()
-    suffix = " ".join(f"{key}={value}" for key, value in extra.items())
-    if suffix:
-        suffix = f" {suffix}"
-    _logger.info(
-        "MCP tool invocation | tool=%s user_id=%s outcome=%s%s",
-        tool_name,
-        user.user_id if user else None,
-        outcome,
-        suffix,
-    )
 
 
 def register_clickup_tools(mcp: Any) -> None:
@@ -54,7 +37,7 @@ def register_clickup_tools(mcp: Any) -> None:
         include_closed: bool = False,
         limit: int = _DEFAULT_LIMIT,
     ) -> dict[str, Any]:
-        _log_tool_outcome("list_clickup_tasks", "started", client_id=client_id)
+        invocation = start_mcp_tool_invocation("list_clickup_tasks", is_mutation=False)
         effective_limit = max(1, min(limit, _MAX_LIMIT))
         try:
             result = await list_tasks_for_brand(
@@ -64,17 +47,20 @@ def register_clickup_tools(mcp: Any) -> None:
                 include_closed=include_closed,
                 limit=effective_limit,
             )
-            _log_tool_outcome(
-                "list_clickup_tasks",
-                "success",
+            invocation.success(
                 client_id=client_id,
                 brand_id=result.get("brand_id"),
                 task_count=len(result.get("tasks", [])),
+                include_closed=include_closed,
+                limit=effective_limit,
             )
             return result
         except ClickUpToolError as exc:
-            _log_tool_outcome(
-                "list_clickup_tasks", f"error:{exc.error_type}", client_id=client_id
+            invocation.error(
+                error_type=exc.error_type,
+                client_id=client_id,
+                include_closed=include_closed,
+                limit=effective_limit,
             )
             return {"error": exc.error_type, "message": exc.message}
 
@@ -92,14 +78,14 @@ def register_clickup_tools(mcp: Any) -> None:
         task_id: str | None = None,
         task_url: str | None = None,
     ) -> dict[str, Any]:
-        _log_tool_outcome("get_clickup_task", "started")
+        invocation = start_mcp_tool_invocation("get_clickup_task", is_mutation=False)
         try:
             result = await get_task_by_id_or_url(task_id=task_id, task_url=task_url)
             fetched_id = result.get("task", {}).get("id", "")
-            _log_tool_outcome("get_clickup_task", "success", task_id=fetched_id)
+            invocation.success(task_id=fetched_id)
             return result
         except ClickUpToolError as exc:
-            _log_tool_outcome("get_clickup_task", f"error:{exc.error_type}")
+            invocation.error(error_type=exc.error_type)
             return {"error": exc.error_type, "message": exc.message}
 
     @mcp.tool(
@@ -125,7 +111,7 @@ def register_clickup_tools(mcp: Any) -> None:
         client_id: str | None = None,
         brand_id: str | None = None,
     ) -> dict[str, Any]:
-        _log_tool_outcome("update_clickup_task", "started")
+        invocation = start_mcp_tool_invocation("update_clickup_task", is_mutation=True)
         try:
             result = await update_task_by_id_or_url(
                 task_id=task_id,
@@ -138,15 +124,15 @@ def register_clickup_tools(mcp: Any) -> None:
                 client_id=client_id,
                 brand_id=brand_id,
             )
-            _log_tool_outcome(
-                "update_clickup_task",
-                "success",
+            invocation.success(
                 task_id=result.get("task", {}).get("id"),
                 assignee_status=result.get("assignee", {}).get("resolution_status"),
+                client_id=client_id,
+                brand_id=brand_id,
             )
             return result
         except ClickUpToolError as exc:
-            _log_tool_outcome("update_clickup_task", f"error:{exc.error_type}")
+            invocation.error(error_type=exc.error_type, client_id=client_id, brand_id=brand_id)
             return {"error": exc.error_type, "message": exc.message}
 
     @mcp.tool(
@@ -165,20 +151,25 @@ def register_clickup_tools(mcp: Any) -> None:
         client_id: str | None = None,
         brand_id: str | None = None,
     ) -> dict[str, Any]:
-        _log_tool_outcome("resolve_team_member", "started", query=query)
+        invocation = start_mcp_tool_invocation("resolve_team_member", is_mutation=False)
         try:
             result = resolve_team_member_matches(
                 query=query, client_id=client_id, brand_id=brand_id
             )
-            _log_tool_outcome(
-                "resolve_team_member",
-                "success",
-                query=query,
-                matches=len(result.get("matches", [])),
+            invocation.success(
+                client_id=client_id,
+                brand_id=brand_id,
+                query_length=len(str(query or "").strip()),
+                match_count=len(result.get("matches", [])),
             )
             return result
         except ClickUpToolError as exc:
-            _log_tool_outcome("resolve_team_member", f"error:{exc.error_type}")
+            invocation.error(
+                error_type=exc.error_type,
+                client_id=client_id,
+                brand_id=brand_id,
+                query_length=len(str(query or "").strip()),
+            )
             return {"error": exc.error_type, "message": exc.message}
 
     @mcp.tool(
@@ -201,7 +192,7 @@ def register_clickup_tools(mcp: Any) -> None:
         assignee_profile_id: str | None = None,
         assignee_query: str | None = None,
     ) -> dict[str, Any]:
-        _log_tool_outcome("prepare_clickup_task", "started", client_id=client_id)
+        invocation = start_mcp_tool_invocation("prepare_clickup_task", is_mutation=False)
         try:
             result = await prepare_task_for_brand(
                 client_id=client_id,
@@ -211,19 +202,19 @@ def register_clickup_tools(mcp: Any) -> None:
                 assignee_profile_id=assignee_profile_id,
                 assignee_query=assignee_query,
             )
-            _log_tool_outcome(
-                "prepare_clickup_task",
-                "success",
+            invocation.success(
                 client_id=client_id,
                 brand_id=result.get("brand_id"),
                 list_id=result.get("destination", {}).get("list_id"),
                 assignee_status=result.get("assignee", {}).get("resolution_status"),
-                warnings=len(result.get("warnings", [])),
+                warning_count=len(result.get("warnings", [])),
             )
             return result
         except ClickUpToolError as exc:
-            _log_tool_outcome(
-                "prepare_clickup_task", f"error:{exc.error_type}", client_id=client_id
+            invocation.error(
+                error_type=exc.error_type,
+                client_id=client_id,
+                brand_id=brand_id,
             )
             return {"error": exc.error_type, "message": exc.message}
 
@@ -248,7 +239,7 @@ def register_clickup_tools(mcp: Any) -> None:
         assignee_profile_id: str | None = None,
         assignee_query: str | None = None,
     ) -> dict[str, Any]:
-        _log_tool_outcome("create_clickup_task", "started", client_id=client_id)
+        invocation = start_mcp_tool_invocation("create_clickup_task", is_mutation=True)
         try:
             result = await create_task_for_brand(
                 client_id=client_id,
@@ -258,9 +249,7 @@ def register_clickup_tools(mcp: Any) -> None:
                 assignee_profile_id=assignee_profile_id,
                 assignee_query=assignee_query,
             )
-            _log_tool_outcome(
-                "create_clickup_task",
-                "success",
+            invocation.success(
                 client_id=client_id,
                 brand_id=result.get("brand_id"),
                 list_id=result.get("destination", {}).get("list_id"),
@@ -269,7 +258,9 @@ def register_clickup_tools(mcp: Any) -> None:
             )
             return result
         except ClickUpToolError as exc:
-            _log_tool_outcome(
-                "create_clickup_task", f"error:{exc.error_type}", client_id=client_id
+            invocation.error(
+                error_type=exc.error_type,
+                client_id=client_id,
+                brand_id=brand_id,
             )
             return {"error": exc.error_type, "message": exc.message}

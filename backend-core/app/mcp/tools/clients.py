@@ -2,27 +2,10 @@
 
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from ...auth import _get_supabase_admin_client
-from ..auth import get_current_pilot_user
-
-_logger = logging.getLogger(__name__)
-
-
-def _log_tool_outcome(tool_name: str, outcome: str, **extra: Any) -> None:
-    user = get_current_pilot_user()
-    suffix = " ".join(f"{key}={value}" for key, value in extra.items())
-    if suffix:
-        suffix = f" {suffix}"
-    _logger.info(
-        "MCP tool invocation | tool=%s user_id=%s outcome=%s%s",
-        tool_name,
-        user.user_id if user else None,
-        outcome,
-        suffix,
-    )
+from ..event_logging import start_mcp_tool_invocation
 
 
 def resolve_client_name(db: Any, client_id: str) -> str | None:
@@ -285,7 +268,14 @@ def register_client_tools(mcp: Any) -> None:
         structured_output=True,
     )
     def resolve_client(query: str) -> dict[str, list[dict[str, Any]]]:
-        _log_tool_outcome("resolve_client", "started")
-        result = resolve_client_matches(query)
-        _log_tool_outcome("resolve_client", "success", matches=len(result.get("matches", [])))
+        invocation = start_mcp_tool_invocation("resolve_client", is_mutation=False)
+        try:
+            result = resolve_client_matches(query)
+        except Exception as exc:  # noqa: BLE001
+            invocation.error(error_type=type(exc).__name__, query_length=len(str(query or "").strip()))
+            raise
+        invocation.success(
+            query_length=len(str(query or "").strip()),
+            match_count=len(result.get("matches", [])),
+        )
         return result
