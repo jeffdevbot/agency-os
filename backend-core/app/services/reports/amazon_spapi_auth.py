@@ -307,7 +307,9 @@ async def list_financial_event_groups(
     """
     api_base_url = get_spapi_region_config(region_code)["api_base_url"].rstrip("/")
     now = datetime.now(UTC)
-    resolved_posted_before = posted_before or now
+    # Amazon requires the end of this window to be at least two minutes before
+    # the request time. Use a small safety buffer for the smoke test default.
+    resolved_posted_before = posted_before or (now - timedelta(minutes=5))
     resolved_posted_after = posted_after or (resolved_posted_before - timedelta(days=180))
     params: dict[str, str] = {
         "MaxResultsPerPage": str(max_results),
