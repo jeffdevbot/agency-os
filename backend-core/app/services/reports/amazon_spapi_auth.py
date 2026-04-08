@@ -14,6 +14,7 @@ import os
 import secrets
 import time
 from base64 import urlsafe_b64decode, urlsafe_b64encode
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urlencode
 
@@ -296,6 +297,8 @@ async def list_financial_event_groups(
     *,
     region_code: str,
     max_results: int = 10,
+    posted_after: datetime | None = None,
+    posted_before: datetime | None = None,
 ) -> list[dict[str, Any]]:
     """Call Finances API v0 listFinancialEventGroups.
 
@@ -303,7 +306,14 @@ async def list_financial_event_groups(
     batches).  Kept deliberately low-volume per the rate-limit guidance.
     """
     api_base_url = get_spapi_region_config(region_code)["api_base_url"].rstrip("/")
-    params: dict[str, str] = {"MaxResultsPerPage": str(max_results)}
+    now = datetime.now(UTC)
+    resolved_posted_before = posted_before or now
+    resolved_posted_after = posted_after or (resolved_posted_before - timedelta(days=180))
+    params: dict[str, str] = {
+        "MaxResultsPerPage": str(max_results),
+        "PostedAfter": resolved_posted_after.isoformat().replace("+00:00", "Z"),
+        "PostedBefore": resolved_posted_before.isoformat().replace("+00:00", "Z"),
+    }
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.get(
             f"{api_base_url}/finances/v0/financialEventGroups",
