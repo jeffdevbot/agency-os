@@ -342,13 +342,23 @@ async def spapi_finance_smoke_test(
             }
         )
 
-    # Step 3: pick the first group that has an ID
+    # Step 3: prefer a closed/succeeded group so transaction lookup is more
+    # likely to hit a released payout batch, then fall back to the first ID.
     target_group_id = None
     for g in groups:
         gid = g.get("FinancialEventGroupId")
-        if gid:
+        processing_status = str(g.get("ProcessingStatus") or "").strip().lower()
+        fund_transfer_status = str(g.get("FundTransferStatus") or "").strip().lower()
+        if gid and processing_status == "closed" and fund_transfer_status == "succeeded":
             target_group_id = str(gid)
             break
+
+    if not target_group_id:
+        for g in groups:
+            gid = g.get("FinancialEventGroupId")
+            if gid:
+                target_group_id = str(gid)
+                break
 
     if not target_group_id:
         return {
