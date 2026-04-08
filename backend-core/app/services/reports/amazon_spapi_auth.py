@@ -311,8 +311,8 @@ async def list_financial_event_groups(
     resolved_posted_after = posted_after or (resolved_posted_before - timedelta(days=180))
     params: dict[str, str] = {
         "MaxResultsPerPage": str(max_results),
-        "PostedAfter": resolved_posted_after.isoformat().replace("+00:00", "Z"),
-        "PostedBefore": resolved_posted_before.isoformat().replace("+00:00", "Z"),
+        "FinancialEventGroupStartedAfter": resolved_posted_after.isoformat().replace("+00:00", "Z"),
+        "FinancialEventGroupStartedBefore": resolved_posted_before.isoformat().replace("+00:00", "Z"),
     }
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.get(
