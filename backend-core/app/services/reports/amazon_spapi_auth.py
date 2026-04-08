@@ -343,7 +343,7 @@ async def list_transactions(
     *,
     region_code: str,
     financial_event_group_id: str,
-    transaction_status: str = "RELEASED",
+    transaction_status: str | None = "RELEASED",
     max_results: int = 20,
 ) -> list[dict[str, Any]]:
     """Call Finances API v2024-06-19 listTransactions.
@@ -356,9 +356,10 @@ async def list_transactions(
     params: dict[str, str] = {
         "relatedIdentifierName": "FINANCIAL_EVENT_GROUP_ID",
         "relatedIdentifierValue": financial_event_group_id,
-        "transactionStatus": transaction_status,
         "maxResults": str(max_results),
     }
+    if transaction_status:
+        params["transactionStatus"] = transaction_status
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.get(
             f"{api_base_url}/finances/2024-06-19/transactions",

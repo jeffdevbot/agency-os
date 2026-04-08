@@ -370,22 +370,57 @@ async def spapi_finance_smoke_test(
             "transactions": [],
         }
 
-    # Step 4: listTransactions for the selected group
-    try:
-        transactions = await list_transactions(
-            access_token,
-            region_code=region_code,
-            financial_event_group_id=target_group_id,
-            max_results=request.max_transactions,
-        )
-    except WBRValidationError as exc:
+    # Step 4: listTransactions for the selected group. Try a few status
+    # variants before falling back to no status filter so the smoke test is
+    # resilient to account-specific transaction lifecycles.
+    transactions: list[dict] = []
+    attempted_statuses: list[str] = []
+    transaction_lookup_mode = "filtered"
+    transaction_status_candidates = [
+        "RELEASED",
+        "DEFERRED_RELEASED",
+        "DEFERRED",
+        None,
+    ]
+    last_transactions_error: str | None = None
+    for status in transaction_status_candidates:
+        attempted_statuses.append(status or "ALL")
+        try:
+            candidate_transactions = await list_transactions(
+                access_token,
+                region_code=region_code,
+                financial_event_group_id=target_group_id,
+                transaction_status=status,
+                max_results=request.max_transactions,
+            )
+        except WBRValidationError as exc:
+            last_transactions_error = str(exc)
+            if status is None:
+                return {
+                    "ok": False,
+                    "step": "list_transactions",
+                    "region_code": region_code,
+                    "target_group_id": target_group_id,
+                    "error": str(exc),
+                    "groups": group_summaries,
+                    "attempted_transaction_statuses": attempted_statuses,
+                }
+            continue
+
+        if candidate_transactions:
+            transactions = candidate_transactions
+            transaction_lookup_mode = "unfiltered" if status is None else "filtered"
+            break
+
+    if not transactions and last_transactions_error and attempted_statuses[-1] != "ALL":
         return {
             "ok": False,
             "step": "list_transactions",
             "region_code": region_code,
             "target_group_id": target_group_id,
-            "error": str(exc),
+            "error": last_transactions_error,
             "groups": group_summaries,
+            "attempted_transaction_statuses": attempted_statuses,
         }
 
     # Summarize transactions
@@ -412,4 +447,6 @@ async def spapi_finance_smoke_test(
         "groups": group_summaries,
         "transaction_count": len(transactions),
         "transactions": transaction_summaries,
+        "attempted_transaction_statuses": attempted_statuses,
+        "transaction_lookup_mode": transaction_lookup_mode,
     }
