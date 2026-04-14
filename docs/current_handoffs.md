@@ -1,44 +1,48 @@
 # Current Handoffs
 
-_Last updated: 2026-04-03 (ET)_
+_Last updated: 2026-04-08 (ET)_
 
 Use this file to decide which restart/handoff docs are current versus merely
 historical reference.
 
 ## Active next-session entrypoints
 
-1. [Search term automation resume prompt](/Users/jeff/code/agency-os/docs/search_term_automation_resume_prompt.md)
+1. [WBR direct SP-API replacement resume prompt](/Users/jeff/code/agency-os/docs/wbr_direct_spapi_resume_prompt.md)
+   - Primary restart doc for the next reporting-integration project:
+     replace Windsor-backed WBR data with direct Amazon Seller API access,
+     starting with a planning session rather than immediate code changes.
+2. [Search term automation resume prompt](/Users/jeff/code/agency-os/docs/search_term_automation_resume_prompt.md)
    - Primary restart doc for the current highest-priority workstream:
      `STR / N-Gram 2.0`.
-2. [PROJECT_STATUS.md](/Users/jeff/code/agency-os/PROJECT_STATUS.md)
+3. [PROJECT_STATUS.md](/Users/jeff/code/agency-os/PROJECT_STATUS.md)
    - Fastest high-level snapshot of what is already shipped.
-3. [N-Gram 2.0 AI prefill design](/Users/jeff/code/agency-os/docs/ngram_2_ai_prefill_design.md)
+4. [N-Gram 2.0 AI prefill design](/Users/jeff/code/agency-os/docs/ngram_2_ai_prefill_design.md)
    - Current product/design reference for the shipped Step 3 / Step 4 / Step 5
      workflow, the retrieval-first catalog-matching design, saved-run recovery,
      and the current brand-portfolio handling.
-4. [N-Gram 2.0 pure prompt pivot plan](/Users/jeff/code/agency-os/docs/ngram_2_pure_prompt_pivot_plan.md)
+5. [N-Gram 2.0 pure prompt pivot plan](/Users/jeff/code/agency-os/docs/ngram_2_pure_prompt_pivot_plan.md)
    - Current pivot brief for moving `/ngram-2` away from deterministic gram
      synthesis and toward analyst-leverage AI triage, with code-first catalog
      retrieval ahead of model matching.
-5. [N-Gram 2.0 UI cleanup plan](/Users/jeff/code/agency-os/docs/ngram_2_ui_cleanup_plan.md)
+6. [N-Gram 2.0 UI cleanup plan](/Users/jeff/code/agency-os/docs/ngram_2_ui_cleanup_plan.md)
    - Historical/current reference for the now-shipped `/ngram-2` analyst UI
      cleanup pass and the later decision to remove the synthetic activity
      panel.
-6. [WBR schema plan](/Users/jeff/code/agency-os/docs/wbr_v2_schema_plan.md)
+7. [WBR schema plan](/Users/jeff/code/agency-os/docs/wbr_v2_schema_plan.md)
    - Current schema/reference document for live WBR + STR + N-Gram support
      tables, including `ngram_ai_preview_runs` and `ngram_ai_override_runs`.
-7. [N-Gram 2.0 SB enablement plan](/Users/jeff/code/agency-os/docs/ngram_2_sb_enablement_plan.md)
+8. [N-Gram 2.0 SB enablement plan](/Users/jeff/code/agency-os/docs/ngram_2_sb_enablement_plan.md)
    - Current implementation plan for bringing `Sponsored Brands` into
      `/ngram-2` with the same native summary / preview / workbook / reviewed
      upload flow shape as `Sponsored Products`.
-8. [N-Gram 2.0 SB enablement checklist](/Users/jeff/code/agency-os/docs/ngram_2_sb_enablement_checklist.md)
+9. [N-Gram 2.0 SB enablement checklist](/Users/jeff/code/agency-os/docs/ngram_2_sb_enablement_checklist.md)
    - Execution/reporting checklist for the active SB enablement tranche.
-9. [Claude primary surface plan](/Users/jeff/code/agency-os/docs/claude_primary_surface_plan.md)
+10. [Claude primary surface plan](/Users/jeff/code/agency-os/docs/claude_primary_surface_plan.md)
    - Current strategy doc for Claude vs The Claw and future MCP expansion.
-10. [Agency OS MCP implementation plan](/Users/jeff/code/agency-os/docs/agency_os_mcp_implementation_plan.md)
+11. [Agency OS MCP implementation plan](/Users/jeff/code/agency-os/docs/agency_os_mcp_implementation_plan.md)
    - Current implementation-planning reference for the shared Claude/MCP tool
      surface after WBR + Monthly P&L shipped.
-11. [Reports API access and SP-API plan](/Users/jeff/code/agency-os/docs/reports_api_access_and_spapi_plan.md)
+12. [Reports API access and SP-API plan](/Users/jeff/code/agency-os/docs/reports_api_access_and_spapi_plan.md)
    - Current shared reporting auth/source-of-truth planning reference.
 
 ## Highest-priority restart target
@@ -142,6 +146,9 @@ If the next session is about `/ngram-2`, start here:
 14. [Claude analyst query tools plan](/Users/jeff/code/agency-os/docs/claude_analyst_query_tools_plan.md)
    - Current implementation-planning doc for the next read-only analyst-query
      MCP expansion beyond WBR / Monthly P&L / ClickUp.
+15. [WBR direct SP-API replacement resume prompt](/Users/jeff/code/agency-os/docs/wbr_direct_spapi_resume_prompt.md)
+   - Current restart prompt for the next WBR reporting-integration project:
+     replacing Windsor with direct Seller API data, starting from planning.
 
 ## Current operational notes
 
@@ -247,6 +254,20 @@ If the next session is about `/ngram-2`, start here:
      - pass a compact shortlist to the model instead of the full catalog
      - allow one bounded expanded-shortlist retry for the pure-model context
        pass
+7. Reports / direct SP-API update as of 2026-04-08 (ET):
+   - Seller API OAuth, shared token storage, and `Validate` are now live-tested
+     successfully in production.
+   - the finance smoke test now returns real `listFinancialEventGroups`
+     payout-group data from Amazon for a live seller account
+   - `listTransactions` filtered by `FINANCIAL_EVENT_GROUP_ID` still returns
+     `0` rows for the tested closed payout groups even after trying
+     `RELEASED`, `DEFERRED_RELEASED`, `DEFERRED`, and no status filter
+   - this is now understood as a downstream query/data-shape follow-up, not an
+     auth blocker
+   - the next reporting priority is **not** direct-SP-API Monthly P&L
+     completion; manual CSV-backed Monthly P&L remains stable and the next
+     integration project should focus on replacing Windsor for WBR to remove
+     Windsor cost sooner
      - send compact JSON prompt payloads instead of pretty-printed JSON
      - retry short-lived OpenAI `429` rate-limit responses with bounded
        backoff

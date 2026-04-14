@@ -22,6 +22,12 @@ Implemented:
    - `error`
    - `revoked`
    - `not connected`
+9. live production validation of the Seller API auth path:
+   - seller OAuth completed successfully
+   - shared refresh-token persistence worked
+   - `Validate` succeeded via `getMarketplaceParticipations`
+   - finance smoke testing now returns real `listFinancialEventGroups`
+     payout-group data
 
 Operational notes from live rollout:
 
@@ -29,19 +35,36 @@ Operational notes from live rollout:
    been applied; that is now fixed and the page is live
 2. frontend Render deploys hit a broken default Node `22.16.0` image; frontend
    runtime is now pinned to `20.19.0`
-3. current blocker is Amazon app-side approval/configuration, not internal
-   code:
+3. the original auth blocker was Amazon app-side approval/configuration, not
+   internal code:
    - first observed auth error: `MD1000`
    - draft testing required `AMAZON_SPAPI_DRAFT_APP=true`
    - next observed auth error: `MD9100`
-   - user has applied for public app approval and paused until Amazon responds
+   - those app-side issues were later resolved well enough for successful
+     production auth/validation testing
 4. current expected SP-API app URIs for this implementation:
    - Login URI: `https://tools.ecomlabs.ca/reports/api-access`
    - Redirect URI: `https://backend-core-re6d.onrender.com/amazon-spapi/callback`
    - optional additional redirect URI:
      `https://backend-core-re6d.onrender.com/api/amazon-spapi/callback`
-5. WBR Windsor flows and manual Monthly P&L CSV upload mode remain intact and
-   are still the active stable paths while SP-API auth is blocked
+5. finance-smoke hardening in production surfaced several request-shape issues
+   that were fixed in code:
+   - missing financial-event-group date window
+   - wrong v0 query parameter names for `listFinancialEventGroups`
+   - end-of-window timestamp too close to request time for Amazon's
+     `2 minutes before now` requirement
+6. current remaining direct-finance follow-up is narrower than auth:
+   - `listTransactions` still returned `0` rows for tested closed payout
+     groups even after trying `RELEASED`, `DEFERRED_RELEASED`, `DEFERRED`, and
+     no status filter
+   - that is now understood as a downstream query/data-shape question rather
+     than a connection blocker
+7. WBR Windsor flows and manual Monthly P&L CSV upload mode remain intact and
+   are still the active stable paths
+8. immediate product priority has shifted:
+   - direct-SP-API Monthly P&L completion is paused
+   - the next reporting integration project should focus on replacing Windsor
+     for WBR to remove Windsor cost sooner
 
 ## Goal
 

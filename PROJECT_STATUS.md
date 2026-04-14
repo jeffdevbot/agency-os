@@ -1,8 +1,17 @@
 # Changelog — Ecomlabs Tools
 
-_Last updated: 2026-04-03 (ET)_
+_Last updated: 2026-04-08 (ET)_
 
 > Development history for the project. For setup instructions and project overview, see [AGENTS.md](AGENTS.md).
+
+---
+
+## 2026-04-08 (ET)
+- **Amazon Seller API direct auth + finance-group smoke test is now live-validated in production:** The shared `Reports / API Access` Seller API flow completed end to end against a real seller account: seller OAuth completed, shared refresh-token storage worked, `Validate` succeeded via `getMarketplaceParticipations`, and the finance smoke test successfully returned real `listFinancialEventGroups` payout-group data from Amazon. This confirms that direct SP-API access is now real and usable in the product, not just scaffolded in code.
+- **The finance smoke test was hardened through several real-production request-shape fixes:** The first live attempts exposed three concrete issues in the probe itself: missing date-range parameters for `listFinancialEventGroups`, wrong v0 query parameter names (`FinancialEventGroupStartedAfter/Before` instead of generic posted-date names), and Amazon’s requirement that the end of the group window be at least two minutes before request time. Those issues were fixed on `main` and redeployed until the smoke test passed against production.
+- **The payout-group -> transactions probe is still inconclusive, but it no longer blocks the milestone:** After direct finance-group access was confirmed, the smoke test was extended to prefer `Closed` + `Succeeded` groups and to try `listTransactions` with `RELEASED`, `DEFERRED_RELEASED`, `DEFERRED`, and finally no status filter. The selected closed CAD payout group still returned `0` transactions. That now looks like a downstream query-behavior/data-shape question rather than an auth or connection issue.
+- **Direct-SP-API Monthly P&L follow-up is now intentionally paused:** Manual CSV-backed Monthly P&L remains the current stable/source-of-truth path, and the next reporting integration priority has shifted away from “finish P&L on direct Amazon data” and toward replacing Windsor for WBR so the team can eliminate Windsor cost sooner.
+- **Next reporting priority: plan the Windsor replacement for WBR:** The next session should start with planning, not implementation. The first objective is to map the current Windsor-backed WBR surfaces (Section 1 business data, listings bootstrap, and Section 3 inventory/returns) against the newly available direct Seller API capability and produce a phased migration plan that preserves the current WBR outputs while removing Windsor dependency over time.
 
 ---
 
