@@ -97,12 +97,14 @@ export default function WbrProfileWorkspace({ profileId, clientSlug, marketplace
           loadingBatches={pacvueImport.loadingBatches}
           refreshingBatches={pacvueImport.refreshingBatches}
           uploading={pacvueImport.uploading}
+          creatingSnapshot={pacvueImport.creatingSnapshot}
           batches={pacvueImport.batches}
           errorMessage={pacvueImport.errorMessage}
           successMessage={pacvueImport.successMessage}
           latestImport={pacvueImport.latestImport}
           onRefresh={() => void pacvueImport.loadBatches(true)}
           onUpload={(file) => void pacvueImport.handleUpload(file)}
+          onCreateFreshSnapshot={() => void pacvueImport.handleCreateFreshSnapshot()}
         />
 
         <CampaignExclusionCard

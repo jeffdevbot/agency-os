@@ -7,12 +7,14 @@ type Props = {
   loadingBatches: boolean;
   refreshingBatches: boolean;
   uploading: boolean;
+  creatingSnapshot: boolean;
   batches: WbrPacvueImportBatch[];
   errorMessage: string | null;
   successMessage: string | null;
   latestImport: WbrPacvueImportResult | null;
   onRefresh: () => void;
   onUpload: (file: File) => void;
+  onCreateFreshSnapshot: () => void;
 };
 
 const formatTimestamp = (value: string | null): string => {
@@ -46,12 +48,14 @@ export default function PacvueImportCard({
   loadingBatches,
   refreshingBatches,
   uploading,
+  creatingSnapshot,
   batches,
   errorMessage,
   successMessage,
   latestImport,
   onRefresh,
   onUpload,
+  onCreateFreshSnapshot,
 }: Props) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
@@ -80,13 +84,22 @@ export default function PacvueImportCard({
             <span className="font-semibold text-[#0f172a]">CampaignTagNames</span> columns.
           </p>
         </div>
-        <button
-          onClick={onRefresh}
-          disabled={loadingBatches || refreshingBatches || uploading}
-          className="rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-[#0a6fd6] shadow transition hover:-translate-y-0.5 hover:shadow-lg disabled:cursor-not-allowed disabled:text-slate-400"
-        >
-          {refreshingBatches ? "Refreshing..." : "Refresh Imports"}
-        </button>
+        <div className="flex flex-wrap gap-3">
+          <button
+            onClick={onCreateFreshSnapshot}
+            disabled={loadingBatches || refreshingBatches || uploading || creatingSnapshot}
+            className="rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-[#0a6fd6] shadow transition hover:-translate-y-0.5 hover:shadow-lg disabled:cursor-not-allowed disabled:text-slate-400"
+          >
+            {creatingSnapshot ? "Creating Snapshot..." : "Create Fresh Snapshot"}
+          </button>
+          <button
+            onClick={onRefresh}
+            disabled={loadingBatches || refreshingBatches || uploading || creatingSnapshot}
+            className="rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-[#0a6fd6] shadow transition hover:-translate-y-0.5 hover:shadow-lg disabled:cursor-not-allowed disabled:text-slate-400"
+          >
+            {refreshingBatches ? "Refreshing..." : "Refresh Imports"}
+          </button>
+        </div>
       </div>
 
       <div className="mt-4 rounded-2xl border border-[#c7d8f5] bg-[#f7faff] p-4">
@@ -119,6 +132,7 @@ export default function PacvueImportCard({
             Metadata rows above the real header are fine. Only `.xlsx` and `.xlsm` are supported,
             up to 40MB.
           </p>
+          <p>Create Fresh Snapshot rebuilds the WBR digest from current database state only.</p>
           {selectedFile ? (
             <p>
               Selected: {selectedFile.name} ({formatFileSize(selectedFile.size)})

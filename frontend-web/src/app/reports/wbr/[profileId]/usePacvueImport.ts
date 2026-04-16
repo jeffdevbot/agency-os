@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getBrowserSupabaseClient } from "@/lib/supabaseClient";
 import {
+  createWbrSnapshot,
   importPacvueWorkbook,
   listPacvueImportBatches,
   type WbrPacvueImportBatch,
@@ -22,6 +23,7 @@ export function usePacvueImport(profileId: string, options?: UsePacvueImportOpti
   const [loadingBatches, setLoadingBatches] = useState(true);
   const [refreshingBatches, setRefreshingBatches] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [creatingSnapshot, setCreatingSnapshot] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [latestImport, setLatestImport] = useState<WbrPacvueImportResult | null>(null);
@@ -121,15 +123,38 @@ export function usePacvueImport(profileId: string, options?: UsePacvueImportOpti
     [getAccessToken, loadBatches, options, profileId]
   );
 
+  const handleCreateFreshSnapshot = useCallback(async () => {
+    setCreatingSnapshot(true);
+    setErrorMessage(null);
+    setSuccessMessage(null);
+
+    try {
+      const token = await getAccessToken();
+      const snapshot = await createWbrSnapshot(token, profileId, {
+        weeks: 4,
+        snapshot_kind: "manual",
+        include_raw: false,
+      });
+      const weekEndingNote = snapshot.week_ending ? ` Week ending ${snapshot.week_ending}.` : "";
+      setSuccessMessage(`Created fresh snapshot from current WBR data.${weekEndingNote}`);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Failed to create fresh snapshot");
+    } finally {
+      setCreatingSnapshot(false);
+    }
+  }, [getAccessToken, profileId]);
+
   return {
     batches,
     loadingBatches,
     refreshingBatches,
     uploading,
+    creatingSnapshot,
     errorMessage,
     successMessage,
     latestImport,
     loadBatches,
     handleUpload,
+    handleCreateFreshSnapshot,
   };
 }

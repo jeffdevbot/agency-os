@@ -71,6 +71,17 @@ export type WbrPacvueImportResult = {
   summary: WbrPacvueImportSummary;
 };
 
+export type WbrSnapshot = {
+  id: string;
+  profile_id: string;
+  snapshot_kind: string;
+  week_ending: string | null;
+  window_start: string | null;
+  window_end: string | null;
+  digest_version: string;
+  created_at: string | null;
+};
+
 export type WbrListingImportBatchStatus = "running" | "success" | "error";
 
 export type WbrListingImportBatch = {
@@ -428,6 +439,23 @@ const parseListingImportResult = (payload: unknown): WbrListingImportResult => {
   };
 };
 
+const parseSnapshot = (value: unknown): WbrSnapshot => {
+  if (!isRecord(value)) {
+    throw new Error("Invalid WBR snapshot response");
+  }
+
+  return {
+    id: asString(value.id),
+    profile_id: asString(value.profile_id),
+    snapshot_kind: asString(value.snapshot_kind),
+    week_ending: asNullableString(value.week_ending),
+    window_start: asNullableString(value.window_start),
+    window_end: asNullableString(value.window_end),
+    digest_version: asString(value.digest_version),
+    created_at: asNullableString(value.created_at),
+  };
+};
+
 export const listWbrProfiles = async (token: string, clientId: string): Promise<WbrProfile[]> => {
   const query = new URLSearchParams({ client_id: clientId });
   const payload = await requestJson<unknown>(token, `/admin/wbr/profiles?${query.toString()}`, {
@@ -552,6 +580,31 @@ export const importPacvueWorkbook = async (
 
   const payload = (await response.json()) as unknown;
   return parsePacvueImportResult(payload);
+};
+
+export const createWbrSnapshot = async (
+  token: string,
+  profileId: string,
+  request?: {
+    weeks?: number;
+    snapshot_kind?: "manual";
+    include_raw?: boolean;
+  }
+): Promise<WbrSnapshot> => {
+  const payload = await requestJson<unknown>(token, `/admin/wbr/profiles/${profileId}/snapshots`, {
+    method: "POST",
+    body: JSON.stringify({
+      weeks: request?.weeks ?? 4,
+      snapshot_kind: request?.snapshot_kind ?? "manual",
+      include_raw: request?.include_raw ?? false,
+    }),
+  });
+
+  if (!isRecord(payload) || !isRecord(payload.snapshot)) {
+    throw new Error("Invalid WBR snapshot response");
+  }
+
+  return parseSnapshot(payload.snapshot);
 };
 
 export const listListingImportBatches = async (
