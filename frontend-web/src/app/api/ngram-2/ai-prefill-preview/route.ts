@@ -41,6 +41,7 @@ import {
   type ValidatedPureModelContextResponse,
   type ValidatedPureModelTermTriageResponse,
 } from "@/lib/ngram2/aiPrefill";
+import { assertNgram2ProfileAccess, NgramAccessError } from "@/lib/ngram2/access";
 import { resolveCatalogSource, type CatalogSourceCandidate, type CatalogSourceProfile } from "@/lib/ngram2/catalogSource";
 import { createSupabaseRouteClient, createSupabaseServiceClient } from "@/lib/supabase/serverClient";
 
@@ -538,6 +539,8 @@ export async function POST(request: Request) {
       requested_campaign_names: requestedCampaignNames,
     };
 
+    await assertNgram2ProfileAccess(createSupabaseServiceClient(), user.id, profileId);
+
     const expectedPromptVersion =
       prefillStrategy === "pure_model_single_campaign"
         ? NGRAM_PURE_MODEL_PROMPT_VERSION
@@ -1011,11 +1014,12 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "AI prefill preview failed";
+    const statusCode = error instanceof NgramAccessError ? error.status : 500;
     await logAppError({
       tool: "ngram",
       route: "/api/ngram-2/ai-prefill-preview",
       method: "POST",
-      statusCode: 500,
+      statusCode,
       userId: user.id,
       userEmail: user.email,
       message,
@@ -1027,6 +1031,6 @@ export async function POST(request: Request) {
             }
           : requestMeta,
     });
-    return NextResponse.json({ detail: message }, { status: 500 });
+    return NextResponse.json({ detail: message }, { status: statusCode });
   }
 }

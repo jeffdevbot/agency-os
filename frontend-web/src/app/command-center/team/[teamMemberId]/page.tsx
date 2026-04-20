@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+
+import { canAccessNgram2, collectAssignedClientIds, NGRAM2_TOOL_SLUG } from "@/lib/ngram2/accessRules";
 
 type Role = { id: string; slug: string; name: string };
 
@@ -23,6 +25,7 @@ type TeamMember = {
   displayName: string | null;
   fullName: string | null;
   isAdmin: boolean;
+  allowedTools: string[];
   employmentStatus: string;
   benchStatus: string;
   clickupUserId: string | null;
@@ -51,6 +54,14 @@ type ApiError = { error: { code: string; message: string } };
 const displayMember = (member: TeamMember) =>
   member.displayName ?? member.fullName ?? member.email;
 
+const TOOL_OPTIONS = [
+  {
+    slug: NGRAM2_TOOL_SLUG,
+    label: "N-Gram 2.0",
+    description: "AI preview and workbook generation for assigned clients.",
+  },
+] as const;
+
 export default function CommandCenterTeamMemberDetailPage() {
   const params = useParams();
   const rawTeamMemberId = params.teamMemberId;
@@ -59,6 +70,9 @@ export default function CommandCenterTeamMemberDetailPage() {
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [bootstrap, setBootstrap] = useState<BootstrapResponse | null>(null);
+  const [draftAllowedTools, setDraftAllowedTools] = useState<string[]>([]);
+  const [toolSaveMessage, setToolSaveMessage] = useState<string | null>(null);
+  const [toolSaving, setToolSaving] = useState(false);
 
   useEffect(() => {
     if (!teamMemberId) return;
@@ -85,6 +99,10 @@ export default function CommandCenterTeamMemberDetailPage() {
 
   const teamMember = bootstrap?.teamMembers.find((member) => member.id === teamMemberId) ?? null;
 
+  useEffect(() => {
+    setDraftAllowedTools(teamMember?.allowedTools ?? []);
+  }, [teamMember?.allowedTools]);
+
   const rolesById = new Map((bootstrap?.roles ?? []).map((role) => [role.id, role]));
 
   const clientsById = new Map((bootstrap?.clients ?? []).map((client) => [client.id, client]));
@@ -99,6 +117,64 @@ export default function CommandCenterTeamMemberDetailPage() {
   const assignments = (bootstrap?.assignments ?? [])
     .filter((assignment) => assignment.teamMemberId === teamMemberId && assignment.brandId !== null)
     .sort((a, b) => a.assignedAt.localeCompare(b.assignedAt));
+
+  const assignedClientNames = useMemo(() => {
+    const clientIds = collectAssignedClientIds(bootstrap?.assignments ?? [], teamMemberId ?? "");
+    return clientIds
+      .map((clientId) => clientsById.get(clientId)?.name ?? null)
+      .filter((value): value is string => Boolean(value))
+      .sort((left, right) => left.localeCompare(right));
+  }, [bootstrap?.assignments, clientsById, teamMemberId]);
+
+  const toolAccessDirty =
+    teamMember !== null &&
+    JSON.stringify([...draftAllowedTools].sort()) !== JSON.stringify([...teamMember.allowedTools].sort());
+
+  const toggleToolAccess = (toolSlug: string) => {
+    setToolSaveMessage(null);
+    setDraftAllowedTools((current) =>
+      current.includes(toolSlug)
+        ? current.filter((entry) => entry !== toolSlug)
+        : [...current, toolSlug].sort(),
+    );
+  };
+
+  const saveToolAccess = async () => {
+    if (!teamMemberId) return;
+
+    setToolSaving(true);
+    setToolSaveMessage(null);
+
+    try {
+      const response = await fetch(`/api/command-center/team/${teamMemberId}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ allowedTools: draftAllowedTools }),
+      });
+      const json = (await response.json()) as
+        | { teamMember?: TeamMember }
+        | { error?: { message?: string } };
+
+      if (!response.ok || !("teamMember" in json) || !json.teamMember) {
+        throw new Error(("error" in json && json.error?.message) || "Unable to save tool access");
+      }
+
+      setBootstrap((current) => {
+        if (!current) return current;
+        return {
+          ...current,
+          teamMembers: current.teamMembers.map((member) =>
+            member.id === json.teamMember!.id ? json.teamMember! : member,
+          ),
+        };
+      });
+      setToolSaveMessage("Tool access saved.");
+    } catch (error) {
+      setToolSaveMessage(error instanceof Error ? error.message : "Unable to save tool access");
+    } finally {
+      setToolSaving(false);
+    }
+  };
 
   const groups = new Map<string, { title: string; rows: Assignment[] }>();
   for (const assignment of assignments) {
@@ -215,6 +291,71 @@ export default function CommandCenterTeamMemberDetailPage() {
             ))}
           </div>
         )}
+      </div>
+
+      <div className="rounded-3xl bg-white/95 p-8 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h2 className="text-lg font-semibold text-[#0f172a]">Tool Access</h2>
+            <p className="mt-2 text-sm text-[#4c576f]">
+              Feature access is managed here. Client and brand assignments still determine which data the tool can see.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={saveToolAccess}
+            disabled={!toolAccessDirty || toolSaving}
+            className="rounded-2xl bg-[#0a6fd6] px-4 py-3 text-sm font-semibold text-white shadow-[0_15px_30px_rgba(10,111,214,0.35)] transition hover:bg-[#0959ab] disabled:cursor-not-allowed disabled:opacity-70"
+          >
+            {toolSaving ? "Saving…" : "Save Tool Access"}
+          </button>
+        </div>
+
+        <div className="mt-6 space-y-3">
+          {TOOL_OPTIONS.map((tool) => {
+            const enabled = draftAllowedTools.includes(tool.slug);
+            return (
+              <label
+                key={tool.slug}
+                className="flex items-start justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-4"
+              >
+                <div>
+                  <div className="text-sm font-semibold text-[#0f172a]">{tool.label}</div>
+                  <p className="mt-1 text-sm text-[#4c576f]">{tool.description}</p>
+                  {tool.slug === NGRAM2_TOOL_SLUG ? (
+                    <p className="mt-2 text-xs text-[#64748b]">
+                      {canAccessNgram2({
+                        isAdmin: teamMember?.isAdmin ?? false,
+                        allowedTools: draftAllowedTools,
+                      })
+                        ? assignedClientNames.length > 0
+                          ? `Current client scope: ${assignedClientNames.join(", ")}.`
+                          : "Enabled, but this teammate still needs at least one client or brand assignment to see data."
+                        : "Disabled."}
+                    </p>
+                  ) : null}
+                </div>
+                <input
+                  type="checkbox"
+                  checked={enabled}
+                  onChange={() => toggleToolAccess(tool.slug)}
+                  disabled={toolSaving}
+                  className="mt-1 h-4 w-4"
+                />
+              </label>
+            );
+          })}
+        </div>
+
+        {toolSaveMessage ? (
+          <p
+            className={`mt-4 text-sm ${
+              toolSaveMessage === "Tool access saved." ? "text-[#166534]" : "text-[#991b1b]"
+            }`}
+          >
+            {toolSaveMessage}
+          </p>
+        ) : null}
       </div>
     </main>
   );

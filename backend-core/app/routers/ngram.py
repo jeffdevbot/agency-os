@@ -12,7 +12,7 @@ from supabase import Client, create_client
 
 import tempfile
 
-from ..auth import require_user
+from ..auth import require_user, assert_wbr_profile_tool_access
 from ..config import settings
 from ..usage_logging import usage_logger
 from ..services.ngram import (
@@ -234,7 +234,7 @@ def _build_prefill_context_from_saved_preview(
 def _load_saved_preview_run(service: NativeNgramWorkbookService, preview_run_id: str) -> dict[str, Any]:
     response = (
         service.db.table("ngram_ai_preview_runs")
-        .select("id,profile_id,ad_product,date_from,date_to,spend_threshold,respect_legacy_exclusions,model,prompt_version,preview_payload")
+        .select("id,profile_id,ad_product,date_from,date_to,spend_threshold,respect_legacy_exclusions,model,prompt_version,preview_payload,requested_by_auth_user_id")
         .eq("id", preview_run_id)
         .limit(1)
         .execute()
@@ -344,6 +344,8 @@ async def build_native_workbook(
     service: NativeNgramWorkbookService = Depends(_get_native_service),
     user=Depends(require_user),
 ):
+    assert_wbr_profile_tool_access(user, request.profile_id, "ngram-2")
+
     if request.date_from > request.date_to:
         raise HTTPException(status_code=400, detail="date_from must be on or before date_to")
 
@@ -395,6 +397,8 @@ async def build_native_prefilled_workbook(
     service: NativeNgramWorkbookService = Depends(_get_native_service),
     user=Depends(require_user),
 ):
+    assert_wbr_profile_tool_access(user, request.profile_id, "ngram-2")
+
     if request.date_from > request.date_to:
         raise HTTPException(status_code=400, detail="date_from must be on or before date_to")
 
@@ -402,6 +406,9 @@ async def build_native_prefilled_workbook(
 
     if request.preview_run_id:
         saved_preview_run = _load_saved_preview_run(service, request.preview_run_id)
+        requested_by_auth_user_id = _to_non_empty_text(saved_preview_run.get("requested_by_auth_user_id"))
+        if requested_by_auth_user_id and requested_by_auth_user_id != _to_non_empty_text(user.get("sub")):
+            raise HTTPException(status_code=403, detail="Saved AI preview run belongs to a different user.")
         ai_prefills, ai_term_reviews, ai_summary = _build_prefill_context_from_saved_preview(
             request,
             saved_preview_run,
@@ -463,6 +470,8 @@ async def build_native_summary(
     service: NativeNgramWorkbookService = Depends(_get_native_service),
     user=Depends(require_user),
 ):
+    assert_wbr_profile_tool_access(user, request.profile_id, "ngram-2")
+
     if request.date_from > request.date_to:
         raise HTTPException(status_code=400, detail="date_from must be on or before date_to")
 

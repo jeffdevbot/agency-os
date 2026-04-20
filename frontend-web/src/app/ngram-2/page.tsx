@@ -12,11 +12,7 @@ import {
   getNativeNgramRunState,
   getNativeNgramValidationChecklist,
 } from "./ngram2Presentation";
-import {
-  loadClientProfileSummaries,
-  slugifyClientName,
-  type ClientProfileSummary,
-} from "../reports/_lib/reportClientData";
+import { slugifyClientName, type ClientProfileSummary } from "../reports/_lib/reportClientData";
 import {
   ACTIVE_SEARCH_TERM_AD_PRODUCTS,
   FUTURE_SEARCH_TERM_AD_PRODUCTS,
@@ -301,23 +297,29 @@ export default function NgramTwoPage() {
   const [toast, setToast] = useState<string | null>(null);
 
   useEffect(() => {
-    const supabase = getBrowserSupabaseClient();
-
     const load = async () => {
       setLoading(true);
       setError(null);
 
       try {
-        const { data } = await supabase.auth.getSession();
-        const accessToken = data.session?.access_token;
+        const response = await fetch("/api/ngram-2/access", { cache: "no-store" });
+        const payload = (await response.json()) as {
+          summaries?: ClientProfileSummary[];
+          failures?: string[];
+          detail?: string;
+        };
 
-        if (!accessToken) {
-          setError("Sign in first to load N-Gram 2.0.");
-          setLoading(false);
+        if (!response.ok) {
+          setSummaries([]);
+          setFailures([]);
+          setError(payload.detail ?? "Failed to load N-Gram 2.0.");
           return;
         }
 
-        const result = await loadClientProfileSummaries(accessToken);
+        const result = {
+          summaries: payload.summaries ?? [],
+          failures: payload.failures ?? [],
+        };
         const sortedSummaries = [...result.summaries].sort((left, right) =>
           left.client.name.localeCompare(right.client.name),
         );

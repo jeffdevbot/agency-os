@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { assertNgram2ProfileAccess, NgramAccessError } from "@/lib/ngram2/access";
 import { createSupabaseRouteClient, createSupabaseServiceClient } from "@/lib/supabase/serverClient";
 
 const DEFAULT_LIMIT = 5;
@@ -60,6 +61,8 @@ export async function GET(request: Request) {
   }
 
   try {
+    await assertNgram2ProfileAccess(createSupabaseServiceClient(), user.id, profileId);
+
     const service = createSupabaseServiceClient();
     const { data, error } = await service
       .from("ngram_ai_preview_runs")
@@ -126,7 +129,7 @@ export async function GET(request: Request) {
   } catch (error) {
     return NextResponse.json(
       { detail: error instanceof Error ? error.message : "Failed to load saved runs" },
-      { status: 500 },
+      { status: error instanceof NgramAccessError ? error.status : 500 },
     );
   }
 }

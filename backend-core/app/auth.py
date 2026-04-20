@@ -157,7 +157,7 @@ def _reset_supabase_admin_client() -> None:
     _supabase_admin_client = None
 
 
-def _fetch_admin_profile_rows(user_id: str) -> list[dict]:
+def _fetch_profile_rows(user_id: str) -> list[dict]:
     last_error: Exception | None = None
 
     for attempt in range(2):
@@ -176,20 +176,108 @@ def _fetch_admin_profile_rows(user_id: str) -> list[dict]:
     raise HTTPException(status_code=500, detail="Failed to validate admin access") from last_error
 
 
-def require_admin_user(user=Depends(require_user)):
+def _fetch_admin_profile_rows(user_id: str) -> list[dict]:
+    return _fetch_profile_rows(user_id)
+
+
+def _normalize_allowed_tools(value: Any) -> set[str]:
+    if not isinstance(value, list):
+        return set()
+    return {
+        str(item).strip().lower()
+        for item in value
+        if str(item).strip()
+    }
+
+
+def _is_admin_profile(profile: dict[str, Any]) -> bool:
+    is_admin = bool(profile.get("is_admin"))
+    role = str(profile.get("role") or "").strip().lower()
+    team_role = str(profile.get("team_role") or "").strip().lower()
+    return is_admin or role == "admin" or team_role == "admin"
+
+
+def get_authenticated_profile(user: dict[str, Any]) -> dict[str, Any]:
     user_id = str(user.get("sub") or "").strip()
     if not user_id:
         raise HTTPException(status_code=401, detail="Invalid token: missing subject")
 
-    rows = _fetch_admin_profile_rows(user_id)
+    rows = _fetch_profile_rows(user_id)
     if not rows:
-        raise HTTPException(status_code=403, detail="Admin access required")
+        raise HTTPException(status_code=403, detail="Profile not found")
+    return rows[0]
 
-    profile = rows[0]
-    is_admin = bool(profile.get("is_admin"))
-    role = str(profile.get("role") or "").strip().lower()
-    team_role = str(profile.get("team_role") or "").strip().lower()
-    if is_admin or role == "admin" or team_role == "admin":
+
+def assert_tool_access(user: dict[str, Any], tool_slug: str) -> dict[str, Any]:
+    profile = get_authenticated_profile(user)
+    if _is_admin_profile(profile):
+        return profile
+
+    normalized_slug = str(tool_slug or "").strip().lower()
+    if normalized_slug and normalized_slug in _normalize_allowed_tools(profile.get("allowed_tools")):
+        return profile
+
+    raise HTTPException(status_code=403, detail=f"{tool_slug} access required")
+
+
+def _list_assigned_client_ids(profile_id: str) -> set[str]:
+    try:
+        db = _get_supabase_admin_client()
+        response = (
+            db.table("client_assignments")
+            .select("client_id")
+            .eq("team_member_id", profile_id)
+            .execute()
+        )
+        rows = response.data if isinstance(response.data, list) else []
+        return {
+            str(row.get("client_id") or "").strip()
+            for row in rows
+            if isinstance(row, dict) and str(row.get("client_id") or "").strip()
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="Failed to load client assignments") from exc
+
+
+def assert_wbr_profile_tool_access(user: dict[str, Any], wbr_profile_id: str, tool_slug: str) -> dict[str, Any]:
+    profile = assert_tool_access(user, tool_slug)
+    if _is_admin_profile(profile):
+        return profile
+
+    try:
+        db = _get_supabase_admin_client()
+        response = (
+            db.table("wbr_profiles")
+            .select("id, client_id")
+            .eq("id", wbr_profile_id)
+            .limit(1)
+            .execute()
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="Failed to validate marketplace access") from exc
+
+    rows = response.data if isinstance(response.data, list) else []
+    if not rows or not isinstance(rows[0], dict):
+        raise HTTPException(status_code=404, detail="Profile not found")
+
+    client_id = str(rows[0].get("client_id") or "").strip()
+    if not client_id:
+        raise HTTPException(status_code=403, detail="Client access required")
+
+    allowed_client_ids = _list_assigned_client_ids(str(profile.get("id") or "").strip())
+    if client_id not in allowed_client_ids:
+        raise HTTPException(status_code=403, detail="Client access required")
+
+    return profile
+
+
+def require_admin_user(user=Depends(require_user)):
+    profile = get_authenticated_profile(user)
+    if _is_admin_profile(profile):
         return user
 
     raise HTTPException(status_code=403, detail="Admin access required")

@@ -37,6 +37,15 @@ class _FakeDb:
         return _QueryChain(response=self._response, error=self._error)
 
 
+class _MappedDb:
+    def __init__(self, responses: dict[str, object]):
+        self._responses = responses
+
+    def table(self, name: str):
+        response = self._responses.get(name, SimpleNamespace(data=[]))
+        return _QueryChain(response=response)
+
+
 def test_require_admin_user_retries_after_transient_supabase_error(monkeypatch):
     admin_response = SimpleNamespace(data=[{"id": "u1", "team_role": "admin"}])
     clients = iter(
@@ -70,3 +79,39 @@ def test_require_admin_user_returns_generic_error_after_repeated_failure(monkeyp
 
     assert exc_info.value.status_code == 500
     assert exc_info.value.detail == "Failed to validate admin access"
+
+
+def test_assert_tool_access_allows_explicit_tool_access(monkeypatch):
+    monkeypatch.setattr(
+        auth,
+        "_fetch_profile_rows",
+        lambda _user_id: [{"id": "u1", "is_admin": False, "allowed_tools": ["ngram-2"]}],
+    )
+
+    profile = auth.assert_tool_access({"sub": "u1"}, "ngram-2")
+
+    assert profile["id"] == "u1"
+
+
+def test_assert_wbr_profile_tool_access_denies_unassigned_client(monkeypatch):
+    monkeypatch.setattr(
+        auth,
+        "_fetch_profile_rows",
+        lambda _user_id: [{"id": "u1", "is_admin": False, "allowed_tools": ["ngram-2"]}],
+    )
+    monkeypatch.setattr(
+        auth,
+        "_get_supabase_admin_client",
+        lambda: _MappedDb(
+            {
+                "wbr_profiles": SimpleNamespace(data=[{"id": "profile-1", "client_id": "client-1"}]),
+                "client_assignments": SimpleNamespace(data=[{"client_id": "client-2"}]),
+            }
+        ),
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        auth.assert_wbr_profile_tool_access({"sub": "u1"}, "profile-1", "ngram-2")
+
+    assert exc_info.value.status_code == 403
+    assert exc_info.value.detail == "Client access required"
