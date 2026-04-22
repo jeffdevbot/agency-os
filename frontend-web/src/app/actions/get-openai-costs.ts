@@ -81,38 +81,27 @@ const fetchCostsUncached = async (days: number): Promise<OpenAIDailyCost[]> => {
 
   for (const endpoint of endpointCandidates) {
     try {
-      const buckets: OpenAICostBucket[] = [];
-      let pageToken: string | null = null;
+      const url = new URL(endpoint);
+      url.searchParams.set("start_time", String(startTime));
+      url.searchParams.set("end_time", String(endTime));
+      url.searchParams.set("bucket_width", "1d");
+      url.searchParams.set("limit", String(days));
+      url.searchParams.set("group_by", "line_item");
 
-      for (let page = 0; page < 20; page += 1) {
-        const url = new URL(endpoint);
-        url.searchParams.set("start_time", String(startTime));
-        url.searchParams.set("end_time", String(endTime));
-        url.searchParams.set("group_by", "line_item");
-        if (pageToken) url.searchParams.set("page", pageToken);
+      const response = await fetch(url.toString(), {
+        headers,
+        next: { revalidate: 3600 },
+      });
 
-        const response = await fetch(url.toString(), {
-          headers,
-          next: { revalidate: 3600 },
-        });
-
-        if (!response.ok) {
-          const text = await response.text().catch(() => "");
-          // If the first endpoint is missing, try the fallback endpoint.
-          if (response.status === 404) throw new Error(`Not found: ${endpoint}`);
-          throw new Error(`OpenAI costs error (${response.status}): ${text || response.statusText}`);
-        }
-
-        const json = (await response.json()) as OpenAICostsResponse;
-        buckets.push(...(Array.isArray(json.data) ? json.data : []));
-
-        if (json.has_more && json.next_page) {
-          pageToken = json.next_page;
-          continue;
-        }
-
-        break;
+      if (!response.ok) {
+        const text = await response.text().catch(() => "");
+        // If the first endpoint is missing, try the fallback endpoint.
+        if (response.status === 404) throw new Error(`Not found: ${endpoint}`);
+        throw new Error(`OpenAI costs error (${response.status}): ${text || response.statusText}`);
       }
+
+      const json = (await response.json()) as OpenAICostsResponse;
+      const buckets = Array.isArray(json.data) ? json.data : [];
 
       const daily = new Map<string, { amount: number; currency: string }>();
 
