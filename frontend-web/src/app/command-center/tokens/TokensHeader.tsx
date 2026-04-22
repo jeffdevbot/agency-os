@@ -21,6 +21,15 @@ export function TokensHeader(props: { rangeDays: number }) {
     setLocalRange(rangeDays);
   }, [rangeDays]);
 
+  useEffect(() => {
+    for (const option of RANGE_OPTIONS) {
+      if (option.days === rangeDays) continue;
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("range", String(option.days));
+      router.prefetch(`${pathname}?${params.toString()}`);
+    }
+  }, [pathname, rangeDays, router, searchParams]);
+
   const onChange = (nextDays: number) => {
     const params = new URLSearchParams(searchParams.toString());
     params.set("range", String(nextDays));
