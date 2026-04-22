@@ -54,6 +54,13 @@ export type InternalUsageResult = {
   topSpenders: TopSpender[];
 };
 
+const normalizeToolSlug = (value: string | null | undefined): string => {
+  const raw = String(value || "").trim().toLowerCase();
+  if (!raw) return "unknown";
+  if (raw === "agencyclaw" || raw === "theclaw") return "claw";
+  return raw;
+};
+
 const requireAdminOrThrow = async (): Promise<void> => {
   const supabase = await createSupabaseRouteClient();
   const {
@@ -132,7 +139,7 @@ export const getInternalUsage = async (
 
       const createdAt = row.created_at as string;
       const day = createdAt.slice(0, 10);
-      const tool = (row.tool as string) || "unknown";
+      const tool = normalizeToolSlug(row.tool as string | null);
       const model = (row.model as string | null) ?? null;
       const prompt = (row.prompt_tokens as number | null) ?? 0;
       const completion = (row.completion_tokens as number | null) ?? 0;
@@ -203,7 +210,7 @@ export const getInternalUsage = async (
     return {
       id: row.id as string,
       createdAt: row.created_at as string,
-      tool: row.tool as string,
+      tool: normalizeToolSlug(row.tool as string | null),
       model: (row.model as string | null) ?? null,
       stage: (row.stage as string | null) ?? null,
       userId: row.user_id as string,

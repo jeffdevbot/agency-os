@@ -8,6 +8,14 @@ export type OpenAIDailyCost = {
   currency: string; // e.g. "usd"
 };
 
+export type OpenAICostsStatus = "ok" | "missing_config" | "fetch_error";
+
+export type OpenAICostsResult = {
+  status: OpenAICostsStatus;
+  costs: OpenAIDailyCost[];
+  message: string | null;
+};
+
 type OpenAICostBucket = {
   start_time_iso?: string;
   results?: Array<{
@@ -146,10 +154,29 @@ const fetchCostsUncached = async (days: number): Promise<OpenAIDailyCost[]> => {
   throw lastError ?? new Error("Unable to fetch OpenAI costs");
 };
 
-export const getOpenAICosts = async (days: number = 30): Promise<OpenAIDailyCost[]> => {
+export const getOpenAICosts = async (days: number = 30): Promise<OpenAICostsResult> => {
   const safeDays = Number.isFinite(days) && days > 0 ? Math.min(Math.floor(days), 90) : 30;
   const cached = unstable_cache(
-    async () => fetchCostsUncached(safeDays),
+    async (): Promise<OpenAICostsResult> => {
+      try {
+        const costs = await fetchCostsUncached(safeDays);
+        return { status: "ok", costs, message: null };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (message.includes("OPENAI_ADMIN_API_KEY is not configured")) {
+          return {
+            status: "missing_config",
+            costs: [],
+            message: "Official spend is unavailable because OPENAI_ADMIN_API_KEY is not configured for this app runtime.",
+          };
+        }
+        return {
+          status: "fetch_error",
+          costs: [],
+          message: `Official spend is currently unavailable: ${message}`,
+        };
+      }
+    },
     ["openai-org-costs", String(safeDays)],
     { revalidate: 3600 },
   );

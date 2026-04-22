@@ -16,6 +16,20 @@ import type { InternalUsageLogRow, InternalUsageResult } from "@/app/actions/get
 const formatUsd = (amount: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(amount);
 
+const TOOL_LABELS: Record<string, string> = {
+  adscope: "AdScope",
+  claw: "The Claw",
+  debrief: "Debrief",
+  ngram: "N-Gram",
+  npat: "N-PAT",
+  root: "Root Keywords",
+  scribe: "Scribe",
+  "command-center": "Command Center",
+  unknown: "Unknown",
+};
+
+const getToolLabel = (tool: string): string => TOOL_LABELS[tool] ?? tool;
+
 const estimateCostUsd = (row: InternalUsageLogRow): number | null => {
   const model = row.model ?? "";
   const promptTokens = row.promptTokens ?? 0;
@@ -36,10 +50,15 @@ const estimateCostUsd = (row: InternalUsageLogRow): number | null => {
 const safeToolColor = (tool: string, idx: number) => {
   const palette = ["#0a6fd6", "#7c3aed", "#0f766e", "#f59e0b", "#ef4444", "#64748b"];
   const known: Record<string, string> = {
-    scribe: "#0a6fd6",
-    adscope: "#7c3aed",
-    debrief: "#0f766e",
+    claw: "#2563eb",
+    ngram: "#0f766e",
+    scribe: "#7c3aed",
+    adscope: "#f59e0b",
+    debrief: "#14b8a6",
+    npat: "#ef4444",
+    root: "#64748b",
     "command-center": "#0f172a",
+    unknown: "#64748b",
   };
   return known[tool] ?? palette[idx % palette.length];
 };
@@ -85,11 +104,12 @@ export function InternalAttributionCard(props: { internal: InternalUsageResult }
                   <XAxis dataKey="date" tick={{ fontSize: 12 }} stroke="#64748b" />
                   <YAxis tick={{ fontSize: 12 }} stroke="#64748b" />
                   <Tooltip />
-                  <Legend />
+                  <Legend formatter={(value) => getToolLabel(String(value))} />
                   {tools.map((tool, idx) => (
                     <Bar
                       key={tool}
                       dataKey={tool}
+                      name={getToolLabel(tool)}
                       stackId="tokens"
                       fill={safeToolColor(tool, idx)}
                       radius={[10, 10, 0, 0]}
@@ -203,7 +223,7 @@ export function InternalAttributionCard(props: { internal: InternalUsageResult }
                           </div>
                         </div>
                       </td>
-                      <td className="px-4 py-3 font-semibold text-[#0f172a]">{log.tool}</td>
+                      <td className="px-4 py-3 font-semibold text-[#0f172a]">{getToolLabel(log.tool)}</td>
                       <td className="px-4 py-3 text-[#0f172a]">{log.model ?? "—"}</td>
                       <td className="px-4 py-3 text-[#0f172a]">
                         {(log.promptTokens ?? 0).toLocaleString()} / {(log.completionTokens ?? 0).toLocaleString()}

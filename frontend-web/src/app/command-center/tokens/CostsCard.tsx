@@ -9,13 +9,18 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import type { OpenAIDailyCost } from "@/app/actions/get-openai-costs";
+import type { OpenAIDailyCost, OpenAICostsStatus } from "@/app/actions/get-openai-costs";
 
 const formatUsd = (amount: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(amount);
 
-export function CostsCard(props: { costs: OpenAIDailyCost[]; rangeDays: number }) {
-  const { costs, rangeDays } = props;
+export function CostsCard(props: {
+  costs: OpenAIDailyCost[];
+  rangeDays: number;
+  status: OpenAICostsStatus;
+  message: string | null;
+}) {
+  const { costs, rangeDays, status, message } = props;
 
   const yesterday = costs.length > 0 ? costs[costs.length - 1] : null;
   const chartData = costs.map((c) => ({
@@ -36,8 +41,13 @@ export function CostsCard(props: { costs: OpenAIDailyCost[]; rangeDays: number }
 
         <div className="h-[240px] w-full lg:h-[260px]">
           {chartData.length === 0 ? (
-            <div className="flex h-full items-center justify-center text-sm text-[#4c576f]">
-              Configure `OPENAI_ADMIN_API_KEY` to view official spend.
+            <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-sm text-[#4c576f]">
+              <div className="font-semibold text-[#0f172a]">
+                {status === "missing_config" ? "Official spend not configured" : "Official spend unavailable"}
+              </div>
+              <div className="max-w-xl">
+                {message ?? "Official spend is currently unavailable."}
+              </div>
             </div>
           ) : (
             <ResponsiveContainer width="100%" height="100%">
@@ -55,4 +65,3 @@ export function CostsCard(props: { costs: OpenAIDailyCost[]; rangeDays: number }
     </div>
   );
 }
-

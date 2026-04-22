@@ -1,16 +1,20 @@
 import { getOpenAICosts } from "@/app/actions/get-openai-costs";
 import { CostsCard } from "../CostsCard";
-import type { OpenAIDailyCost } from "@/app/actions/get-openai-costs";
+import type { OpenAICostsResult } from "@/app/actions/get-openai-costs";
 
 export async function CostsSection(props: { rangeDays: number }) {
   const { rangeDays } = props;
 
-  let costs: OpenAIDailyCost[] = [];
+  let result: OpenAICostsResult;
   try {
-    costs = await getOpenAICosts(rangeDays);
-  } catch {
-    costs = [];
+    result = await getOpenAICosts(rangeDays);
+  } catch (error) {
+    result = {
+      status: "fetch_error",
+      costs: [],
+      message: error instanceof Error ? error.message : "Official spend is currently unavailable.",
+    };
   }
 
-  return <CostsCard costs={costs} rangeDays={rangeDays} />;
+  return <CostsCard costs={result.costs} rangeDays={rangeDays} status={result.status} message={result.message} />;
 }
