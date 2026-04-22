@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { CostsSection } from "./sections/CostsSection";
 import { InternalSection } from "./sections/InternalSection";
 import { TokensHeader } from "./TokensHeader";
+import { getSearchParam, parseAllowedRange, resolveSearchParams, type SearchParamsSource } from "../_lib/searchParams";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,18 +18,11 @@ const LoadingCard = (props: { body: string }) => (
   </div>
 );
 
-const parseRange = (value: unknown): number => {
-  const n = typeof value === "string" ? Number(value) : NaN;
-  if (!Number.isFinite(n)) return 7;
-  if (n === 7 || n === 30 || n === 90) return n;
-  return 7;
-};
-
-export default function CommandCenterTokensPage(props: {
-  searchParams?: Record<string, string | string[] | undefined>;
+export default async function CommandCenterTokensPage(props: {
+  searchParams?: SearchParamsSource;
 }) {
-  const raw = props.searchParams?.range;
-  const rangeDays = parseRange(Array.isArray(raw) ? raw[0] : raw);
+  const searchParams = await resolveSearchParams(props.searchParams);
+  const rangeDays = parseAllowedRange(getSearchParam(searchParams, "range"), [7, 30, 90], 7);
 
   return (
     <main className="space-y-6">

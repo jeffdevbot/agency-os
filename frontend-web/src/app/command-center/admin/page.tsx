@@ -1,10 +1,9 @@
 import Link from "next/link";
 import { createSupabaseServiceClient } from "@/lib/supabase/serverClient";
+import { getSearchParam, parseAllowedRange, resolveSearchParams, type SearchParamsSource } from "../_lib/searchParams";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-type SearchParams = Record<string, string | string[] | undefined>;
 
 type ClickupSyncRow = {
   entity_type: string;
@@ -40,19 +39,6 @@ type ProfileRow = {
   clickup_user_id: string | null;
   slack_user_id: string | null;
   updated_at: string;
-};
-
-const getParam = (params: SearchParams | undefined, key: string): string | undefined => {
-  const raw = params?.[key];
-  if (!raw) return undefined;
-  return Array.isArray(raw) ? raw[0] : raw;
-};
-
-const parseRangeDays = (value: unknown): number => {
-  const n = typeof value === "string" ? Number(value) : NaN;
-  if (!Number.isFinite(n)) return 7;
-  if (n === 7 || n === 30) return n;
-  return 7;
 };
 
 const sanitizeSearchQuery = (value: string): string => {
@@ -95,12 +81,13 @@ const pct = (num: number, den: number): string => {
   return `${Math.round((num / den) * 100)}%`;
 };
 
-export default async function CommandCenterAdminPage(props: { searchParams?: SearchParams }) {
-  const toolFilter = getParam(props.searchParams, "tool")?.trim() || "";
-  const qRaw = getParam(props.searchParams, "q")?.trim() || "";
+export default async function CommandCenterAdminPage(props: { searchParams?: SearchParamsSource }) {
+  const searchParams = await resolveSearchParams(props.searchParams);
+  const toolFilter = getSearchParam(searchParams, "tool")?.trim() || "";
+  const qRaw = getSearchParam(searchParams, "q")?.trim() || "";
   const q = sanitizeSearchQuery(qRaw);
-  const userId = getParam(props.searchParams, "user")?.trim() || "";
-  const rangeDays = parseRangeDays(getParam(props.searchParams, "range"));
+  const userId = getSearchParam(searchParams, "user")?.trim() || "";
+  const rangeDays = parseAllowedRange(getSearchParam(searchParams, "range"), [7, 30], 7);
 
   const supabase = createSupabaseServiceClient();
 
