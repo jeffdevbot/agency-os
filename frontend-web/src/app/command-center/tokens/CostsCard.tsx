@@ -23,6 +23,7 @@ export function CostsCard(props: {
   const { costs, rangeDays, status, message } = props;
 
   const yesterday = costs.length > 0 ? costs[costs.length - 1] : null;
+  const totalSpend = costs.reduce((sum, cost) => sum + (Number.isFinite(cost.amount) ? cost.amount : 0), 0);
   const chartData = costs.map((c) => ({
     date: c.date.slice(5),
     cost: Number.isFinite(c.amount) ? c.amount : 0,
@@ -32,11 +33,19 @@ export function CostsCard(props: {
     <div className="rounded-3xl bg-white/95 p-8 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur">
       <div className="flex flex-col gap-8 lg:flex-row lg:items-center lg:justify-between">
         <div className="min-w-[260px]">
-          <div className="text-xs font-semibold uppercase tracking-wide text-[#4c576f]">Yesterday&apos;s spend</div>
+          <div className="text-xs font-semibold uppercase tracking-wide text-[#4c576f]">Total spend</div>
           <div className="mt-2 text-4xl font-semibold text-[#0f172a]">
-            {yesterday ? formatUsd(yesterday.amount) : "—"}
+            {chartData.length > 0 ? formatUsd(totalSpend) : "—"}
           </div>
           <div className="mt-2 text-sm text-[#4c576f]">OpenAI org costs (last {rangeDays} days)</div>
+          <div className="mt-6 rounded-2xl border border-slate-200 bg-[#f7faff] px-4 py-3">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-[#4c576f]">
+              Yesterday&apos;s spend
+            </div>
+            <div className="mt-1 text-xl font-semibold text-[#0f172a]">
+              {yesterday ? formatUsd(yesterday.amount) : "—"}
+            </div>
+          </div>
         </div>
 
         <div className="h-[240px] w-full lg:h-[260px]">

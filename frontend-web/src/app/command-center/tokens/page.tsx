@@ -28,11 +28,11 @@ export default async function CommandCenterTokensPage(props: {
     <main className="space-y-6">
       <TokensHeader rangeDays={rangeDays} />
 
-      <Suspense fallback={<LoadingCard body="Fetching OpenAI costs…" />}>
+      <Suspense key={`costs-${rangeDays}`} fallback={<LoadingCard body="Fetching OpenAI costs…" />}>
         <CostsSection rangeDays={rangeDays} />
       </Suspense>
 
-      <Suspense fallback={<LoadingCard body="Querying internal logs…" />}>
+      <Suspense key={`internal-${rangeDays}`} fallback={<LoadingCard body="Querying internal logs…" />}>
         <InternalSection rangeDays={rangeDays} />
       </Suspense>
     </main>
