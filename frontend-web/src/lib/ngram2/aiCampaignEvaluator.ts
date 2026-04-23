@@ -19,6 +19,7 @@ import {
   type ValidatedPureModelContextResponse,
   type ValidatedPureModelTermTriageResponse,
 } from "./aiPrefill";
+import type { NgramLanguageCode } from "./languages";
 import {
   buildCampaignPrompt,
   buildPureModelContextPrompt,
@@ -373,6 +374,8 @@ export const evaluateCampaignWithValidationRetry = async ({
   catalogProducts,
   terms,
   marketplaceCode,
+  allowedLanguages,
+  disableLanguageNegation,
   brandContext,
   model,
   maxTokens,
@@ -381,6 +384,8 @@ export const evaluateCampaignWithValidationRetry = async ({
   catalogProducts: AIPrefillCatalogProduct[];
   terms: AggregatedSearchTerm[];
   marketplaceCode: string | null;
+  allowedLanguages: NgramLanguageCode[];
+  disableLanguageNegation: boolean;
   brandContext?: AIPrefillBrandContext;
   model?: string;
   maxTokens: number;
@@ -392,7 +397,15 @@ export const evaluateCampaignWithValidationRetry = async ({
   tokensOut: number;
   tokensTotal: number;
 }> => {
-  const baseMessages = buildCampaignPrompt(campaign, catalogProducts, terms, marketplaceCode, brandContext);
+  const baseMessages = buildCampaignPrompt(
+    campaign,
+    catalogProducts,
+    terms,
+    marketplaceCode,
+    allowedLanguages,
+    disableLanguageNegation,
+    brandContext,
+  );
   let tokensIn = 0;
   let tokensOut = 0;
   let tokensTotal = 0;
@@ -494,6 +507,8 @@ export const evaluateCampaignWithPureModelValidationRetry = async ({
   campaign,
   catalogProducts,
   marketplaceCode,
+  allowedLanguages,
+  disableLanguageNegation,
   brandContext,
   model,
   maxTokens,
@@ -501,6 +516,8 @@ export const evaluateCampaignWithPureModelValidationRetry = async ({
   campaign: AggregatedCampaign;
   catalogProducts: AIPrefillCatalogProduct[];
   marketplaceCode: string | null;
+  allowedLanguages: NgramLanguageCode[];
+  disableLanguageNegation: boolean;
   brandContext?: AIPrefillBrandContext;
   model?: string;
   maxTokens: number;
@@ -512,7 +529,14 @@ export const evaluateCampaignWithPureModelValidationRetry = async ({
   tokensOut: number;
   tokensTotal: number;
 }> => {
-  const baseMessages = buildPureModelContextPrompt(campaign, catalogProducts, marketplaceCode, brandContext);
+  const baseMessages = buildPureModelContextPrompt(
+    campaign,
+    catalogProducts,
+    marketplaceCode,
+    allowedLanguages,
+    disableLanguageNegation,
+    brandContext,
+  );
   let tokensIn = 0;
   let tokensOut = 0;
   let tokensTotal = 0;
@@ -609,6 +633,8 @@ export const evaluateCampaignTermTriageWithValidationRetry = async ({
   matchedProduct,
   terms,
   marketplaceCode,
+  allowedLanguages,
+  disableLanguageNegation,
   matchConfidence,
   matchReason,
   brandContext,
@@ -619,6 +645,8 @@ export const evaluateCampaignTermTriageWithValidationRetry = async ({
   matchedProduct: AIPrefillCatalogProduct;
   terms: AggregatedSearchTerm[];
   marketplaceCode: string | null;
+  allowedLanguages: NgramLanguageCode[];
+  disableLanguageNegation: boolean;
   matchConfidence: "HIGH" | "MEDIUM" | "LOW";
   matchReason: string;
   brandContext?: AIPrefillBrandContext;
@@ -637,6 +665,8 @@ export const evaluateCampaignTermTriageWithValidationRetry = async ({
     matchedProduct,
     terms,
     marketplaceCode,
+    allowedLanguages,
+    disableLanguageNegation,
     matchConfidence,
     matchReason,
     brandContext,

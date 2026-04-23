@@ -46,10 +46,12 @@ describe("ngram-2 ai prefill preview route prompt", () => {
       },
     ];
 
-    const messages = buildCampaignPrompt(campaign, catalogProducts, terms, "CA");
+    const messages = buildCampaignPrompt(campaign, catalogProducts, terms, "CA", ["en", "fr"], false);
     const userMessage = messages.find((message) => message.role === "user");
 
     expect(userMessage?.content).toContain('"marketplace_code":"CA"');
+    expect(userMessage?.content).toContain('"allowed_languages":[{"code":"en","label":"English"},{"code":"fr","label":"French"}]');
+    expect(userMessage?.content).toContain('"disable_language_negation":false');
     expect(userMessage?.content).toContain('"campaign_scope":"product_family"');
     expect(userMessage?.content).toContain('"client_context"');
     expect(NGRAM_AI_PROMPT_VERSION).toBe("ngram_step3_calibrated_v2026_04_02_sparse_keep_rationale");
@@ -59,8 +61,9 @@ describe("ngram-2 ai prefill preview route prompt", () => {
     expect(SYSTEM_PROMPT).toContain("When you can write a clear one-sentence rationale for why the term is wrong-fit, that is a NEGATE, not a REVIEW.");
     expect(SYSTEM_PROMPT).toContain("When you can write a clear one-sentence rationale for why the term is plausibly relevant to this product, that is a KEEP, not a REVIEW.");
     expect(SYSTEM_PROMPT).toContain('A shopper searching "laptop cloth" when the product is a spray+cloth duo kit is seeking the cloth standalone.');
-    expect(SYSTEM_PROMPT).toContain("Use the marketplace_code from the input payload.");
-    expect(SYSTEM_PROMPT).toContain("On CA marketplace profiles, French-language terms are expected");
+    expect(SYSTEM_PROMPT).toContain("use allowed_languages as the actual language policy for this run");
+    expect(SYSTEM_PROMPT).toContain("If disable_language_negation = true, do not use reason_tag foreign_language.");
+    expect(SYSTEM_PROMPT).toContain("Use reason_tag foreign_language only when the query is primarily in a language outside the allowed_languages list");
     expect(SYSTEM_PROMPT).toContain("REVIEW should represent a small minority of terms, typically 5-10% of the input.");
     expect(SYSTEM_PROMPT).toContain('treat "apple" as referring to Apple devices unless the term contains a clear counter-signal such as "juice" or "fruit"');
     expect(SYSTEM_PROMPT).toContain("Brand campaigns are valid input and must still be evaluated");
@@ -100,11 +103,19 @@ describe("ngram-2 ai prefill preview route prompt", () => {
       },
     ];
 
-    const messages = buildCampaignPrompt(campaign, catalogProducts, terms, "US", {
-      clientName: "Whoosh",
-      knownBrandNames: ["Whoosh"],
-      marketplaceBrandNames: ["Whoosh"],
-    });
+    const messages = buildCampaignPrompt(
+      campaign,
+      catalogProducts,
+      terms,
+      "US",
+      ["en", "es"],
+      false,
+      {
+        clientName: "Whoosh",
+        knownBrandNames: ["Whoosh"],
+        marketplaceBrandNames: ["Whoosh"],
+      },
+    );
     const userMessage = messages.find((message) => message.role === "user");
 
     expect(userMessage?.content).toContain('"campaign_scope":"brand_portfolio"');
@@ -127,10 +138,11 @@ describe("ngram-2 ai prefill preview route prompt", () => {
         itemDescription: "spray plus cloth kit",
       },
     ];
-    const messages = buildPureModelContextPrompt(campaign, catalogProducts, "US");
+    const messages = buildPureModelContextPrompt(campaign, catalogProducts, "US", ["en", "es"], false);
     const userMessage = messages.find((message) => message.role === "user");
 
     expect(userMessage?.content).toContain('"campaign_identifier":"Screen Shine - Duo"');
+    expect(userMessage?.content).toContain('"allowed_languages":[{"code":"en","label":"English"},{"code":"es","label":"Spanish"}]');
     expect(userMessage?.content).toContain('"campaign_scope":"product_family"');
     expect(userMessage?.content).toContain('"client_context"');
     expect(userMessage?.content).toContain('"catalog_products"');
@@ -179,12 +191,15 @@ describe("ngram-2 ai prefill preview route prompt", () => {
       matchedProduct,
       terms,
       "US",
+      ["en", "es"],
+      false,
       "HIGH",
       "Campaign name matches the Duo kit.",
     );
     const userMessage = messages.find((message) => message.role === "user");
 
     expect(userMessage?.content).toContain('"search_term":"laptop cloth"');
+    expect(userMessage?.content).toContain('"disable_language_negation":false');
     expect(userMessage?.content).toContain('"campaign_scope":"product_family"');
     expect(userMessage?.content).toContain('"client_context"');
     expect(userMessage?.content).toContain('"locked_product_context"');

@@ -7,6 +7,7 @@ import {
   type AggregatedCampaign,
   type AggregatedSearchTerm,
 } from "./aiPrefill";
+import { getLanguageLabel, type NgramLanguageCode } from "./languages";
 
 export interface AIPromptMessage {
   role: "system" | "user" | "assistant";
@@ -14,6 +15,17 @@ export interface AIPromptMessage {
 }
 
 const stringifyPromptPayload = (payload: Record<string, unknown>): string => JSON.stringify(payload);
+
+const buildLanguagePolicyPayload = (
+  allowedLanguages: NgramLanguageCode[],
+  disableLanguageNegation: boolean,
+) => ({
+  allowed_languages: allowedLanguages.map((code) => ({
+    code,
+    label: getLanguageLabel(code),
+  })),
+  disable_language_negation: disableLanguageNegation,
+});
 
 export const NGRAM_AI_PROMPT_VERSION = "ngram_step3_calibrated_v2026_04_02_sparse_keep_rationale";
 export const NGRAM_PURE_MODEL_PROMPT_VERSION = "ngram_pure_model_two_step_v2026_04_02_sparse_keep_rationale";
@@ -73,9 +85,10 @@ Accessory-only terms:
 - Use REVIEW for accessory terms only if you genuinely cannot tell whether the shopper might also want the full kit.
 
 Foreign language terms:
-- Use the marketplace_code from the input payload.
-- On US, MX, and UK marketplace profiles, non-English terms are generally NEGATE with reason_tag foreign_language.
-- On CA marketplace profiles, French-language terms are expected and should be evaluated on relevance like any English term. Do not negate French terms solely because they are French on CA.
+- Use the marketplace_code from the input payload for regional context, but use allowed_languages as the actual language policy for this run.
+- If disable_language_negation = true, do not use reason_tag foreign_language. Evaluate every term on relevance regardless of language.
+- If disable_language_negation = false, terms written in any allowed language should be evaluated on relevance like any other term.
+- Use reason_tag foreign_language only when the query is primarily in a language outside the allowed_languages list for this run.
 - For terms containing "apple" in a tech-cleaning context (for example "apple screen cleaner", "apple cleaning spray", "apple approved screen cleaner"), treat "apple" as referring to Apple devices unless the term contains a clear counter-signal such as "juice" or "fruit". Do not send these terms to REVIEW solely because of Apple-brand ambiguity.
 
 Reason tag definitions:
@@ -177,9 +190,10 @@ Accessory-only terms:
 - The fact that the accessory is related to the same product category does not make the term ambiguous.
 
 Foreign language terms:
-- Use the marketplace_code from the input payload.
-- On US, MX, and UK marketplace profiles, non-English terms are generally NEGATE with reason_tag foreign_language.
-- On CA marketplace profiles, French-language terms are expected and should be evaluated on relevance like any English term. Do not negate French terms solely because they are French on CA.
+- Use the marketplace_code from the input payload for regional context, but use allowed_languages as the actual language policy for this run.
+- If disable_language_negation = true, do not use reason_tag foreign_language. Evaluate every term on relevance regardless of language.
+- If disable_language_negation = false, terms written in any allowed language should be evaluated on relevance like any other term.
+- Use reason_tag foreign_language only when the query is primarily in a language outside the allowed_languages list for this run.
 - For terms containing "apple" in a tech-cleaning context (for example "apple screen cleaner", "apple cleaning spray", "apple approved screen cleaner"), treat "apple" as referring to Apple devices unless the term contains a clear counter-signal such as "juice" or "fruit". Do not send these terms to REVIEW solely because of Apple-brand ambiguity.
 
 Reason tag definitions:
@@ -279,9 +293,10 @@ Accessory-only terms:
 - The fact that the accessory is related to the same product category does not make the term ambiguous.
 
 Foreign language terms:
-- Use the marketplace_code from the input payload.
-- On US, MX, and UK marketplace profiles, non-English terms are generally NEGATE with reason_tag foreign_language.
-- On CA marketplace profiles, French-language terms are expected and should be evaluated on relevance like any English term. Do not negate French terms solely because they are French on CA.
+- Use the marketplace_code from the input payload for regional context, but use allowed_languages as the actual language policy for this run.
+- If disable_language_negation = true, do not use reason_tag foreign_language. Evaluate every term on relevance regardless of language.
+- If disable_language_negation = false, terms written in any allowed language should be evaluated on relevance like any other term.
+- Use reason_tag foreign_language only when the query is primarily in a language outside the allowed_languages list for this run.
 - For terms containing "apple" in a tech-cleaning context (for example "apple screen cleaner", "apple cleaning spray", "apple approved screen cleaner"), treat "apple" as referring to Apple devices unless the term contains a clear counter-signal such as "juice" or "fruit". Do not send these terms to REVIEW solely because of Apple-brand ambiguity.
 
 Reason tag definitions:
@@ -306,6 +321,8 @@ export const buildCampaignPrompt = (
   catalogProducts: AIPrefillCatalogProduct[],
   terms: AggregatedSearchTerm[],
   marketplaceCode: string | null,
+  allowedLanguages: NgramLanguageCode[],
+  disableLanguageNegation: boolean,
   brandContext?: AIPrefillBrandContext,
 ): AIPromptMessage[] => [
   { role: "system", content: SYSTEM_PROMPT },
@@ -317,6 +334,7 @@ export const buildCampaignPrompt = (
       campaign_identifier: parseCampaignProductIdentifier(campaign.campaignName),
       campaign_scope: deriveCampaignScope(campaign.campaignName),
       marketplace_code: marketplaceCode,
+      ...buildLanguagePolicyPayload(allowedLanguages, disableLanguageNegation),
       client_context: buildClientContextPayload(brandContext),
       catalog_products: catalogProducts.map((product) => ({
         child_asin: product.childAsin,
@@ -346,6 +364,8 @@ export const buildPureModelCampaignPrompt = (
   catalogProducts: AIPrefillCatalogProduct[],
   terms: AggregatedSearchTerm[],
   marketplaceCode: string | null,
+  allowedLanguages: NgramLanguageCode[],
+  disableLanguageNegation: boolean,
   brandContext?: AIPrefillBrandContext,
 ): AIPromptMessage[] => [
   { role: "system", content: PURE_MODEL_SYSTEM_PROMPT },
@@ -357,6 +377,7 @@ export const buildPureModelCampaignPrompt = (
       campaign_identifier: parseCampaignProductIdentifier(campaign.campaignName),
       campaign_scope: deriveCampaignScope(campaign.campaignName),
       marketplace_code: marketplaceCode,
+      ...buildLanguagePolicyPayload(allowedLanguages, disableLanguageNegation),
       client_context: buildClientContextPayload(brandContext),
       catalog_products: catalogProducts.map((product) => ({
         child_asin: product.childAsin,
@@ -385,6 +406,8 @@ export const buildPureModelContextPrompt = (
   campaign: AggregatedCampaign,
   catalogProducts: AIPrefillCatalogProduct[],
   marketplaceCode: string | null,
+  allowedLanguages: NgramLanguageCode[],
+  disableLanguageNegation: boolean,
   brandContext?: AIPrefillBrandContext,
 ): AIPromptMessage[] => [
   { role: "system", content: PURE_MODEL_CONTEXT_SYSTEM_PROMPT },
@@ -396,6 +419,7 @@ export const buildPureModelContextPrompt = (
       campaign_identifier: parseCampaignProductIdentifier(campaign.campaignName),
       campaign_scope: deriveCampaignScope(campaign.campaignName),
       marketplace_code: marketplaceCode,
+      ...buildLanguagePolicyPayload(allowedLanguages, disableLanguageNegation),
       client_context: buildClientContextPayload(brandContext),
       catalog_products: catalogProducts.map((product) => ({
         child_asin: product.childAsin,
@@ -413,6 +437,8 @@ export const buildPureModelTermTriagePrompt = (
   matchedProduct: AIPrefillCatalogProduct,
   terms: AggregatedSearchTerm[],
   marketplaceCode: string | null,
+  allowedLanguages: NgramLanguageCode[],
+  disableLanguageNegation: boolean,
   matchConfidence: "HIGH" | "MEDIUM" | "LOW",
   matchReason: string,
   brandContext?: AIPrefillBrandContext,
@@ -426,6 +452,7 @@ export const buildPureModelTermTriagePrompt = (
       campaign_identifier: parseCampaignProductIdentifier(campaign.campaignName),
       campaign_scope: deriveCampaignScope(campaign.campaignName),
       marketplace_code: marketplaceCode,
+      ...buildLanguagePolicyPayload(allowedLanguages, disableLanguageNegation),
       client_context: buildClientContextPayload(brandContext),
       locked_product_context: {
         child_asin: matchedProduct.childAsin,

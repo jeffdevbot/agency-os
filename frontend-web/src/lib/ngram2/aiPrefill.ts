@@ -349,8 +349,8 @@ const SYNTHESIS_GENERIC_DESCRIPTOR_TOKENS = new Set([
   "outside",
 ]);
 
-const QUERY_TOKEN_RE = /[^\w\s\-"'®©™°&+#]+/gu;
-const PRODUCT_TOKEN_RE = /[^\w\s]+/g;
+const QUERY_TOKEN_RE = /[^\p{L}\p{N}\s\-"'®©™°&+#]+/gu;
+const PRODUCT_TOKEN_RE = /[^\p{L}\p{N}\s]+/gu;
 const PRODUCT_ABBREVIATIONS: Array<[RegExp, string]> = [
   [/\bxxl\b/g, "extra extra large"],
   [/\bxl\b/g, "extra large"],

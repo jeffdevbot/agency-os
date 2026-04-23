@@ -41,6 +41,7 @@ import {
   type ValidatedPureModelContextResponse,
   type ValidatedPureModelTermTriageResponse,
 } from "@/lib/ngram2/aiPrefill";
+import { normalizeAllowedLanguages, type NgramLanguageCode } from "@/lib/ngram2/languages";
 import { assertNgram2ProfileAccess, NgramAccessError } from "@/lib/ngram2/access";
 import { resolveCatalogSource, type CatalogSourceCandidate, type CatalogSourceProfile } from "@/lib/ngram2/catalogSource";
 import { createSupabaseRouteClient, createSupabaseServiceClient } from "@/lib/supabase/serverClient";
@@ -78,6 +79,8 @@ const HEURISTIC_CATALOG_CANDIDATE_LIMIT = 24;
 const PURE_MODEL_CONTEXT_CANDIDATE_LIMIT = 18;
 const PURE_MODEL_CONTEXT_EXPANDED_CANDIDATE_LIMIT = 36;
 const RECENT_RUN_REUSE_WINDOW_MS = 2 * 60 * 60 * 1000;
+const RECENT_RUN_REUSE_PAGE_SIZE = 25;
+const RECENT_RUN_REUSE_MAX_ROWS = 250;
 
 type CampaignPreview = {
   prefillStrategy: AIPrefillStrategy;
@@ -325,6 +328,8 @@ const coerceRequest = async (request: Request): Promise<{
   runMode: AIPrefillRunMode;
   prefillStrategy: AIPrefillStrategy;
   requestedCampaignNames: string[];
+  allowedLanguages: NgramLanguageCode[];
+  disableLanguageNegation: boolean;
 }> => {
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
   const profileId = String(body?.profile_id || "").trim();
@@ -339,6 +344,8 @@ const coerceRequest = async (request: Request): Promise<{
   const requestedCampaignNames = Array.isArray(body?.campaign_names)
     ? [...new Set(body.campaign_names.map((value) => String(value || "").trim()).filter(Boolean))]
     : [];
+  const allowedLanguages = normalizeAllowedLanguages(body?.allowed_languages);
+  const disableLanguageNegation = body?.disable_language_negation === true;
 
   if (!profileId || !adProduct || !dateFrom || !dateTo) {
     throw new Error("profile_id, ad_product, date_from, and date_to are required");
@@ -363,6 +370,9 @@ const coerceRequest = async (request: Request): Promise<{
       throw new Error("pure_model_single_campaign requires at least one selected campaign.");
     }
   }
+  if (!disableLanguageNegation && allowedLanguages.length === 0) {
+    throw new Error("Select at least one allowed language or disable language-based negation for this run.");
+  }
 
   return {
     profileId,
@@ -374,6 +384,8 @@ const coerceRequest = async (request: Request): Promise<{
     runMode: runModeRaw as AIPrefillRunMode,
     prefillStrategy: prefillStrategyRaw as AIPrefillStrategy,
     requestedCampaignNames,
+    allowedLanguages,
+    disableLanguageNegation,
   };
 };
 
@@ -397,6 +409,8 @@ const isRecentMatchingSavedRun = (
     runMode: AIPrefillRunMode;
     prefillStrategy: AIPrefillStrategy;
     requestedCampaignNames: string[];
+    allowedLanguages: NgramLanguageCode[];
+    disableLanguageNegation: boolean;
     expectedPromptVersion: string;
   },
 ): boolean => {
@@ -425,13 +439,23 @@ const isRecentMatchingSavedRun = (
   const payloadStrategy = String(payload.prefill_strategy || "heuristic_synthesis").trim().toLowerCase();
   if (payloadRunMode !== request.runMode) return false;
   if (payloadStrategy !== request.prefillStrategy) return false;
+  if (Boolean(payload.disable_language_negation) !== request.disableLanguageNegation) return false;
 
   const payloadCampaignNames = normalizeRequestedCampaignNames(payload.selected_campaigns);
   const requestCampaignNames = [...request.requestedCampaignNames].sort((left, right) =>
     left.localeCompare(right),
   );
   if (payloadCampaignNames.length !== requestCampaignNames.length) return false;
-  return payloadCampaignNames.every((value, index) => value === requestCampaignNames[index]);
+  if (!payloadCampaignNames.every((value, index) => value === requestCampaignNames[index])) return false;
+
+  if (request.disableLanguageNegation) return true;
+
+  const payloadAllowedLanguages = normalizeAllowedLanguages(payload.allowed_languages).sort((left, right) =>
+    left.localeCompare(right),
+  );
+  const requestAllowedLanguages = [...request.allowedLanguages].sort((left, right) => left.localeCompare(right));
+  if (payloadAllowedLanguages.length !== requestAllowedLanguages.length) return false;
+  return payloadAllowedLanguages.every((value, index) => value === requestAllowedLanguages[index]);
 };
 
 const loadRecentMatchingSavedRun = async (request: {
@@ -445,60 +469,68 @@ const loadRecentMatchingSavedRun = async (request: {
   runMode: AIPrefillRunMode;
   prefillStrategy: AIPrefillStrategy;
   requestedCampaignNames: string[];
+  allowedLanguages: NgramLanguageCode[];
+  disableLanguageNegation: boolean;
   expectedPromptVersion: string;
 }): Promise<{ id: string; createdAt: string | null; previewPayload: Record<string, unknown> } | null> => {
   const supabase = createSupabaseServiceClient();
-  const { data, error } = await supabase
-    .from("ngram_ai_preview_runs")
-    .select(
-      [
-        "id",
-        "created_at",
-        "requested_by_auth_user_id",
-        "profile_id",
-        "ad_product",
-        "date_from",
-        "date_to",
-        "spend_threshold",
-        "respect_legacy_exclusions",
-        "prompt_version",
-        "preview_payload",
-      ].join(","),
-    )
-    .eq("requested_by_auth_user_id", request.requestedByAuthUserId)
-    .eq("profile_id", request.profileId)
-    .eq("ad_product", request.adProduct)
-    .eq("date_from", request.dateFrom)
-    .eq("date_to", request.dateTo)
-    .eq("respect_legacy_exclusions", request.respectLegacyExclusions)
-    .eq("prompt_version", request.expectedPromptVersion)
-    .eq("spend_threshold", request.spendThreshold)
-    .order("created_at", { ascending: false })
-    .limit(5);
+  for (let offset = 0; offset < RECENT_RUN_REUSE_MAX_ROWS; offset += RECENT_RUN_REUSE_PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from("ngram_ai_preview_runs")
+      .select(
+        [
+          "id",
+          "created_at",
+          "requested_by_auth_user_id",
+          "profile_id",
+          "ad_product",
+          "date_from",
+          "date_to",
+          "spend_threshold",
+          "respect_legacy_exclusions",
+          "prompt_version",
+          "preview_payload",
+        ].join(","),
+      )
+      .eq("requested_by_auth_user_id", request.requestedByAuthUserId)
+      .eq("profile_id", request.profileId)
+      .eq("ad_product", request.adProduct)
+      .eq("date_from", request.dateFrom)
+      .eq("date_to", request.dateTo)
+      .eq("respect_legacy_exclusions", request.respectLegacyExclusions)
+      .eq("prompt_version", request.expectedPromptVersion)
+      .eq("spend_threshold", request.spendThreshold)
+      .order("created_at", { ascending: false })
+      .range(offset, offset + RECENT_RUN_REUSE_PAGE_SIZE - 1);
 
-  if (error) {
-    throw new Error(error.message);
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    const rows = Array.isArray(data) ? data : [];
+    const match = rows.find(
+      (row) => row && typeof row === "object" && isRecentMatchingSavedRun(row as Record<string, unknown>, request),
+    ) as Record<string, unknown> | undefined;
+
+    if (match) {
+      const previewPayload =
+        match.preview_payload && typeof match.preview_payload === "object" && !Array.isArray(match.preview_payload)
+          ? (match.preview_payload as Record<string, unknown>)
+          : null;
+
+      if (!previewPayload) return null;
+
+      return {
+        id: String(match.id || "").trim(),
+        createdAt: typeof match.created_at === "string" ? match.created_at : null,
+        previewPayload,
+      };
+    }
+
+    if (rows.length < RECENT_RUN_REUSE_PAGE_SIZE) break;
   }
 
-  const rows = Array.isArray(data) ? data : [];
-  const match = rows.find((row) =>
-    row && typeof row === "object" && isRecentMatchingSavedRun(row as Record<string, unknown>, request),
-  ) as Record<string, unknown> | undefined;
-
-  if (!match) return null;
-
-  const previewPayload =
-    match.preview_payload && typeof match.preview_payload === "object" && !Array.isArray(match.preview_payload)
-      ? (match.preview_payload as Record<string, unknown>)
-      : null;
-
-  if (!previewPayload) return null;
-
-  return {
-    id: String(match.id || "").trim(),
-    createdAt: typeof match.created_at === "string" ? match.created_at : null,
-    previewPayload,
-  };
+  return null;
 };
 
 export async function POST(request: Request) {
@@ -524,6 +556,8 @@ export async function POST(request: Request) {
       runMode,
       prefillStrategy,
       requestedCampaignNames,
+      allowedLanguages,
+      disableLanguageNegation,
     } =
       await coerceRequest(request);
 
@@ -537,6 +571,8 @@ export async function POST(request: Request) {
       run_mode: runMode,
       prefill_strategy: prefillStrategy,
       requested_campaign_names: requestedCampaignNames,
+      allowed_languages: allowedLanguages,
+      disable_language_negation: disableLanguageNegation,
     };
 
     await assertNgram2ProfileAccess(createSupabaseServiceClient(), user.id, profileId);
@@ -558,6 +594,8 @@ export async function POST(request: Request) {
         runMode,
         prefillStrategy,
         requestedCampaignNames,
+        allowedLanguages,
+        disableLanguageNegation,
         expectedPromptVersion,
       });
 
@@ -705,6 +743,8 @@ export async function POST(request: Request) {
                 .map((candidate) => candidate.product),
               terms,
               marketplaceCode: catalogProfile.marketplaceCode,
+              allowedLanguages,
+              disableLanguageNegation,
               brandContext,
               model: NGRAM_MODEL_OVERRIDE || undefined,
               maxTokens: estimateNgramCampaignMaxTokens(terms.length),
@@ -728,12 +768,14 @@ export async function POST(request: Request) {
           .map((candidate) => candidate.product);
         let contextPasses = 1;
         let contextEvaluation = await evaluateCampaignWithPureModelValidationRetry({
-          campaign,
-          catalogProducts: initialContextCandidates,
-          marketplaceCode: catalogProfile.marketplaceCode,
-          brandContext,
-          model: NGRAM_MODEL_OVERRIDE || undefined,
-          maxTokens: 2200,
+            campaign,
+            catalogProducts: initialContextCandidates,
+            marketplaceCode: catalogProfile.marketplaceCode,
+            allowedLanguages,
+            disableLanguageNegation,
+            brandContext,
+            model: NGRAM_MODEL_OVERRIDE || undefined,
+            maxTokens: 2200,
         });
         let contextTokensIn = contextEvaluation.tokensIn;
         let contextTokensOut = contextEvaluation.tokensOut;
@@ -745,14 +787,16 @@ export async function POST(request: Request) {
           rankedCatalogCandidates.length > PURE_MODEL_CONTEXT_CANDIDATE_LIMIT
         ) {
           const expandedContextEvaluation = await evaluateCampaignWithPureModelValidationRetry({
-            campaign,
-            catalogProducts: rankedCatalogCandidates
-              .slice(0, PURE_MODEL_CONTEXT_EXPANDED_CANDIDATE_LIMIT)
-              .map((candidate) => candidate.product),
-            marketplaceCode: catalogProfile.marketplaceCode,
-            brandContext,
-            model: NGRAM_MODEL_OVERRIDE || undefined,
-            maxTokens: 2200,
+              campaign,
+              catalogProducts: rankedCatalogCandidates
+                .slice(0, PURE_MODEL_CONTEXT_EXPANDED_CANDIDATE_LIMIT)
+                .map((candidate) => candidate.product),
+              marketplaceCode: catalogProfile.marketplaceCode,
+              allowedLanguages,
+              disableLanguageNegation,
+              brandContext,
+              model: NGRAM_MODEL_OVERRIDE || undefined,
+              maxTokens: 2200,
           });
           contextEvaluation = expandedContextEvaluation;
           contextTokensIn += expandedContextEvaluation.tokensIn;
@@ -782,6 +826,8 @@ export async function POST(request: Request) {
               matchedProduct: contextEvaluation.validated.matchedProduct,
               terms: termChunk,
               marketplaceCode: catalogProfile.marketplaceCode,
+              allowedLanguages,
+              disableLanguageNegation,
               matchConfidence: contextEvaluation.validated.matchConfidence,
               matchReason: contextEvaluation.validated.matchReason,
               brandContext,
@@ -951,6 +997,8 @@ export async function POST(request: Request) {
       runnable_campaigns: runnableCampaigns.length,
       preview_campaigns: previewResults.length,
       selected_campaigns: requestedCampaignNames,
+      allowed_languages: allowedLanguages,
+      disable_language_negation: disableLanguageNegation,
       ambiguous_campaigns: ambiguousCampaigns,
       intentionally_skipped_campaigns: intentionallySkippedCampaigns,
       recommendation_counts: recommendationCounts,

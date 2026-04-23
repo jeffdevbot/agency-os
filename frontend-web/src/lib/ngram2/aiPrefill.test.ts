@@ -369,6 +369,18 @@ describe("ngram2 aiPrefill helpers", () => {
     expect(scratchpad.bi).toHaveLength(0);
   });
 
+  it("preserves accented and non-ascii query text in ngram normalization", () => {
+    expect(buildNgramsForQuery("nettoyant écran ordinateur", 1)).toEqual([
+      "nettoyant",
+      "écran",
+      "ordinateur",
+    ]);
+    expect(buildNgramsForQuery("spray para televisión", 2)).toEqual([
+      "spray para",
+      "para televisión",
+    ]);
+  });
+
   it("validates pure-model exact and phrase negatives without heuristic synthesis", () => {
     const validated = validatePureModelCampaignResponse(
       {

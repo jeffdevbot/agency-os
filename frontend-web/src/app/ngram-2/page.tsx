@@ -3,6 +3,12 @@
 import Link from "next/link";
 import { startTransition, useEffect, useState } from "react";
 
+import {
+  getDefaultAllowedLanguagesForMarketplace,
+  getLanguageLabel,
+  NGRAM_LANGUAGE_OPTIONS,
+  type NgramLanguageCode,
+} from "@/lib/ngram2/languages";
 import { getBrowserSupabaseClient } from "@/lib/supabaseClient";
 import {
   buildNativeNgramClientOptions,
@@ -149,6 +155,8 @@ type AIPrefillCampaignPreview = {
 type AIPrefillPreview = {
   run_mode?: "preview" | "full";
   prefill_strategy?: AIPrefillStrategy;
+  allowed_languages?: string[];
+  disable_language_negation?: boolean;
   ad_product: string;
   profile_id: string;
   date_from: string;
@@ -189,6 +197,8 @@ type SavedNgramRun = {
   total_tokens: number;
   run_mode: "preview" | "full";
   prefill_strategy: string | null;
+  allowed_languages: string[];
+  disable_language_negation: boolean;
   preview_campaigns: number;
   runnable_campaigns: number;
   recommendation_counts: {
@@ -243,6 +253,11 @@ const formatReasonTag = (reasonTag: string): string =>
     .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
     .join(" ");
 
+const formatAllowedLanguageSummary = (codes: string[]): string => {
+  const labels = codes.map((code) => getLanguageLabel(code));
+  return labels.length > 0 ? labels.join(", ") : "None selected";
+};
+
 const sortPreviewEvaluations = (
   evaluations: AIPrefillRecommendation[],
 ): AIPrefillRecommendation[] => {
@@ -279,6 +294,8 @@ export default function NgramTwoPage() {
   const [summaryError, setSummaryError] = useState<string | null>(null);
   const [summary, setSummary] = useState<NativeNgramSummary | null>(null);
   const [spendThreshold, setSpendThreshold] = useState("0.00");
+  const [selectedAllowedLanguages, setSelectedAllowedLanguages] = useState<NgramLanguageCode[]>([]);
+  const [disableLanguageNegation, setDisableLanguageNegation] = useState(false);
   const [aiCampaignQuery, setAiCampaignQuery] = useState("");
   const [selectedAiCampaignNames, setSelectedAiCampaignNames] = useState<string[]>([]);
   const [aiPreviewLoading, setAiPreviewLoading] = useState(false);
@@ -414,6 +431,9 @@ export default function NgramTwoPage() {
   const campaignExclusionHelper = legacyExclusions
     ? "Campaign names containing Ex., SDI, or SDV will be skipped."
     : "All campaign names in the selected window will be included.";
+  const languageSelectionSummary = disableLanguageNegation
+    ? "Language-based negation is disabled for this run."
+    : formatAllowedLanguageSummary(selectedAllowedLanguages);
 
   const handleGenerateAiWorkbook = async () => {
     if (!canGenerateWorkbook || !selectedProfile) return;
@@ -421,6 +441,10 @@ export default function NgramTwoPage() {
     const parsedThreshold = Number.parseFloat(spendThreshold);
     if (!Number.isFinite(parsedThreshold) || parsedThreshold < 0) {
       setAiWorkbookError("Spend threshold must be a number greater than or equal to 0.");
+      return;
+    }
+    if (!disableLanguageNegation && selectedAllowedLanguages.length === 0) {
+      setAiWorkbookError("Select at least one allowed language or disable language-based negation for this run.");
       return;
     }
 
@@ -442,6 +466,8 @@ export default function NgramTwoPage() {
           respect_legacy_exclusions: legacyExclusions,
           run_mode: "full",
           prefill_strategy: "pure_model_single_campaign" satisfies AIPrefillStrategy,
+          allowed_languages: selectedAllowedLanguages,
+          disable_language_negation: disableLanguageNegation,
         }),
       });
 
@@ -734,6 +760,10 @@ export default function NgramTwoPage() {
       setAiPreviewError("Spend threshold must be a number greater than or equal to 0.");
       return;
     }
+    if (!disableLanguageNegation && selectedAllowedLanguages.length === 0) {
+      setAiPreviewError("Select at least one allowed language or disable language-based negation for this run.");
+      return;
+    }
 
     setAiPreviewLoading(true);
     setAiPreviewError(null);
@@ -755,6 +785,8 @@ export default function NgramTwoPage() {
           respect_legacy_exclusions: legacyExclusions,
           campaign_names: selectedAiCampaignNames,
           prefill_strategy: "pure_model_single_campaign",
+          allowed_languages: selectedAllowedLanguages,
+          disable_language_negation: disableLanguageNegation,
         }),
       });
 
@@ -787,6 +819,14 @@ export default function NgramTwoPage() {
     );
   };
 
+  const toggleAllowedLanguage = (languageCode: NgramLanguageCode) => {
+    setSelectedAllowedLanguages((current) =>
+      current.includes(languageCode)
+        ? current.filter((value) => value !== languageCode)
+        : [...current, languageCode],
+    );
+  };
+
   useEffect(() => {
     if (!activeClientId) return;
     if (selectedClientId === activeClientId) return;
@@ -804,6 +844,16 @@ export default function NgramTwoPage() {
       setSelectedProfileId(nextProfiles[0]?.profileId ?? "");
     }
   }, [selectedClientId, selectedProfileId, summaries]);
+
+  useEffect(() => {
+    if (!selectedProfile) {
+      setSelectedAllowedLanguages([]);
+      setDisableLanguageNegation(false);
+      return;
+    }
+    setSelectedAllowedLanguages(getDefaultAllowedLanguagesForMarketplace(selectedProfile.marketplaceCode));
+    setDisableLanguageNegation(false);
+  }, [selectedProfile?.profileId]);
 
   useEffect(() => {
     if (loading || !selectedProfile?.profileId || dayCount === null) {
@@ -900,7 +950,15 @@ export default function NgramTwoPage() {
     setCollectError(null);
     setSelectedAiCampaignNames([]);
     setAiCampaignQuery("");
-  }, [selectedProfile?.profileId, selectedProduct, dateFrom, dateTo, legacyExclusions]);
+  }, [
+    selectedProfile?.profileId,
+    selectedProduct,
+    dateFrom,
+    dateTo,
+    legacyExclusions,
+    disableLanguageNegation,
+    selectedAllowedLanguages.join(","),
+  ]);
 
   useEffect(() => {
     if (
@@ -929,6 +987,8 @@ export default function NgramTwoPage() {
             date_from: dateFrom,
             date_to: dateTo,
             respect_legacy_exclusions: String(legacyExclusions),
+            allowed_languages: [...selectedAllowedLanguages].sort((left, right) => left.localeCompare(right)).join(","),
+            disable_language_negation: String(disableLanguageNegation),
             limit: "5",
           }).toString()}`,
           {
@@ -970,6 +1030,8 @@ export default function NgramTwoPage() {
     dateFrom,
     dateTo,
     legacyExclusions,
+    disableLanguageNegation,
+    selectedAllowedLanguages.join(","),
     dayCount,
     savedRunsReloadToken,
   ]);
@@ -1071,6 +1133,67 @@ export default function NgramTwoPage() {
             <p className="mt-3 text-xs text-[#7d8ba1]">
               Missing a client or marketplace? Contact the admin (Jeff) to have it added.
             </p>
+
+            <div className="mt-6 grid gap-4 md:grid-cols-[1.4fr_280px]">
+              <div className="rounded-2xl border border-[#d7dfec] bg-white px-4 py-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-[#1b2430]">Allowed languages</p>
+                    <p className="mt-1 text-sm text-[#4c576f]">
+                      Marketplace defaults load automatically, but analysts can add or remove languages for this run.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSelectedAllowedLanguages(
+                        getDefaultAllowedLanguagesForMarketplace(selectedProfile?.marketplaceCode),
+                      )
+                    }
+                    className="rounded-full border border-[#cbd5e1] bg-white px-3 py-1.5 text-xs font-semibold text-[#334155] transition hover:border-[#94a3b8]"
+                  >
+                    Reset to marketplace defaults
+                  </button>
+                </div>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {NGRAM_LANGUAGE_OPTIONS.map((language) => {
+                    const selected = selectedAllowedLanguages.includes(language.code);
+                    return (
+                      <button
+                        key={language.code}
+                        type="button"
+                        onClick={() => toggleAllowedLanguage(language.code)}
+                        className={`rounded-full border px-3 py-2 text-sm font-semibold transition ${
+                          selected
+                            ? "border-[#8bb6ff] bg-[#eef5ff] text-[#0a4fb3]"
+                            : "border-[#d7dfec] bg-white text-[#475569] hover:border-[#b9caea] hover:bg-[#fbfcff]"
+                        }`}
+                      >
+                        {language.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="mt-3 text-xs text-[#7d8ba1]">
+                  {languageSelectionSummary}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setDisableLanguageNegation((current) => !current)}
+                className={`rounded-2xl border px-4 py-4 text-left transition ${
+                  disableLanguageNegation ? "border-[#c7d9ff] bg-[#eef5ff]" : "border-[#d7dfec] bg-white"
+                }`}
+              >
+                <p className="text-sm font-semibold text-[#1b2430]">Language-based negation</p>
+                <p className="mt-1 text-sm text-[#4c576f]">
+                  {disableLanguageNegation
+                    ? "Disabled. The AI will evaluate relevance without negating by language."
+                    : "Enabled. The AI may use foreign-language negation only outside the selected language set."}
+                </p>
+              </button>
+            </div>
 
             <div className="mt-8">
               <p className="text-sm font-semibold text-[#1b2430]">Ad type</p>
@@ -1746,7 +1869,7 @@ export default function NgramTwoPage() {
                 <div>
                   <p className="text-sm font-semibold text-[#0f172a]">Recent Saved Runs</p>
                   <p className="mt-1 text-xs text-[#7d8ba1]">
-                    These runs are filtered to your account plus the current marketplace, ad type, date range, and exclusion setting.
+                    These runs are filtered to your account plus the current marketplace, ad type, date range, and exclusion setting. Language policy is shown per run.
                   </p>
                 </div>
                 {savedRunsLoading ? (
@@ -1786,6 +1909,11 @@ export default function NgramTwoPage() {
                           <p className="mt-1 text-xs text-[#7d8ba1]">
                             {formatNumber(run.preview_campaigns)} campaign{run.preview_campaigns === 1 ? "" : "s"} ·{" "}
                             {formatNumber(run.total_tokens)} tokens · {run.prompt_version ?? "unknown prompt"}
+                          </p>
+                          <p className="mt-1 text-xs text-[#7d8ba1]">
+                            {run.disable_language_negation
+                              ? "Language negation disabled"
+                              : `Allowed languages: ${formatAllowedLanguageSummary(run.allowed_languages)}`}
                           </p>
                         </div>
                         <button
