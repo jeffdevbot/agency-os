@@ -39,6 +39,7 @@ export type AmazonAdsApiAccessSummary = {
   connected: boolean;
   source: "shared" | "legacy" | "none";
   shared_connection: ReportApiAccessSharedConnection | null;
+  shared_connections: ReportApiAccessSharedConnection[];
   legacy_connection: ReportApiAccessLegacyConnection | null;
   connect_profiles: ReportApiAccessConnectProfile[];
 };
@@ -143,6 +144,11 @@ const parseSummary = (value: unknown): AmazonAdsApiAccessSummary => {
     connected: value.connected === true,
     source: source === "shared" || source === "legacy" ? source : "none",
     shared_connection: parseSharedConnection(value.shared_connection),
+    shared_connections: Array.isArray(value.shared_connections)
+      ? value.shared_connections
+          .map(parseSharedConnection)
+          .filter((connection): connection is ReportApiAccessSharedConnection => Boolean(connection))
+      : [],
     legacy_connection: parseLegacyConnection(value.legacy_connection),
     connect_profiles: Array.isArray(value.connect_profiles)
       ? value.connect_profiles.map(parseConnectProfile)
@@ -173,6 +179,7 @@ export type SpApiConnectionSummary = {
   client_status: string;
   connected: boolean;
   connection: ReportApiAccessSharedConnection | null;
+  connections: ReportApiAccessSharedConnection[];
 };
 
 const parseSpApiSummary = (value: unknown): SpApiConnectionSummary => {
@@ -186,6 +193,11 @@ const parseSpApiSummary = (value: unknown): SpApiConnectionSummary => {
     client_status: asString(value.client_status),
     connected: value.connected === true,
     connection: parseSharedConnection(value.connection),
+    connections: Array.isArray(value.connections)
+      ? value.connections
+          .map(parseSharedConnection)
+          .filter((connection): connection is ReportApiAccessSharedConnection => Boolean(connection))
+      : [],
   };
 };
 
@@ -268,6 +280,7 @@ export type DisconnectConnectionResult = {
 export const validateSpApiConnection = async (
   token: string,
   clientId: string,
+  region?: SpApiRegionCode,
 ): Promise<SpApiValidateResult> => {
   const response = await fetch(
     `${getBackendUrl()}/admin/reports/api-access/amazon-spapi/validate`,
@@ -275,7 +288,7 @@ export const validateSpApiConnection = async (
       method: "POST",
       cache: "no-store",
       headers: authJsonHeaders(token),
-      body: JSON.stringify({ client_id: clientId }),
+      body: JSON.stringify({ client_id: clientId, ...(region ? { region } : {}) }),
     },
   );
   if (!response.ok) {

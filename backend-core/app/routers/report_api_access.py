@@ -308,6 +308,7 @@ class SpApiConnectRequest(BaseModel):
 
 class SpApiValidateRequest(BaseModel):
     client_id: str = Field(..., min_length=1)
+    region: str | None = Field(default=None, min_length=2, max_length=3)
 
 
 class SpApiConnectionRegionRequest(BaseModel):
@@ -398,11 +399,28 @@ async def validate_report_api_access_spapi(
     getMarketplaceParticipations."""
     del user
     db = _get_supabase()
-    connection = get_spapi_connection(db, request.client_id)
+    try:
+        region_code = (
+            normalize_spapi_region_code(request.region)
+            if request.region
+            else None
+        )
+    except WBRValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    connection = get_spapi_connection(
+        db,
+        request.client_id,
+        region_code=region_code,
+    )
     if not connection:
         raise HTTPException(
             status_code=404,
-            detail="No Amazon Seller API connection found for this client",
+            detail=(
+                "No Amazon Seller API connection found for this client and region"
+                if region_code
+                else "No Amazon Seller API connection found for this client"
+            ),
         )
 
     connection_id = str(connection.get("id") or "")

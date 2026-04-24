@@ -31,7 +31,16 @@ def _ts_value(row: dict[str, Any], *keys: str) -> str:
 def _pick_latest(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
     if not rows:
         return None
-    return max(rows, key=lambda row: _ts_value(row, "updated_at", "connected_at", "created_at"))
+    return max(
+        rows,
+        key=lambda row: _ts_value(
+            row,
+            "last_validated_at",
+            "updated_at",
+            "connected_at",
+            "created_at",
+        ),
+    )
 
 
 def _profile_sort_key(profile: dict[str, Any]) -> tuple[int, str]:
@@ -146,11 +155,11 @@ def list_amazon_ads_connections(db: Client) -> list[dict[str, Any]]:
         if client_id:
             profiles_by_client[client_id].append(profile)
 
-    shared_by_client = {
-        str(row.get("client_id") or "").strip(): row
-        for row in shared_rows
-        if str(row.get("client_id") or "").strip()
-    }
+    shared_by_client: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in shared_rows:
+        client_id = str(row.get("client_id") or "").strip()
+        if client_id:
+            shared_by_client[client_id].append(row)
     legacy_by_profile = {
         str(row.get("profile_id") or "").strip(): row
         for row in legacy_rows
@@ -164,7 +173,8 @@ def list_amazon_ads_connections(db: Client) -> list[dict[str, Any]]:
         latest_legacy = _pick_latest(
             [legacy_by_profile[profile_id] for profile_id in [str(p.get("id") or "") for p in client_profiles] if profile_id in legacy_by_profile]
         )
-        shared_connection = shared_by_client.get(client_id)
+        shared_connections = shared_by_client.get(client_id, [])
+        shared_connection = _pick_latest(shared_connections)
         source = "shared" if shared_connection else "legacy" if latest_legacy else "none"
 
         summaries.append(
@@ -175,6 +185,10 @@ def list_amazon_ads_connections(db: Client) -> list[dict[str, Any]]:
                 "connected": _is_shared_connection_healthy(shared_connection) if shared_connection else bool(latest_legacy),
                 "source": source,
                 "shared_connection": _serialize_shared_connection(shared_connection) if shared_connection else None,
+                "shared_connections": [
+                    _serialize_shared_connection(row)
+                    for row in sorted(shared_connections, key=lambda row: _ts_value(row, "region_code", "external_account_id"))
+                ],
                 "legacy_connection": _serialize_legacy_connection(latest_legacy) if latest_legacy else None,
                 "connect_profiles": [_serialize_connect_profile(profile) for profile in client_profiles],
             }
@@ -277,14 +291,18 @@ def upsert_spapi_connection(
     if updated_by:
         payload["updated_by"] = updated_by
 
-    existing_rows = _as_rows(
+    query = (
         db.table("report_api_connections")
         .select("id")
         .eq("client_id", client_id)
         .eq("provider", AMAZON_SPAPI_PROVIDER)
-        .limit(1)
-        .execute()
     )
+    if selling_partner_id:
+        query = query.eq("external_account_id", selling_partner_id)
+    else:
+        query = query.eq("region_code", normalized_region)
+
+    existing_rows = _as_rows(query.limit(1).execute())
     if existing_rows:
         db.table("report_api_connections").update(payload).eq(
             "id", existing_rows[0]["id"]
@@ -315,16 +333,17 @@ def list_spapi_connections(db: Client) -> list[dict[str, Any]]:
         .execute()
     )
 
-    shared_by_client = {
-        str(row.get("client_id") or "").strip(): row
-        for row in shared_rows
-        if str(row.get("client_id") or "").strip()
-    }
+    shared_by_client: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in shared_rows:
+        client_id = str(row.get("client_id") or "").strip()
+        if client_id:
+            shared_by_client[client_id].append(row)
 
     summaries: list[dict[str, Any]] = []
     for client in client_rows:
         client_id = str(client.get("id") or "").strip()
-        connection = shared_by_client.get(client_id)
+        connections = shared_by_client.get(client_id, [])
+        connection = _pick_latest(connections)
         summaries.append(
             {
                 "client_id": client_id,
@@ -334,15 +353,24 @@ def list_spapi_connections(db: Client) -> list[dict[str, Any]]:
                 "connection": _serialize_shared_connection(connection)
                 if connection
                 else None,
+                "connections": [
+                    _serialize_shared_connection(row)
+                    for row in sorted(connections, key=lambda row: _ts_value(row, "region_code", "external_account_id"))
+                ],
             }
         )
 
     return summaries
 
 
-def get_spapi_connection(db: Client, client_id: str) -> dict[str, Any] | None:
+def get_spapi_connection(
+    db: Client,
+    client_id: str,
+    *,
+    region_code: str | None = None,
+) -> dict[str, Any] | None:
     """Return the SP-API shared connection for a client, or None."""
-    rows = _as_rows(
+    query = (
         db.table("report_api_connections")
         .select(
             "id, client_id, provider, connection_status, external_account_id, "
@@ -351,9 +379,11 @@ def get_spapi_connection(db: Client, client_id: str) -> dict[str, Any] | None:
         )
         .eq("client_id", client_id)
         .eq("provider", AMAZON_SPAPI_PROVIDER)
-        .limit(1)
-        .execute()
     )
+    if region_code:
+        query = query.eq("region_code", normalize_spapi_region_code(region_code))
+
+    rows = _as_rows(query.limit(1).execute())
     return rows[0] if rows else None
 
 
