@@ -124,6 +124,16 @@ class SpApiBusinessDebugRequest(BaseModel):
     omit_report_options: bool = Field(default=False)
 
 
+class SpApiGenericDebugRequest(BaseModel):
+    profile_id: str = Field(..., min_length=1)
+    report_type: str = Field(..., min_length=1)
+    data_start_time: datetime | None = None
+    data_end_time: datetime | None = None
+    report_options: dict[str, str] | None = None
+    format: str = Field(default="tsv")
+    max_sample_rows: int = Field(default=3, ge=0, le=20)
+
+
 @router.get("/amazon-spapi/connections")
 async def list_report_api_access_spapi_connections(user=Depends(require_admin_user)):
     del user
@@ -416,6 +426,105 @@ async def debug_report_api_access_spapi_business(
         "raw_rows": rows,
     }
 
+
+@router.post("/amazon-spapi/debug-generic-report")
+async def debug_report_api_access_spapi_generic(
+    request: SpApiGenericDebugRequest,
+    user=Depends(require_admin_user),
+):
+    """Diagnostic: fetch ANY SP-API report by type for a profile's marketplace.
+    Returns a sampled preview + shape summary + row count. Useful for isolating
+    whether empty-response issues are Brand-Analytics-specific or broader."""
+    del user
+    from ..services.wbr.spapi_business_sync import MARKETPLACE_IDS_BY_CODE
+
+    db = _get_supabase()
+
+    profile_resp = (
+        db.table("wbr_profiles").select("*").eq("id", request.profile_id).limit(1).execute()
+    )
+    profile_rows = profile_resp.data if isinstance(profile_resp.data, list) else []
+    if not profile_rows:
+        raise HTTPException(status_code=404, detail=f"Profile {request.profile_id} not found")
+    profile = profile_rows[0]
+
+    client_id = str(profile.get("client_id") or "").strip()
+    marketplace_code = str(profile.get("marketplace_code") or "").strip().upper()
+    marketplace_id = MARKETPLACE_IDS_BY_CODE.get(marketplace_code)
+    if not marketplace_id:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Marketplace {marketplace_code or '<blank>'} not mapped",
+        )
+
+    conn_resp = (
+        db.table("report_api_connections")
+        .select("*")
+        .eq("client_id", client_id)
+        .eq("provider", "amazon_spapi")
+        .limit(1)
+        .execute()
+    )
+    conn_rows = conn_resp.data if isinstance(conn_resp.data, list) else []
+    if not conn_rows:
+        raise HTTPException(status_code=400, detail="No SP-API connection for this client")
+    connection = conn_rows[0]
+
+    refresh_token = str(connection.get("refresh_token") or "").strip()
+    region_code = str(connection.get("region_code") or "").strip()
+    if not refresh_token or not region_code:
+        raise HTTPException(status_code=400, detail="Connection missing refresh_token or region_code")
+
+    fmt = request.format.strip().lower()
+    if fmt not in {"tsv", "json"}:
+        raise HTTPException(status_code=400, detail="format must be 'tsv' or 'json'")
+
+    client = SpApiReportsClient(refresh_token, region_code)
+    call_kwargs: dict = {
+        "marketplace_ids": [marketplace_id],
+    }
+    if request.data_start_time is not None:
+        call_kwargs["data_start_time"] = request.data_start_time
+    if request.data_end_time is not None:
+        call_kwargs["data_end_time"] = request.data_end_time
+    if request.report_options is not None:
+        call_kwargs["report_options"] = request.report_options
+
+    try:
+        rows = await client.fetch_report_rows(
+            request.report_type,
+            format=fmt,
+            **call_kwargs,
+        )
+    except Exception as exc:
+        logger.exception("Generic SP-API debug report failed")
+        raise HTTPException(
+            status_code=500,
+            detail=f"SP-API debug report failed: {exc}",
+        )
+
+    row_list = rows if isinstance(rows, list) else []
+    first_keys: list[str] = []
+    if row_list and isinstance(row_list[0], dict):
+        first_keys = sorted(row_list[0].keys())
+    sample = row_list[: request.max_sample_rows]
+
+    return {
+        "ok": True,
+        "request": {
+            "profile_id": request.profile_id,
+            "marketplace_code": marketplace_code,
+            "marketplace_id": marketplace_id,
+            "report_type": request.report_type,
+            "format": fmt,
+            "data_start_time": request.data_start_time.isoformat() if request.data_start_time else None,
+            "data_end_time": request.data_end_time.isoformat() if request.data_end_time else None,
+            "report_options": request.report_options,
+        },
+        "rows_received": len(row_list),
+        "first_row_columns": first_keys,
+        "sample_rows": sample,
+    }
 
 
 # ---------------------------------------------------------------------------
