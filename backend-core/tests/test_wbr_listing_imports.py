@@ -251,12 +251,13 @@ class TestListingImportService:
         profile = {"id": "p1", "windsor_account_id": "A3R8Q6L34VPOIB-US", "marketplace_code": "US"}
         running_batch = {"id": "b1", "import_status": "running"}
         finished_batch = {"id": "b1", "import_status": "success", "rows_read": 1, "rows_loaded": 1}
+        create_batch_table = _chain_table([running_batch])
 
         db = _multi_table_db(
             {
                 "wbr_profiles": [_chain_table([profile])],
                 "wbr_listing_import_batches": [
-                    _chain_table([running_batch]),
+                    create_batch_table,
                     _chain_table([finished_batch]),
                 ],
                 "wbr_profile_child_asins": [
@@ -292,6 +293,7 @@ class TestListingImportService:
         assert result["summary"]["rows_loaded"] == 1
         assert result["summary"]["source_type"] == "windsor"
         assert result["summary"]["windsor_account_id"] == "A3R8Q6L34VPOIB-US"
+        assert create_batch_table.insert.call_args.args[0]["source_provider"] == "windsor"
         svc._request_windsor.assert_awaited_once()
         request_params = svc._request_windsor.await_args.args[0]
         assert request_params["date_preset"] == "last_3d"
@@ -376,3 +378,218 @@ class TestListingImportService:
 
         with pytest.raises(WBRValidationError, match="marketplace mismatch"):
             await svc.import_from_windsor(profile_id="p1", user_id="u1")
+
+    @pytest.mark.asyncio
+    async def test_import_from_spapi_happy_path(self, monkeypatch):
+        profile = {"id": "p1", "client_id": "client-1", "marketplace_code": "CA"}
+        running_batch = {"id": "b1", "import_status": "running", "source_provider": "amazon_spapi"}
+        finished_batch = {
+            "id": "b1",
+            "import_status": "success",
+            "rows_read": 3,
+            "rows_loaded": 2,
+            "source_provider": "amazon_spapi",
+        }
+        create_batch_table = _chain_table([running_batch])
+        insert_asins_table = _chain_table([{"id": "a1"}, {"id": "a2"}])
+
+        db = _multi_table_db(
+            {
+                "wbr_profiles": [_chain_table([profile])],
+                "wbr_listing_import_batches": [
+                    create_batch_table,
+                    _chain_table([finished_batch]),
+                ],
+                "wbr_profile_child_asins": [
+                    _chain_table([]),
+                    insert_asins_table,
+                ],
+            }
+        )
+
+        class FakeSpApiListingsFetchService:
+            def __init__(self, service_db):
+                assert service_db is db
+
+            async def fetch_listings_raw(self, *, profile_id: str):
+                assert profile_id == "p1"
+                return [
+                    {
+                        "asin1": "B012345678",
+                        "asin2": "B000PARENT1",
+                        "seller-sku": "SKU-1",
+                        "item-name": "Widget A",
+                        "fulfillment-channel": "AMAZON_NA",
+                    },
+                    {
+                        "asin1": "B012345679",
+                        "asin2": "B000PARENT2",
+                        "seller-sku": "SKU-2",
+                        "item-name": "Widget B",
+                        "fulfillment-channel": "DEFAULT",
+                    },
+                    {
+                        "asin1": "B012345679",
+                        "seller-sku": "SKU-2-DUP",
+                        "item-name": "Widget B Updated",
+                    },
+                ]
+
+        monkeypatch.setattr(
+            "app.services.wbr.spapi_listings_fetch.SpApiListingsFetchService",
+            FakeSpApiListingsFetchService,
+        )
+
+        result = await ListingImportService(db).import_from_spapi(profile_id="p1", user_id="u1")
+
+        assert result["batch"]["import_status"] == "success"
+        assert result["batch"]["source_provider"] == "amazon_spapi"
+        assert result["summary"] == {
+            "source_type": "amazon_spapi",
+            "source_provider": "amazon_spapi",
+            "sheet_title": None,
+            "header_row_index": 0,
+            "rows_read": 3,
+            "rows_loaded": 2,
+            "duplicate_rows_merged": 1,
+        }
+        create_payload = create_batch_table.insert.call_args.args[0]
+        assert create_payload["source_provider"] == "amazon_spapi"
+        assert create_payload["source_filename"] == "amazon_spapi:get_merchant_listings_all_data:client-1"
+        inserted_rows = insert_asins_table.insert.call_args.args[0]
+        assert len(inserted_rows) == 2
+        assert inserted_rows[0]["profile_id"] == "p1"
+        assert inserted_rows[0]["listing_batch_id"] == "b1"
+        assert inserted_rows[0]["child_asin"] == "B012345678"
+        assert inserted_rows[0]["parent_asin"] == "B000PARENT1"
+        assert inserted_rows[0]["active"] is True
+        assert inserted_rows[1]["child_sku"] == "SKU-2-DUP"
+
+    @pytest.mark.asyncio
+    async def test_import_from_spapi_propagates_validation_error(self, monkeypatch):
+        profile = {"id": "p1", "client_id": "client-1", "marketplace_code": "CA"}
+        running_batch = {"id": "b1", "import_status": "running", "source_provider": "amazon_spapi"}
+        error_batch = {
+            "id": "b1",
+            "import_status": "error",
+            "rows_read": 0,
+            "rows_loaded": 0,
+            "source_provider": "amazon_spapi",
+        }
+        finalize_table = _chain_table([error_batch])
+
+        db = _multi_table_db(
+            {
+                "wbr_profiles": [_chain_table([profile])],
+                "wbr_listing_import_batches": [
+                    _chain_table([running_batch]),
+                    finalize_table,
+                ],
+            }
+        )
+
+        class FakeSpApiListingsFetchService:
+            def __init__(self, _db):
+                pass
+
+            async def fetch_listings_raw(self, *, profile_id: str):
+                raise WBRValidationError("SP-API listings failed")
+
+        monkeypatch.setattr(
+            "app.services.wbr.spapi_listings_fetch.SpApiListingsFetchService",
+            FakeSpApiListingsFetchService,
+        )
+
+        with pytest.raises(WBRValidationError, match="SP-API listings failed"):
+            await ListingImportService(db).import_from_spapi(profile_id="p1", user_id="u1")
+
+        update_payload = finalize_table.update.call_args.args[0]
+        assert update_payload["import_status"] == "error"
+        assert update_payload["error_message"] == "SP-API listings failed"
+
+    @pytest.mark.asyncio
+    async def test_import_from_spapi_missing_client_id(self, monkeypatch):
+        db = _multi_table_db(
+            {
+                "wbr_profiles": [_chain_table([{"id": "p1", "marketplace_code": "CA"}])],
+            }
+        )
+
+        with pytest.raises(WBRValidationError, match="missing client_id"):
+            await ListingImportService(db).import_from_spapi(profile_id="p1", user_id="u1")
+
+        assert db.table.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_batch_source_provider_defaults(self, monkeypatch):
+        file_bytes = (
+            "seller-sku\titem-name\tasin1\r\n"
+            "SKU-1\tWidget A\tB012345678\r\n"
+        ).encode("utf-8")
+        file_create_batch = _chain_table([{"id": "file-batch", "import_status": "running"}])
+        file_db = _multi_table_db(
+            {
+                "wbr_profiles": [_chain_table([{"id": "p1"}])],
+                "wbr_listing_import_batches": [
+                    file_create_batch,
+                    _chain_table([{"id": "file-batch", "import_status": "success"}]),
+                ],
+                "wbr_profile_child_asins": [
+                    _chain_table([]),
+                    _chain_table([{"id": "a1"}]),
+                ],
+            }
+        )
+
+        ListingImportService(file_db).import_file(
+            profile_id="p1",
+            file_name="all-listings-report.txt",
+            file_bytes=file_bytes,
+        )
+
+        assert file_create_batch.insert.call_args.args[0]["source_provider"] == "file_upload"
+
+        windsor_create_batch = _chain_table([{"id": "windsor-batch", "import_status": "running"}])
+        windsor_db = _multi_table_db(
+            {
+                "wbr_profiles": [
+                    _chain_table(
+                        [
+                            {
+                                "id": "p1",
+                                "windsor_account_id": "A3R8Q6L34VPOIB-US",
+                                "marketplace_code": "US",
+                            }
+                        ]
+                    )
+                ],
+                "wbr_listing_import_batches": [
+                    windsor_create_batch,
+                    _chain_table([{"id": "windsor-batch", "import_status": "success"}]),
+                ],
+                "wbr_profile_child_asins": [
+                    _chain_table([]),
+                    _chain_table([{"id": "a1"}]),
+                ],
+            }
+        )
+        svc = ListingImportService(windsor_db)
+        svc.windsor_api_key = "secret"
+        monkeypatch.setattr(
+            svc,
+            "_request_windsor",
+            AsyncMock(
+                return_value=MagicMock(
+                    status_code=200,
+                    text=(
+                        "account_id,marketplace_country,merchant_listings_all_data__asin1\r\n"
+                        "A3R8Q6L34VPOIB-US,US,B012345678\r\n"
+                    ),
+                    headers={"content-type": "text/csv"},
+                )
+            ),
+        )
+
+        await svc.import_from_windsor(profile_id="p1")
+
+        assert windsor_create_batch.insert.call_args.args[0]["source_provider"] == "windsor"

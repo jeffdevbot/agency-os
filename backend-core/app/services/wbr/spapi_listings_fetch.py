@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, fields
 from datetime import UTC, datetime, timedelta
-from typing import Any, Callable, Protocol
+from typing import Any, Callable, NamedTuple, Protocol
 
 from supabase import Client
 
@@ -35,6 +35,13 @@ class ListingsReportsClient(Protocol):
 
 
 ClientFactory = Callable[[str, str], ListingsReportsClient]
+
+
+class ListingsRequestContext(NamedTuple):
+    marketplace_id: str
+    refresh_token: str
+    region_code: str
+    marketplace_code: str
 
 
 def _default_client_factory(refresh_token: str, region_code: str) -> SpApiReportsClient:
@@ -72,6 +79,46 @@ class SpApiListingsFetchService:
 
     async def fetch_listings(self, *, profile_id: str) -> dict[str, Any]:
         """Fetch GET_MERCHANT_LISTINGS_ALL_DATA and return a normalized preview."""
+        context = self._resolve_request_context(profile_id)
+        raw_rows = await self._fetch_listings_raw_for_context(context)
+        parsed = _parse_dict_rows(raw_rows, source_type="amazon_spapi", sheet_title=None)
+
+        mapped_columns = _mapped_source_columns(raw_rows[0]) if raw_rows else set()
+        unmapped_columns = set(raw_rows[0].keys()) - mapped_columns if raw_rows else set()
+
+        return {
+            "profile_id": profile_id,
+            "marketplace_code": context.marketplace_code,
+            "marketplace_id": context.marketplace_id,
+            "rows_fetched": len(raw_rows),
+            "rows_parsed": len(parsed.records),
+            "duplicate_rows_merged": parsed.duplicate_rows_merged,
+            "unmapped_columns": sorted(unmapped_columns),
+            "sample_records": [
+                asdict(record)
+                for record in parsed.records[:5]
+            ],
+        }
+
+    async def fetch_listings_raw(self, *, profile_id: str) -> list[dict[str, Any]]:
+        context = self._resolve_request_context(profile_id)
+        return await self._fetch_listings_raw_for_context(context)
+
+    async def _fetch_listings_raw_for_context(
+        self,
+        context: ListingsRequestContext,
+    ) -> list[dict[str, Any]]:
+        now = datetime.now(UTC)
+        client = self._client_factory(context.refresh_token, context.region_code)
+        return await client.fetch_report_rows(
+            REPORT_TYPE_MERCHANT_LISTINGS,
+            marketplace_ids=[context.marketplace_id],
+            data_start_time=now - timedelta(days=1),
+            data_end_time=now,
+            format="tsv",
+        )
+
+    def _resolve_request_context(self, profile_id: str) -> ListingsRequestContext:
         profile = self._get_profile(profile_id)
         client_id = str(profile.get("client_id") or "").strip()
         marketplace_code = str(profile.get("marketplace_code") or "").strip().upper()
@@ -88,34 +135,12 @@ class SpApiListingsFetchService:
             raise WBRValidationError("Stored SP-API connection has no refresh token")
         if not region_code:
             raise WBRValidationError("Stored SP-API connection has no region_code")
-
-        now = datetime.now(UTC)
-        client = self._client_factory(refresh_token, region_code)
-        raw_rows = await client.fetch_report_rows(
-            REPORT_TYPE_MERCHANT_LISTINGS,
-            marketplace_ids=[marketplace_id],
-            data_start_time=now - timedelta(days=1),
-            data_end_time=now,
-            format="tsv",
+        return ListingsRequestContext(
+            marketplace_id=marketplace_id,
+            refresh_token=refresh_token,
+            region_code=region_code,
+            marketplace_code=marketplace_code,
         )
-        parsed = _parse_dict_rows(raw_rows, source_type="amazon_spapi", sheet_title=None)
-
-        mapped_columns = _mapped_source_columns(raw_rows[0]) if raw_rows else set()
-        unmapped_columns = set(raw_rows[0].keys()) - mapped_columns if raw_rows else set()
-
-        return {
-            "profile_id": profile_id,
-            "marketplace_code": marketplace_code,
-            "marketplace_id": marketplace_id,
-            "rows_fetched": len(raw_rows),
-            "rows_parsed": len(parsed.records),
-            "duplicate_rows_merged": parsed.duplicate_rows_merged,
-            "unmapped_columns": sorted(unmapped_columns),
-            "sample_records": [
-                asdict(record)
-                for record in parsed.records[:5]
-            ],
-        }
 
     def _get_profile(self, profile_id: str) -> dict[str, Any]:
         response = (

@@ -140,6 +140,22 @@ def _listing_rows() -> list[dict[str, Any]]:
 
 
 @pytest.mark.asyncio
+async def test_fetch_listings_raw_returns_raw_rows() -> None:
+    fake_client = _FakeReportsClient(_listing_rows())
+    service = SpApiListingsFetchService(
+        _base_db(connection={"refresh_token": "refresh-token", "region_code": "NA"}),
+        client_factory=lambda refresh_token, region_code: fake_client,
+    )
+
+    rows = await service.fetch_listings_raw(profile_id="profile-1")
+
+    assert rows == _listing_rows()
+    assert fake_client.calls[0]["report_type"] == REPORT_TYPE_MERCHANT_LISTINGS
+    assert fake_client.calls[0]["marketplace_ids"] == ["A2EUQ1WTGCTBG2"]
+    assert fake_client.calls[0]["format"] == "tsv"
+
+
+@pytest.mark.asyncio
 async def test_fetch_listings_returns_normalized_preview() -> None:
     fake_client = _FakeReportsClient(_listing_rows())
     service = SpApiListingsFetchService(

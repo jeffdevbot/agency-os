@@ -505,6 +505,7 @@ class ListingImportService:
             profile_id=profile_id,
             file_name=f"windsor:get_merchant_listings_all_data:{account_id}",
             user_id=user_id,
+            source_provider="windsor",
         )
         batch_id = str(batch["id"])
 
@@ -565,7 +566,12 @@ class ListingImportService:
     ) -> dict[str, Any]:
         self._validate_file_name(file_name)
         self._get_profile(profile_id)
-        batch = self._create_batch(profile_id=profile_id, file_name=file_name, user_id=user_id)
+        batch = self._create_batch(
+            profile_id=profile_id,
+            file_name=file_name,
+            user_id=user_id,
+            source_provider="file_upload",
+        )
         batch_id = str(batch["id"])
 
         try:
@@ -586,6 +592,81 @@ class ListingImportService:
                 "batch": batch,
                 "summary": {
                     "source_type": parsed.source_type,
+                    "sheet_title": parsed.sheet_title,
+                    "header_row_index": parsed.header_row_index,
+                    "rows_read": parsed.rows_read,
+                    "rows_loaded": loaded_count,
+                    "duplicate_rows_merged": parsed.duplicate_rows_merged,
+                },
+            }
+        except WBRValidationError as exc:
+            self._finalize_batch(
+                batch_id=batch_id,
+                import_status="error",
+                rows_read=0,
+                rows_loaded=0,
+                error_message=str(exc),
+            )
+            raise
+        except Exception as exc:  # noqa: BLE001
+            self._finalize_batch(
+                batch_id=batch_id,
+                import_status="error",
+                rows_read=0,
+                rows_loaded=0,
+                error_message=str(exc),
+            )
+            raise
+
+    async def import_from_spapi(
+        self,
+        *,
+        profile_id: str,
+        user_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Ingest listings via SP-API GET_MERCHANT_LISTINGS_ALL_DATA."""
+        profile = self._get_profile(profile_id)
+        client_id = str(profile.get("client_id") or "").strip()
+        if not client_id:
+            raise WBRValidationError("WBR profile is missing client_id")
+
+        batch = self._create_batch(
+            profile_id=profile_id,
+            file_name=f"amazon_spapi:get_merchant_listings_all_data:{client_id}",
+            user_id=user_id,
+            source_provider="amazon_spapi",
+        )
+        batch_id = str(batch["id"])
+
+        try:
+            from .spapi_listings_fetch import SpApiListingsFetchService
+
+            rows = await SpApiListingsFetchService(self.db).fetch_listings_raw(
+                profile_id=profile_id
+            )
+            self._validate_marketplace(
+                rows,
+                expected_marketplace=str(profile.get("marketplace_code") or "").strip(),
+                source_label="SP-API listings",
+            )
+            parsed = _parse_dict_rows(rows, source_type="amazon_spapi", sheet_title=None)
+            loaded_count = self._replace_child_asins(
+                profile_id=profile_id,
+                batch_id=batch_id,
+                records=parsed.records,
+            )
+            batch = self._finalize_batch(
+                batch_id=batch_id,
+                import_status="success",
+                rows_read=parsed.rows_read,
+                rows_loaded=loaded_count,
+                error_message=None,
+            )
+            return {
+                "batch": batch,
+                "summary": {
+                    "source_type": parsed.source_type,
+                    "source_provider": "amazon_spapi",
                     "sheet_title": parsed.sheet_title,
                     "header_row_index": parsed.header_row_index,
                     "rows_read": parsed.rows_read,
@@ -670,7 +751,13 @@ class ListingImportService:
         reader = csv.DictReader(io.StringIO(body))
         return [dict(row) for row in reader]
 
-    def _validate_marketplace(self, rows: list[dict[str, Any]], *, expected_marketplace: str) -> None:
+    def _validate_marketplace(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        expected_marketplace: str,
+        source_label: str = "Windsor listings",
+    ) -> None:
         expected = expected_marketplace.strip().upper()
         if not expected:
             return
@@ -683,13 +770,21 @@ class ListingImportService:
             return
         if marketplace_values != {expected}:
             raise WBRValidationError(
-                f"Windsor listings marketplace mismatch: expected {expected}, got {', '.join(sorted(marketplace_values))}"
+                f"{source_label} marketplace mismatch: expected {expected}, got {', '.join(sorted(marketplace_values))}"
             )
 
-    def _create_batch(self, *, profile_id: str, file_name: str, user_id: str | None) -> dict[str, Any]:
+    def _create_batch(
+        self,
+        *,
+        profile_id: str,
+        file_name: str,
+        user_id: str | None,
+        source_provider: str = "windsor",
+    ) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "profile_id": profile_id,
             "source_filename": file_name,
+            "source_provider": source_provider,
             "import_status": "running",
         }
         if user_id:

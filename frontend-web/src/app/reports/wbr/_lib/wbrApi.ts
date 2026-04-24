@@ -88,6 +88,7 @@ export type WbrListingImportBatch = {
   id: string;
   profile_id: string;
   source_filename: string | null;
+  source_provider: "windsor" | "file_upload" | "amazon_spapi";
   import_status: WbrListingImportBatchStatus;
   rows_read: number;
   rows_loaded: number;
@@ -101,6 +102,7 @@ export type WbrListingImportBatch = {
 
 export type WbrListingImportSummary = {
   source_type: string;
+  source_provider?: string | null;
   sheet_title: string | null;
   header_row_index: number;
   rows_read: number;
@@ -330,6 +332,10 @@ const parseListingImportBatch = (value: unknown): WbrListingImportBatch => {
     id: asString(value.id),
     profile_id: asString(value.profile_id),
     source_filename: asNullableString(value.source_filename),
+    source_provider:
+      value.source_provider === "file_upload" || value.source_provider === "amazon_spapi"
+        ? value.source_provider
+        : "windsor",
     import_status:
       importStatus === "running" || importStatus === "error" ? importStatus : "success",
     rows_read: asNumber(value.rows_read),
@@ -350,6 +356,7 @@ const parseListingImportSummary = (value: unknown): WbrListingImportSummary => {
 
   return {
     source_type: asString(value.source_type),
+    source_provider: asNullableString(value.source_provider),
     sheet_title: asNullableString(value.sheet_title),
     header_row_index: asNumber(value.header_row_index),
     rows_read: asNumber(value.rows_read),

@@ -317,6 +317,50 @@ class TestReportApiAccessRouter:
         finally:
             app.dependency_overrides.pop(report_api_access.require_admin_user, None)
 
+    def test_spapi_import_listings_endpoint_returns_import_result(self, monkeypatch):
+        fake_db = _FakeSupabase({})
+
+        class FakeListingImportService:
+            def __init__(self, db):
+                assert db is fake_db
+
+            async def import_from_spapi(self, *, profile_id: str, user_id: str | None):
+                assert profile_id == "prof-1"
+                assert user_id == "user-123"
+                return {
+                    "batch": {
+                        "id": "batch-1",
+                        "profile_id": profile_id,
+                        "source_provider": "amazon_spapi",
+                        "import_status": "success",
+                    },
+                    "summary": {
+                        "source_type": "amazon_spapi",
+                        "source_provider": "amazon_spapi",
+                        "rows_read": 2,
+                        "rows_loaded": 2,
+                        "duplicate_rows_merged": 0,
+                    },
+                }
+
+        monkeypatch.setattr(report_api_access, "_get_supabase", lambda: fake_db)
+        monkeypatch.setattr(report_api_access, "ListingImportService", FakeListingImportService)
+        app.dependency_overrides[report_api_access.require_admin_user] = _override_admin
+
+        try:
+            with TestClient(app) as client:
+                response = client.post(
+                    "/admin/reports/api-access/amazon-spapi/import-listings",
+                    json={"profile_id": "prof-1"},
+                )
+            assert response.status_code == 200
+            body = response.json()
+            assert body["ok"] is True
+            assert body["batch"]["source_provider"] == "amazon_spapi"
+            assert body["summary"]["rows_loaded"] == 2
+        finally:
+            app.dependency_overrides.pop(report_api_access.require_admin_user, None)
+
 
 class TestAmazonAdsCallbackSharedWrite:
     def test_callback_dual_writes_shared_connection_when_profile_has_client(self, monkeypatch):

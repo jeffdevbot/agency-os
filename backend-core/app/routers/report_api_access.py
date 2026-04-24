@@ -27,6 +27,7 @@ from ..services.reports.api_access import (
 )
 from ..services.reports.sp_api_reports_client import SpApiReportsClient
 from ..services.wbr.amazon_ads_auth import build_authorization_url, create_signed_state
+from ..services.wbr.listing_imports import ListingImportService
 from ..services.wbr.profiles import WBRNotFoundError, WBRValidationError
 from ..services.wbr.spapi_business_sync import SpApiBusinessCompareService
 from ..services.wbr.spapi_listings_fetch import SpApiListingsFetchService
@@ -136,6 +137,10 @@ class SpApiGenericDebugRequest(BaseModel):
 
 
 class SpApiListingsPreviewRequest(BaseModel):
+    profile_id: str = Field(..., min_length=1)
+
+
+class SpApiListingsImportRequest(BaseModel):
     profile_id: str = Field(..., min_length=1)
 
 
@@ -551,6 +556,33 @@ async def preview_report_api_access_spapi_listings(
         raise HTTPException(
             status_code=500,
             detail=f"SP-API listings preview failed: {exc}",
+        ) from exc
+
+
+@router.post("/amazon-spapi/import-listings")
+async def import_report_api_access_spapi_listings(
+    request: SpApiListingsImportRequest,
+    user=Depends(require_admin_user),
+):
+    db = _get_supabase()
+    service = ListingImportService(db)
+    try:
+        return {
+            "ok": True,
+            **await service.import_from_spapi(
+                profile_id=request.profile_id,
+                user_id=_user_id(user),
+            ),
+        }
+    except WBRNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except WBRValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("SP-API listings import failed")
+        raise HTTPException(
+            status_code=500,
+            detail=f"SP-API listings import failed: {exc}",
         ) from exc
 
 
