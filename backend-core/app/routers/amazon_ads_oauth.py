@@ -22,6 +22,7 @@ from ..config import settings
 from ..services.reports.api_access import get_wbr_profile, upsert_amazon_ads_connection
 from ..services.wbr.amazon_ads_auth import (
     exchange_authorization_code,
+    normalize_ads_region_code,
     verify_signed_state,
 )
 from ..services.wbr.profiles import WBRNotFoundError, WBRValidationError
@@ -58,6 +59,7 @@ async def amazon_ads_callback(
 
     profile_id = state_payload.get("pid", "")
     return_path = state_payload.get("ret", "")
+    region_code = normalize_ads_region_code(state_payload.get("rg"))
 
     if not profile_id:
         raise HTTPException(status_code=400, detail="OAuth state missing profile_id")
@@ -113,6 +115,7 @@ async def amazon_ads_callback(
                     db,
                     client_id=client_id,
                     refresh_token=refresh_token,
+                    region_code=region_code,
                     connected_at=now,
                     access_meta=shared_meta,
                 )

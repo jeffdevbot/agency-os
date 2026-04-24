@@ -166,7 +166,8 @@ def test_run_backfill_chunks_requested_range(monkeypatch):
 
     calls: list[tuple[date, date, str]] = []
 
-    async def fake_enqueue_chunk(*, profile_id, amazon_ads_profile_id, refresh_token, marketplace_code, date_from, date_to, job_type, user_id):
+    async def fake_enqueue_chunk(*, profile_id, amazon_ads_profile_id, refresh_token, region_code, marketplace_code, date_from, date_to, ad_product, job_type, user_id):
+        assert region_code == "NA"
         calls.append((date_from, date_to, job_type))
         return {
             "run": {"id": f"{date_from.isoformat()}-{date_to.isoformat()}"},
@@ -263,7 +264,8 @@ def test_run_daily_refresh_uses_profile_rewrite_window(monkeypatch):
 
     observed: dict[str, date] = {}
 
-    async def fake_enqueue_chunk(*, profile_id, amazon_ads_profile_id, refresh_token, marketplace_code, date_from, date_to, job_type, user_id):
+    async def fake_enqueue_chunk(*, profile_id, amazon_ads_profile_id, refresh_token, region_code, marketplace_code, date_from, date_to, ad_product, job_type, user_id):
+        assert region_code == "NA"
         observed["date_from"] = date_from
         observed["date_to"] = date_to
         observed["job_type"] = job_type
@@ -316,11 +318,12 @@ def test_enqueue_chunk_persists_partial_report_jobs_when_create_is_throttled(mon
     monkeypatch.setattr(svc, "_create_campaign_report", fake_create_campaign_report)
 
     result = asyncio.run(
-        svc._enqueue_chunk(
-            profile_id="profile-1",
-            amazon_ads_profile_id="ads-prof-1",
-            refresh_token="refresh-token",
-            marketplace_code="CA",
+            svc._enqueue_chunk(
+                profile_id="profile-1",
+                amazon_ads_profile_id="ads-prof-1",
+                refresh_token="refresh-token",
+                region_code="NA",
+                marketplace_code="CA",
             date_from=date(2026, 3, 10),
             date_to=date(2026, 3, 23),
             job_type="daily_refresh",
@@ -348,10 +351,11 @@ def test_process_pending_run_reuses_duplicate_report_id(monkeypatch):
         "status": "running",
         "rows_fetched": 0,
         "rows_loaded": 0,
-        "request_meta": {
-            "async_reports_v1": True,
-            "amazon_ads_profile_id": "ads-prof-1",
-            "report_jobs": [
+            "request_meta": {
+                "async_reports_v1": True,
+                "amazon_ads_profile_id": "ads-prof-1",
+                "region_code": "NA",
+                "report_jobs": [
                 {
                     "report_id": None,
                     "status": "create_pending",
@@ -426,10 +430,11 @@ def test_process_pending_runs_polls_due_jobs_and_updates_request_meta(monkeypatc
         "id": "run-1",
         "profile_id": "profile-1",
         "status": "running",
-        "request_meta": {
-            "async_reports_v1": True,
-            "amazon_ads_profile_id": "ads-prof-1",
-            "report_jobs": [
+            "request_meta": {
+                "async_reports_v1": True,
+                "amazon_ads_profile_id": "ads-prof-1",
+                "region_code": "NA",
+                "report_jobs": [
                 {
                     "report_id": "rep-1",
                     "status": "pending",
@@ -448,9 +453,10 @@ def test_process_pending_runs_polls_due_jobs_and_updates_request_meta(monkeypatc
     async def fake_refresh_access_token(refresh_token):
         return "access-token"
 
-    async def fake_get_report_status_once(*, access_token, amazon_ads_profile_id, report_id):
+    async def fake_get_report_status_once(*, access_token, amazon_ads_profile_id, region_code, report_id):
         assert access_token == "access-token"
         assert amazon_ads_profile_id == "ads-prof-1"
+        assert region_code == "NA"
         assert report_id == "rep-1"
         return sync_module.AmazonAdsReportStatus(report_id=report_id, status="IN_PROGRESS", location=None)
 
@@ -739,6 +745,32 @@ class TestRequireRefreshTokenSharedFirst:
         svc = AmazonAdsSyncService(db)
         token = svc._require_refresh_token("prof-1")
         assert token == "shared-refresh-token"
+
+    def test_reads_shared_region_code_when_present(self):
+        db = _MultiTableFakeSupabase(
+            {
+                "wbr_profiles": [
+                    {"id": "prof-1", "client_id": "client-1", "amazon_ads_profile_id": "ads-1"},
+                ],
+                "report_api_connections": [
+                    {
+                        "client_id": "client-1",
+                        "provider": "amazon_ads",
+                        "connection_status": "connected",
+                        "refresh_token": "shared-refresh-token",
+                        "region_code": "EU",
+                    },
+                ],
+                "wbr_amazon_ads_connections": [],
+            }
+        )
+        svc = AmazonAdsSyncService(db)
+        assert svc._require_region_code("prof-1") == "EU"
+
+    def test_region_base_url_mapping(self, monkeypatch):
+        monkeypatch.delenv("AMAZON_ADS_API_URL", raising=False)
+        svc = AmazonAdsSyncService(MagicMock())
+        assert svc._api_base_url_for_region("EU") == "https://advertising-api-eu.amazon.com"
 
     def test_falls_back_to_legacy_when_shared_missing(self):
         db = _MultiTableFakeSupabase(

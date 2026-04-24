@@ -310,12 +310,17 @@ export const createAmazonAdsAuthorizationUrl = async (
   token: string,
   profileId: string,
   returnPath = "/reports/client-data-access",
+  region?: SpApiRegionCode,
 ): Promise<string> => {
   const response = await fetch(`${getBackendUrl()}/admin/reports/api-access/amazon-ads/connect`, {
     method: "POST",
     cache: "no-store",
     headers: authJsonHeaders(token),
-    body: JSON.stringify({ profile_id: profileId, return_path: returnPath }),
+    body: JSON.stringify({
+      profile_id: profileId,
+      return_path: returnPath,
+      ...(region ? { region } : {}),
+    }),
   });
   if (!response.ok) {
     throw new Error(await parseErrorDetail(response));

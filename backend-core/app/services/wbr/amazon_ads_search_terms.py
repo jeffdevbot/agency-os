@@ -202,6 +202,7 @@ class AmazonAdsSearchTermSyncService(AmazonAdsSyncService):
         profile_id: str,
         amazon_ads_profile_id: str,
         refresh_token: str,
+        region_code: str,
         marketplace_code: str,
         date_from: date,
         date_to: date,
@@ -234,6 +235,7 @@ class AmazonAdsSearchTermSyncService(AmazonAdsSyncService):
                     for definition in definitions
                 ],
                 "async_reports_v1": True,
+                "region_code": region_code,
                 "marketplace_code": marketplace_code,
                 "report_jobs": report_jobs,
                 "report_progress": self._build_report_progress(report_jobs),
@@ -252,6 +254,7 @@ class AmazonAdsSearchTermSyncService(AmazonAdsSyncService):
             report_jobs = await self._create_or_resume_report_jobs(
                 access_token=access_token,
                 amazon_ads_profile_id=amazon_ads_profile_id,
+                region_code=region_code,
                 report_jobs=report_jobs,
                 date_from=date_from,
                 date_to=date_to,

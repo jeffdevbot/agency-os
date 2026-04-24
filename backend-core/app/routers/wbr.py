@@ -17,6 +17,7 @@ from ..services.wbr.amazon_ads_auth import (
     build_authorization_url,
     create_signed_state,
     list_advertising_profiles,
+    normalize_ads_region_code,
     refresh_access_token,
 )
 from ..services.wbr.amazon_ads_sync import AmazonAdsSyncService
@@ -1000,6 +1001,7 @@ async def set_child_asin_mapping(
 
 
 class AmazonAdsConnectRequest(BaseModel):
+    region: str | None = Field(default=None, min_length=2, max_length=3)
     return_path: str = Field("", description="Frontend path to redirect to after OAuth")
 
 
@@ -1025,13 +1027,15 @@ async def amazon_ads_connect(
         raise HTTPException(status_code=404, detail=str(e))
 
     try:
+        region_code = normalize_ads_region_code(request.region)
         state = create_signed_state(
             profile_id=profile_id,
             initiated_by=_user_id(user),
             return_path=request.return_path,
+            region_code=region_code,
         )
         url = build_authorization_url(state=state)
-        return {"ok": True, "authorization_url": url}
+        return {"ok": True, "authorization_url": url, "region_code": region_code}
     except WBRValidationError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception:
@@ -1057,7 +1061,10 @@ async def get_amazon_ads_connection(
     if client_id:
         shared_response = (
             db.table("report_api_connections")
-            .select("client_id, connection_status, connected_at, last_validated_at, last_error, updated_at, access_meta")
+            .select(
+                "client_id, connection_status, connected_at, last_validated_at, "
+                "last_error, updated_at, access_meta, region_code"
+            )
             .eq("client_id", client_id)
             .eq("provider", "amazon_ads")
             .limit(1)
@@ -1076,6 +1083,7 @@ async def get_amazon_ads_connection(
                     "profile_id": profile_id,
                     "connection_status": status or "error",
                     "connected_at": row.get("connected_at"),
+                    "region_code": row.get("region_code"),
                     "lwa_account_hint": meta.get("lwa_account_hint"),
                     "created_at": row.get("connected_at"),
                     "updated_at": row.get("updated_at"),
@@ -1119,13 +1127,14 @@ async def list_amazon_ads_profiles(
 
     db = _get_supabase()
     refresh_token = ""
+    region_code = "NA"
 
     # Prefer shared report_api_connections (keyed by client_id)
     client_id = str(profile.get("client_id") or "").strip()
     if client_id:
         shared_response = (
             db.table("report_api_connections")
-            .select("refresh_token, connection_status")
+            .select("refresh_token, connection_status, region_code")
             .eq("client_id", client_id)
             .eq("provider", "amazon_ads")
             .limit(1)
@@ -1136,6 +1145,7 @@ async def list_amazon_ads_profiles(
             shared_status = str(shared_rows[0].get("connection_status") or "").strip().lower()
             if shared_status == "connected":
                 refresh_token = str(shared_rows[0].get("refresh_token") or "").strip()
+                region_code = normalize_ads_region_code(shared_rows[0].get("region_code"))
 
     # Fallback to legacy wbr_amazon_ads_connections
     if not refresh_token:
@@ -1154,7 +1164,7 @@ async def list_amazon_ads_profiles(
 
     try:
         access_token = await refresh_access_token(refresh_token)
-        profiles = await list_advertising_profiles(access_token)
+        profiles = await list_advertising_profiles(access_token, region_code=region_code)
         return {"ok": True, "profiles": profiles}
     except WBRValidationError as e:
         raise HTTPException(status_code=502, detail=str(e))

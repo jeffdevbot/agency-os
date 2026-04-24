@@ -7,6 +7,7 @@ from typing import Any
 from supabase import Client
 
 from .amazon_spapi_auth import normalize_spapi_region_code
+from ..wbr.amazon_ads_auth import normalize_ads_region_code
 from ..wbr.profiles import WBRNotFoundError, WBRValidationError
 
 AMAZON_ADS_PROVIDER = "amazon_ads"
@@ -187,12 +188,16 @@ def upsert_amazon_ads_connection(
     *,
     client_id: str,
     refresh_token: str,
+    region_code: str | None = None,
+    external_account_id: str | None = None,
     connected_at: str | None = None,
     updated_by: str | None = None,
     access_meta: dict[str, Any] | None = None,
 ) -> None:
     client_id = str(client_id or "").strip()
     refresh_token = str(refresh_token or "").strip()
+    normalized_region = normalize_ads_region_code(region_code)
+    normalized_external_account_id = str(external_account_id or "").strip()
     if not client_id:
         raise WBRValidationError("client_id is required")
     if not refresh_token:
@@ -204,6 +209,8 @@ def upsert_amazon_ads_connection(
         "provider": AMAZON_ADS_PROVIDER,
         "connection_status": "connected",
         "refresh_token": refresh_token,
+        "external_account_id": normalized_external_account_id or None,
+        "region_code": normalized_region,
         "connected_at": now,
         "last_error": None,
         "access_meta": access_meta or {},
@@ -211,14 +218,17 @@ def upsert_amazon_ads_connection(
     if updated_by:
         payload["updated_by"] = updated_by
 
-    existing_rows = _as_rows(
+    query = (
         db.table("report_api_connections")
         .select("id")
         .eq("client_id", client_id)
         .eq("provider", AMAZON_ADS_PROVIDER)
-        .limit(1)
-        .execute()
     )
+    if normalized_external_account_id:
+        query = query.eq("external_account_id", normalized_external_account_id)
+    else:
+        query = query.eq("region_code", normalized_region)
+    existing_rows = _as_rows(query.limit(1).execute())
     if existing_rows:
         db.table("report_api_connections").update(payload).eq("id", existing_rows[0]["id"]).execute()
         return

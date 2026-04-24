@@ -26,7 +26,11 @@ from ..services.reports.api_access import (
     update_connection_validation,
 )
 from ..services.reports.sp_api_reports_client import SpApiReportsClient
-from ..services.wbr.amazon_ads_auth import build_authorization_url, create_signed_state
+from ..services.wbr.amazon_ads_auth import (
+    build_authorization_url,
+    create_signed_state,
+    normalize_ads_region_code,
+)
 from ..services.wbr.listing_imports import ListingImportService
 from ..services.wbr.profiles import WBRNotFoundError, WBRValidationError
 from ..services.wbr.spapi_business_sync import SpApiBusinessCompareService
@@ -52,6 +56,7 @@ def _user_id(user: dict) -> str | None:
 
 class ReportApiAccessConnectRequest(BaseModel):
     profile_id: str = Field(..., min_length=1)
+    region: str | None = Field(default=None, min_length=2, max_length=3)
     return_path: str = Field("/reports/api-access")
 
 
@@ -72,15 +77,18 @@ async def connect_report_api_access_amazon_ads(
 ):
     db = _get_supabase()
     try:
+        region_code = normalize_ads_region_code(request.region)
         profile = get_wbr_profile(db, request.profile_id)
         state = create_signed_state(
             profile_id=request.profile_id,
             initiated_by=_user_id(user),
             return_path=request.return_path,
+            region_code=region_code,
         )
         return {
             "ok": True,
             "authorization_url": build_authorization_url(state=state),
+            "region_code": region_code,
             "profile": {
                 "profile_id": profile.get("id"),
                 "client_id": profile.get("client_id"),

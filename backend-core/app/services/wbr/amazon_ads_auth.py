@@ -22,6 +22,11 @@ from .profiles import WBRValidationError
 AMAZON_TOKEN_URL = "https://api.amazon.com/auth/o2/token"
 AMAZON_AUTH_URL = "https://www.amazon.com/ap/oa"
 AMAZON_ADS_API_URL = "https://advertising-api.amazon.com"
+AMAZON_ADS_REGION_CONFIG = {
+    "NA": {"api_base_url": AMAZON_ADS_API_URL},
+    "EU": {"api_base_url": "https://advertising-api-eu.amazon.com"},
+    "FE": {"api_base_url": "https://advertising-api-fe.amazon.com"},
+}
 OAUTH_SCOPE = "advertising::campaign_management"
 STATE_MAX_AGE_SECONDS = 600  # 10 minutes
 
@@ -60,6 +65,24 @@ def _signing_key() -> bytes:
     return key.encode()
 
 
+def normalize_ads_region_code(region_code: str | None = None) -> str:
+    value = str(region_code or "NA").strip().upper()
+    if value not in AMAZON_ADS_REGION_CONFIG:
+        raise WBRValidationError("region must be one of: NA, EU, FE")
+    return value
+
+
+def get_ads_region_config(region_code: str | None = None) -> dict[str, str]:
+    return AMAZON_ADS_REGION_CONFIG[normalize_ads_region_code(region_code)]
+
+
+def get_ads_api_base_url(region_code: str | None = None) -> str:
+    configured = os.getenv("AMAZON_ADS_API_URL", "").strip()
+    if configured:
+        return configured.rstrip("/")
+    return get_ads_region_config(region_code)["api_base_url"].rstrip("/")
+
+
 # ---------------------------------------------------------------------------
 # Signed OAuth state
 # ---------------------------------------------------------------------------
@@ -70,12 +93,14 @@ def create_signed_state(
     profile_id: str,
     initiated_by: str | None,
     return_path: str,
+    region_code: str | None = None,
 ) -> str:
     """Create an HMAC-signed, base64url-encoded state parameter."""
     payload = {
         "pid": profile_id,
         "uid": initiated_by or "",
         "ret": return_path,
+        "rg": normalize_ads_region_code(region_code),
         "nonce": secrets.token_hex(16),
         "iat": int(time.time()),
     }
@@ -203,11 +228,16 @@ async def refresh_access_token(refresh_token: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-async def list_advertising_profiles(access_token: str) -> list[dict[str, Any]]:
+async def list_advertising_profiles(
+    access_token: str,
+    *,
+    region_code: str | None = None,
+) -> list[dict[str, Any]]:
     """Fetch all advertising profiles accessible via the given access token."""
+    api_base_url = get_ads_api_base_url(region_code)
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.get(
-            f"{AMAZON_ADS_API_URL}/v2/profiles",
+            f"{api_base_url}/v2/profiles",
             headers={
                 "Authorization": f"Bearer {access_token}",
                 "Amazon-Advertising-API-ClientId": _client_id(),

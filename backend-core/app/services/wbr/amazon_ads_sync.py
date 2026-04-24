@@ -12,7 +12,11 @@ from typing import Any
 import httpx
 from supabase import Client
 
-from .amazon_ads_auth import refresh_access_token
+from .amazon_ads_auth import (
+    get_ads_api_base_url,
+    normalize_ads_region_code,
+    refresh_access_token,
+)
 from .profiles import WBRNotFoundError, WBRValidationError
 from .report_snapshots import WBRSnapshotService
 
@@ -24,7 +28,6 @@ DEFAULT_REPORT_POLL_SECONDS = 30
 DEFAULT_REPORT_MAX_POLLS = 60
 OBSERVED_REPORT_RETENTION_DAYS = 60
 
-AMAZON_ADS_API_URL = "https://advertising-api.amazon.com"
 AMAZON_ADS_REPORT_CREATE_PATH = "/reporting/reports"
 
 
@@ -199,7 +202,8 @@ class AmazonAdsSyncService:
         self.db = db
         configured_timeout = int(os.getenv("WBR_REQUEST_TIMEOUT_SECONDS", str(DEFAULT_TIMEOUT_SECONDS)))
         self.timeout_seconds = max(configured_timeout, MIN_TIMEOUT_SECONDS)
-        self.api_base_url = os.getenv("AMAZON_ADS_API_URL", AMAZON_ADS_API_URL).rstrip("/")
+        self.api_base_url_override = os.getenv("AMAZON_ADS_API_URL", "").strip().rstrip("/") or None
+        self.api_base_url = self.api_base_url_override or get_ads_api_base_url("NA")
         self.report_poll_seconds = max(
             int(os.getenv("WBR_AMAZON_ADS_REPORT_POLL_SECONDS", str(DEFAULT_REPORT_POLL_SECONDS))),
             10,
@@ -246,6 +250,7 @@ class AmazonAdsSyncService:
         profile = self._get_profile(profile_id)
         ads_profile_id = self._require_amazon_ads_profile_id(profile)
         refresh_token = self._require_refresh_token(profile_id, client_id=str(profile.get("client_id") or ""))
+        region_code = self._require_region_code(profile_id, client_id=str(profile.get("client_id") or ""))
 
         chunks = _chunk_date_range(date_from, date_to, chunk_days)
         results = []
@@ -255,6 +260,7 @@ class AmazonAdsSyncService:
                     profile_id=profile_id,
                     amazon_ads_profile_id=ads_profile_id,
                     refresh_token=refresh_token,
+                    region_code=region_code,
                     marketplace_code=str(profile.get("marketplace_code") or ""),
                     date_from=chunk_start,
                     date_to=chunk_end,
@@ -290,6 +296,7 @@ class AmazonAdsSyncService:
         profile = self._get_profile(profile_id)
         ads_profile_id = self._require_amazon_ads_profile_id(profile)
         refresh_token = self._require_refresh_token(profile_id, client_id=str(profile.get("client_id") or ""))
+        region_code = self._require_region_code(profile_id, client_id=str(profile.get("client_id") or ""))
         lookback_days = int(profile.get("daily_rewrite_days") or DEFAULT_DAILY_LOOKBACK_DAYS)
         date_to = datetime.now(UTC).date()
         date_from = date_to - timedelta(days=max(lookback_days - 1, 0))
@@ -298,6 +305,7 @@ class AmazonAdsSyncService:
             profile_id=profile_id,
             amazon_ads_profile_id=ads_profile_id,
             refresh_token=refresh_token,
+            region_code=region_code,
             marketplace_code=str(profile.get("marketplace_code") or ""),
             date_from=date_from,
             date_to=date_to,
@@ -320,6 +328,7 @@ class AmazonAdsSyncService:
         profile_id: str,
         amazon_ads_profile_id: str,
         refresh_token: str,
+        region_code: str,
         marketplace_code: str,
         date_from: date,
         date_to: date,
@@ -347,6 +356,7 @@ class AmazonAdsSyncService:
                     for definition in AMAZON_ADS_REPORT_DEFINITIONS
                 ],
                 "async_reports_v1": True,
+                "region_code": normalize_ads_region_code(region_code),
                 "marketplace_code": marketplace_code,
                 "report_jobs": report_jobs,
                 "report_progress": self._build_report_progress(report_jobs),
@@ -361,6 +371,7 @@ class AmazonAdsSyncService:
             report_jobs = await self._create_or_resume_report_jobs(
                 access_token=access_token,
                 amazon_ads_profile_id=amazon_ads_profile_id,
+                region_code=region_code,
                 report_jobs=report_jobs,
                 date_from=date_from,
                 date_to=date_to,
@@ -481,6 +492,7 @@ class AmazonAdsSyncService:
         report_jobs: list[dict[str, Any]],
         date_from: date,
         date_to: date,
+        region_code: str = "NA",
     ) -> list[dict[str, Any]]:
         now = datetime.now(UTC)
         updated_jobs = [dict(job) if isinstance(job, dict) else {} for job in report_jobs]
@@ -500,6 +512,7 @@ class AmazonAdsSyncService:
                 attempt = await self._create_campaign_report(
                     access_token=access_token,
                     amazon_ads_profile_id=amazon_ads_profile_id,
+                    region_code=region_code,
                     date_from=date_from,
                     date_to=date_to,
                     report_definition=definition,
@@ -568,6 +581,10 @@ class AmazonAdsSyncService:
         amazon_ads_profile_id = str(request_meta.get("amazon_ads_profile_id") or "").strip()
         if not amazon_ads_profile_id:
             raise WBRValidationError("Queued Amazon Ads sync run is missing amazon_ads_profile_id")
+        request_region_code = str(request_meta.get("region_code") or "").strip()
+        region_code = normalize_ads_region_code(
+            request_region_code or self._require_region_code(profile_id)
+        )
 
         updated_jobs = [dict(job) if isinstance(job, dict) else {} for job in report_jobs]
         for job in updated_jobs:
@@ -583,6 +600,7 @@ class AmazonAdsSyncService:
                     attempt = await self._create_campaign_report(
                         access_token=access_token,
                         amazon_ads_profile_id=amazon_ads_profile_id,
+                        region_code=region_code,
                         date_from=date.fromisoformat(str(run.get("date_from"))),
                         date_to=date.fromisoformat(str(run.get("date_to"))),
                         report_definition=definition,
@@ -638,6 +656,7 @@ class AmazonAdsSyncService:
             status = await self._get_report_status_once(
                 access_token=access_token,
                 amazon_ads_profile_id=amazon_ads_profile_id,
+                region_code=region_code,
                 report_id=str(job.get("report_id") or ""),
             )
             if status.status in {"COMPLETED", "SUCCESS"}:
@@ -702,6 +721,7 @@ class AmazonAdsSyncService:
         date_from: date,
         date_to: date,
         report_definition: AmazonAdsReportDefinition,
+        region_code: str = "NA",
     ) -> AmazonAdsReportCreateAttempt:
         payload = {
             "name": (
@@ -720,9 +740,10 @@ class AmazonAdsSyncService:
             },
         }
         timeout = httpx.Timeout(timeout=self.timeout_seconds)
+        api_base_url = self._api_base_url_for_region(region_code)
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.post(
-                f"{self.api_base_url}{AMAZON_ADS_REPORT_CREATE_PATH}",
+                f"{api_base_url}{AMAZON_ADS_REPORT_CREATE_PATH}",
                 json=payload,
                 headers=self._report_headers(access_token, amazon_ads_profile_id),
             )
@@ -776,11 +797,13 @@ class AmazonAdsSyncService:
         access_token: str,
         amazon_ads_profile_id: str,
         report_id: str,
+        region_code: str = "NA",
     ) -> AmazonAdsReportStatus:
         timeout = httpx.Timeout(timeout=self.timeout_seconds)
+        api_base_url = self._api_base_url_for_region(region_code)
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.get(
-                f"{self.api_base_url}{AMAZON_ADS_REPORT_CREATE_PATH}/{report_id}",
+                f"{api_base_url}{AMAZON_ADS_REPORT_CREATE_PATH}/{report_id}",
                 headers=self._report_headers(access_token, amazon_ads_profile_id),
             )
         if response.status_code >= 400:
@@ -1104,6 +1127,31 @@ class AmazonAdsSyncService:
         if not value:
             raise WBRValidationError("WBR profile is missing amazon_ads_profile_id")
         return value
+
+    def _api_base_url_for_region(self, region_code: str | None) -> str:
+        if self.api_base_url_override:
+            return self.api_base_url_override
+        return get_ads_api_base_url(region_code)
+
+    def _require_region_code(self, profile_id: str, *, client_id: str | None = None) -> str:
+        if not client_id:
+            profile = self._get_profile(profile_id)
+            client_id = str(profile.get("client_id") or "").strip()
+        if client_id:
+            shared_response = (
+                self.db.table("report_api_connections")
+                .select("region_code, connection_status")
+                .eq("client_id", client_id)
+                .eq("provider", "amazon_ads")
+                .limit(1)
+                .execute()
+            )
+            shared_rows = shared_response.data if isinstance(shared_response.data, list) else []
+            shared_status = str(shared_rows[0].get("connection_status") or "").strip().lower() if shared_rows else ""
+            if shared_rows and shared_status == "connected":
+                return normalize_ads_region_code(shared_rows[0].get("region_code"))
+
+        return "NA"
 
     def _require_refresh_token(self, profile_id: str, *, client_id: str | None = None) -> str:
         # Prefer shared report_api_connections (keyed by client_id)

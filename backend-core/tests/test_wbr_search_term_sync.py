@@ -149,6 +149,7 @@ def test_run_backfill_chunks_requested_range(monkeypatch):
         profile_id,
         amazon_ads_profile_id,
         refresh_token,
+        region_code,
         marketplace_code,
         date_from,
         date_to,
@@ -156,6 +157,7 @@ def test_run_backfill_chunks_requested_range(monkeypatch):
         job_type,
         user_id,
     ):
+        assert region_code == "NA"
         calls.append((date_from, date_to, job_type))
         return {"run": {"id": f"{date_from.isoformat()}-{date_to.isoformat()}"}, "rows_fetched": 0, "rows_loaded": 0}
 
@@ -209,6 +211,7 @@ def test_run_daily_refresh_uses_profile_rewrite_window(monkeypatch):
         profile_id,
         amazon_ads_profile_id,
         refresh_token,
+        region_code,
         marketplace_code,
         date_from,
         date_to,
@@ -216,6 +219,7 @@ def test_run_daily_refresh_uses_profile_rewrite_window(monkeypatch):
         job_type,
         user_id,
     ):
+        assert region_code == "NA"
         observed["date_from"] = date_from
         observed["date_to"] = date_to
         observed["job_type"] = job_type

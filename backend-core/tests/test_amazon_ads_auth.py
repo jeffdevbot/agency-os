@@ -15,6 +15,8 @@ from app.routers import wbr
 from app.services.wbr.amazon_ads_auth import (
     STATE_MAX_AGE_SECONDS,
     create_signed_state,
+    get_ads_api_base_url,
+    normalize_ads_region_code,
     verify_signed_state,
 )
 from app.services.wbr.profiles import WBRNotFoundError, WBRValidationError
@@ -55,8 +57,29 @@ class TestSignedState:
         assert payload["pid"] == "prof-1"
         assert payload["uid"] == "user-1"
         assert payload["ret"] == "/reports/test/us/wbr/sync/ads-api"
+        assert payload["rg"] == "NA"
         assert "nonce" in payload
         assert "iat" in payload
+
+    def test_create_and_verify_roundtrip_with_region(self):
+        state = create_signed_state(
+            profile_id="prof-1",
+            initiated_by="user-1",
+            return_path="/reports/test/us/wbr/sync/ads-api",
+            region_code="EU",
+        )
+        payload = verify_signed_state(state)
+        assert payload["rg"] == "EU"
+
+    def test_ads_region_helpers_map_api_hosts(self, monkeypatch):
+        monkeypatch.delenv("AMAZON_ADS_API_URL", raising=False)
+
+        assert normalize_ads_region_code(None) == "NA"
+        assert get_ads_api_base_url("NA") == "https://advertising-api.amazon.com"
+        assert get_ads_api_base_url("EU") == "https://advertising-api-eu.amazon.com"
+        assert get_ads_api_base_url("FE") == "https://advertising-api-fe.amazon.com"
+        with pytest.raises(WBRValidationError, match="NA, EU, FE"):
+            normalize_ads_region_code("XX")
 
     def test_tampered_signature_rejected(self):
         state = create_signed_state(
@@ -237,6 +260,7 @@ class TestConnectEndpoint:
             assert resp.status_code == 200
             body = resp.json()
             assert body["ok"] is True
+            assert body["region_code"] == "NA"
             url = body["authorization_url"]
             assert "amazon.com" in url
             assert "client_id=test-client-id" in url
