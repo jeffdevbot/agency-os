@@ -226,7 +226,7 @@ class SpApiReportsClient:
         data_end_time: datetime,
         report_options: dict[str, str] | None = None,
         format: Literal["tsv", "json"] = "tsv",
-    ) -> list[dict[str, str | int | float | None]]:
+    ) -> list[dict[str, Any]]:
         report_id = await self.create_report(
             report_type,
             marketplace_ids=marketplace_ids,
@@ -342,7 +342,12 @@ class SpApiReportsClient:
             for row in reader
         ]
 
-    def _parse_json(self, content: bytes) -> list[dict[str, str | int | float | None]]:
+    def _parse_json(self, content: bytes) -> list[dict[str, Any]]:
+        # Preserve nested structures (dicts / lists) in the returned rows.
+        # SP-API JSON reports like GET_SALES_AND_TRAFFIC_REPORT put the real
+        # data inside nested lists (salesAndTrafficByAsin, salesAndTrafficByDate);
+        # an earlier scalar-only filter here silently stripped those, surfacing
+        # as an empty {} document downstream.
         try:
             parsed = json.loads(content.decode("utf-8-sig"))
         except json.JSONDecodeError as exc:
@@ -363,15 +368,9 @@ class SpApiReportsClient:
         else:
             raise SpApiTransportError("SP-API JSON report was not a list or object")
 
-        result: list[dict[str, str | int | float | None]] = []
+        result: list[dict[str, Any]] = []
         for row in rows:
             if not isinstance(row, dict):
                 raise SpApiTransportError("SP-API JSON report row was not an object")
-            result.append(
-                {
-                    str(key): value
-                    for key, value in row.items()
-                    if isinstance(value, (str, int, float)) or value is None
-                }
-            )
+            result.append({str(key): value for key, value in row.items()})
         return result

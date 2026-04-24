@@ -330,3 +330,71 @@ async def test_fetch_report_rows_json_format() -> None:
             "note": "synthetic",
         },
     ]
+
+
+@pytest.mark.asyncio
+async def test_fetch_report_rows_json_preserves_nested_structure() -> None:
+    # Regression: GET_SALES_AND_TRAFFIC_REPORT returns a single top-level object
+    # whose real data lives in nested lists (salesAndTrafficByAsin, etc.). An
+    # earlier scalar-only filter in _parse_json silently stripped those nested
+    # values and returned [{}], surfacing downstream as the "empty {} document"
+    # symptom we chased with Amazon support.
+    import json as _json
+
+    document = {
+        "reportSpecification": {
+            "reportType": "GET_SALES_AND_TRAFFIC_REPORT",
+            "marketplaceIds": ["A2EUQ1WTGCTBG2"],
+        },
+        "salesAndTrafficByDate": [
+            {"date": "2026-04-15", "salesByDate": {"orderedProductSales": {"amount": 42.0}}}
+        ],
+        "salesAndTrafficByAsin": [
+            {
+                "childAsin": "B000TEST01",
+                "parentAsin": "B000PARENT1",
+                "salesByAsin": {
+                    "orderedProductSales": {"amount": 10.5, "currencyCode": "CAD"},
+                    "unitsOrdered": 3,
+                },
+                "trafficByAsin": {"pageViews": 120},
+            }
+        ],
+    }
+    raw_bytes = _json.dumps(document).encode("utf-8")
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST" and request.url.path == "/reports/2021-06-30/reports":
+            return httpx.Response(200, json={"reportId": "report-1"})
+        if request.url.path == "/reports/2021-06-30/reports/report-1":
+            return httpx.Response(
+                200,
+                json={"processingStatus": "DONE", "reportDocumentId": "doc-1"},
+            )
+        if request.url.path == "/reports/2021-06-30/documents/doc-1":
+            return httpx.Response(200, json={"url": "https://documents.example.test/report.json"})
+        if request.url.host == "documents.example.test":
+            return httpx.Response(200, content=raw_bytes)
+        return httpx.Response(404)
+
+    client, http_client = _client(httpx.MockTransport(handler))
+    try:
+        rows = await client.fetch_report_rows(
+            "GET_SALES_AND_TRAFFIC_REPORT",
+            marketplace_ids=["A2EUQ1WTGCTBG2"],
+            data_start_time=START,
+            data_end_time=END,
+            format="json",
+        )
+    finally:
+        await http_client.aclose()
+
+    assert len(rows) == 1
+    row = rows[0]
+    assert isinstance(row.get("salesAndTrafficByAsin"), list)
+    assert isinstance(row.get("salesAndTrafficByDate"), list)
+    assert isinstance(row.get("reportSpecification"), dict)
+    asin_rows = row["salesAndTrafficByAsin"]
+    assert asin_rows[0]["childAsin"] == "B000TEST01"
+    assert asin_rows[0]["salesByAsin"]["orderedProductSales"]["amount"] == 10.5
+    assert asin_rows[0]["trafficByAsin"]["pageViews"] == 120
