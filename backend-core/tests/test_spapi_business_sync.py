@@ -202,6 +202,36 @@ async def test_run_compare_writes_three_day_window() -> None:
 
 
 @pytest.mark.asyncio
+async def test_run_compare_uses_same_day_inclusive_end_time() -> None:
+    # Regression: GET_SALES_AND_TRAFFIC_REPORT treats dataStartTime/dataEndTime as
+    # inclusive at date granularity. Using next-day-midnight as data_end_time
+    # caused Amazon to roll up two days of per-ASIN aggregates into a single
+    # response, which the loop then double-counted. Each call must scope
+    # data_end_time to the SAME UTC date as data_start_time.
+    fake_client = _FakeReportsClient({"2026-01-01": _fixture_day_rows()})
+    db = _base_db()
+    service = SpApiBusinessCompareService(
+        db,
+        client_factory=lambda refresh_token, region_code: fake_client,
+        create_report_spacing_s=0,
+    )
+
+    await service.run_compare(
+        profile_id="profile-1",
+        date_from=date(2026, 1, 1),
+        date_to=date(2026, 1, 1),
+    )
+
+    assert len(fake_client.calls) == 1
+    call = fake_client.calls[0]
+    assert call["data_start_time"].date() == date(2026, 1, 1)
+    assert call["data_end_time"].date() == date(2026, 1, 1)
+    assert call["data_end_time"].hour == 23
+    assert call["data_end_time"].minute == 59
+    assert call["data_end_time"].second == 59
+
+
+@pytest.mark.asyncio
 async def test_run_compare_skips_day_with_zero_asin_rows() -> None:
     fake_client = _FakeReportsClient(
         {

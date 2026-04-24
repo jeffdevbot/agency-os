@@ -119,8 +119,16 @@ def _day_start(value: date) -> datetime:
     return datetime.combine(value, datetime_time.min, tzinfo=UTC)
 
 
-def _day_end_exclusive(value: date) -> datetime:
-    return _day_start(value + timedelta(days=1))
+def _day_end_inclusive(value: date) -> datetime:
+    # GET_SALES_AND_TRAFFIC_REPORT truncates dataStartTime/dataEndTime to dates and
+    # treats both endpoints as INCLUSIVE at date granularity. Passing next-day-
+    # midnight as data_end_time (the natural "exclusive end" pattern) makes Amazon
+    # return TWO days of data — both `salesAndTrafficByDate` entries and an
+    # aggregated `salesAndTrafficByAsin` rolled up across the pair. The day-by-day
+    # loop below relies on each call returning a single day; double-counting
+    # surfaces immediately on the per-ASIN totals. Anchoring data_end_time at
+    # 23:59:59.999999 of the same UTC date keeps Amazon scoped to one date.
+    return datetime.combine(value, datetime_time.max, tzinfo=UTC)
 
 
 def _date_range(date_from: date, date_to: date) -> list[date]:
@@ -230,7 +238,7 @@ class SpApiBusinessCompareService:
                 REPORT_TYPE_SALES_AND_TRAFFIC,
                 marketplace_ids=[marketplace_id],
                 data_start_time=_day_start(report_day),
-                data_end_time=_day_end_exclusive(report_day),
+                data_end_time=_day_end_inclusive(report_day),
                 report_options={
                     "asinGranularity": "CHILD",
                     "dateGranularity": "DAY",
