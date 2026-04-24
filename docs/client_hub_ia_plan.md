@@ -24,20 +24,80 @@ Tick each box as slices merge. Brief one-liner after each box can note PR / comm
 
 Redirects ship as 307 (temporary) during migration. After Passes 1–2 soak for a week without rollback, a follow-up PR flips them to 308 (permanent) to let browsers/CDNs cache. **Do not ship 308s on first landing** — they cache aggressively and make rollback painful.
 
-### Pass 3 — Rebuild Data against Option B schema (deferred, bundled with SP-API direct migration)
+### Pass 3 — Rebuild Data against Option B schema + SP-API direct migration
 
 - [x] **Slice 3a** — Schema migration: two partial unique indexes on `report_api_connections` — `(client_id, provider, external_account_id) WHERE external_account_id IS NOT NULL` plus `(client_id, provider) WHERE external_account_id IS NULL`. Preserves "one pending row per (client,provider)" invariant while enabling multi-account. Code adaptation to upsert paths is a follow-up slice. *(Applied 2026-04-23 via MCP, file at `supabase/migrations/20260423220000_*.sql`. Claude owned.)*
 - [ ] **Slice 3b** — `/clients/[slug]/data/connections` management UI rebuild for multi-region / multi-account. *Partially redundant with Slice 2d's read-only status dashboard; only needed when managing (adding/removing) multiple accounts per (client, provider) becomes a real workflow. Defer until a client actually authorizes a second account for the same region.*
 - [x] **Slice 3c** — `SpApiReportsClient` generic create/poll/download/decompress helper + tests. Async Python client at `backend-core/app/services/reports/sp_api_reports_client.py`; 8 passing tests; fixture-based, no live network. *(Merged 2026-04-23, Codex impl, reviewed by Claude. Note: I referred to this as "Slice 3b" in the Codex prompt by mistake — the client work is scorecard slot 3c.)*
-- [x] **Slice 3d** — Section 1 (business data) direct SP-API service writing to `wbr_business_asin_daily__compare`; A/B-ready. Day-by-day `GET_SALES_AND_TRAFFIC_REPORT` loop (required because SP-API exposes date aggs + asin aggs as separate axes). Admin endpoint `POST /admin/reports/api-access/amazon-spapi/compare-business`. Compare table migration at `supabase/migrations/20260424000000_add_wbr_business_asin_daily_compare.sql` (Claude owned, applied 2026-04-24 via MCP). *(Merged 2026-04-23, Codex impl, reviewed by Claude. Operational note: admin endpoint blocks HTTP connection for full run — run in 7-15 day chunks, not full backfill at once.)*
-- [ ] **Slice 3e** — Listings catalog direct SP-API.
+- [x] **Slice 3d** — Section 1 (business data) direct SP-API service writing to `wbr_business_asin_daily__compare`; A/B-ready. Day-by-day `GET_SALES_AND_TRAFFIC_REPORT` loop (required because SP-API exposes date aggs + asin aggs as separate axes). Admin endpoint `POST /admin/reports/api-access/amazon-spapi/compare-business`. Compare table migration at `supabase/migrations/20260424032333_add_wbr_business_asin_daily_compare.sql` (Claude owned, applied 2026-04-24 via MCP). *(Merged 2026-04-23, Codex impl, reviewed by Claude. Operational note: admin endpoint blocks HTTP connection for full run — run in 7-15 day chunks, not full backfill at once.)*
+- [x] **Slice 3e** — Listings catalog direct SP-API. Preview endpoint + write path both landed; `wbr_listing_import_batches.source_provider` column added and backfilled. Distex CA live on SP-API listings (929 rows). *(Shipped as commits `a31c93e` (preview) + `0caf3fc` (write) on 2026-04-24. Codex impl, reviewed by Claude. Naming note: the write-path commit message labeled itself "Slice 3f" — same drift as the 3b/3c mixup; both commits belong to scorecard slot 3e.)*
 - [ ] **Slice 3f** — Section 3 inventory + returns direct SP-API.
 - [ ] **Slice 3g** — Delete Windsor services, env vars, and frontend references. Repoint nightly sync.
 - [ ] **Slice 3h** — Delete P&L Windsor compare (`windsor_compare.py` + `PnlWindsorCompareCard` + hook).
 
+### Pass 3.5 — Data page UX refactor
+
+`/clients/[slug]/data` is currently a Windsor-era screen that mixes three concerns into one dense table: connection state, per-WBR-profile backfill coverage, and nightly-sync flags. It also has no notion of region or marketplace — a fiction that breaks the moment a client like Whoosh (CA + US + UK, with AU / JP on the roadmap) needs more than one region.
+
+This pass restructures the page around the actual auth + data topology: **Region → (Connections + Marketplaces)**. Each region block holds its own region-scoped connections (Ads + SP-API) and the marketplaces inside that region (per-WBR-profile Backfill + Nightly-sync). Empty regions collapse to a "+ Add region" CTA so single-region clients (e.g., Distex NA / CA) aren't visually taxed by empty EU / FE blocks.
+
+Layout sketch:
+
+```
+NA  ┌─────────────────────────────────────────────────┐
+    │ Connections:  [Ads NA]  [SP-API NA]             │
+    │ Marketplaces:                                   │
+    │   CA → Backfill / Sync                          │
+    │   US → Backfill / Sync                          │
+    └─────────────────────────────────────────────────┘
+EU  ┌─────────────────────────────────────────────────┐
+    │ Connections:  [Ads EU]  [SP-API EU]             │
+    │ Marketplaces:                                   │
+    │   UK → Backfill / Sync                          │
+    └─────────────────────────────────────────────────┘
+FE  ┌─ Not connected. [+ Connect Ads] [+ Connect SP-API] ─┐
+```
+
+Why region-grouped instead of section-first:
+
+- **Connections are regional, not per-marketplace.** One NA auth covers CA + US; one EU auth covers UK + DE + FR + etc. Showing them outside a region context misrepresents the auth topology.
+- **Backfill + Sync are per-marketplace** (per WBR profile), and each marketplace lives inside exactly one region — so nesting matches the real data model.
+- **Scales to multi-region clients** without duplicating connection UIs or confusing "which auth covers this market."
+- **First-visit happy path still works:** a brand-new client sees empty region blocks with "Connect X" CTAs; connecting in a region unlocks its marketplaces; marketplaces show backfill + sync affordances.
+
+- [x] **Slice 3.5a-region** — First-class region support for Amazon Ads. Shipped: backfill migration + NOT NULL on `region_code`; OAuth initiate/state/callback + `upsert_amazon_ads_connection` + Ads API helper + nightly sync + search-term sync all carry region end-to-end; NA/EU/FE → API host map; frontend `createAmazonAdsAuthorizationUrl` accepts optional region. Backend tests cover NA default, EU round-trip, host mapping, and invalid-region rejection. *(Codex impl 2026-04-24, reviewed by Claude, pending commit. Migrations `20260424170334_amazon_ads_region_backfill.sql` and follow-up `20260424174837_report_api_connections_null_account_include_region.sql` — the latter widens the null-external-account partial unique index to include `region_code` so multi-region Ads rows for the same client can coexist. Open items: LWA authorization host and token refresh host remain global (`www.amazon.com/ap/oa` / `api.amazon.com/auth/o2/token`) — needs a live EU or FE OAuth round-trip before 3.5a UI ships non-NA connects to users.)*
+- [x] **Slice 3.5a-api** — Backend + API wrapper prep shipped. Three admin endpoints: `POST /admin/reports/api-access/amazon-ads/validate`, `POST /amazon-ads/disconnect`, `POST /amazon-spapi/disconnect`. Disconnect is soft-revoke (`connection_status='revoked'` + `refresh_token=null`, row preserved, idempotent). Ads validate refreshes token + calls `/v2/profiles` via the region-aware helper from 3.5a-region. Frontend wrappers `validateAmazonAdsConnection`, `disconnectAmazonAdsConnection`, `disconnectSpApiConnection` landed in `reportApiAccessApi.ts`. Tests cover happy path + error path + validating-a-revoked-row + idempotent re-call + nonexistent-tuple + reconnect-after-revoke (important: verifies the soft-revoke → OAuth → upsert loop doesn't collide on the partial index). *(Codex impl 2026-04-24, reviewed by Claude, pending commit.)*
+- [ ] **Slice 3.5a** — Region blocks + Connections. Page renders a `RegionBlock` per region (NA / EU / FE); each block's `Connections` strip holds two provider cards (Amazon Ads, SP-API) scoped to that region, with explicit `Connect` / `Validate` / `Disconnect` buttons and state-first visual treatment (Not connected / Connected / Error / Revoked). Empty regions render as collapsed "+ Connect Ads / SP-API" CTAs. No Windsor card anywhere on this page. Legacy `ReportApiAccessScreen` collapsed behind an "Advanced connection details" disclosure (closed by default) until 3.5d removes it. Depends on 3.5a-api.
+- [ ] **Slice 3.5b** — Marketplaces + Backfill. Inside each Region block, render a marketplace card per WBR profile in that region. Each marketplace card exposes per-domain backfill actions (Business, Listings, Inventory, Returns) gated on the region's connections being live. Card shows "Last backfilled: X" per domain + `Run backfill` with date-range picker. Wires to existing admin endpoints where they exist (Business `compare-business`, Listings `import-listings`). Inventory + Returns render as disabled/"coming soon" until their Slice 3f endpoints land.
+- [ ] **Slice 3.5c** — Nightly sync within marketplace cards. Per-domain toggles wired to the `wbr_profiles.*_enabled` columns already surfaced by Slice 2d, living inside each marketplace card below the backfill row. Last-run timestamps next to each toggle. Decoupled from one-time backfill actions by visual grouping.
+- [ ] **Slice 3.5d** — Remove the old mixed UI block from `ReportApiAccessScreen`, strip remaining Windsor references on this page, final copy pass, and tighten Ads OAuth initiate to require region (was optional post-3.5a-region to avoid breaking the legacy UI during transition).
+
+**Sequencing notes:** 3.5a-region ships first (backend Ads region parity, no UI). Then 3.5a-api (validate + disconnect endpoints + frontend wrappers). Then 3.5a ships the Region-grouped UI + Connections strip. 3.5b (marketplace cards + per-domain Backfill) and 3.5c (nightly sync toggles inside marketplace cards) can ship in either order; 3.5b is higher value since it unblocks the manual onboarding flow Jeff runs today. 3.5d is cleanup, last.
+
+**Open design questions (resolved at slice-prompt time):**
+- "Last backfilled: X" — derive from each fact table's min/max date (Slice 2d approach, no new table) vs. a dedicated `data_backfill_runs` audit table. Leaning derive-from-facts to avoid a migration.
+- Synchronous vs. enqueued backfills — Slice 3d's admin endpoint blocks HTTP for full runs, so 3.5b's UI must frame backfill in chunks (e.g., 7–15 day picker defaults) rather than a single "backfill all" button. Proper job queue is out of scope for this pass.
+- Amazon Ads backfill path — no direct replacement endpoint exists yet (Ads data still flows through the existing Windsor/Ads pipeline). Slice 3.5b may render the Ads row as read-only ("Managed by nightly sync") until that's clarified.
+
+### Pass 3.6 — Imports section on Data page
+
+Under the revised IA boundary (see Decisions), CSV/file uploads and third-party data imports are ingestion channels and live on Data, not Reports. This pass adds an **Imports** section to `/clients/[slug]/data` alongside the Connections / Backfill / Nightly sync sections from Pass 3.5, and migrates existing upload UIs out of the WBR and P&L setup screens.
+
+- [ ] **Slice 3.6a** — Imports section scaffolding on `/clients/[slug]/data`. Per-report-profile cards rendering upload history (last uploaded timestamp, row count, import status). No new upload UI yet — just the surface and read-only history.
+- [ ] **Slice 3.6b** — Move Pacvue CSV import for WBR profiles into the Imports section. Per-WBR-profile "Upload Pacvue CSV" action (drag-drop + file picker) wired to the existing backend endpoint. Leave the old upload UI in WBR setup in place temporarily for rollback.
+- [ ] **Slice 3.6c** — Move P&L CSV upload for PnL profiles into the Imports section. Per-PnL-profile upload action. Same rollback pattern as 3.6b.
+- [ ] **Slice 3.6d** — Remove the old upload UIs from `WbrProfileWorkspace` and the PnL setup screen once 3.6b + 3.6c have soaked.
+
+**Sequencing notes:** 3.6a first (scaffolding, no behavior change — low risk). 3.6b and 3.6c are independent and can ship in either order. 3.6d is cleanup after both have soaked.
+
+**Open design questions:**
+- Imports section placement — above or below Backfill in the visual stack? Uploads arguably come before API backfills in the mental model (they're the manual equivalent of ingestion), so lean above.
+- One Imports card per profile accepting multiple file types, vs. per-source cards (a Pacvue card, a P&L card, etc.)? Lean per-source so status/history is obvious and empty states are unambiguous.
+- Interaction with Pass 4 — see that pass's updated scope.
+
 ### Pass 4 — Independent UI refactor
 
-- [ ] **Slice 4** — Split `WbrProfileWorkspace.tsx` kitchen sink into Sync / Imports / Mapping / Profile tabs under `/clients/[slug]/reports/[mkt]/wbr/setup/*`.
+- [ ] **Slice 4** — Reorganize `WbrProfileWorkspace.tsx` kitchen sink under `/clients/[slug]/reports/[mkt]/wbr/setup/*`. Original plan had four tabs (Sync / Imports / Mapping / Profile); once Pass 3.5c moves Sync and Pass 3.6b moves Imports onto the Data page, this pass is left with Mapping / Profile only — revisit at that point whether a tab split is still worth doing or if a single-page layout is simpler.
 
 ---
 
@@ -104,7 +164,7 @@ Codex is expected to push back on ambiguous or technically risky prompts instead
 
 ## Decisions captured so far
 
-- **IA boundary:** Data = credentials/connections (provider-neutral). Reports = report products + report-specific setup (WBR row tree, ASIN mapping, Pacvue import, campaign exclusions). Team = brands + org-chart. This differs from an earlier draft that put WBR setup under Data — replaced by Codex's (correct) argument that report-specific config belongs with the report.
+- **IA boundary (revised during Pass 3.5 / 3.6 planning):** Data = the full **data ingestion pipeline** for a client — OAuth connections, API backfills, nightly sync state, CSV/file uploads, external-account ids. Reports = **report structure and presentation** — WBR row tree, ASIN → row mapping, campaign exclusions, visualization settings. Team = brands + org-chart. Rule of thumb: *if it's an ingestion channel it's Data; if it's a semantic/structural choice about how data is displayed it's Reports.* An earlier draft held Data = credentials-only with uploads living under Reports; that held for the Windsor era but didn't survive the SP-API migration, which made clear that a CSV upload is just a manual ingestion channel and belongs next to OAuth/API ingestion. Codex's original argument ("report-specific structural config belongs with the report") is still respected — row tree + ASIN mapping + campaign exclusions stay with Reports.
 - **Connection uniqueness (Option B):** future schema is `(client_id, provider, external_account_id)`. Supports multiple seller accounts per client in same region (two current prospects have this).
 - **P&L Windsor compare: killed outright**, not migrated. Wrong data source, didn't work.
 - **Direct SP-API migration sequencing:** domain-by-domain (business → listings → inventory → returns), each with A/B against Windsor in a separate endpoint during cutover.
@@ -501,8 +561,419 @@ Report files changed, a diff of copy removed vs added on ReportApiAccessScreen, 
 
 ---
 
-## Pass 3 and Pass 4 — planning deferred
+### Slice 3.5a-region — First-class region support for Amazon Ads
 
-Pass 3 (rebuild `/data` against Option B schema + SP-API direct migration) is a multi-slice track planned separately once Passes 1–2 land. Pass 4 (`WbrProfileWorkspace` split) is a straight UI refactor that can happen independently.
+**Goal:** Bring Amazon Ads connections to feature parity with SP-API on region modeling. Backfill existing Ads rows to `region_code='NA'` + add `NOT NULL`; teach OAuth initiate / state / callback + upsert + API helper + nightly sync to carry region end-to-end; map region to the correct Amazon Ads API host (NA / EU / FE). No UI changes in this slice — the region selector on the Ads card arrives with Slice 3.5a.
 
-This doc will be expanded with detailed slice prompts for Pass 3 when we're ready to start it. Scorecard entries above are placeholders so the overall progress is visible.
+**Why this slice exists:** Codex hit this during 3.5a-api prep. Today's Ads flow has no region awareness: OAuth state doesn't carry region, `upsert_amazon_ads_connection` doesn't write `region_code`, and the Ads API helper is hardcoded to `advertising-api.amazon.com`. Keying the new validate/disconnect endpoints on `(client, provider, region)` — the symmetric design with SP-API — requires Ads to be region-aware first. Treating `null` as "NA by default" works for Distex today but would block every future EU / FE Ads onboarding and bake in permanent tech debt.
+
+**Compatibility constraints:**
+- Must-keep-working: existing NA Ads connections after backfill. Nightly sync still runs against the correct endpoint; validate + any API helper callers continue to work.
+- Must-keep-working: Amazon Ads OAuth initiate path. During this slice, `region` is an **optional** param that defaults to `'NA'` server-side — Slice 3.5d will tighten this to required once 3.5a's region selector UI ships.
+- Must-keep-working: Slice 3a's partial unique indexes on `report_api_connections`. Backfill updates existing rows in place; no index disruption.
+- Must-keep-working: legacy `wbr_amazon_ads_connections` fallback that nightly sync still reads from. Do not touch this table.
+- Must-keep-working: SP-API flow is entirely untouched.
+
+**Migration status:** **Applied 2026-04-24 via MCP.** File at `supabase/migrations/20260424170334_amazon_ads_region_backfill.sql`. Backfilled 6 Ads rows to `region_code='NA'`; SP-API's single row was already `'NA'`; `NOT NULL` on `region_code` now enforced. Slice 3a's partial unique indexes are keyed on `external_account_id` / `(client, provider)` and not `region_code`, so their semantics are unchanged.
+
+**Files (predicted, Codex confirms on exploration):**
+- `supabase/migrations/<timestamp>_amazon_ads_region_backfill.sql` — Claude owns.
+- Backend Amazon Ads OAuth initiate handler — accept optional `region` param (default `'NA'`).
+- Backend Amazon Ads OAuth state encoder/decoder — carry `region`.
+- Backend Amazon Ads OAuth callback handler — extract `region`, pass to upsert.
+- `upsert_amazon_ads_connection(...)` — accept + write `region_code`.
+- Amazon Ads API helper — region → host mapping (`NA` → `advertising-api.amazon.com`, `EU` → `advertising-api-eu.amazon.com`, `FE` → `advertising-api-fe.amazon.com`).
+- Nightly Ads sync — read `region_code` from each connection row, pass into the helper.
+- Any remaining Ads helper callers updated to pass region.
+- Frontend: `createAmazonAdsAuthorizationUrl` wrapper — accept optional `region` param (forwarded to backend).
+
+**Acceptance criteria:**
+1. Migration applied; all existing `amazon_ads` rows in `report_api_connections` have `region_code='NA'`; `NOT NULL` enforced on the column.
+2. Ads OAuth initiate with no `region` → defaults to NA, behaves identically to today. With `region='EU'` or `region='FE'` → routes through the correct Amazon auth flow and persists the right `region_code` on callback.
+3. Ads API helper, given a connection with `region_code='EU'`, hits `advertising-api-eu.amazon.com`. Same for FE. NA unchanged.
+4. Nightly Ads sync picks the correct endpoint per connection's `region_code`. No regression against existing NA clients.
+5. Legacy `wbr_amazon_ads_connections` fallback still functions.
+6. Backend tests cover: NA backfill verification, EU/FE initiate round-trip, API helper endpoint selection, nightly sync endpoint selection.
+7. `npm -C frontend-web run typecheck` passes. Backend test suite passes.
+
+**Codex prompt:**
+
+```
+TASK: Bring Amazon Ads connections to region-awareness parity with SP-API. Teach the Ads OAuth flow + upsert + API helper + nightly sync to carry region end-to-end. Map region to the correct Ads API host (NA / EU / FE). NO UI changes in this slice — the Ads region selector is added by the next UI slice. The backfill + NOT-NULL migration on report_api_connections.region_code has ALREADY been applied by Claude before you start; verify this as step 1.
+
+CONTEXT:
+- Repo: /Users/jeff/code/agency-os. Frontend at /frontend-web (npm). Backend at /backend-core (Python; use the existing test runner).
+- SP-API is already region-aware and is the reference implementation for this slice. Read the SP-API OAuth initiate / state / callback / helper code paths and mirror that shape for Amazon Ads. When in doubt, match SP-API's choices (error shapes, logging, state encoding).
+- Amazon Ads API has three regional hosts:
+    NA → https://advertising-api.amazon.com
+    EU → https://advertising-api-eu.amazon.com
+    FE → https://advertising-api-fe.amazon.com
+  (LWA token exchange remains global; only the Ads API host differs.)
+- Slice 3a's partial unique indexes on report_api_connections are keyed on external_account_id / (client, provider), NOT region_code. Adding NOT NULL on region_code doesn't affect them.
+- Legacy wbr_amazon_ads_connections fallback is still in use by nightly sync as a pre-report_api_connections safety net. DO NOT touch that table or its code path.
+
+STEP 1 — VERIFY MIGRATION PRE-CONDITION (do not skip):
+- Query report_api_connections and confirm:
+    (a) Zero rows with provider='amazon_ads' AND region_code IS NULL.
+    (b) region_code has NOT NULL enforced.
+- If either check fails, STOP and report — the migration hasn't landed or is incomplete.
+
+WHAT TO BUILD (after verification passes):
+
+1. Amazon Ads OAuth initiate handler
+   - Accept an OPTIONAL `region` param; default to 'NA' when absent.
+   - Validate region is one of { 'NA', 'EU', 'FE' }; reject anything else.
+   - Pass region through to the OAuth state payload.
+   - Backward compat: existing callers with no region continue to work and behave exactly as today (NA).
+
+2. OAuth state encoder/decoder
+   - Add `region` to whatever state payload shape Ads uses today. Preserve backward compat for any in-flight OAuth round-trips: if a returning state has no region field (staged before this slice shipped), treat as NA.
+
+3. OAuth callback handler
+   - Extract region from state and pass to `upsert_amazon_ads_connection(...)`.
+
+4. upsert_amazon_ads_connection(...)
+   - Accept `region_code` as a new param; write it to the row.
+   - Upsert key must now consider region (matches the partial-index semantics for multi-region-same-client): prefer explicit (client_id, provider='amazon_ads', external_account_id) when external_account_id is present, else (client_id, provider='amazon_ads', region_code). Match the SP-API upsert's handling.
+
+5. Amazon Ads API helper
+   - Replace the hardcoded `https://advertising-api.amazon.com` with a function that maps `region_code` → host using the table above.
+   - Every call site that hits the Ads API must now pass the connection's region_code (or resolve it from a loaded connection row).
+
+6. Nightly Ads sync path
+   - For each connection being processed, read region_code from the row and pass to the helper so the right host is used.
+   - Verify that connection_status filter remains `'connected'` (unchanged). No other behavior change.
+
+7. Any remaining Ads helper callers (one-off scripts, admin endpoints, debug tooling)
+   - Audit. Update each to pass region_code.
+
+8. Frontend wrapper: createAmazonAdsAuthorizationUrl
+   - Accept an optional `region: 'NA' | 'EU' | 'FE'` param; forward to backend query/body.
+   - No UI changes — leave the existing Ads Connect button behavior unchanged (it'll continue to hit the backend with no region, which defaults to NA).
+
+PUSH BACK IF:
+- The migration verification in Step 1 fails. Stop and report what you see.
+- SP-API's region handling is structurally different enough that "mirror SP-API" doesn't produce a clean symmetric implementation. Describe the difference and propose a path.
+- Amazon Ads OAuth (LWA) actually requires region-specific authorization URLs / scopes as well, not just API hosts. If so, report which piece changes per region and wait for confirmation before encoding.
+- Token refresh for Ads uses a regional LWA host (rather than a global one). Flag and confirm behavior before coding.
+- Legacy wbr_amazon_ads_connections still drives primary ingestion for any active client — in which case region parity there matters too. Describe what you find.
+
+CONSTRAINTS:
+- NO UI changes in this slice (other than the tiny wrapper-signature tweak). The Ads Connect button remains region-less from the user's POV until Slice 3.5a lands the selector.
+- DO NOT touch SP-API code paths unless a shared utility is being generalized (in which case describe the generalization before making it).
+- DO NOT touch wbr_amazon_ads_connections or its fallback path.
+- NO schema changes — Claude already landed the migration. If you believe further schema changes are needed, stop and report.
+- Admin gating, logging, error envelope — match existing Ads endpoints' conventions.
+
+ACCEPTANCE TESTS YOU MUST VERIFY BEFORE CLAIMING DONE:
+1. Step 1 migration verification passes against the live DB.
+2. Ads OAuth initiate with no region: works exactly as today (NA round-trip, row persisted with region_code='NA').
+3. Ads OAuth initiate with region='EU': full round-trip persists a row with region_code='EU'. (Testable by hand against a test client + EU Ads sandbox if available; otherwise document the code path end-to-end with screenshots / logs.)
+4. Ads API helper, given region_code='EU', hits advertising-api-eu.amazon.com. Confirmed via unit test or request capture.
+5. Nightly Ads sync over existing NA connections produces identical results to pre-slice baseline (no regression). Walk through one run against a known-good client (e.g., Distex) and compare row counts / durations.
+6. Legacy wbr_amazon_ads_connections-backed clients still work.
+7. `npm -C frontend-web run typecheck` passes.
+8. Backend test suite passes.
+
+Report: files changed, pre-condition verification output, walkthrough of the NA-unchanged test + the EU initiate test, test suite output, and anything that surprised you.
+```
+
+---
+
+### Slice 3.5a-api — Disconnect + Ads validate endpoints (backend prep)
+
+**Goal:** Add the three admin endpoints Slice 3.5a needs but that don't exist yet: Amazon Ads validate, Amazon Ads disconnect, SP-API disconnect. Plus matching frontend API client wrappers in `reportApiAccessApi.ts`. Disconnect is **soft-revoke**: `connection_status='revoked'`, tokens nulled, row preserved. No UI changes in this slice.
+
+**Why this is split from 3.5a:** the UI slice hit Codex pushback because `reportApiAccessApi.ts` has `listAmazonAdsApiAccess`, `listSpApiConnections`, both `create*AuthorizationUrl`, and `validateSpApiConnection` — but no Ads validate, no disconnect for either provider. Rather than widen 3.5a, isolate the backend work in a reviewable chunk.
+
+**Compatibility constraints:**
+- Must-keep-working: existing Connect flows (Ads + SP-API OAuth initiate → callback → token storage).
+- Must-keep-working: existing SP-API validate endpoint — do NOT refactor its shape; the new endpoints mirror it.
+- Must-keep-working: nightly sync jobs. Soft-revoke relies on those jobs skipping rows where `connection_status='revoked'`. If they don't already, we need to handle that (see pushback clause).
+- Must-keep-working: Slice 3a's partial unique indexes on `report_api_connections`. Soft-revoke preserves the row, so reconnect upserts on the same key without collision.
+- Can temporarily break: nothing.
+
+**Migration status:** Likely none. `report_api_connections.connection_status` must accept the value `'revoked'`. If a CHECK constraint or enum blocks that value, Codex stops and Claude lands the migration.
+
+**Files (predicted, Codex confirms on exploration):**
+- Edit: backend admin router under `backend-core/app/...` — three new endpoints alongside the existing SP-API validate + connect handlers.
+- Edit: backend service layer for Amazon Ads (validate impl) and both providers (disconnect impl).
+- Edit: `frontend-web/src/app/reports/_lib/reportApiAccessApi.ts` — three new wrappers + TypeScript types.
+- New: backend tests for the three endpoints.
+
+**Acceptance criteria:**
+1. `POST /admin/reports/api-access/amazon-ads/validate` with `{ client_id, region }` calls Amazon Ads `/v2/profiles`, updates `connection_status` + `last_validated_at`, returns a shape mirroring the existing SP-API validate response.
+2. `POST /admin/reports/api-access/amazon-ads/disconnect` with `{ client_id, region }` sets `connection_status='revoked'` and nulls refresh + access tokens across all matching rows. Idempotent.
+3. `POST /admin/reports/api-access/amazon-spapi/disconnect` same shape + semantics for SP-API.
+4. All three admin-gated per existing pattern.
+5. Frontend wrappers `validateAmazonAdsConnection`, `disconnectAmazonAdsConnection`, `disconnectSpApiConnection` exist with TS types matching the existing wrappers' style.
+6. Soft-revoke verified: post-disconnect DB inspection shows row intact with null tokens; re-Connect via OAuth flips the row back to `connected` with fresh tokens (no partial-index collision).
+7. Backend tests cover happy path + error path + idempotent re-call for each endpoint.
+8. Backend tests pass. `npm -C frontend-web run typecheck` passes.
+
+**Codex prompt:**
+
+```
+TASK: Backend + API wrapper prep for Slice 3.5a. Add three missing admin endpoints — Amazon Ads validate, Amazon Ads disconnect, SP-API disconnect — plus matching frontend API client wrappers in reportApiAccessApi.ts. Disconnect is soft-revoke (update connection_status + null tokens, preserve row). This slice has NO UI changes.
+
+CONTEXT:
+- Repo: /Users/jeff/code/agency-os. Frontend at /frontend-web (npm). Backend at /backend-core (Python; find and use the existing test runner).
+- Slice 3.5a-region has already shipped: Amazon Ads is now region-aware end-to-end (OAuth initiate/state/callback, upsert, API helper, nightly sync). Use the region-aware helpers: normalize_ads_region_code(), get_ads_api_base_url(region_code), and the Ads helper pattern from amazon_ads_auth.py. All live Ads rows have region_code='NA' and NOT NULL is enforced. The partial unique index on null-external-account rows is now (client_id, provider, region_code), so multi-region Ads rows coexist cleanly.
+- Existing admin endpoints in the API-access space: POST /admin/reports/api-access/amazon-spapi/validate (takes client_id + region), Amazon Ads + SP-API OAuth connect/callback paths, plus domain endpoints like compare-business and import-listings. Find them; match their admin-gating pattern, error shape, and logging style.
+- Existing frontend API client: frontend-web/src/app/reports/_lib/reportApiAccessApi.ts. Today it has createAmazonAdsAuthorizationUrl (now region-aware), createSpApiAuthorizationUrl, validateSpApiConnection, listAmazonAdsApiAccess, listSpApiConnections. Add the new wrappers alongside these, matching their fetch + error-handling pattern.
+- report_api_connections: one row per (client, provider, external_account_id) when external_account_id is present, else one per (client, provider, region_code). This slice scopes validate/disconnect to (client_id, provider, region) — if multiple rows match that tuple (multi-account same region), operate on ALL of them. Connection-id-scoped variants are deferred to Slice 3b.
+- Do NOT run Supabase migrations. If report_api_connections.connection_status has a CHECK / enum constraint blocking the value 'revoked', STOP and report — Claude owns migrations.
+
+WHAT TO BUILD:
+
+1. Backend endpoint: POST /admin/reports/api-access/amazon-ads/validate
+   - Body: { client_id: uuid, region: 'NA' | 'EU' | 'FE' }
+   - Loads the connection row(s) for (client_id, provider='amazon_ads', region_code=region). Calls Amazon Ads /v2/profiles on the region-correct host (use get_ads_api_base_url(region) from amazon_ads_auth.py) with the stored access token — refresh via the existing Ads refresh path if needed.
+   - On success: update connection_status='connected', last_validated_at=now(), clear last_error. Return { status: 'connected', last_validated_at, profile_count }.
+   - On failure: update connection_status='error', last_error=<msg>. Return { status: 'error', error: <msg> }. HTTP status and shape mirror the existing SP-API validate endpoint — inspect and align.
+   - Admin-gated via the same pattern used by SP-API validate.
+
+2. Backend endpoint: POST /admin/reports/api-access/amazon-ads/disconnect
+   - Body: { client_id: uuid, region: 'NA' | 'EU' | 'FE' }
+   - For each matching row (keyed by client_id + provider + region_code): set connection_status='revoked', null the refresh_token (and any cached access-token / token metadata fields — follow wherever the connect flow writes them). DO NOT delete rows.
+   - Return { status: 'revoked', affected: <n> }.
+   - Idempotent: calling against an already-revoked row returns 200 with affected=0.
+
+3. Backend endpoint: POST /admin/reports/api-access/amazon-spapi/disconnect
+   - Same shape + semantics as the Ads disconnect, for provider='amazon_spapi'.
+
+4. Frontend wrappers in reportApiAccessApi.ts:
+   - validateAmazonAdsConnection({ clientId, region }): Promise<ValidateResult>  — shape mirrors validateSpApiConnection.
+   - disconnectAmazonAdsConnection({ clientId, region }): Promise<{ status: 'revoked'; affected: number }>
+   - disconnectSpApiConnection({ clientId, region }): Promise<{ status: 'revoked'; affected: number }>
+   - Match existing fetch + error-handling convention of sibling functions.
+
+5. Backend tests (in the existing backend suite — find the location):
+   - Ads validate: happy path; error path (e.g., Amazon returns 401 → row flips to connection_status='error'); validate against a row that was previously disconnected/revoked should surface a clean error rather than crash; correct regional host is used (spy on the API base URL resolved for NA vs EU).
+   - Ads disconnect: happy path (rows flip to revoked, tokens null); idempotent re-call (affected=0); nonexistent (client, provider, region) tuple is graceful — 200 with affected=0 OR 404, match existing conventions.
+   - SP-API disconnect: happy path + idempotent.
+
+PUSH BACK IF:
+- report_api_connections.connection_status has a CHECK / enum constraint blocking 'revoked'. STOP, report the constraint, wait for Claude to land a migration.
+- Tokens for Ads / SP-API are stored in a separate table (tokens / credentials) rather than on report_api_connections. Follow wherever the existing connect flow writes them and null them there consistently — describe what you find before coding if the separation is non-obvious.
+- Nightly sync jobs read from report_api_connections WITHOUT filtering out connection_status='revoked'. Soft-revoking an active client would break those jobs. If you find this, stop and describe so we decide (include the filter in this slice, or stage separately). (From 3.5a-region review we know nightly Ads sync already filters to 'connected', but double-check for other sync paths touched here.)
+- The existing SP-API validate endpoint's shape differs materially from what's specified above, such that mirroring it would create inconsistency. Describe the existing shape and propose alignment.
+
+CONSTRAINTS:
+- NO UI changes. NO schema migrations. NO new npm packages. No new Python deps unless there's an existing SDK already in the repo you need to wire up.
+- Soft-revoke semantics: preserve the row, null tokens, flip status. Do NOT hard-delete.
+- Admin gating via existing pattern — do not reinvent.
+- Endpoint shapes mirror the existing SP-API validate endpoint for consistency.
+- Use the region-aware helpers shipped in 3.5a-region — do NOT hardcode Amazon Ads API hosts.
+
+ACCEPTANCE TESTS YOU MUST VERIFY BEFORE CLAIMING DONE:
+1. Three endpoints respond correctly to curl / httpie against a local backend. Walk through one Ads validate, one Ads disconnect, one SP-API disconnect and paste request + response.
+2. After disconnect, the row still exists with connection_status='revoked' and tokens nulled — verify by direct DB query against report_api_connections.
+3. After disconnect, a subsequent Connect OAuth round-trip succeeds and the row is back to connection_status='connected' with fresh tokens — i.e., no partial-index collision.
+4. Frontend wrappers typecheck and are importable.
+5. Backend tests pass. `npm -C frontend-web run typecheck` passes. `npm -C frontend-web run test:run` passes.
+
+Report files changed, any deviations from spec with reasoning, test output, and the local-backend walkthrough from Acceptance Test 1.
+```
+
+---
+
+### Slice 3.5a — Region blocks + Connections UI
+
+**Goal:** First UI slice of Pass 3.5. Replaces `/clients/[slug]/data`'s top-level content with the Region → (Connections + Marketplaces) IA. Ships the three `RegionBlock`s (NA / EU / FE) and the `ConnectionsStrip` inside each (Ads + SP-API cards, state-first per-state treatment, region-scoped Connect / Validate / Disconnect calling 3.5a-api wrappers). Marketplace cards + their Backfill / Nightly-sync actions arrive in 3.5b / 3.5c. Empty regions render as a collapsed "+ Connect" CTA card. Legacy `ReportApiAccessScreen` moves into a closed-by-default `<details>` disclosure at the bottom — kept as a rollback safety net and multi-account overflow ("+N more") path until Slice 3.5d removes it.
+
+**Compatibility constraints:**
+- Must-keep-working: Ads + SP-API OAuth round-trips (Connect → Amazon → callback → Connected state) across all three regions.
+- Must-keep-working: 307 redirect from `/reports/client-data-access/:slug` (Slice 2c) lands on the new layout.
+- Must-keep-working: Slice 2d read-only per-WBR-profile status dashboard — in this slice it renders unchanged below the RegionBlocks. Slices 3.5b and 3.5c move its content into marketplace cards inside each region block; 3.5d cleans up.
+- Must-keep-working: nightly sync jobs (consume `report_api_connections`; UI-agnostic).
+- Must-keep-working: validate + disconnect endpoints shipped by 3.5a-api.
+- Depends on: 3.5a-region (region-aware Ads OAuth) + 3.5a-api (validate + disconnect endpoints + frontend wrappers). Both shipped.
+
+**Migration status:** N/A — no schema changes in this slice.
+
+**Files:**
+- Create: `frontend-web/src/app/clients/[clientSlug]/data/_components/RegionBlock.tsx` (empty-state + active-state variants, region label + subhead)
+- Create: `frontend-web/src/app/clients/[clientSlug]/data/_components/ConnectionsStrip.tsx` (holds two `ProviderConnectionCard`s for a region)
+- Create: `frontend-web/src/app/clients/[clientSlug]/data/_components/ProviderConnectionCard.tsx` (state-first card keyed off connection state)
+- Create: orchestrator component (name Codex's choice — match Slice 2d's data-fetch pattern) that loads per-region connection state for the client and owns Connect / Validate / Disconnect handlers
+- Edit: `frontend-web/src/app/clients/[clientSlug]/data/page.tsx` — replace top-level content with RegionBlocks stack → Slice 2d dashboard (unchanged) → `<details>` disclosure wrapping `<ReportApiAccessScreen/>`
+
+**Design direction:**
+
+Aesthetic: **"confident utility"** — opinionated clarity for an internal admin tool. First-visit obviousness is the primary design metric.
+
+**Region subheads (copy):**
+- NA: "Unlocks CA, US, MX"
+- EU: "Unlocks UK, DE, FR, IT, ES, NL, SE, PL, TR, BE, EG, SA, ZA, AE"
+- FE: "Unlocks AU, JP, SG, IN"
+
+**RegionBlock container:**
+- Region label prominent but not shouty (e.g., `NA`, not `North America` — match Amazon's own convention) with the subhead right underneath.
+- Two variants, determined by whether any connection exists for that region:
+  - *Empty:* collapsed low-height card with two outline `+ Connect Amazon Ads` / `+ Connect SP-API` CTAs and one-line helper copy ("No connections in `<region>` yet. Authorize to unlock `<markets>`."). Default for FE on most clients.
+  - *Active:* expanded card containing `ConnectionsStrip`. A reserved space below the strip holds future marketplace cards (populated by 3.5b). Placeholder comment only — no visible "Marketplaces" label until 3.5b ships.
+
+**ConnectionsStrip:** two cards side-by-side on `md+`, stacked on `sm`. Order: Amazon Ads, then SP-API. Region inherited from parent — cards don't render a region chip (avoids redundancy with the RegionBlock label).
+
+**ProviderConnectionCard:** state-first; dominant visual cue (left accent bar / border / header band) communicates state at a glance. Never pill-only.
+- *Not connected:* neutral/muted; large primary `Connect` button dominates; one-line helper copy.
+- *Connected:* positive accent (repo's existing success token — not a saturated green); account identifier (seller id / Ads profile id) prominent; last-validated timestamp; secondary `Validate` + `Disconnect`.
+- *Error:* amber accent; error reason visible; primary action `Reconnect`.
+- *Revoked:* red accent; "Access revoked at Amazon" copy; primary action `Reconnect`.
+
+**Other design rules:**
+- Primary-action dominance on disconnected cards; status-as-hero on connected cards.
+- Provider identity via a small accent only (thin left border or icon tint). Amazon orange (`#FF9900`) for Ads; calm contrasting tone (deep teal or slate) for SP-API. No Amazon logos.
+- Reuse existing repo tokens + type scale. No new fonts or tokens.
+- ~200ms crossfade on state transitions. No page-load animations.
+- Copy: direct, imperative. Error messages name problem + fix.
+- Accessibility: state distinguishable without hue (border weight, icon, shape). Verify with grayscale devtools rendering.
+- Empty RegionBlocks should be visually quiet — low-contrast, minimal height.
+
+**Legacy disclosure:** `<details>` at page bottom, summary "Advanced connection details (legacy)", closed by default. Contents: `<ReportApiAccessScreen clientSlug=.../>` rendered untouched.
+
+**EU / FE OAuth caveat (open item from 3.5a-region):** LWA authorization host (`www.amazon.com/ap/oa`) + token refresh host (`api.amazon.com/auth/o2/token`) are still global. A live EU/FE OAuth round-trip has not been validated. For this slice render all three RegionBlocks as normal — if EU or FE Connect surfaces an Amazon-side error we'll diagnose separately. Do not gate EU/FE as "coming soon" unless a specific UI regression appears in the live flow.
+
+**Acceptance criteria:**
+1. `/clients/[slug]/data` renders three `RegionBlock`s (NA, EU, FE) at the top. Slice 2d dashboard renders below, unchanged. Closed-by-default `<details>` disclosure wrapping `<ReportApiAccessScreen/>` at the bottom.
+2. Empty region: collapsed card with two `+ Connect` CTAs + subhead naming unlocked marketplaces.
+3. Active region: ConnectionsStrip visible with Ads + SP-API cards reflecting real state from `report_api_connections`.
+4. Connect in a region → OAuth round-trip → on return, card reads Connected with account id + last-validated; row in DB has `region_code` matching the region block.
+5. Validate on a connected card → calls `validateAmazonAdsConnection` / `validateSpApiConnection` from 3.5a-api → updates last-validated or surfaces error inline.
+6. Disconnect on a connected card → confirm step → calls `disconnectAmazonAdsConnection` / `disconnectSpApiConnection` from 3.5a-api → card returns to Not connected; row in DB has `connection_status='revoked'` with `refresh_token=null`.
+7. Reconnect-after-revoke: connecting again in the same region upserts the existing row back to `connected` with no partial-index collision (3.5a-region's follow-up migration enables this).
+8. Error and Revoked states render with distinct visual treatments per design direction.
+9. No Windsor card / copy / icon inside any RegionBlock.
+10. Slice 2d dashboard unchanged below. ReportApiAccessScreen fully functional when the disclosure is opened.
+11. Grayscale rendering check passes — states distinguishable without hue.
+12. `npm -C frontend-web run typecheck` and `npm -C frontend-web run test:run` pass.
+
+**Codex prompt:**
+
+```
+TASK: Rebuild /clients/[clientSlug]/data around the Region → (Connections + Marketplaces) IA. In this slice ship the three RegionBlocks (NA / EU / FE) and the ConnectionsStrip inside each (Ads + SP-API cards, state-first per-state visual treatment, region-scoped Connect / Validate / Disconnect). Marketplace-level content arrives in Slices 3.5b (Backfill) and 3.5c (Nightly sync). Slice 2d's read-only dashboard stays BELOW the new blocks, untouched. Legacy ReportApiAccessScreen moves into a closed-by-default <details> disclosure at the bottom of the page.
+
+CONTEXT:
+- Repo: Next.js App Router at /Users/jeff/code/agency-os/frontend-web. Package manager: npm. Run `npm -C frontend-web run typecheck` and `npm -C frontend-web run test:run` before claiming done.
+- /clients/[clientSlug]/data/page.tsx is admin-only (requireAdminUser() + resolveClientBySlug() from frontend-web/src/app/clients/_lib/). It currently renders: (1) Slice 2d read-only status dashboard at the top, (2) <ReportApiAccessScreen clientSlug=...> below. This slice puts three RegionBlocks at the TOP of the page, moves 2d dashboard BELOW them (unchanged), and moves ReportApiAccessScreen into a closed-by-default <details> disclosure at the very bottom.
+- Slice 3.5a-region (prereq, SHIPPED): Amazon Ads is region-aware end-to-end. Frontend wrapper `createAmazonAdsAuthorizationUrl(token, profileId, returnPath, region?)` accepts an optional region param — use it.
+- Slice 3.5a-api (prereq, SHIPPED): these wrappers live in `reportApiAccessApi.ts` — use them, do NOT add new backend endpoints:
+    validateSpApiConnection(token, clientId, region)
+    validateAmazonAdsConnection(token, { clientId, region })
+    disconnectSpApiConnection(token, { clientId, region })
+    disconnectAmazonAdsConnection(token, { clientId, region })
+- report_api_connections: two partial unique indexes — one for `external_account_id IS NOT NULL`, one for `(client, provider, region_code) WHERE external_account_id IS NULL`. For this slice render a SINGLE card per (region, provider) representing the primary connection in that region (most recently validated). If additional rows exist for the same tuple, show a small "+N more" footer link pointing to the Advanced disclosure. Multi-account management is deferred to Slice 3b.
+
+LAYOUT (top-to-bottom on /clients/[slug]/data):
+
+1. Three stacked RegionBlocks, order: NA → EU → FE.
+
+   Each RegionBlock shows:
+   - Region label (`NA` / `EU` / `FE`) — prominent but not shouty.
+   - Subhead naming the marketplaces that region unlocks:
+       NA: "Unlocks CA, US, MX"
+       EU: "Unlocks UK, DE, FR, IT, ES, NL, SE, PL, TR, BE, EG, SA, ZA, AE"
+       FE: "Unlocks AU, JP, SG, IN"
+   - Two visual variants based on whether any connection exists for that region:
+     a) EMPTY (zero connections): collapsed, low-height card. Two outline CTAs `+ Connect Amazon Ads` / `+ Connect SP-API`. One-line copy ("No connections in <Region> yet. Authorize to unlock <markets>.").
+     b) ACTIVE (>= 1 connection): expanded card containing ConnectionsStrip. Reserve space AFTER the strip for future marketplace cards (3.5b) — an empty div or HTML comment is enough; no visible "Marketplaces" label in this slice.
+
+2. Slice 2d read-only status dashboard — UNCHANGED, renders below the three RegionBlocks.
+
+3. <details> disclosure at the very bottom:
+   - summary text: "Advanced connection details (legacy)"
+   - Closed by default
+   - Contents: <ReportApiAccessScreen clientSlug={...}/> — rendered exactly as before. DO NOT modify it.
+
+WHAT TO BUILD:
+
+1. Orchestrator component (match Slice 2d's data-fetch pattern — server component with pre-fetched data, OR client component that fetches on mount).
+   - Loads connection state for this client across all three regions and both providers.
+   - Owns Connect / Validate / Disconnect handlers:
+     - Connect → calls createAmazonAdsAuthorizationUrl(..., region) or createSpApiAuthorizationUrl(..., region), follows the existing redirect pattern.
+     - Validate → calls the right wrapper from 3.5a-api, refreshes local state.
+     - Disconnect → confirm step (browser `confirm()` is acceptable) + calls the right 3.5a-api wrapper, refreshes local state.
+   - Passes per-region + per-provider state down to each RegionBlock.
+
+2. RegionBlock.tsx
+   - Props: `{ region: 'NA' | 'EU' | 'FE'; adsConnection?: ConnectionState; spApiConnection?: ConnectionState; onConnect; onValidate; onDisconnect; }`
+   - Renders EMPTY or ACTIVE variant per the layout spec above.
+
+3. ConnectionsStrip.tsx
+   - Two <ProviderConnectionCard/> side-by-side on md+, stacked on sm. Order: Ads first, SP-API second.
+   - Passes through state + handlers.
+
+4. ProviderConnectionCard.tsx
+   - Pure presentation, keyed off `state`: 'not_connected' | 'connected' | 'error' | 'revoked'.
+   - Approximate props:
+       {
+         provider: 'amazon-ads' | 'sp-api';
+         region: 'NA' | 'EU' | 'FE';
+         state: 'not_connected' | 'connected' | 'error' | 'revoked';
+         accountId?: string;
+         lastValidatedAt?: Date;
+         errorMessage?: string;
+         additionalAccountCount?: number;   // ">+N more" footer linking to the Advanced disclosure
+         onConnect(): void;
+         onValidate(): void;
+         onDisconnect(): void;
+       }
+   - Region lives at the RegionBlock level — do NOT render a region chip on the card itself.
+
+5. Edit page.tsx — replace the current top-level content with: orchestrator → 3 RegionBlocks → 2d dashboard (unchanged) → <details> disclosure wrapping <ReportApiAccessScreen/>.
+
+DESIGN DIRECTION (full spec in docs/client_hub_ia_plan.md under "Slice 3.5a — Design direction"; follow it precisely):
+
+- Aesthetic: "confident utility." Opinionated clarity, state-first visual hierarchy, no marketing fluff.
+- State-first cards. Dominant visual cue (left accent bar / border color / header band) communicates state at a glance. NOT a pill-only indicator.
+  - Not connected: neutral/muted; large primary Connect button dominates; one-line helper copy.
+  - Connected: positive accent (repo's existing success token); account id + last-validated prominent; secondary Validate + Disconnect actions.
+  - Error: amber accent; error reason visible; primary action Reconnect.
+  - Revoked: red accent; "Access revoked at Amazon" copy; primary action Reconnect.
+- Primary-action dominance on disconnected cards. Status-as-hero on connected.
+- Provider identity via a SMALL accent only (thin left border or icon tint). Amazon orange (#FF9900) for Ads, calm contrasting tone (deep teal or slate) for SP-API. NO Amazon logos.
+- Reuse existing repo tokens + type scale — NO new fonts or tokens.
+- Two cards side-by-side on md+, stacked on sm. Generous vertical padding.
+- Motion: restrained — ~200ms state crossfade. No page-load animations.
+- Copy voice: direct, imperative. Error messages name problem + fix.
+- Accessibility: state distinguishable without hue. Verify with devtools grayscale rendering.
+- Empty RegionBlocks should be visually quiet — low-contrast, minimal height.
+
+EU / FE OAuth caveat:
+- LWA authorization and token refresh hosts are still global (open item from 3.5a-region). EU + FE Connect buttons fire the same OAuth endpoints as NA. A live EU/FE round-trip is not yet validated. Render all three RegionBlocks as normal — if EU or FE Connect surfaces an Amazon-side error we'll diagnose separately. Do NOT gate EU/FE as "coming soon" unless you find a specific UI regression in the live flow.
+
+PUSH BACK IF:
+- Any of the 3.5a-api wrappers (validateAmazonAdsConnection, disconnectAmazonAdsConnection, disconnectSpApiConnection) are missing from reportApiAccessApi.ts. Stop and report.
+- The OAuth callback for Ads or SP-API redirects the user to a route other than /clients/[slug]/data in a way that blocks the Connected-on-return UX. Describe what you find.
+- Slice 2d's dashboard renders per-connection status in a way that visibly duplicates the new ProviderConnectionCards enough to confuse users during the transition. Propose hiding or demoting that subsection and WAIT for confirmation — do not delete in this slice.
+
+CONSTRAINTS:
+- NO new backend endpoints; NO schema changes.
+- Do NOT modify ReportApiAccessScreen or Slice 2d dashboard.
+- NO new fonts, design tokens, or npm packages.
+- requireAdminUser() is applied at the page level — do not re-implement inside components.
+- Do NOT hardcode Amazon Ads API hosts — region-aware helpers already exist from 3.5a-region.
+
+ACCEPTANCE TESTS YOU MUST VERIFY:
+1. /clients/[slug]/data renders three RegionBlocks (NA, EU, FE) at the top. 2d dashboard below, unchanged. Closed <details> disclosure wrapping ReportApiAccessScreen at the bottom.
+2. With zero connections: all three blocks are EMPTY variant; both `+ Connect` CTAs visible per region.
+3. Connect Amazon Ads in the NA block → OAuth round-trip → NA block flips to ACTIVE with the Ads card Connected (account id + last-validated); SP-API still empty CTA; EU + FE unchanged. Row in DB has region_code='NA'.
+4. Validate on a connected card → last-validated updates or error surfaces inline.
+5. Disconnect on a connected card → confirm → card returns to Not connected; row has connection_status='revoked' with refresh_token null.
+6. Reconnect in the same region after disconnect → row upserts back to 'connected' (no partial-index collision).
+7. Grayscale devtools render check passes.
+8. No Windsor references in any RegionBlock.
+9. `npm -C frontend-web run typecheck` passes.
+10. `npm -C frontend-web run test:run` passes.
+
+Report: files changed, before/after screenshots of /clients/[slug]/data (empty, partially connected, fully connected), any deviations from spec with reasoning, and typecheck + test:run output.
+```
+
+---
+
+## Pass 3, 3.5, 3.6, and 4 — remaining planning
+
+Pass 3 (rebuild `/data` against Option B schema + SP-API direct migration) is a multi-slice track; slices 3a, 3c, 3d, and 3e have shipped. Pass 3.5 (Data UX — Region blocks → Connections + Marketplaces) is in flight — 3.5a-region and 3.5a-api have shipped (Codex impl, pending commit); 3.5a (UI) is prompt-ready above; 3.5b/c/d follow. Pass 3.6 (Imports section on Data) is orthogonal to Pass 3.5 and can run in parallel since it touches different UI surfaces; one-after-the-other sequencing keeps each review small. Pass 4 (`WbrProfileWorkspace` reorganization) is a UI refactor whose scope shrinks once 3.5c moves Sync and 3.6 moves Imports out of WBR setup.
+
+Detailed slice prompts for 3.5a-region, 3.5a-api, and 3.5a are inlined above. Prompts for 3.5b, 3.5c, 3.5d, 3f, 3g, 3h, 3.6a–d, and 4 will follow at execution time.
