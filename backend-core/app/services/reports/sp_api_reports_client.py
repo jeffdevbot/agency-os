@@ -329,7 +329,13 @@ class SpApiReportsClient:
             ) from exc
 
     def _parse_tsv(self, content: bytes) -> list[dict[str, str | None]]:
-        text = content.decode("utf-8-sig")
+        # Amazon's legacy TSV reports (GET_MERCHANT_LISTINGS_ALL_DATA,
+        # GET_FBA_*, returns, etc.) are commonly cp1252-encoded, not UTF-8 —
+        # fall back rather than blow up on bytes like 0xe9 ("é").
+        try:
+            text = content.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            text = content.decode("cp1252")
         reader = csv.DictReader(io.StringIO(text), delimiter="\t")
         return [
             {str(key): _coerce_tsv_value(value) for key, value in row.items() if key}

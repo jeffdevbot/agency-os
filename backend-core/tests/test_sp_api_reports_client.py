@@ -255,6 +255,38 @@ async def test_download_uncompressed_document() -> None:
 
 
 @pytest.mark.asyncio
+async def test_fetch_report_rows_cp1252_tsv_fallback() -> None:
+    raw_report = "asin\ttitle\nB000TEST01\tCafé déluxe\n".encode("cp1252")
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST" and request.url.path == "/reports/2021-06-30/reports":
+            return httpx.Response(200, json={"reportId": "report-1"})
+        if request.url.path == "/reports/2021-06-30/reports/report-1":
+            return httpx.Response(
+                200,
+                json={"processingStatus": "DONE", "reportDocumentId": "doc-1"},
+            )
+        if request.url.path == "/reports/2021-06-30/documents/doc-1":
+            return httpx.Response(200, json={"url": "https://documents.example.test/report.tsv"})
+        if request.url.host == "documents.example.test":
+            return httpx.Response(200, content=raw_report)
+        return httpx.Response(404)
+
+    client, http_client = _client(httpx.MockTransport(handler))
+    try:
+        rows = await client.fetch_report_rows(
+            "GET_MERCHANT_LISTINGS_ALL_DATA",
+            marketplace_ids=["A2EUQ1WTGCTBG2"],
+            data_start_time=START,
+            data_end_time=END,
+        )
+    finally:
+        await http_client.aclose()
+
+    assert rows == [{"asin": "B000TEST01", "title": "Café déluxe"}]
+
+
+@pytest.mark.asyncio
 async def test_fetch_report_rows_json_format() -> None:
     json_report = (FIXTURE_DIR / "report.json").read_bytes()
 
