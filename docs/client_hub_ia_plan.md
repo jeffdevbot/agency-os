@@ -30,6 +30,8 @@ Redirects ship as 307 (temporary) during migration. After Passes 1–2 soak for 
 - [ ] **Slice 3b** — `/clients/[slug]/data/connections` management UI rebuild for multi-region / multi-account. *Partially redundant with Slice 2d's read-only status dashboard; only needed when managing (adding/removing) multiple accounts per (client, provider) becomes a real workflow. Defer until a client actually authorizes a second account for the same region.*
 - [x] **Slice 3c** — `SpApiReportsClient` generic create/poll/download/decompress helper + tests. Async Python client at `backend-core/app/services/reports/sp_api_reports_client.py`; 8 passing tests; fixture-based, no live network. *(Merged 2026-04-23, Codex impl, reviewed by Claude. Note: I referred to this as "Slice 3b" in the Codex prompt by mistake — the client work is scorecard slot 3c.)*
 - [x] **Slice 3d** — Section 1 (business data) direct SP-API service writing to `wbr_business_asin_daily__compare`; A/B-ready. Day-by-day `GET_SALES_AND_TRAFFIC_REPORT` loop (required because SP-API exposes date aggs + asin aggs as separate axes). Admin endpoint `POST /admin/reports/api-access/amazon-spapi/compare-business`. Compare table migration at `supabase/migrations/20260424032333_add_wbr_business_asin_daily_compare.sql` (Claude owned, applied 2026-04-24 via MCP). *(Merged 2026-04-23, Codex impl, reviewed by Claude. Operational note: admin endpoint blocks HTTP connection for full run — run in 7-15 day chunks, not full backfill at once.)*
+  - **Hotfix 2026-04-24 (commit `42d1ef3`):** `SpApiReportsClient._parse_json` had a scalar-only filter (`if isinstance(value, (str, int, float)) or value is None`) that silently stripped nested fields from `GET_SALES_AND_TRAFFIC_REPORT` responses, surfacing as `[{}]` and zero-row compares. Filter removed; nested structures now preserved. Verified live against Distex CA (2026-04-15): 143 child-ASIN rows + real CAD sales/traffic. The "BA / draft-app gating" hypothesis we chased through Amazon SP-API support for ~16 hours was wrong — Amazon's data was healthy the whole time; our parser was the issue. See memory `project_spapi_draft_app_blocker.md` for the full debunk and lesson. Slice 3d's compare endpoint is now functional end-to-end.
+  - **Known issue (open):** `GET_SALES_AND_TRAFFIC_REPORT` returns 2 days of data when given a single-day window (Amazon treats `dataStartTime` and `dataEndTime` as inclusive at date granularity, even with next-day-midnight ends). The day-by-day loop in `SpApiBusinessCompareService` will double-count `salesAndTrafficByAsin` aggregates if run as-is across multi-day backfills. Fix candidates: switch to `end_inclusive=True` (same-day 23:59:59.999Z) and verify Amazon honors it, OR post-filter `salesAndTrafficByDate` and re-aggregate. Track separately; not blocking 3.5b's UI work.
 - [x] **Slice 3e** — Listings catalog direct SP-API. Preview endpoint + write path both landed; `wbr_listing_import_batches.source_provider` column added and backfilled. Distex CA live on SP-API listings (929 rows). *(Shipped as commits `a31c93e` (preview) + `0caf3fc` (write) on 2026-04-24. Codex impl, reviewed by Claude. Naming note: the write-path commit message labeled itself "Slice 3f" — same drift as the 3b/3c mixup; both commits belong to scorecard slot 3e.)*
 - [ ] **Slice 3f** — Section 3 inventory + returns direct SP-API.
 - [ ] **Slice 3g** — Delete Windsor services, env vars, and frontend references. Repoint nightly sync.
@@ -68,7 +70,7 @@ Why region-grouped instead of section-first:
 - [x] **Slice 3.5a-region** — First-class region support for Amazon Ads. Shipped: backfill migration + NOT NULL on `region_code`; OAuth initiate/state/callback + `upsert_amazon_ads_connection` + Ads API helper + nightly sync + search-term sync all carry region end-to-end; NA/EU/FE → API host map; frontend `createAmazonAdsAuthorizationUrl` accepts optional region. Backend tests cover NA default, EU round-trip, host mapping, and invalid-region rejection. *(Codex impl 2026-04-24, reviewed by Claude, pending commit. Migrations `20260424170334_amazon_ads_region_backfill.sql` and follow-up `20260424174837_report_api_connections_null_account_include_region.sql` — the latter widens the null-external-account partial unique index to include `region_code` so multi-region Ads rows for the same client can coexist. Open items: LWA authorization host and token refresh host remain global (`www.amazon.com/ap/oa` / `api.amazon.com/auth/o2/token`) — needs a live EU or FE OAuth round-trip before 3.5a UI ships non-NA connects to users.)*
 - [x] **Slice 3.5a-api** — Backend + API wrapper prep shipped. Three admin endpoints: `POST /admin/reports/api-access/amazon-ads/validate`, `POST /amazon-ads/disconnect`, `POST /amazon-spapi/disconnect`. Disconnect is soft-revoke (`connection_status='revoked'` + `refresh_token=null`, row preserved, idempotent). Ads validate refreshes token + calls `/v2/profiles` via the region-aware helper from 3.5a-region. Frontend wrappers `validateAmazonAdsConnection`, `disconnectAmazonAdsConnection`, `disconnectSpApiConnection` landed in `reportApiAccessApi.ts`. Tests cover happy path + error path + validating-a-revoked-row + idempotent re-call + nonexistent-tuple + reconnect-after-revoke (important: verifies the soft-revoke → OAuth → upsert loop doesn't collide on the partial index). *(Codex impl 2026-04-24, reviewed by Claude, pending commit.)*
 - [x] **Slice 3.5a** — Region blocks + Connections UI shipped. `/clients/[slug]/data` now renders three `RegionBlock`s (NA / EU / FE) at the top, each with a `ConnectionsStrip` holding Ads + SP-API `ProviderConnectionCard`s. State-first visual treatment (Not connected / Connected / Error / Revoked) via accent color + border. Empty regions collapse to outline `+ Connect` CTAs with marketplace-unlock subheads. Legacy `ReportApiAccessScreen` now inside a closed-by-default `<details>` disclosure labeled "Advanced connection details (legacy)". Slice 2d dashboard unchanged below. Components live at `frontend-web/src/app/clients/_components/data-connections/` (Orchestrator + RegionBlock + ConnectionsStrip + ProviderConnectionCard). *(Codex impl 2026-04-24, reviewed by Claude. Scope creep accepted: Codex filled a gap in 3.5a-api — `validateSpApiConnection` + backend SpApiValidateRequest now accept optional `region`; `get_spapi_connection` accepts optional region filter; `upsert_spapi_connection` now considers region when external_account_id is absent; list endpoints (Ads + SP-API) return new `shared_connections` / `connections` arrays alongside existing singles. All changes backward-compat via optional params / additive fields.)*
-- [ ] **Slice 3.5b** — Marketplaces + Backfill. Inside each Region block, render a marketplace card per WBR profile in that region. Each marketplace card exposes per-domain backfill actions (Business, Listings, Inventory, Returns) gated on the region's connections being live. Card shows "Last backfilled: X" per domain + `Run backfill` with date-range picker. Wires to existing admin endpoints where they exist (Business `compare-business`, Listings `import-listings`). Inventory + Returns render as disabled/"coming soon" until their Slice 3f endpoints land.
+- [x] **Slice 3.5b** — Marketplaces + Backfill UI shipped. ACTIVE `RegionBlock`s now render nested `MarketplaceCard`s per WBR profile in that region. Each card has 5 `DomainBackfillRow`s in order: Business / Ads / Listings / Inventory / Returns. Business + Listings active when region's SP-API is Connected (variant `active`); disabled with "Connect SP-API to enable" otherwise. Ads is read-only "Managed by nightly sync." Inventory + Returns disabled "Coming soon — Slice 3f." Business helper copy: "A/B compare against Windsor. Production data still flows through nightly sync." Date-range picker defaults to L3D (today_utc - 5 → today_utc - 3). Business wires to `/api/admin/spapi-compare-business` (writes `wbr_business_asin_daily__compare`); Listings wires to `/api/admin/spapi-import-listings` (writes production via Slice 3f). Backend scope creep (backward-compat): `runSpApiBusinessCompareBackfill` wrapper has 15-min `AbortController` timeout with "Backfill timed out — try a smaller date range" surfaced. Listings coverage reads `wbr_profile_child_asins.updated_at`; Business coverage reads compare-table dates. *(Codex impl 2026-04-24, reviewed by Claude. Live walkthrough deferred — Codex couldn't auth as admin in its local session; Jeff verified post-deploy.)*
 - [ ] **Slice 3.5c** — Nightly sync within marketplace cards. Per-domain toggles wired to the `wbr_profiles.*_enabled` columns already surfaced by Slice 2d, living inside each marketplace card below the backfill row. Last-run timestamps next to each toggle. Decoupled from one-time backfill actions by visual grouping.
 - [ ] **Slice 3.5d** — Remove the old mixed UI block from `ReportApiAccessScreen`, strip remaining Windsor references on this page, final copy pass, and tighten Ads OAuth initiate to require region (was optional post-3.5a-region to avoid breaking the legacy UI during transition).
 
@@ -969,6 +971,86 @@ ACCEPTANCE TESTS YOU MUST VERIFY:
 
 Report: files changed, before/after screenshots of /clients/[slug]/data (empty, partially connected, fully connected), any deviations from spec with reasoning, and typecheck + test:run output.
 ```
+
+---
+
+### Slice 3.5b — Marketplace cards + per-domain Backfill
+
+**Goal:** Inside each ACTIVE `RegionBlock`, render one `MarketplaceCard` per WBR profile whose `marketplace_code` belongs to that region. Each card exposes per-domain backfill actions (Business, Ads, Listings, Inventory, Returns) with "Last backfilled" status per domain and a `Run backfill` date-range picker. Wires to existing admin endpoints where they exist; the rest render as disabled placeholders. Connects directly to Slice 3.5a's reserved post-ConnectionsStrip slot. Empty regions (no connections) keep their collapsed `+ Connect` variant unchanged. No new backend endpoints.
+
+**Compatibility constraints:**
+- Must-keep-working: existing admin endpoints at current shapes — `POST /admin/reports/api-access/amazon-spapi/compare-business` and `POST /admin/reports/api-access/amazon-spapi/import-listings` (plus their Next.js proxy routes under `/api/admin/spapi-*`).
+- Must-keep-working: Slice 3.5a RegionBlocks + ConnectionsStrip + ProviderConnectionCards — extended, not replaced.
+- Must-keep-working: Slice 2d read-only dashboard below — unchanged.
+- Must-keep-working: nightly sync (this slice doesn't touch it).
+- Depends on: 3.5a shipped (✓).
+
+**Migration status:** N/A — no schema changes.
+
+**Files:**
+- Create: `frontend-web/src/app/clients/_components/data-connections/MarketplaceCard.tsx`
+- Create: `frontend-web/src/app/clients/_components/data-connections/DomainBackfillRow.tsx`
+- Create: `frontend-web/src/app/clients/_components/data-connections/BackfillDateRangeDialog.tsx` (or inline picker inside the row — Codex's choice)
+- Edit: `frontend-web/src/app/clients/_components/data-connections/RegionBlock.tsx` — inject `MarketplaceCard` list into the reserved post-strip slot
+- Edit: `frontend-web/src/app/clients/_components/data-connections/ClientDataConnectionsOrchestrator.tsx` — fetch WBR profiles for this client + per-profile backfill coverage; handle backfill trigger + in-flight state
+- Edit: `frontend-web/src/app/reports/_lib/reportApiAccessApi.ts` — add wrappers `runSpApiBusinessCompareBackfill`, `runSpApiListingsImport` (reusing existing `/api/admin/spapi-compare-business` + `/api/admin/spapi-import-listings` proxy routes — do NOT hit backend directly; proxy routes already handle admin auth)
+
+**Per-domain wiring:**
+
+| Domain    | Status this slice | Endpoint / behavior |
+|-----------|------------------|---------------------|
+| Business  | Live backfill    | `POST /admin/reports/api-access/amazon-spapi/compare-business` via proxy `/api/admin/spapi-compare-business`. Note: this writes to `wbr_business_asin_daily__compare`, NOT the production `wbr_business_asin_daily` table. That's correct for Pass 3's A/B-compare era; Slice 3g cutover flips production to SP-API. Last-backfilled reflects compare-table coverage. Copy below the button: "A/B compare against Windsor. Production data still flows through nightly sync." |
+| Ads       | Read-only        | "Managed by nightly sync" — no direct backfill endpoint exists (open item in plan). No button. |
+| Listings  | Live backfill    | `POST /admin/reports/api-access/amazon-spapi/import-listings` via proxy `/api/admin/spapi-import-listings`. Writes production via Slice 3f. Last-backfilled reflects `wbr_listing_import_batches.finished_at` (or equivalent). |
+| Inventory | Disabled         | "Coming soon — Slice 3f." No button. |
+| Returns   | Disabled         | "Coming soon — Slice 3f." No button. |
+
+**Gating:**
+- If the region's SP-API card is NOT in `connected` state, Business + Listings backfill rows render disabled with inline copy "Connect SP-API to enable".
+- Ads / Inventory / Returns rows always render as described above regardless of connection state.
+- Connection state is already available to the orchestrator — pass the region's `spApiConnection.state` down to each MarketplaceCard.
+
+**Last-backfilled data source:**
+- Derive from fact tables' MAX date per (profile_id, domain). Reuse the query shape Slice 2d's `ClientDataStatusDashboard` already uses — don't duplicate.
+- Pattern: orchestrator fetches all needed coverage data once on mount, passes per-marketplace slices to each MarketplaceCard.
+- If "Never" (no rows), show literally "Never".
+
+**Date-range picker:**
+- Default window: **L3D — 3 days of data ending 3 days ago** (UTC). So `date_to = today - 3`, `date_from = today - 5` (inclusive, yielding 3 days: today-5, today-4, today-3). Yesterday is too fresh — Amazon's validation window means recent days often come back empty, and our Distex empty-{} symptom has been observed even further back during investigation.
+- No hard min-date limit.
+- User can override both inputs to diagnose older ranges or widen the window.
+- Submit closes the picker and fires the backfill. UI shows in-flight (spinner + "Running backfill…") with button disabled. On completion: refresh Last-backfilled and show brief success toast. On error: show error message inline below the row with the failing payload summary if possible.
+
+**Blocking-HTTP caveat:**
+- `compare-business` blocks the HTTP connection for the duration of its run (per Slice 3d's operational note). 7-day default keeps this to a reasonable wait.
+- If a request times out at the proxy layer (Render timeout varies), surface that clearly: "Backfill timed out — try a smaller date range".
+
+**Design direction:**
+
+- **Nested visual hierarchy.** MarketplaceCards feel subordinate to their parent RegionBlock — slightly lower contrast, indented or shadowed inset, smaller headers. Carry over the "confident utility" aesthetic: state-forward, no marketing fluff.
+- **MarketplaceCard header:** country code (e.g., `CA`) as prominent label, plus the profile `display_name` as secondary, plus a small tag like `Marketplace A2EUQ1WTGCTBG2` for disambiguation. Optional flag emoji only if the repo already uses them elsewhere — don't invent.
+- **DomainBackfillRow:** tight 3-column layout — domain name left, last-backfilled middle, action right. Disabled rows grey out the entire row (not just the button) and show the reason inline.
+- **Date-range picker:** keep it small. An inline popover with two date inputs (from / to) and a Run button. No calendar widget unless the repo already uses `react-day-picker` or similar. If it does, reuse.
+- **In-flight state:** button becomes spinner + "Running…"; other rows on the same card remain actionable (independent).
+- **Success feedback:** brief inline success state on the row ("Backfilled 7 days ✓"), auto-dismiss after a few seconds, then re-render with new Last-backfilled.
+- **Failure feedback:** inline error below the row with short message + "Retry" action (same date range).
+- Accessibility: disabled rows still readable, reasons explicit. Button labels describe what happens ("Run backfill", not "Go").
+
+**Acceptance criteria:**
+1. Active RegionBlocks now show a `MarketplaceCard` per WBR profile in that region, below the ConnectionsStrip.
+2. Each card has 5 DomainBackfillRows: Business, Ads, Listings, Inventory, Returns (in this order).
+3. Business row active when SP-API is Connected in that region, shows Last-backfilled from the compare table, has Run-backfill + date picker, below-button copy explains compare vs production. Disabled with "Connect SP-API" copy otherwise.
+4. Listings row same shape, writes production via import-listings.
+5. Ads row always shows "Managed by nightly sync" with no action button.
+6. Inventory + Returns rows always disabled with "Coming soon — Slice 3f" copy.
+7. Running a backfill shows in-flight state, handles success / error / timeout cases with clear messaging, refreshes Last-backfilled on success.
+8. Empty regions (EMPTY variant from 3.5a) unchanged.
+9. Active regions with connections but zero WBR profiles for that region: placeholder copy "No marketplaces in <Region> yet. Add a WBR profile to start pulling data." + link to wherever profiles are created (or a note to create via Command Center until Pass 4 ships).
+10. Slice 2d dashboard, Slice 3.5a RegionBlocks + ConnectionsStrip, and the `<details>` legacy disclosure all render unchanged aside from the Marketplace cards being injected into their reserved slot.
+11. `npm -C frontend-web run typecheck` passes.
+12. `npm -C frontend-web run test:run` passes.
+
+**Codex prompt:** (paste below)
 
 ---
 
