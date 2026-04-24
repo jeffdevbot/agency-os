@@ -1,0 +1,33 @@
+{
+  "salesAndTrafficByAsin": [
+    {
+      "parentAsin": "PARENT1",
+      "childAsin": "B000TEST01",
+      "salesByAsin": {
+        "orderedProductSales": {
+          "amount": 34.5,
+          "currencyCode": "CAD"
+        },
+        "unitsOrdered": 3
+      },
+      "trafficByAsin": {
+        "browserPageViews": 10,
+        "mobileAppPageViews": 5
+      }
+    },
+    {
+      "parentAsin": "PARENT2",
+      "childAsin": "B000TEST02",
+      "salesByAsin": {
+        "orderedProductSales": {
+          "amount": 12,
+          "currencyCode": "CAD"
+        },
+        "unitsOrdered": 1
+      },
+      "trafficByAsin": {
+        "pageViews": 7
+      }
+    }
+  ]
+}

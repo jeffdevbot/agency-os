@@ -1,0 +1,14 @@
+[
+  {
+    "asin": "B000TEST01",
+    "sessions": 12,
+    "conversionRate": 0.25,
+    "note": null
+  },
+  {
+    "asin": "B000TEST02",
+    "sessions": 8,
+    "conversionRate": 0.125,
+    "note": "synthetic"
+  }
+]

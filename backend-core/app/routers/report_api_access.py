@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -27,6 +27,7 @@ from ..services.reports.api_access import (
 )
 from ..services.wbr.amazon_ads_auth import build_authorization_url, create_signed_state
 from ..services.wbr.profiles import WBRNotFoundError, WBRValidationError
+from ..services.wbr.spapi_business_sync import SpApiBusinessCompareService
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +106,12 @@ class SpApiConnectRequest(BaseModel):
 
 class SpApiValidateRequest(BaseModel):
     client_id: str = Field(..., min_length=1)
+
+
+class SpApiBusinessCompareRequest(BaseModel):
+    profile_id: str = Field(..., min_length=1)
+    date_from: date
+    date_to: date
 
 
 @router.get("/amazon-spapi/connections")
@@ -237,6 +244,47 @@ async def validate_report_api_access_spapi(
         "region_code": region_code,
         "marketplace_count": len(participations),
         "marketplace_ids": marketplace_ids,
+    }
+
+
+@router.post("/amazon-spapi/compare-business")
+async def compare_report_api_access_spapi_business(
+    request: SpApiBusinessCompareRequest,
+    user=Depends(require_admin_user),
+):
+    """Run direct SP-API Sales & Traffic compare sync into the compare table."""
+    del user
+    if request.date_from > request.date_to:
+        raise HTTPException(status_code=400, detail="date_from must be <= date_to")
+    range_days = (request.date_to - request.date_from).days + 1
+    if range_days > 120:
+        raise HTTPException(status_code=400, detail="Date range must be <= 120 days")
+
+    db = _get_supabase()
+    try:
+        summary = await SpApiBusinessCompareService(db).run_compare(
+            profile_id=request.profile_id,
+            date_from=request.date_from,
+            date_to=request.date_to,
+        )
+    except WBRNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except WBRValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception:
+        logger.exception("Direct SP-API business compare failed")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to run direct SP-API business compare",
+        )
+
+    return {
+        "ok": True,
+        "summary": summary,
+        "next_step": (
+            "Compare rows by running SQL FULL OUTER JOIN on (profile_id, report_date, child_asin) "
+            "between wbr_business_asin_daily and wbr_business_asin_daily__compare."
+        ),
     }
 
 
