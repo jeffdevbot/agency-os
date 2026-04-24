@@ -5,12 +5,18 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { AuthChangeEvent, Session, User } from "@supabase/supabase-js";
 import { getBrowserSupabaseClient } from "@/lib/supabaseClient";
 
+type AdminProfileResult = {
+  data: { is_admin: boolean } | null;
+  error: unknown;
+};
+
 export default function Home() {
   const supabase = useMemo(() => getBrowserSupabaseClient(), []);
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [buttonLoading, setButtonLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     // Fast initial check using getSession (reads local storage, no network call)
@@ -43,6 +49,38 @@ export default function Home() {
       subscription.unsubscribe();
     };
   }, [supabase]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!user) {
+      setIsAdmin(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    setIsAdmin(false);
+    supabase
+      .from("profiles")
+      .select("is_admin")
+      .eq("id", user.id)
+      .single()
+      .then(({ data, error }: AdminProfileResult) => {
+        if (!cancelled) {
+          setIsAdmin(!error && Boolean(data?.is_admin));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setIsAdmin(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase, user]);
 
   const handleSignIn = useCallback(async () => {
     setButtonLoading(true);
@@ -200,6 +238,25 @@ export default function Home() {
                       Launch <span aria-hidden="true">→</span>
                     </Link>
                   </div>
+                  {isAdmin ? (
+                    <div className="rounded-2xl bg-white/50 backdrop-blur border border-white/40 shadow-md hover:shadow-xl transition-all hover:-translate-y-0.5 p-8 flex flex-col gap-5 text-left">
+                      <div className="flex items-start gap-3">
+                        <span className="text-2xl">🏢</span>
+                        <div className="space-y-1">
+                          <p className="text-lg font-semibold text-[#0f172a]">Clients</p>
+                          <p className="text-base leading-relaxed text-[#4c576f]">
+                            Open the admin client hub for reports, data access, and team setup.
+                          </p>
+                        </div>
+                      </div>
+                      <Link
+                        href="/clients"
+                        className="flex items-center justify-between rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-[#0a6fd6] shadow transition hover:-translate-y-0.5 hover:shadow-lg"
+                      >
+                        Launch <span aria-hidden="true">→</span>
+                      </Link>
+                    </div>
+                  ) : null}
                 </div>
               </div>
 
