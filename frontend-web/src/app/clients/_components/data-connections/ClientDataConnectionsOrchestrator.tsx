@@ -10,6 +10,8 @@ import {
   disconnectSpApiConnection,
   listAmazonAdsApiAccess,
   listSpApiConnections,
+  runSpApiBusinessCompareBackfill,
+  runSpApiListingsImport,
   validateAmazonAdsConnection,
   validateSpApiConnection,
   type AmazonAdsApiAccessSummary,
@@ -20,19 +22,30 @@ import {
 import RegionBlock from "./RegionBlock";
 import type { ConnectionCardModel } from "./ConnectionsStrip";
 import type { ProviderConnectionState, ProviderKind } from "./ProviderConnectionCard";
+import {
+  EMPTY_COVERAGE,
+  type BackfillRange,
+  type BackfillRowState,
+  type DomainCoverage,
+  type MarketplaceCode,
+  type PerDomainCoverage,
+  type RegionDefinition,
+  type WBRProfileSummary,
+} from "./types";
 
 type Props = {
   clientId: string;
   clientSlug: string;
 };
 
-const REGIONS: Array<{ code: SpApiRegionCode; unlockedMarketplaces: string }> = [
-  { code: "NA", unlockedMarketplaces: "Unlocks CA, US, MX" },
+const REGIONS: RegionDefinition[] = [
+  { code: "NA", unlockedMarketplaces: "Unlocks CA, US, MX", marketplaceCodes: ["CA", "US", "MX"] },
   {
     code: "EU",
     unlockedMarketplaces: "Unlocks UK, DE, FR, IT, ES, NL, SE, PL, TR, BE, EG, SA, ZA, AE",
+    marketplaceCodes: ["UK", "DE", "FR", "IT", "ES", "NL", "SE", "PL", "TR", "BE", "EG", "SA", "ZA", "AE"],
   },
-  { code: "FE", unlockedMarketplaces: "Unlocks AU, JP, SG, IN" },
+  { code: "FE", unlockedMarketplaces: "Unlocks AU, JP, SG, IN", marketplaceCodes: ["AU", "JP", "SG", "IN"] },
 ];
 
 const actionKey = (region: SpApiRegionCode, provider: ProviderKind): string => `${region}:${provider}`;
@@ -89,11 +102,83 @@ const asConnectionState = (
   };
 };
 
+const regionForMarketplace = (marketplaceCode: string): SpApiRegionCode | null => {
+  const normalized = marketplaceCode.trim().toUpperCase() as MarketplaceCode;
+  return REGIONS.find((region) => region.marketplaceCodes.includes(normalized))?.code ?? null;
+};
+
+const daysInRange = ({ dateFrom, dateTo }: BackfillRange): number => {
+  const start = Date.parse(`${dateFrom}T00:00:00Z`);
+  const end = Date.parse(`${dateTo}T00:00:00Z`);
+  if (Number.isNaN(start) || Number.isNaN(end) || end < start) return 0;
+  return Math.floor((end - start) / 86_400_000) + 1;
+};
+
+const pickDateValue = (row: unknown, column: string): string | null => {
+  if (!row || typeof row !== "object") return null;
+  const value = (row as Record<string, unknown>)[column];
+  return typeof value === "string" ? value : null;
+};
+
+const fetchCoverage = async (
+  supabase: ReturnType<typeof getBrowserSupabaseClient>,
+  tableName: string,
+  dateColumn: string,
+  profileId: string,
+  filters: Array<{ column: string; value: string | boolean }> = [],
+): Promise<DomainCoverage> => {
+  const base = () => {
+    let query = supabase
+      .from(tableName)
+      .select(dateColumn)
+      .eq("profile_id", profileId);
+    filters.forEach((filter) => {
+      query = query.eq(filter.column, filter.value);
+    });
+    return query;
+  };
+
+  const [earliestResult, latestResult] = await Promise.all([
+    base().order(dateColumn, { ascending: true }).limit(1).maybeSingle(),
+    base().order(dateColumn, { ascending: false }).limit(1).maybeSingle(),
+  ]);
+
+  if (earliestResult.error) throw earliestResult.error;
+  if (latestResult.error) throw latestResult.error;
+
+  return {
+    earliest: pickDateValue(earliestResult.data, dateColumn),
+    latest: pickDateValue(latestResult.data, dateColumn),
+  };
+};
+
+const fetchProfileCoverage = async (
+  supabase: ReturnType<typeof getBrowserSupabaseClient>,
+  profileId: string,
+): Promise<PerDomainCoverage> => {
+  const [business, ads, listings, inventory, returns] = await Promise.all([
+    fetchCoverage(supabase, "wbr_business_asin_daily__compare", "report_date", profileId),
+    fetchCoverage(supabase, "wbr_ads_campaign_daily", "report_date", profileId),
+    fetchCoverage(supabase, "wbr_profile_child_asins", "updated_at", profileId, [
+      { column: "active", value: true },
+    ]),
+    fetchCoverage(supabase, "wbr_inventory_asin_snapshots", "snapshot_date", profileId),
+    fetchCoverage(supabase, "wbr_returns_asin_daily", "return_date", profileId),
+  ]);
+
+  return { business, ads, listings, inventory, returns };
+};
+
 export default function ClientDataConnectionsOrchestrator({ clientId, clientSlug }: Props) {
   const supabase = useMemo(() => getBrowserSupabaseClient(), []);
   const searchParams = useSearchParams();
   const [adsSummary, setAdsSummary] = useState<AmazonAdsApiAccessSummary | null>(null);
   const [spApiSummary, setSpApiSummary] = useState<SpApiConnectionSummary | null>(null);
+  const [profiles, setProfiles] = useState<WBRProfileSummary[]>([]);
+  const [coverageByProfileId, setCoverageByProfileId] = useState<Record<string, PerDomainCoverage>>({});
+  const [unmappedMarketplaces, setUnmappedMarketplaces] = useState<string[]>([]);
+  const [businessBackfillStates, setBusinessBackfillStates] = useState<Record<string, BackfillRowState>>({});
+  const [listingsBackfillStates, setListingsBackfillStates] = useState<Record<string, BackfillRowState>>({});
   const [loading, setLoading] = useState(true);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -112,15 +197,44 @@ export default function ClientDataConnectionsOrchestrator({ clientId, clientSlug
         throw new Error("Please sign in again.");
       }
 
-      const [adsRows, spApiRows] = await Promise.all([
+      const [adsRows, spApiRows, profilesResult] = await Promise.all([
         listAmazonAdsApiAccess(session.access_token),
         listSpApiConnections(session.access_token),
+        supabase
+          .from("wbr_profiles")
+          .select("id, marketplace_code, display_name")
+          .eq("client_id", clientId)
+          .eq("status", "active")
+          .order("marketplace_code", { ascending: true })
+          .order("display_name", { ascending: true }),
       ]);
+      if (profilesResult.error) {
+        throw profilesResult.error;
+      }
+
+      const profileRows = (profilesResult.data ?? []) as WBRProfileSummary[];
+      const coverageEntries = await Promise.all(
+        profileRows.map(async (profile) => [
+          profile.id,
+          await fetchProfileCoverage(supabase, profile.id),
+        ] as const),
+      );
+
       setAdsSummary(adsRows.find((summary) => summary.client_id === clientId) ?? null);
       setSpApiSummary(spApiRows.find((summary) => summary.client_id === clientId) ?? null);
+      setProfiles(profileRows);
+      setCoverageByProfileId(Object.fromEntries(coverageEntries));
+      setUnmappedMarketplaces(
+        profileRows
+          .map((profile) => profile.marketplace_code.trim().toUpperCase())
+          .filter((code) => !regionForMarketplace(code)),
+      );
     } catch (error) {
       setAdsSummary(null);
       setSpApiSummary(null);
+      setProfiles([]);
+      setCoverageByProfileId({});
+      setUnmappedMarketplaces([]);
       setErrorMessage(error instanceof Error ? error.message : "Unable to load connections.");
     } finally {
       setLoading(false);
@@ -198,6 +312,97 @@ export default function ClientDataConnectionsOrchestrator({ clientId, clientSlug
     [clientId, getToken, loadConnections],
   );
 
+  const runBusinessBackfill = useCallback(
+    async (profileId: string, range: BackfillRange) => {
+      setBusinessBackfillStates((current) => ({
+        ...current,
+        [profileId]: { ...current[profileId], running: true, errorMessage: null, successMessage: null, lastRange: range },
+      }));
+      try {
+        await runSpApiBusinessCompareBackfill({
+          profileId,
+          dateFrom: range.dateFrom,
+          dateTo: range.dateTo,
+        });
+        await loadConnections();
+        const days = daysInRange(range);
+        setBusinessBackfillStates((current) => ({
+          ...current,
+          [profileId]: {
+            ...current[profileId],
+            running: false,
+            errorMessage: null,
+            successMessage: days > 0 ? `Backfilled ${days} days ✓` : "Backfill complete ✓",
+            lastRange: range,
+          },
+        }));
+      } catch (error) {
+        setBusinessBackfillStates((current) => ({
+          ...current,
+          [profileId]: {
+            ...current[profileId],
+            running: false,
+            successMessage: null,
+            errorMessage: error instanceof Error ? error.message : "Business backfill failed.",
+            lastRange: range,
+          },
+        }));
+      }
+    },
+    [loadConnections],
+  );
+
+  const runListingsBackfill = useCallback(
+    async (profileId: string, range: BackfillRange) => {
+      setListingsBackfillStates((current) => ({
+        ...current,
+        [profileId]: { ...current[profileId], running: true, errorMessage: null, successMessage: null, lastRange: range },
+      }));
+      try {
+        await runSpApiListingsImport({ profileId });
+        await loadConnections();
+        setListingsBackfillStates((current) => ({
+          ...current,
+          [profileId]: {
+            ...current[profileId],
+            running: false,
+            errorMessage: null,
+            successMessage: "Listings imported ✓",
+            lastRange: range,
+          },
+        }));
+      } catch (error) {
+        setListingsBackfillStates((current) => ({
+          ...current,
+          [profileId]: {
+            ...current[profileId],
+            running: false,
+            successMessage: null,
+            errorMessage: error instanceof Error ? error.message : "Listings import failed.",
+            lastRange: range,
+          },
+        }));
+      }
+    },
+    [loadConnections],
+  );
+
+  const retryBusinessBackfill = useCallback(
+    (profileId: string) => {
+      const range = businessBackfillStates[profileId]?.lastRange;
+      if (range) void runBusinessBackfill(profileId, range);
+    },
+    [businessBackfillStates, runBusinessBackfill],
+  );
+
+  const retryListingsBackfill = useCallback(
+    (profileId: string) => {
+      const range = listingsBackfillStates[profileId]?.lastRange;
+      if (range) void runListingsBackfill(profileId, range);
+    },
+    [listingsBackfillStates, runListingsBackfill],
+  );
+
   const handleDisconnect = useCallback(
     async (provider: ProviderKind, region: SpApiRegionCode) => {
       const label = provider === "amazon-ads" ? "Amazon Ads" : "SP-API";
@@ -255,11 +460,19 @@ export default function ClientDataConnectionsOrchestrator({ clientId, clientSlug
             {errorMessage}
           </p>
         ) : null}
+        {unmappedMarketplaces.length > 0 ? (
+          <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
+            Unmapped marketplaces are not shown: {unmappedMarketplaces.join(", ")}.
+          </p>
+        ) : null}
       </div>
 
-      {REGIONS.map(({ code, unlockedMarketplaces }) => {
+      {REGIONS.map(({ code, unlockedMarketplaces, marketplaceCodes }) => {
         const regionAdsRows = rowsForRegion(adsConnections, code);
         const regionSpApiRows = rowsForRegion(spApiConnections, code);
+        const regionProfiles = profiles.filter((profile) =>
+          marketplaceCodes.includes(profile.marketplace_code.trim().toUpperCase() as MarketplaceCode),
+        );
         return (
           <RegionBlock
             key={code}
@@ -267,11 +480,19 @@ export default function ClientDataConnectionsOrchestrator({ clientId, clientSlug
             unlockedMarketplaces={unlockedMarketplaces}
             adsConnection={asConnectionState(regionAdsRows)}
             spApiConnection={asConnectionState(regionSpApiRows)}
+            profiles={regionProfiles}
+            coverageByProfileId={coverageByProfileId}
+            businessBackfillStates={businessBackfillStates}
+            listingsBackfillStates={listingsBackfillStates}
             hasAnyConnection={regionAdsRows.length > 0 || regionSpApiRows.length > 0}
             pendingAction={pendingAction}
             onConnect={handleConnect}
             onValidate={handleValidate}
             onDisconnect={handleDisconnect}
+            onRunBusinessBackfill={(profileId, range) => void runBusinessBackfill(profileId, range)}
+            onRunListingsBackfill={(profileId, range) => void runListingsBackfill(profileId, range)}
+            onRetryBusinessBackfill={retryBusinessBackfill}
+            onRetryListingsBackfill={retryListingsBackfill}
           />
         );
       })}

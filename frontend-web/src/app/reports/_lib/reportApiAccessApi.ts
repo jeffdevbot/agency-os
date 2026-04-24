@@ -422,3 +422,60 @@ export const disconnectAmazonAdsConnection = async (
 
   return (await response.json()) as DisconnectConnectionResult;
 };
+
+export const runSpApiBusinessCompareBackfill = async ({
+  profileId,
+  dateFrom,
+  dateTo,
+  timeoutMs = 900_000,
+}: {
+  profileId: string;
+  dateFrom: string;
+  dateTo: string;
+  timeoutMs?: number;
+}): Promise<Record<string, unknown>> => {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch("/api/admin/spapi-compare-business", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        profile_id: profileId,
+        date_from: dateFrom,
+        date_to: dateTo,
+      }),
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      throw new Error(await parseErrorDetail(response));
+    }
+    return (await response.json()) as Record<string, unknown>;
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error("Backfill timed out — try a smaller date range");
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
+  }
+};
+
+export const runSpApiListingsImport = async ({
+  profileId,
+}: {
+  profileId: string;
+}): Promise<Record<string, unknown>> => {
+  const response = await fetch("/api/admin/spapi-import-listings", {
+    method: "POST",
+    cache: "no-store",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ profile_id: profileId }),
+  });
+  if (!response.ok) {
+    throw new Error(await parseErrorDetail(response));
+  }
+
+  return (await response.json()) as Record<string, unknown>;
+};
