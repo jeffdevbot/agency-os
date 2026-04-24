@@ -118,8 +118,10 @@ class SpApiBusinessCompareRequest(BaseModel):
 class SpApiBusinessDebugRequest(BaseModel):
     profile_id: str = Field(..., min_length=1)
     report_date: date
-    asin_granularity: str = Field(default="CHILD")
-    date_granularity: str = Field(default="DAY")
+    asin_granularity: str | None = Field(default="CHILD")
+    date_granularity: str | None = Field(default="DAY")
+    end_inclusive: bool = Field(default=False)
+    omit_report_options: bool = Field(default=False)
 
 
 @router.get("/amazon-spapi/connections")
@@ -347,7 +349,23 @@ async def debug_report_api_access_spapi_business(
         raise HTTPException(status_code=400, detail="Connection missing refresh_token or region_code")
 
     day_start = datetime.combine(request.report_date, datetime_time.min, tzinfo=UTC)
-    day_end = day_start + timedelta(days=1)
+    if request.end_inclusive:
+        # same-day 23:59:59Z instead of next-day 00:00:00Z
+        day_end = datetime.combine(request.report_date, datetime_time.max, tzinfo=UTC)
+    else:
+        day_end = day_start + timedelta(days=1)
+
+    report_options: dict[str, str] | None
+    if request.omit_report_options:
+        report_options = None
+    else:
+        report_options = {}
+        if request.asin_granularity:
+            report_options["asinGranularity"] = request.asin_granularity
+        if request.date_granularity:
+            report_options["dateGranularity"] = request.date_granularity
+        if not report_options:
+            report_options = None
 
     client = SpApiReportsClient(refresh_token, region_code)
     rows = await client.fetch_report_rows(
@@ -355,10 +373,7 @@ async def debug_report_api_access_spapi_business(
         marketplace_ids=[marketplace_id],
         data_start_time=day_start,
         data_end_time=day_end,
-        report_options={
-            "asinGranularity": request.asin_granularity,
-            "dateGranularity": request.date_granularity,
-        },
+        report_options=report_options,
         format="json",
     )
 
@@ -392,10 +407,9 @@ async def debug_report_api_access_spapi_business(
             "marketplace_code": marketplace_code,
             "marketplace_id": marketplace_id,
             "report_date": request.report_date.isoformat(),
-            "report_options": {
-                "asinGranularity": request.asin_granularity,
-                "dateGranularity": request.date_granularity,
-            },
+            "data_start_time": day_start.isoformat(),
+            "data_end_time": day_end.isoformat(),
+            "report_options": report_options,
         },
         "rows_received": len(rows) if isinstance(rows, list) else 0,
         "shape_summary": shape_summary,
