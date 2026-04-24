@@ -1,4 +1,5 @@
 import Link from "next/link";
+import AppBreadcrumbs from "@/components/nav/AppBreadcrumbs";
 import { requireAdminUser } from "./_lib/adminGuard";
 import { slugifyClientName } from "../reports/_lib/reportClientData";
 
@@ -20,8 +21,9 @@ export default async function ClientsPage() {
   const clients = (data ?? []) as ClientRow[];
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-[#eaf2ff] via-[#dce8ff] to-[#cddcf8] px-4 py-10">
-      <div className="mx-auto max-w-6xl space-y-6">
+    <main className="min-h-screen bg-gradient-to-br from-[#eaf2ff] via-[#dce8ff] to-[#cddcf8]">
+      <AppBreadcrumbs items={[{ label: "Clients" }]} />
+      <div className="mx-auto max-w-6xl space-y-6 px-4 py-10">
         <div className="rounded-3xl bg-white/95 p-8 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
@@ -34,23 +36,6 @@ export default async function ClientsPage() {
               <p className="mt-2 text-sm text-[#4c576f]">
                 Select a client to open reports, data access, or team setup.
               </p>
-            </div>
-            <Link
-              href="/"
-              className="rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-[#0a6fd6] shadow transition hover:-translate-y-0.5 hover:shadow-lg"
-            >
-              Back to tools
-            </Link>
-          </div>
-
-          <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-3">
-            <div className="rounded-2xl border border-slate-200 bg-white p-4">
-              <div className="text-xs font-semibold uppercase tracking-wide text-[#4c576f]">
-                Active clients
-              </div>
-              <div className="mt-2 text-2xl font-semibold text-[#0f172a]">
-                {clients.length}
-              </div>
             </div>
           </div>
 

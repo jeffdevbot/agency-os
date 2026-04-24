@@ -2,6 +2,25 @@ import path from "path";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  async redirects() {
+    return [
+      {
+        source: "/reports/client-data-access",
+        destination: "/clients",
+        permanent: false,
+      },
+      {
+        source: "/reports/client-data-access/:clientSlug",
+        destination: "/clients/:clientSlug/data",
+        permanent: false,
+      },
+      {
+        source: "/reports/:clientSlug",
+        destination: "/clients/:clientSlug/reports",
+        permanent: false,
+      },
+    ];
+  },
   turbopack: {
     root: path.join(__dirname, ".."),
   },

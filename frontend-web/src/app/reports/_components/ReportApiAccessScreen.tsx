@@ -71,7 +71,7 @@ const formatSpApiAuthError = (error: string, description: string | null): string
 };
 
 const buildClientHubHref = (clientName: string): string =>
-  `/reports/${slugifyClientName(clientName)}`;
+  `/clients/${slugifyClientName(clientName)}`;
 
 const buildWbrSyncHref = (clientName: string, marketplaceCode: string): string =>
   `/reports/${slugifyClientName(clientName)}/${marketplaceCode.toLowerCase()}/wbr/sync`;
@@ -280,10 +280,11 @@ export default function ReportApiAccessScreen({ clientSlug }: Props) {
   return (
     <main className="space-y-4">
       <div className="rounded-3xl bg-white/95 p-8 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur">
-        <h1 className="text-2xl font-semibold text-[#0f172a]">{clientName} / Client Data Access</h1>
+        <h1 className="text-2xl font-semibold text-[#0f172a]">{clientName} / Data Access</h1>
         <p className="mt-2 max-w-4xl text-sm text-[#4c576f]">
-          Use this page to verify this client’s connection state, then jump into WBR Settings to
-          enter Windsor account information and WBR Sync to run backfills or enable nightly jobs.
+          Manage reusable API connections for this client, including Amazon Seller API,
+          Amazon Advertising API, and future providers. Report-specific setup lives in the
+          client reports workspace.
         </p>
 
         <div className="mt-6 flex flex-wrap gap-3">
@@ -295,16 +296,16 @@ export default function ReportApiAccessScreen({ clientSlug }: Props) {
             {loading ? "Refreshing..." : "Refresh"}
           </button>
           <Link
-            href="/reports/client-data-access"
+            href={`/clients/${clientSlug}`}
             className="rounded-2xl bg-[#e8eefc] px-4 py-3 text-sm font-semibold text-[#0f172a] transition hover:bg-[#d7e1fb]"
           >
-            Back to Client Data Access
+            Back to Client
           </Link>
           <Link
-            href={`/reports/${clientSlug}`}
+            href={`/clients/${clientSlug}/reports`}
             className="rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-[#0a6fd6] shadow transition hover:-translate-y-0.5 hover:shadow-lg"
           >
-            Client Hub
+            Reports
           </Link>
         </div>
 
@@ -328,8 +329,8 @@ export default function ReportApiAccessScreen({ clientSlug }: Props) {
             <p className="mt-3 text-base font-semibold text-[#0f172a]">Client setup sequence</p>
             <ol className="mt-3 space-y-2 text-sm text-[#4c576f]">
               <li>1. Check whether Seller API and Amazon Ads are already authorized for this client.</li>
-              <li>2. Open WBR Settings for the marketplace to save the Windsor account id and import listings.</li>
-              <li>3. Open WBR Sync to run initial backfills.</li>
+              <li>2. Use the Reports workspace for marketplace-specific report configuration.</li>
+              <li>3. Run initial report backfills from the relevant report sync screen.</li>
               <li>4. Enable nightly sync only after the first backfills complete cleanly.</li>
               <li>5. Return here later if either OAuth connection needs to be refreshed.</li>
             </ol>
@@ -345,12 +346,12 @@ export default function ReportApiAccessScreen({ clientSlug }: Props) {
                 status, onboarding readiness, and jump-off links by client.
               </p>
               <p>
-                <span className="font-semibold text-[#0f172a]">WBR Sync:</span> backfills, nightly
-                toggles, coverage checks, and sync troubleshooting.
+                <span className="font-semibold text-[#0f172a]">Reports:</span> marketplace-specific
+                configuration, report backfills, nightly toggles, and sync troubleshooting.
               </p>
               <p>
-                <span className="font-semibold text-[#0f172a]">WBR Settings:</span> Windsor account
-                id, listings import, and core profile configuration.
+                <span className="font-semibold text-[#0f172a]">Team:</span> brand ownership,
+                role assignments, and client roster setup.
               </p>
             </div>
           </div>
@@ -362,7 +363,7 @@ export default function ReportApiAccessScreen({ clientSlug }: Props) {
               Marketplace Setup
             </p>
             <p className="mt-2 text-sm text-[#4c576f]">
-              Use these WBR surfaces to enter Windsor settings, run syncs, and manage marketplace-specific setup.
+              Use these report workspace shortcuts for marketplace-specific setup and sync operations.
             </p>
           </div>
 
@@ -376,10 +377,10 @@ export default function ReportApiAccessScreen({ clientSlug }: Props) {
             </div>
           ) : clientSummary.marketplaces.length === 0 ? (
             <div className="rounded-2xl border border-slate-200 bg-white p-5 text-sm text-[#64748b]">
-              No WBR marketplace exists for this client yet.
+              No report marketplace exists for this client yet.
               <div className="mt-3">
                 <Link href="/reports/wbr/setup" className="text-sm font-semibold text-[#0a6fd6] hover:underline">
-                  Create WBR Profile
+                  Create Report Profile
                 </Link>
               </div>
             </div>
@@ -400,8 +401,8 @@ export default function ReportApiAccessScreen({ clientSlug }: Props) {
                         </p>
                         <p className="mt-1 text-sm text-[#4c576f]">
                           {wbrProfile
-                            ? `${wbrProfile.display_name} • Windsor: ${wbrProfile.windsor_account_id ?? "Not set"}`
-                            : "Create a WBR profile before marketplace-specific setup is available."}
+                            ? wbrProfile.display_name
+                            : "Create a report profile before marketplace-specific setup is available."}
                         </p>
                       </div>
                       <span
@@ -409,7 +410,7 @@ export default function ReportApiAccessScreen({ clientSlug }: Props) {
                           wbrProfile ? "bg-[#e8eefc] text-[#0a6fd6]" : "bg-[#f8fafc] text-[#475569]"
                         }`}
                       >
-                        {wbrProfile ? "Configured" : "Needs WBR"}
+                        {wbrProfile ? "Configured" : "Needs profile"}
                       </span>
                     </div>
 
@@ -419,25 +420,25 @@ export default function ReportApiAccessScreen({ clientSlug }: Props) {
                           href={`/reports/${clientSlug}/${marketplaceSlug}/wbr/settings`}
                           className="rounded-xl bg-[#0a6fd6] px-4 py-2 text-sm font-semibold text-white shadow-[0_15px_30px_rgba(10,111,214,0.2)] transition hover:bg-[#0959ab]"
                         >
-                          WBR Settings
+                          Report Settings
                         </Link>
                         <Link
                           href={`/reports/${clientSlug}/${marketplaceSlug}/wbr/sync`}
                           className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-[#0a6fd6] shadow transition hover:-translate-y-0.5 hover:shadow-lg"
                         >
-                          WBR Sync
+                          Report Sync
                         </Link>
                         <Link
                           href={`/reports/${clientSlug}/${marketplaceSlug}/wbr`}
                           className="text-sm font-semibold text-[#0a6fd6] hover:underline"
                         >
-                          Open WBR
+                          Open Report
                         </Link>
                       </div>
                     ) : (
                       <div className="mt-4">
                         <Link href="/reports/wbr/setup" className="text-sm font-semibold text-[#0a6fd6] hover:underline">
-                          Create WBR Profile
+                          Create Report Profile
                         </Link>
                       </div>
                     )}
@@ -455,8 +456,8 @@ export default function ReportApiAccessScreen({ clientSlug }: Props) {
                 Amazon Ads
               </p>
               <p className="mt-2 text-sm text-[#4c576f]">
-                Shared visibility over current auth state, with connection launches still anchored to
-                an existing WBR profile during this non-breaking pass.
+                Shared visibility over current authorization state, with connection launches still
+                anchored to an existing marketplace profile during this non-breaking pass.
               </p>
             </div>
           </div>
@@ -475,7 +476,7 @@ export default function ReportApiAccessScreen({ clientSlug }: Props) {
                 summary.source === "shared"
                   ? "Shared table"
                   : summary.source === "legacy"
-                    ? "Legacy WBR row"
+                    ? "Legacy report row"
                     : "No stored connection";
               const connection = summary.shared_connection ?? summary.legacy_connection;
               const badge = getConnectionBadge(connection?.connection_status ?? "not_connected");
@@ -546,13 +547,13 @@ export default function ReportApiAccessScreen({ clientSlug }: Props) {
                     <div className="rounded-2xl border border-[#eadfcb] bg-[#fff8ed] p-4">
                       <p className="text-sm font-semibold text-[#0f172a]">Connect / Reauthorize</p>
                       <p className="mt-2 text-sm text-[#4c576f]">
-                        Launch the existing OAuth flow from a WBR profile. This keeps the current WBR
-                        sync path stable while writing shared connection state for the new surface.
+                        Launch the existing OAuth flow from a marketplace profile. This keeps the current
+                        report sync path stable while writing shared connection state for the new surface.
                       </p>
 
                       {summary.connect_profiles.length === 0 ? (
                         <p className="mt-4 rounded-xl border border-[#e2e8f0] bg-white px-3 py-3 text-sm text-[#64748b]">
-                          No WBR profile exists for this client yet. Create one before connecting Amazon Ads.
+                          No marketplace profile exists for this client yet. Create one before connecting Amazon Ads.
                         </p>
                       ) : (
                         <div className="mt-4 space-y-3">
@@ -575,7 +576,7 @@ export default function ReportApiAccessScreen({ clientSlug }: Props) {
                                       href={buildWbrSyncHref(summary.client_name, profile.marketplace_code)}
                                       className="text-[#0a6fd6] hover:underline"
                                     >
-                                      Open WBR Sync
+                                      Open Report Sync
                                     </Link>
                                     <Link
                                       href={`${buildWbrSyncHref(summary.client_name, profile.marketplace_code)}/ads-api`}

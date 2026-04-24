@@ -10,19 +10,19 @@ const tiles = (clientSlug: string, clientId: string) => [
     emoji: "📈",
     title: "Reports",
     description: "Open WBR and other client reporting workflows.",
-    href: `/reports/${clientSlug}`,
+    href: `/clients/${clientSlug}/reports`,
   },
   {
     emoji: "🔌",
     title: "Data",
     description: "Manage API connections and data access for this client.",
-    href: `/reports/client-data-access/${clientSlug}`,
+    href: `/clients/${clientSlug}/data`,
   },
   {
     emoji: "👥",
     title: "Team",
     description: "Manage brands, team assignments, and client ownership.",
-    href: `/command-center/clients/${clientId}`,
+    href: `/clients/${clientSlug}/team`,
   },
 ];
 

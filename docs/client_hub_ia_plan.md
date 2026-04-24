@@ -11,19 +11,22 @@ Tick each box as slices merge. Brief one-liner after each box can note PR / comm
 ### Pass 1 — Shell
 
 - [x] **Slice 1** — `/clients` list + `/clients/[slug]` overview with 3 tiles + admin-only root nav entry. Tiles link to existing routes. *(Merged 2026-04-23, Codex impl, reviewed by Claude.)*
+- [x] **Slice 1.1** — Bonus polish: persistent "Ecomlabs Tools" top nav + reusable breadcrumbs scoped to `/clients/*` via layout; remove the "Active clients" stat card. Components live at `frontend-web/src/components/nav/` for cross-app reuse. *(Merged 2026-04-23, Codex impl, reviewed by Claude.)*
+- [ ] **Slice 5 (post Pass 2)** — Roll the shared `AppTopNav` + `AppBreadcrumbs` out to remaining tools (`/ngram`, `/npat`, `/scribe`, `/root-keywords`, `/reports`, `/command-center`, `/adscope`, `/`). One layout wrap per tool; no logic changes. Sequenced after the `/clients/*` pattern is proven through Pass 2.
 
 ### Pass 2 — Re-parent existing screens
 
-- [ ] **Slice 2a** — `/clients/[slug]/reports` renders `ClientReportsHub`. 307 redirect from `/reports/[slug]`.
-- [ ] **Slice 2b-1** — Extract `ClientTeamWorkspace` reusable component from `/command-center/clients/[id]/page.tsx`. Command Center renders the extracted component. No new routes.
-- [ ] **Slice 2b-2** — Mount `<ClientTeamWorkspace/>` at `/clients/[slug]/team`. Update Team tile href.
-- [ ] **Slice 2c** — `/clients/[slug]/data` renders `ReportApiAccessScreen` with provider-neutral copy. 307 redirects from `/reports/client-data-access/*`.
+- [x] **Slice 2a** — `/clients/[slug]/reports` renders `ClientReportsHub`. 307 redirect from `/reports/[slug]`. *(Merged 2026-04-23, Codex impl, reviewed by Claude.)*
+- [x] **Slice 2b-1** — Extract `ClientTeamWorkspace` from `/command-center/clients/[id]/page.tsx`. Scope widened after Codex pushback: extract the ENTIRE client detail body (header card + brand + org-chart + shared bootstrap/refresh/error state), not just brand/org-chart, because state is entangled. Command Center `page.tsx` becomes a thin wrapper. *(Merged 2026-04-23, Codex impl, reviewed by Claude.)*
+- [x] **Slice 2b-2** — Mount `<ClientTeamWorkspace/>` at `/clients/[slug]/team`. Update Team tile href. *(Merged 2026-04-23, Codex impl, reviewed by Claude.)*
+- [x] **Slice 2c** — `/clients/[slug]/data` renders `ReportApiAccessScreen` with provider-neutral copy. 307 redirects from `/reports/client-data-access/*`. *(Merged 2026-04-23, Codex impl, reviewed by Claude. Polish: `clientDataAccessHref` still points to old path via redirect — update when 307→308 flip happens.)*
+- [x] **Slice 2d** — Data status dashboard on `/clients/[slug]/data`. Read-only display above `ReportApiAccessScreen` showing: per-connection status (connected / error / revoked, last validated, last error) from `report_api_connections`; per-WBR-profile cards with nightly sync flags (business, ads, STR SP/SB/SD) + inherited inventory/returns, and backfill coverage (min/max date per fact table). *(Merged 2026-04-23, Codex impl, reviewed by Claude. Codex correctly pushed back on one schema mismatch — `wbr_inventory_asin_snapshots` not `_daily` — during implementation.)*
 
 Redirects ship as 307 (temporary) during migration. After Passes 1–2 soak for a week without rollback, a follow-up PR flips them to 308 (permanent) to let browsers/CDNs cache. **Do not ship 308s on first landing** — they cache aggressively and make rollback painful.
 
 ### Pass 3 — Rebuild Data against Option B schema (deferred, bundled with SP-API direct migration)
 
-- [ ] **Slice 3a** — Schema migration: change `report_api_connections` uniqueness to `(client_id, provider, external_account_id)`. Backfill existing rows. (Claude owns.)
+- [x] **Slice 3a** — Schema migration: two partial unique indexes on `report_api_connections` — `(client_id, provider, external_account_id) WHERE external_account_id IS NOT NULL` plus `(client_id, provider) WHERE external_account_id IS NULL`. Preserves "one pending row per (client,provider)" invariant while enabling multi-account. Code adaptation to upsert paths is a follow-up slice. *(Applied 2026-04-23 via MCP, file at `supabase/migrations/20260423220000_*.sql`. Claude owned.)*
 - [ ] **Slice 3b** — `/clients/[slug]/data/connections` rebuilt as one-row-per-connection table supporting multi-region / multi-account.
 - [ ] **Slice 3c** — `SpApiReportsClient` generic create/poll/download/decompress helper + tests.
 - [ ] **Slice 3d** — Section 1 (business data) direct SP-API service; A/B against Windsor.

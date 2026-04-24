@@ -1,4 +1,4 @@
-import Link from "next/link";
+import AppBreadcrumbs from "@/components/nav/AppBreadcrumbs";
 import ClientOverviewTiles from "../_components/ClientOverviewTiles";
 import { requireAdminUser } from "../_lib/adminGuard";
 import { resolveClientBySlug } from "../_lib/resolveClientBySlug";
@@ -15,8 +15,11 @@ export default async function ClientOverviewPage({ params }: PageProps) {
   const client = await resolveClientBySlug(supabase, clientSlug);
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-[#eaf2ff] via-[#dce8ff] to-[#cddcf8] px-4 py-10">
-      <div className="mx-auto max-w-6xl space-y-6">
+    <main className="min-h-screen bg-gradient-to-br from-[#eaf2ff] via-[#dce8ff] to-[#cddcf8]">
+      <AppBreadcrumbs
+        items={[{ label: "Clients", href: "/clients" }, { label: client.name }]}
+      />
+      <div className="mx-auto max-w-6xl space-y-6 px-4 py-10">
         <div className="rounded-3xl bg-white/95 p-8 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
@@ -30,12 +33,6 @@ export default async function ClientOverviewPage({ params }: PageProps) {
                 Choose the setup area for this client.
               </p>
             </div>
-            <Link
-              href="/clients"
-              className="rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-[#0a6fd6] shadow transition hover:-translate-y-0.5 hover:shadow-lg"
-            >
-              Back to clients
-            </Link>
           </div>
         </div>
 
