@@ -29,6 +29,7 @@ from ..services.reports.sp_api_reports_client import SpApiReportsClient
 from ..services.wbr.amazon_ads_auth import build_authorization_url, create_signed_state
 from ..services.wbr.profiles import WBRNotFoundError, WBRValidationError
 from ..services.wbr.spapi_business_sync import SpApiBusinessCompareService
+from ..services.wbr.spapi_listings_fetch import SpApiListingsFetchService
 
 logger = logging.getLogger(__name__)
 
@@ -132,6 +133,10 @@ class SpApiGenericDebugRequest(BaseModel):
     report_options: dict[str, str] | None = None
     format: str = Field(default="tsv")
     max_sample_rows: int = Field(default=3, ge=0, le=20)
+
+
+class SpApiListingsPreviewRequest(BaseModel):
+    profile_id: str = Field(..., min_length=1)
 
 
 @router.get("/amazon-spapi/connections")
@@ -525,6 +530,28 @@ async def debug_report_api_access_spapi_generic(
         "first_row_columns": first_keys,
         "sample_rows": sample,
     }
+
+
+@router.post("/amazon-spapi/preview-listings")
+async def preview_report_api_access_spapi_listings(
+    request: SpApiListingsPreviewRequest,
+    user=Depends(require_admin_user),
+):
+    del user
+    db = _get_supabase()
+    service = SpApiListingsFetchService(db)
+    try:
+        return {"ok": True, **await service.fetch_listings(profile_id=request.profile_id)}
+    except WBRNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except WBRValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("SP-API listings preview failed")
+        raise HTTPException(
+            status_code=500,
+            detail=f"SP-API listings preview failed: {exc}",
+        ) from exc
 
 
 # ---------------------------------------------------------------------------

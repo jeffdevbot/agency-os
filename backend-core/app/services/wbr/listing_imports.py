@@ -63,6 +63,7 @@ LISTING_HEADER_ALIASES = {
         "merchantlistingsalldataasin1",
     },
     "parent_asin": {
+        "asin2",
         "parentasin",
         "merchantlistingsalldataasin2",
     },

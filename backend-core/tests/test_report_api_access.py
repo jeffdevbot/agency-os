@@ -279,6 +279,44 @@ class TestReportApiAccessRouter:
         finally:
             app.dependency_overrides.pop(report_api_access.require_admin_user, None)
 
+    def test_spapi_preview_listings_endpoint_returns_service_preview(self, monkeypatch):
+        fake_db = _FakeSupabase({})
+
+        class FakeListingsService:
+            def __init__(self, db):
+                assert db is fake_db
+
+            async def fetch_listings(self, *, profile_id: str):
+                assert profile_id == "prof-1"
+                return {
+                    "profile_id": profile_id,
+                    "marketplace_code": "CA",
+                    "marketplace_id": "A2EUQ1WTGCTBG2",
+                    "rows_fetched": 2,
+                    "rows_parsed": 2,
+                    "duplicate_rows_merged": 0,
+                    "unmapped_columns": ["listing-id", "open-date"],
+                    "sample_records": [{"child_asin": "B000TEST01"}],
+                }
+
+        monkeypatch.setattr(report_api_access, "_get_supabase", lambda: fake_db)
+        monkeypatch.setattr(report_api_access, "SpApiListingsFetchService", FakeListingsService)
+        app.dependency_overrides[report_api_access.require_admin_user] = _override_admin
+
+        try:
+            with TestClient(app) as client:
+                response = client.post(
+                    "/admin/reports/api-access/amazon-spapi/preview-listings",
+                    json={"profile_id": "prof-1"},
+                )
+            assert response.status_code == 200
+            body = response.json()
+            assert body["ok"] is True
+            assert body["rows_fetched"] == 2
+            assert body["sample_records"][0]["child_asin"] == "B000TEST01"
+        finally:
+            app.dependency_overrides.pop(report_api_access.require_admin_user, None)
+
 
 class TestAmazonAdsCallbackSharedWrite:
     def test_callback_dual_writes_shared_connection_when_profile_has_client(self, monkeypatch):
