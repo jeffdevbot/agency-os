@@ -139,6 +139,9 @@ const truncateError = (value: string | null) => {
   return trimmed.length > 160 ? `${trimmed.slice(0, 157)}...` : trimmed;
 };
 
+// PostgREST aggregates are disabled on Supabase by default, so we can't use
+// `col.min()` / `col.max()` in a select. Fetch the earliest and latest rows
+// individually via order+limit; cheap because we only pull one row each.
 async function fetchCoverage(
   supabase: SupabaseRouteClient,
   tableName: string,
@@ -146,24 +149,29 @@ async function fetchCoverage(
   profileId: string,
   adProduct?: string,
 ): Promise<Coverage> {
-  let query = supabase
-    .from(tableName)
-    .select(`earliest:${dateColumn}.min(),latest:${dateColumn}.max()`)
-    .eq("profile_id", profileId);
+  const base = () => {
+    let q = supabase
+      .from(tableName)
+      .select(dateColumn)
+      .eq("profile_id", profileId);
+    if (adProduct) q = q.eq("ad_product", adProduct);
+    return q;
+  };
 
-  if (adProduct) {
-    query = query.eq("ad_product", adProduct);
-  }
+  const [earliestResult, latestResult] = await Promise.all([
+    base().order(dateColumn, { ascending: true }).limit(1).maybeSingle(),
+    base().order(dateColumn, { ascending: false }).limit(1).maybeSingle(),
+  ]);
 
-  const { data, error } = await query.maybeSingle();
-  if (error || !data || typeof data !== "object") {
-    return { earliest: null, latest: null };
-  }
+  const pickDate = (row: unknown): string | null => {
+    if (!row || typeof row !== "object") return null;
+    const value = (row as Record<string, unknown>)[dateColumn];
+    return typeof value === "string" ? value : null;
+  };
 
-  const row = data as Record<string, unknown>;
   return {
-    earliest: typeof row.earliest === "string" ? row.earliest : null,
-    latest: typeof row.latest === "string" ? row.latest : null,
+    earliest: pickDate(earliestResult.data),
+    latest: pickDate(latestResult.data),
   };
 }
 
