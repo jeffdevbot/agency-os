@@ -242,11 +242,27 @@ export const createSpApiAuthorizationUrl = async (
 
 export type SpApiValidateResult = {
   ok: boolean;
+  status?: "connected" | "error";
   step?: string;
   error?: string;
   region_code?: SpApiRegionCode;
   marketplace_count?: number;
   marketplace_ids?: string[];
+};
+
+export type AmazonAdsValidateResult = {
+  ok: boolean;
+  status: "connected" | "error";
+  step?: string;
+  error?: string;
+  region_code?: SpApiRegionCode;
+  last_validated_at?: string;
+  profile_count?: number;
+};
+
+export type DisconnectConnectionResult = {
+  status: "revoked";
+  affected: number;
 };
 
 export const validateSpApiConnection = async (
@@ -267,6 +283,26 @@ export const validateSpApiConnection = async (
   }
 
   return (await response.json()) as SpApiValidateResult;
+};
+
+export const disconnectSpApiConnection = async (
+  token: string,
+  { clientId, region }: { clientId: string; region: SpApiRegionCode },
+): Promise<DisconnectConnectionResult> => {
+  const response = await fetch(
+    `${getBackendUrl()}/admin/reports/api-access/amazon-spapi/disconnect`,
+    {
+      method: "POST",
+      cache: "no-store",
+      headers: authJsonHeaders(token),
+      body: JSON.stringify({ client_id: clientId, region }),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(await parseErrorDetail(response));
+  }
+
+  return (await response.json()) as DisconnectConnectionResult;
 };
 
 export type SpApiFinanceSmokeResult = {
@@ -332,4 +368,44 @@ export const createAmazonAdsAuthorizationUrl = async (
     throw new Error("Missing Amazon Ads authorization URL");
   }
   return url;
+};
+
+export const validateAmazonAdsConnection = async (
+  token: string,
+  { clientId, region }: { clientId: string; region: SpApiRegionCode },
+): Promise<AmazonAdsValidateResult> => {
+  const response = await fetch(
+    `${getBackendUrl()}/admin/reports/api-access/amazon-ads/validate`,
+    {
+      method: "POST",
+      cache: "no-store",
+      headers: authJsonHeaders(token),
+      body: JSON.stringify({ client_id: clientId, region }),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(await parseErrorDetail(response));
+  }
+
+  return (await response.json()) as AmazonAdsValidateResult;
+};
+
+export const disconnectAmazonAdsConnection = async (
+  token: string,
+  { clientId, region }: { clientId: string; region: SpApiRegionCode },
+): Promise<DisconnectConnectionResult> => {
+  const response = await fetch(
+    `${getBackendUrl()}/admin/reports/api-access/amazon-ads/disconnect`,
+    {
+      method: "POST",
+      cache: "no-store",
+      headers: authJsonHeaders(token),
+      body: JSON.stringify({ client_id: clientId, region }),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(await parseErrorDetail(response));
+  }
+
+  return (await response.json()) as DisconnectConnectionResult;
 };

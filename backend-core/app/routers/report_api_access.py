@@ -29,7 +29,9 @@ from ..services.reports.sp_api_reports_client import SpApiReportsClient
 from ..services.wbr.amazon_ads_auth import (
     build_authorization_url,
     create_signed_state,
+    list_advertising_profiles,
     normalize_ads_region_code,
+    refresh_access_token as refresh_ads_access_token,
 )
 from ..services.wbr.listing_imports import ListingImportService
 from ..services.wbr.profiles import WBRNotFoundError, WBRValidationError
@@ -54,10 +56,73 @@ def _user_id(user: dict) -> str | None:
     return str(user.get("sub")) if isinstance(user, dict) else None
 
 
+def _rows(response: object) -> list[dict[str, object]]:
+    data = response.data if hasattr(response, "data") else []
+    return [row for row in data if isinstance(row, dict)] if isinstance(data, list) else []
+
+
+def _connection_rows_for_region(
+    db: Client,
+    *,
+    client_id: str,
+    provider: str,
+    region_code: str,
+) -> list[dict[str, object]]:
+    return _rows(
+        db.table("report_api_connections")
+        .select(
+            "id, client_id, provider, connection_status, external_account_id, "
+            "region_code, refresh_token, access_meta, connected_at, "
+            "last_validated_at, last_error, updated_at"
+        )
+        .eq("client_id", client_id)
+        .eq("provider", provider)
+        .eq("region_code", region_code)
+        .execute()
+    )
+
+
+def _soft_revoke_connections(
+    db: Client,
+    *,
+    client_id: str,
+    provider: str,
+    region_code: str,
+) -> int:
+    rows = _connection_rows_for_region(
+        db,
+        client_id=client_id,
+        provider=provider,
+        region_code=region_code,
+    )
+    active_rows = [
+        row
+        for row in rows
+        if str(row.get("connection_status") or "").strip().lower() != "revoked"
+    ]
+    for row in active_rows:
+        connection_id = str(row.get("id") or "").strip()
+        if not connection_id:
+            continue
+        db.table("report_api_connections").update(
+            {
+                "connection_status": "revoked",
+                "refresh_token": None,
+                "last_error": None,
+            }
+        ).eq("id", connection_id).execute()
+    return len(active_rows)
+
+
 class ReportApiAccessConnectRequest(BaseModel):
     profile_id: str = Field(..., min_length=1)
     region: str | None = Field(default=None, min_length=2, max_length=3)
     return_path: str = Field("/reports/api-access")
+
+
+class AmazonAdsConnectionRegionRequest(BaseModel):
+    client_id: str = Field(..., min_length=1)
+    region: str = Field(..., min_length=2, max_length=3)
 
 
 @router.get("/amazon-ads/connections")
@@ -104,6 +169,132 @@ async def connect_report_api_access_amazon_ads(
         raise HTTPException(status_code=500, detail="Failed to generate Amazon Ads authorization URL")
 
 
+@router.post("/amazon-ads/validate")
+async def validate_report_api_access_amazon_ads(
+    request: AmazonAdsConnectionRegionRequest,
+    user=Depends(require_admin_user),
+):
+    del user
+    db = _get_supabase()
+    try:
+        region_code = normalize_ads_region_code(request.region)
+    except WBRValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    connections = _connection_rows_for_region(
+        db,
+        client_id=request.client_id,
+        provider="amazon_ads",
+        region_code=region_code,
+    )
+    if not connections:
+        raise HTTPException(
+            status_code=404,
+            detail="No Amazon Ads connection found for this client and region",
+        )
+
+    validatable_connections = [
+        row
+        for row in connections
+        if str(row.get("connection_status") or "").strip().lower() != "revoked"
+    ]
+    if not validatable_connections:
+        raise HTTPException(
+            status_code=400,
+            detail="Amazon Ads connection is revoked. Reconnect before validating.",
+        )
+
+    now = datetime.now(UTC).isoformat()
+    profile_count = 0
+    for connection in validatable_connections:
+        connection_id = str(connection.get("id") or "").strip()
+        refresh_token = str(connection.get("refresh_token") or "").strip()
+        if not connection_id:
+            continue
+        if not refresh_token:
+            raise HTTPException(
+                status_code=400,
+                detail="Stored Amazon Ads connection has no refresh token",
+            )
+
+        try:
+            access_token = await refresh_ads_access_token(refresh_token)
+        except WBRValidationError as exc:
+            update_connection_validation(
+                db,
+                connection_id=connection_id,
+                last_validated_at=now,
+                last_error=f"Token refresh failed: {exc}",
+                connection_status="error",
+            )
+            return {
+                "ok": False,
+                "status": "error",
+                "step": "token_refresh",
+                "region_code": region_code,
+                "error": str(exc),
+            }
+
+        try:
+            profiles = await list_advertising_profiles(
+                access_token,
+                region_code=region_code,
+            )
+        except WBRValidationError as exc:
+            update_connection_validation(
+                db,
+                connection_id=connection_id,
+                last_validated_at=now,
+                last_error=f"Amazon Ads profiles failed: {exc}",
+                connection_status="error",
+            )
+            return {
+                "ok": False,
+                "status": "error",
+                "step": "profiles",
+                "region_code": region_code,
+                "error": str(exc),
+            }
+
+        profile_count += len(profiles)
+        update_connection_validation(
+            db,
+            connection_id=connection_id,
+            last_validated_at=now,
+            last_error=None,
+            connection_status="connected",
+        )
+
+    return {
+        "ok": True,
+        "status": "connected",
+        "region_code": region_code,
+        "last_validated_at": now,
+        "profile_count": profile_count,
+    }
+
+
+@router.post("/amazon-ads/disconnect")
+async def disconnect_report_api_access_amazon_ads(
+    request: AmazonAdsConnectionRegionRequest,
+    user=Depends(require_admin_user),
+):
+    del user
+    db = _get_supabase()
+    try:
+        region_code = normalize_ads_region_code(request.region)
+    except WBRValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    affected = _soft_revoke_connections(
+        db,
+        client_id=request.client_id,
+        provider="amazon_ads",
+        region_code=region_code,
+    )
+    return {"status": "revoked", "affected": affected}
+
+
 # ---------------------------------------------------------------------------
 # Amazon Seller API (SP-API) endpoints
 # ---------------------------------------------------------------------------
@@ -117,6 +308,11 @@ class SpApiConnectRequest(BaseModel):
 
 class SpApiValidateRequest(BaseModel):
     client_id: str = Field(..., min_length=1)
+
+
+class SpApiConnectionRegionRequest(BaseModel):
+    client_id: str = Field(..., min_length=1)
+    region: str = Field(..., min_length=2, max_length=3)
 
 
 class SpApiBusinessCompareRequest(BaseModel):
@@ -283,6 +479,27 @@ async def validate_report_api_access_spapi(
         "marketplace_count": len(participations),
         "marketplace_ids": marketplace_ids,
     }
+
+
+@router.post("/amazon-spapi/disconnect")
+async def disconnect_report_api_access_spapi(
+    request: SpApiConnectionRegionRequest,
+    user=Depends(require_admin_user),
+):
+    del user
+    db = _get_supabase()
+    try:
+        region_code = normalize_spapi_region_code(request.region)
+    except WBRValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    affected = _soft_revoke_connections(
+        db,
+        client_id=request.client_id,
+        provider="amazon_spapi",
+        region_code=region_code,
+    )
+    return {"status": "revoked", "affected": affected}
 
 
 @router.post("/amazon-spapi/compare-business")

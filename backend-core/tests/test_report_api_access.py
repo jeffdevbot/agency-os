@@ -275,7 +275,259 @@ class TestReportApiAccessRouter:
             body = response.json()
             assert body["ok"] is True
             assert "amazon.com" in body["authorization_url"]
+            assert body["region_code"] == "NA"
             assert body["profile"]["client_id"] == "client-1"
+        finally:
+            app.dependency_overrides.pop(report_api_access.require_admin_user, None)
+
+    def test_connect_endpoint_accepts_ads_region(self, monkeypatch):
+        fake_db = _FakeSupabase(
+            {
+                "wbr_profiles": [
+                    {
+                        "id": "prof-1",
+                        "client_id": "client-1",
+                        "marketplace_code": "UK",
+                        "display_name": "Alpha UK",
+                        "status": "active",
+                        "amazon_ads_profile_id": None,
+                        "amazon_ads_account_id": None,
+                        "created_at": "2026-03-18T10:00:00+00:00",
+                    }
+                ]
+            }
+        )
+        monkeypatch.setattr(report_api_access, "_get_supabase", lambda: fake_db)
+        app.dependency_overrides[report_api_access.require_admin_user] = _override_admin
+
+        try:
+            with TestClient(app) as client:
+                response = client.post(
+                    "/admin/reports/api-access/amazon-ads/connect",
+                    json={
+                        "profile_id": "prof-1",
+                        "region": "EU",
+                        "return_path": "/reports/api-access",
+                    },
+                )
+            assert response.status_code == 200
+            body = response.json()
+            assert body["region_code"] == "EU"
+        finally:
+            app.dependency_overrides.pop(report_api_access.require_admin_user, None)
+
+    def test_amazon_ads_validate_success_updates_region_connection(self, monkeypatch):
+        fake_db = _FakeSupabase(
+            {
+                "report_api_connections": [
+                    {
+                        "id": "conn-1",
+                        "client_id": "client-1",
+                        "provider": "amazon_ads",
+                        "connection_status": "connected",
+                        "region_code": "EU",
+                        "refresh_token": "refresh-token",
+                        "access_meta": {},
+                    }
+                ]
+            }
+        )
+        seen_regions: list[str] = []
+        monkeypatch.setattr(report_api_access, "_get_supabase", lambda: fake_db)
+        monkeypatch.setattr(
+            report_api_access,
+            "refresh_ads_access_token",
+            AsyncMock(return_value="access-token"),
+        )
+
+        async def fake_list_profiles(access_token: str, *, region_code: str):
+            assert access_token == "access-token"
+            seen_regions.append(region_code)
+            return [{"profileId": "ads-prof-1"}, {"profileId": "ads-prof-2"}]
+
+        monkeypatch.setattr(report_api_access, "list_advertising_profiles", fake_list_profiles)
+        app.dependency_overrides[report_api_access.require_admin_user] = _override_admin
+
+        try:
+            with TestClient(app) as client:
+                response = client.post(
+                    "/admin/reports/api-access/amazon-ads/validate",
+                    json={"client_id": "client-1", "region": "EU"},
+                )
+            assert response.status_code == 200
+            body = response.json()
+            assert body["ok"] is True
+            assert body["status"] == "connected"
+            assert body["region_code"] == "EU"
+            assert body["profile_count"] == 2
+            assert seen_regions == ["EU"]
+
+            row = fake_db.tables["report_api_connections"][0]
+            assert row["connection_status"] == "connected"
+            assert row["last_error"] is None
+            assert row["last_validated_at"]
+        finally:
+            app.dependency_overrides.pop(report_api_access.require_admin_user, None)
+
+    def test_amazon_ads_validate_error_marks_connection_error(self, monkeypatch):
+        fake_db = _FakeSupabase(
+            {
+                "report_api_connections": [
+                    {
+                        "id": "conn-1",
+                        "client_id": "client-1",
+                        "provider": "amazon_ads",
+                        "connection_status": "connected",
+                        "region_code": "NA",
+                        "refresh_token": "refresh-token",
+                    }
+                ]
+            }
+        )
+        monkeypatch.setattr(report_api_access, "_get_supabase", lambda: fake_db)
+        monkeypatch.setattr(
+            report_api_access,
+            "refresh_ads_access_token",
+            AsyncMock(side_effect=report_api_access.WBRValidationError("401 unauthorized")),
+        )
+        app.dependency_overrides[report_api_access.require_admin_user] = _override_admin
+
+        try:
+            with TestClient(app) as client:
+                response = client.post(
+                    "/admin/reports/api-access/amazon-ads/validate",
+                    json={"client_id": "client-1", "region": "NA"},
+                )
+            assert response.status_code == 200
+            body = response.json()
+            assert body["ok"] is False
+            assert body["status"] == "error"
+            assert body["step"] == "token_refresh"
+            assert "401 unauthorized" in body["error"]
+            row = fake_db.tables["report_api_connections"][0]
+            assert row["connection_status"] == "error"
+            assert "Token refresh failed" in row["last_error"]
+        finally:
+            app.dependency_overrides.pop(report_api_access.require_admin_user, None)
+
+    def test_amazon_ads_validate_revoked_returns_clean_error(self, monkeypatch):
+        fake_db = _FakeSupabase(
+            {
+                "report_api_connections": [
+                    {
+                        "id": "conn-1",
+                        "client_id": "client-1",
+                        "provider": "amazon_ads",
+                        "connection_status": "revoked",
+                        "region_code": "NA",
+                        "refresh_token": None,
+                    }
+                ]
+            }
+        )
+        monkeypatch.setattr(report_api_access, "_get_supabase", lambda: fake_db)
+        app.dependency_overrides[report_api_access.require_admin_user] = _override_admin
+
+        try:
+            with TestClient(app) as client:
+                response = client.post(
+                    "/admin/reports/api-access/amazon-ads/validate",
+                    json={"client_id": "client-1", "region": "NA"},
+                )
+            assert response.status_code == 400
+            assert "revoked" in response.json()["detail"]
+        finally:
+            app.dependency_overrides.pop(report_api_access.require_admin_user, None)
+
+    def test_amazon_ads_disconnect_soft_revokes_and_is_idempotent(self, monkeypatch):
+        fake_db = _FakeSupabase(
+            {
+                "report_api_connections": [
+                    {
+                        "id": "conn-1",
+                        "client_id": "client-1",
+                        "provider": "amazon_ads",
+                        "connection_status": "connected",
+                        "region_code": "NA",
+                        "refresh_token": "refresh-token",
+                    }
+                ]
+            }
+        )
+        monkeypatch.setattr(report_api_access, "_get_supabase", lambda: fake_db)
+        app.dependency_overrides[report_api_access.require_admin_user] = _override_admin
+
+        try:
+            with TestClient(app) as client:
+                first = client.post(
+                    "/admin/reports/api-access/amazon-ads/disconnect",
+                    json={"client_id": "client-1", "region": "NA"},
+                )
+                second = client.post(
+                    "/admin/reports/api-access/amazon-ads/disconnect",
+                    json={"client_id": "client-1", "region": "NA"},
+                )
+            assert first.status_code == 200
+            assert first.json() == {"status": "revoked", "affected": 1}
+            assert second.status_code == 200
+            assert second.json() == {"status": "revoked", "affected": 0}
+            row = fake_db.tables["report_api_connections"][0]
+            assert row["connection_status"] == "revoked"
+            assert row["refresh_token"] is None
+        finally:
+            app.dependency_overrides.pop(report_api_access.require_admin_user, None)
+
+    def test_disconnect_nonexistent_tuple_is_graceful(self, monkeypatch):
+        fake_db = _FakeSupabase({"report_api_connections": []})
+        monkeypatch.setattr(report_api_access, "_get_supabase", lambda: fake_db)
+        app.dependency_overrides[report_api_access.require_admin_user] = _override_admin
+
+        try:
+            with TestClient(app) as client:
+                response = client.post(
+                    "/admin/reports/api-access/amazon-ads/disconnect",
+                    json={"client_id": "client-1", "region": "FE"},
+                )
+            assert response.status_code == 200
+            assert response.json() == {"status": "revoked", "affected": 0}
+        finally:
+            app.dependency_overrides.pop(report_api_access.require_admin_user, None)
+
+    def test_spapi_disconnect_soft_revokes_and_is_idempotent(self, monkeypatch):
+        fake_db = _FakeSupabase(
+            {
+                "report_api_connections": [
+                    {
+                        "id": "conn-1",
+                        "client_id": "client-1",
+                        "provider": "amazon_spapi",
+                        "connection_status": "connected",
+                        "region_code": "NA",
+                        "refresh_token": "refresh-token",
+                    }
+                ]
+            }
+        )
+        monkeypatch.setattr(report_api_access, "_get_supabase", lambda: fake_db)
+        app.dependency_overrides[report_api_access.require_admin_user] = _override_admin
+
+        try:
+            with TestClient(app) as client:
+                first = client.post(
+                    "/admin/reports/api-access/amazon-spapi/disconnect",
+                    json={"client_id": "client-1", "region": "NA"},
+                )
+                second = client.post(
+                    "/admin/reports/api-access/amazon-spapi/disconnect",
+                    json={"client_id": "client-1", "region": "NA"},
+                )
+            assert first.status_code == 200
+            assert first.json() == {"status": "revoked", "affected": 1}
+            assert second.status_code == 200
+            assert second.json() == {"status": "revoked", "affected": 0}
+            row = fake_db.tables["report_api_connections"][0]
+            assert row["connection_status"] == "revoked"
+            assert row["refresh_token"] is None
         finally:
             app.dependency_overrides.pop(report_api_access.require_admin_user, None)
 
@@ -413,3 +665,112 @@ class TestAmazonAdsCallbackSharedWrite:
         assert shared_insert["client_id"] == "client-1"
         assert shared_insert["provider"] == "amazon_ads"
         assert shared_insert["refresh_token"] == "Atzr|shared-refresh"
+        assert shared_insert["region_code"] == "NA"
+
+    def test_callback_dual_writes_shared_connection_with_region_from_state(self, monkeypatch):
+        state = create_signed_state(
+            profile_id="prof-1",
+            initiated_by="user-1",
+            return_path="/reports/api-access",
+            region_code="EU",
+        )
+        fake_db = _FakeSupabase(
+            {
+                "wbr_profiles": [
+                    {
+                        "id": "prof-1",
+                        "client_id": "client-1",
+                        "marketplace_code": "UK",
+                        "display_name": "Alpha UK",
+                        "status": "active",
+                        "amazon_ads_profile_id": None,
+                        "amazon_ads_account_id": None,
+                        "created_at": "2026-03-18T10:00:00+00:00",
+                    }
+                ],
+                "wbr_amazon_ads_connections": [],
+                "report_api_connections": [],
+            }
+        )
+        monkeypatch.setattr(
+            amazon_ads_oauth,
+            "exchange_authorization_code",
+            AsyncMock(
+                return_value={
+                    "access_token": "Atza|test",
+                    "refresh_token": "Atzr|shared-refresh",
+                    "token_type": "bearer",
+                    "expires_in": 3600,
+                }
+            ),
+        )
+        monkeypatch.setattr(amazon_ads_oauth, "_get_supabase", lambda: fake_db)
+
+        with TestClient(app) as client:
+            response = client.get(
+                f"/amazon-ads/callback?code=auth-code-123&state={state}",
+                follow_redirects=False,
+            )
+
+        assert response.status_code == 302
+        shared_insert = fake_db.inserts["report_api_connections"][0]
+        assert shared_insert["region_code"] == "EU"
+
+    def test_callback_reconnect_updates_revoked_regional_connection(self, monkeypatch):
+        state = create_signed_state(
+            profile_id="prof-1",
+            initiated_by="user-1",
+            return_path="/reports/api-access",
+            region_code="NA",
+        )
+        fake_db = _FakeSupabase(
+            {
+                "wbr_profiles": [
+                    {
+                        "id": "prof-1",
+                        "client_id": "client-1",
+                        "marketplace_code": "US",
+                        "display_name": "Alpha US",
+                        "status": "active",
+                        "amazon_ads_profile_id": None,
+                        "amazon_ads_account_id": None,
+                        "created_at": "2026-03-18T10:00:00+00:00",
+                    }
+                ],
+                "wbr_amazon_ads_connections": [],
+                "report_api_connections": [
+                    {
+                        "id": "shared-1",
+                        "client_id": "client-1",
+                        "provider": "amazon_ads",
+                        "connection_status": "revoked",
+                        "region_code": "NA",
+                        "refresh_token": None,
+                    }
+                ],
+            }
+        )
+        monkeypatch.setattr(
+            amazon_ads_oauth,
+            "exchange_authorization_code",
+            AsyncMock(
+                return_value={
+                    "access_token": "Atza|test",
+                    "refresh_token": "Atzr|new-refresh",
+                    "token_type": "bearer",
+                    "expires_in": 3600,
+                }
+            ),
+        )
+        monkeypatch.setattr(amazon_ads_oauth, "_get_supabase", lambda: fake_db)
+
+        with TestClient(app) as client:
+            response = client.get(
+                f"/amazon-ads/callback?code=auth-code-123&state={state}",
+                follow_redirects=False,
+            )
+
+        assert response.status_code == 302
+        shared_row = fake_db.tables["report_api_connections"][0]
+        assert shared_row["connection_status"] == "connected"
+        assert shared_row["refresh_token"] == "Atzr|new-refresh"
