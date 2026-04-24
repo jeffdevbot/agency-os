@@ -25,6 +25,7 @@ from ..services.reports.api_access import (
     list_spapi_connections,
     update_connection_validation,
 )
+from ..services.reports.sp_api_reports_client import SpApiReportsClient
 from ..services.wbr.amazon_ads_auth import build_authorization_url, create_signed_state
 from ..services.wbr.profiles import WBRNotFoundError, WBRValidationError
 from ..services.wbr.spapi_business_sync import SpApiBusinessCompareService
@@ -112,6 +113,13 @@ class SpApiBusinessCompareRequest(BaseModel):
     profile_id: str = Field(..., min_length=1)
     date_from: date
     date_to: date
+
+
+class SpApiBusinessDebugRequest(BaseModel):
+    profile_id: str = Field(..., min_length=1)
+    report_date: date
+    asin_granularity: str = Field(default="CHILD")
+    date_granularity: str = Field(default="DAY")
 
 
 @router.get("/amazon-spapi/connections")
@@ -286,6 +294,114 @@ async def compare_report_api_access_spapi_business(
             "between wbr_business_asin_daily and wbr_business_asin_daily__compare."
         ),
     }
+
+
+@router.post("/amazon-spapi/debug-sales-traffic")
+async def debug_report_api_access_spapi_business(
+    request: SpApiBusinessDebugRequest,
+    user=Depends(require_admin_user),
+):
+    """Diagnostic: fetch ONE Sales & Traffic report for a single day and return
+    the raw parsed rows + top-level shape summary. Read-only, writes nothing.
+    Use to verify what SP-API actually sends when rows_fetched=0 on the
+    compare endpoint."""
+    del user
+    from datetime import UTC, datetime, time as datetime_time, timedelta
+    from ..services.wbr.spapi_business_sync import MARKETPLACE_IDS_BY_CODE
+
+    db = _get_supabase()
+
+    profile_resp = (
+        db.table("wbr_profiles").select("*").eq("id", request.profile_id).limit(1).execute()
+    )
+    profile_rows = profile_resp.data if isinstance(profile_resp.data, list) else []
+    if not profile_rows:
+        raise HTTPException(status_code=404, detail=f"Profile {request.profile_id} not found")
+    profile = profile_rows[0]
+
+    client_id = str(profile.get("client_id") or "").strip()
+    marketplace_code = str(profile.get("marketplace_code") or "").strip().upper()
+    marketplace_id = MARKETPLACE_IDS_BY_CODE.get(marketplace_code)
+    if not marketplace_id:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Marketplace {marketplace_code or '<blank>'} not mapped",
+        )
+
+    conn_resp = (
+        db.table("report_api_connections")
+        .select("*")
+        .eq("client_id", client_id)
+        .eq("provider", "amazon_spapi")
+        .limit(1)
+        .execute()
+    )
+    conn_rows = conn_resp.data if isinstance(conn_resp.data, list) else []
+    if not conn_rows:
+        raise HTTPException(status_code=400, detail="No SP-API connection for this client")
+    connection = conn_rows[0]
+
+    refresh_token = str(connection.get("refresh_token") or "").strip()
+    region_code = str(connection.get("region_code") or "").strip()
+    if not refresh_token or not region_code:
+        raise HTTPException(status_code=400, detail="Connection missing refresh_token or region_code")
+
+    day_start = datetime.combine(request.report_date, datetime_time.min, tzinfo=UTC)
+    day_end = day_start + timedelta(days=1)
+
+    client = SpApiReportsClient(refresh_token, region_code)
+    rows = await client.fetch_report_rows(
+        "GET_SALES_AND_TRAFFIC_REPORT",
+        marketplace_ids=[marketplace_id],
+        data_start_time=day_start,
+        data_end_time=day_end,
+        report_options={
+            "asinGranularity": request.asin_granularity,
+            "dateGranularity": request.date_granularity,
+        },
+        format="json",
+    )
+
+    shape_summary: list[dict[str, object]] = []
+    for index, row in enumerate(rows if isinstance(rows, list) else []):
+        if not isinstance(row, dict):
+            shape_summary.append({"index": index, "type": type(row).__name__})
+            continue
+        shape_summary.append(
+            {
+                "index": index,
+                "top_level_keys": sorted(row.keys()),
+                "salesAndTrafficByDate_len": (
+                    len(row["salesAndTrafficByDate"])
+                    if isinstance(row.get("salesAndTrafficByDate"), list)
+                    else None
+                ),
+                "salesAndTrafficByAsin_len": (
+                    len(row["salesAndTrafficByAsin"])
+                    if isinstance(row.get("salesAndTrafficByAsin"), list)
+                    else None
+                ),
+                "reportSpecification": row.get("reportSpecification"),
+            }
+        )
+
+    return {
+        "ok": True,
+        "request": {
+            "profile_id": request.profile_id,
+            "marketplace_code": marketplace_code,
+            "marketplace_id": marketplace_id,
+            "report_date": request.report_date.isoformat(),
+            "report_options": {
+                "asinGranularity": request.asin_granularity,
+                "dateGranularity": request.date_granularity,
+            },
+        },
+        "rows_received": len(rows) if isinstance(rows, list) else 0,
+        "shape_summary": shape_summary,
+        "raw_rows": rows,
+    }
+
 
 
 # ---------------------------------------------------------------------------
