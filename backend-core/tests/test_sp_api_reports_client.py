@@ -60,6 +60,9 @@ def _client(
             http_client=http_client,
             sleep=fake_clock.sleep,
             clock=fake_clock.now,
+            # Tests assert exact sleep durations; jitter would make those
+            # assertions flaky. Production paths use the default jitter window.
+            rate_limit_jitter_seconds=0.0,
         ),
         http_client,
     )
@@ -184,6 +187,7 @@ async def test_create_report_raises_when_rate_limit_persists() -> None:
         sleep=clock.sleep,
         clock=clock.now,
         max_rate_limit_retries=1,
+        rate_limit_jitter_seconds=0.0,
     )
     try:
         with pytest.raises(SpApiRateLimited):
@@ -197,6 +201,39 @@ async def test_create_report_raises_when_rate_limit_persists() -> None:
         await http_client.aclose()
 
     assert clock.sleeps == [1.0]
+
+
+@pytest.mark.asyncio
+async def test_create_report_429_without_retry_after_uses_long_default() -> None:
+    # Regression: SP-API doesn't always send a retry-after header on 429s. The
+    # Distex 2026-04-25 incident showed 4 successive 429s on createReport with
+    # no header, and our 1s default burned through all retries before the
+    # 1-per-minute bucket refilled. Default fallback is now 60s.
+    clock = FakeClock()
+    attempts = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            return httpx.Response(429)  # no retry-after header
+        return httpx.Response(200, json={"reportId": "report-1"})
+
+    client, http_client = _client(httpx.MockTransport(handler), clock=clock)
+    try:
+        report_id = await client.create_report(
+            "GET_SALES_AND_TRAFFIC_REPORT",
+            marketplace_ids=["ATVPDKIKX0DER"],
+            data_start_time=START,
+            data_end_time=END,
+        )
+    finally:
+        await http_client.aclose()
+
+    assert report_id == "report-1"
+    assert attempts == 2
+    # Jitter is disabled in the test helper, so we get the exact default.
+    assert clock.sleeps == [60.0]
 
 
 @pytest.mark.asyncio

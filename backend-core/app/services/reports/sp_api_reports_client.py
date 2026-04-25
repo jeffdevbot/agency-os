@@ -12,6 +12,8 @@ import csv
 import gzip
 import io
 import json
+import logging
+import random
 import time
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
@@ -23,6 +25,8 @@ from .amazon_spapi_auth import (
     get_spapi_region_config,
     refresh_spapi_access_token,
 )
+
+logger = logging.getLogger(__name__)
 
 REPORTS_API_VERSION = "2021-06-30"
 TOKEN_REFRESH_INTERVAL_S = 55 * 60
@@ -98,7 +102,8 @@ class SpApiReportsClient:
         sleep: SleepFn = asyncio.sleep,
         clock: ClockFn = time.monotonic,
         max_rate_limit_retries: int = 5,
-        rate_limit_retry_default_seconds: float = 30.0,
+        rate_limit_retry_default_seconds: float = 60.0,
+        rate_limit_jitter_seconds: float = 15.0,
     ) -> None:
         self.refresh_token = refresh_token
         self.region_code = region_code
@@ -108,6 +113,7 @@ class SpApiReportsClient:
         self._clock = clock
         self._max_rate_limit_retries = max_rate_limit_retries
         self._rate_limit_retry_default_seconds = rate_limit_retry_default_seconds
+        self._rate_limit_jitter_seconds = rate_limit_jitter_seconds
         self._access_token: str | None = None
         self._access_token_acquired_at: float | None = None
         self._token_lock = asyncio.Lock()
@@ -288,13 +294,34 @@ class SpApiReportsClient:
                     raise SpApiRateLimited(
                         f"SP-API rate limit persisted for {method} {url}"
                     )
-                # SP-API doesn't always send retry-after; default needs to be long
-                # enough for the createReport limit (~1/min steady state). 1s was way
-                # too short and burned through retries before the bucket refilled.
-                retry_after = _retry_after_seconds(response.headers.get("retry-after"))
-                await self._sleep(
-                    retry_after if retry_after is not None else self._rate_limit_retry_default_seconds
+                # SP-API doesn't always send retry-after; default matches the
+                # documented createReport rate (1/minute steady state). Add jitter
+                # per Amazon's explicit recommendation so concurrent retries don't
+                # synchronize. Log the rate-limit headers for diagnostic visibility
+                # — they reveal whether our app is on a non-default usage plan.
+                retry_after_header = response.headers.get("retry-after")
+                rate_limit_header = response.headers.get("x-amzn-ratelimit-limit")
+                logger.warning(
+                    "SP-API 429 on %s %s (retry %s/%s; retry-after=%r; x-amzn-RateLimit-Limit=%r)",
+                    method,
+                    url,
+                    retries + 1,
+                    self._max_rate_limit_retries,
+                    retry_after_header,
+                    rate_limit_header,
                 )
+                retry_after = _retry_after_seconds(retry_after_header)
+                base_wait = (
+                    retry_after
+                    if retry_after is not None
+                    else self._rate_limit_retry_default_seconds
+                )
+                jitter = (
+                    random.uniform(0.0, self._rate_limit_jitter_seconds)
+                    if self._rate_limit_jitter_seconds > 0
+                    else 0.0
+                )
+                await self._sleep(base_wait + jitter)
                 retries += 1
                 continue
 

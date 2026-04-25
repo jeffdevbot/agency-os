@@ -40,7 +40,12 @@ from .profiles import WBRNotFoundError, WBRValidationError
 
 COMPARE_TABLE = "wbr_business_asin_daily__compare"
 REPORT_TYPE_SALES_AND_TRAFFIC = "GET_SALES_AND_TRAFFIC_REPORT"
-DEFAULT_CREATE_REPORT_SPACING_S = 60.0
+# 90s gives margin against the documented 1/min createReport rate. 60s was the
+# theoretical minimum but we still hit 429s in practice (Distex 2026-04-25), most
+# likely because draft-status apps run on a lower usage plan than the default
+# 0.0167 req/sec, OR the bucket was already partially drained by recent unrelated
+# SP-API calls (validate, listings, etc.) sharing the same per-app bucket.
+DEFAULT_CREATE_REPORT_SPACING_S = 90.0
 DEFAULT_INSERT_CHUNK_SIZE = 1000
 
 MARKETPLACE_IDS_BY_CODE = {
