@@ -97,7 +97,8 @@ class SpApiReportsClient:
         http_client: httpx.AsyncClient | None = None,
         sleep: SleepFn = asyncio.sleep,
         clock: ClockFn = time.monotonic,
-        max_rate_limit_retries: int = 3,
+        max_rate_limit_retries: int = 5,
+        rate_limit_retry_default_seconds: float = 30.0,
     ) -> None:
         self.refresh_token = refresh_token
         self.region_code = region_code
@@ -106,6 +107,7 @@ class SpApiReportsClient:
         self._sleep = sleep
         self._clock = clock
         self._max_rate_limit_retries = max_rate_limit_retries
+        self._rate_limit_retry_default_seconds = rate_limit_retry_default_seconds
         self._access_token: str | None = None
         self._access_token_acquired_at: float | None = None
         self._token_lock = asyncio.Lock()
@@ -286,8 +288,13 @@ class SpApiReportsClient:
                     raise SpApiRateLimited(
                         f"SP-API rate limit persisted for {method} {url}"
                     )
+                # SP-API doesn't always send retry-after; default needs to be long
+                # enough for the createReport limit (~1/min steady state). 1s was way
+                # too short and burned through retries before the bucket refilled.
                 retry_after = _retry_after_seconds(response.headers.get("retry-after"))
-                await self._sleep(retry_after if retry_after is not None else 1.0)
+                await self._sleep(
+                    retry_after if retry_after is not None else self._rate_limit_retry_default_seconds
+                )
                 retries += 1
                 continue
 

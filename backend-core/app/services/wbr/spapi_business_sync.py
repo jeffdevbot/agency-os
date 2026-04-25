@@ -230,21 +230,36 @@ class SpApiBusinessCompareService:
             raise WBRValidationError("Stored SP-API connection has no region_code")
 
         client = self._client_factory(refresh_token, region_code)
-        facts: list[SpApiBusinessFact] = []
+        # Persist per-day instead of accumulating-then-upserting at the end. SP-API's
+        # createReport rate limit (~1/min) means a multi-day backfill can blow up
+        # midway with SpApiRateLimited. Without per-day saves, every successful day
+        # before the failure was discarded — we lost work we'd already paid for.
+        # On mid-run failure we still re-raise so the caller (and UI) sees the
+        # error, but day-1's rows are already in the DB; a retry resumes cleanly.
+        total_rows_fetched = 0
+        total_rows_written = 0
         reports_requested = 0
+        days_completed = 0
+        mid_run_exception: Exception | None = None
 
         for index, report_day in enumerate(days):
-            rows = await client.fetch_report_rows(
-                REPORT_TYPE_SALES_AND_TRAFFIC,
-                marketplace_ids=[marketplace_id],
-                data_start_time=_day_start(report_day),
-                data_end_time=_day_end_inclusive(report_day),
-                report_options={
-                    "asinGranularity": "CHILD",
-                    "dateGranularity": "DAY",
-                },
-                format="json",
-            )
+            try:
+                rows = await client.fetch_report_rows(
+                    REPORT_TYPE_SALES_AND_TRAFFIC,
+                    marketplace_ids=[marketplace_id],
+                    data_start_time=_day_start(report_day),
+                    data_end_time=_day_end_inclusive(report_day),
+                    report_options={
+                        "asinGranularity": "CHILD",
+                        "dateGranularity": "DAY",
+                    },
+                    format="json",
+                )
+            except Exception as exc:  # noqa: BLE001
+                mid_run_exception = exc
+                warnings.append(f"Failed on {report_day.isoformat()}: {exc}")
+                break
+
             reports_requested += 1
             day_facts = self._transform_report_rows(
                 rows,
@@ -253,19 +268,31 @@ class SpApiBusinessCompareService:
             )
             if not rows or not day_facts:
                 warnings.append(f"No ASIN rows returned for {report_day.isoformat()}")
-            facts.extend(day_facts)
+            else:
+                total_rows_fetched += len(day_facts)
+                total_rows_written += self._upsert_compare_facts(
+                    profile_id=profile_id, facts=day_facts
+                )
+            days_completed += 1
 
             if index < len(days) - 1 and self.create_report_spacing_s > 0:
                 await self._sleep(self.create_report_spacing_s)
 
-        rows_written = self._upsert_compare_facts(profile_id=profile_id, facts=facts)
+        if mid_run_exception is not None:
+            # Partial progress is already persisted; re-raise so the caller surfaces
+            # the failure. A subsequent retry will skip the already-upserted days
+            # because the upsert is idempotent on (profile_id, report_date, child_asin).
+            raise mid_run_exception
+
         return {
             "profile_id": profile_id,
             "date_from": date_from.isoformat(),
             "date_to": date_to.isoformat(),
-            "rows_fetched": len(facts),
-            "rows_written": rows_written,
+            "rows_fetched": total_rows_fetched,
+            "rows_written": total_rows_written,
             "reports_requested": reports_requested,
+            "days_requested": len(days),
+            "days_completed": days_completed,
             "elapsed_seconds": round(time.monotonic() - started_at, 3),
             "warnings": warnings,
         }

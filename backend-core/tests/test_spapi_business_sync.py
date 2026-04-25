@@ -172,6 +172,8 @@ async def test_run_compare_writes_three_day_window() -> None:
     assert summary["rows_fetched"] == 6
     assert summary["rows_written"] == 6
     assert summary["reports_requested"] == 3
+    assert summary["days_requested"] == 3
+    assert summary["days_completed"] == 3
     assert len(fake_client.calls) == 3
     assert fake_client.calls[0]["report_type"] == REPORT_TYPE_SALES_AND_TRAFFIC
     assert fake_client.calls[0]["marketplace_ids"] == ["A2EUQ1WTGCTBG2"]
@@ -180,12 +182,13 @@ async def test_run_compare_writes_three_day_window() -> None:
         "dateGranularity": "DAY",
     }
 
-    assert len(db.upserts) == 1
-    assert db.upserts[0]["table"] == COMPARE_TABLE
-    assert db.upserts[0]["kwargs"] == {
-        "on_conflict": "profile_id,report_date,child_asin"
-    }
-    rows = db.upserts[0]["data"]
+    # Per-day upserts (not a single batch) so partial progress survives a mid-run rate-limit.
+    assert len(db.upserts) == 3
+    assert {u["table"] for u in db.upserts} == {COMPARE_TABLE}
+    for upsert in db.upserts:
+        assert upsert["kwargs"] == {"on_conflict": "profile_id,report_date,child_asin"}
+        assert len(upsert["data"]) == 2
+    rows = [row for upsert in db.upserts for row in upsert["data"]]
     assert len(rows) == 6
     first = rows[0]
     assert first["profile_id"] == "profile-1"
@@ -255,8 +258,53 @@ async def test_run_compare_skips_day_with_zero_asin_rows() -> None:
 
     assert summary["rows_written"] == 4
     assert summary["reports_requested"] == 3
+    assert summary["days_completed"] == 3
     assert summary["warnings"] == ["No ASIN rows returned for 2026-01-02"]
-    assert len(db.upserts[0]["data"]) == 4
+    # Day 2 had no ASIN rows so no upsert was issued for it; days 1 and 3 each upserted.
+    assert len(db.upserts) == 2
+    assert sum(len(u["data"]) for u in db.upserts) == 4
+
+
+@pytest.mark.asyncio
+async def test_run_compare_preserves_partial_progress_on_mid_run_failure() -> None:
+    # Regression: a mid-run SP-API failure (e.g., rate-limit on a later day) used
+    # to discard ALL successfully-fetched days because the loop accumulated facts
+    # in memory and only upserted at the end. After per-day upsert, day 1's data
+    # must already be saved even when day 2 raises.
+    class _FailingOnSecondCall:
+        def __init__(self, day1_rows: list[dict[str, Any]]):
+            self.day1_rows = day1_rows
+            self.calls = 0
+
+        async def fetch_report_rows(self, *_args, **_kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                return self.day1_rows
+            raise RuntimeError("simulated SP-API rate limit on day 2")
+
+    fake_client = _FailingOnSecondCall(_fixture_day_rows())
+    db = _base_db()
+    service = SpApiBusinessCompareService(
+        db,
+        client_factory=lambda refresh_token, region_code: fake_client,
+        create_report_spacing_s=0,
+    )
+
+    # Service still re-raises the mid-run failure so the caller / UI can surface
+    # an error and the user knows to retry. The critical guarantee is that the
+    # work already done before the failure is persisted.
+    with pytest.raises(RuntimeError, match="simulated SP-API rate limit"):
+        await service.run_compare(
+            profile_id="profile-1",
+            date_from=date(2026, 1, 1),
+            date_to=date(2026, 1, 3),
+        )
+
+    # Day 1's upsert landed even though the run aborted on day 2.
+    assert len(db.upserts) == 1
+    assert len(db.upserts[0]["data"]) == 2
+    saved_dates = {row["report_date"] for row in db.upserts[0]["data"]}
+    assert saved_dates == {"2026-01-01"}
 
 
 @pytest.mark.asyncio
