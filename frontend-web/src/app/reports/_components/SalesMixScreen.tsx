@@ -120,8 +120,11 @@ export default function SalesMixScreen({ clientSlug, marketplaceCode }: Props) {
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [showAdsTotal, setShowAdsTotal] = useState(false);
-  const [showBrandTotal, setShowBrandTotal] = useState(false);
+  const [chartView, setChartView] = useState<"ads_vs_organic" | "brand_vs_category">(
+    "ads_vs_organic"
+  );
+  const [chartMetric, setChartMetric] = useState<"dollars" | "percent">("dollars");
+  const [showTotalLine, setShowTotalLine] = useState(false);
   const [tableExpanded, setTableExpanded] = useState(false);
 
   // Re-snap dates when preset changes (or profile loads with a new week_start_day).
@@ -220,35 +223,88 @@ export default function SalesMixScreen({ clientSlug, marketplaceCode }: Props) {
   const totalCategory = totals ? parseDecimal(totals.category_sales) : 0;
   const totalUnmappedAds = totals ? parseDecimal(totals.unmapped_ad_sales) : 0;
 
-  const adsVsOrganicSeries = useMemo(() => {
-    if (!report || report.weekly.length === 0) return [];
-    const series = [
-      {
-        key: "organic_sales",
-        label: "Organic Sales",
-        data: report.weekly.map((w) => parseDecimal(w.organic_sales)),
-        color: "#10b981",
-      },
-      {
-        key: "ad_sales",
-        label: "Ad Sales",
-        data: report.weekly.map((w) => parseDecimal(w.ad_sales)),
-        color: "#0a6fd6",
-      },
-    ];
-    if (showAdsTotal) {
-      series.push({
-        key: "total",
-        label: "Total Sales",
-        data: report.weekly.map((w) => parseDecimal(w.business_sales)),
-        color: "#0f172a",
-      });
-    }
-    return series;
-  }, [report, showAdsTotal]);
+  const ratioOf = (numerator: number, denominator: number): number =>
+    denominator > 0 ? numerator / denominator : 0;
 
-  const brandVsCategorySeries = useMemo(() => {
+  const chartSeries = useMemo(() => {
     if (!report || report.weekly.length === 0) return [];
+
+    if (chartView === "ads_vs_organic") {
+      if (chartMetric === "percent") {
+        return [
+          {
+            key: "organic_share",
+            label: "Organic %",
+            data: report.weekly.map((w) =>
+              ratioOf(parseDecimal(w.organic_sales), parseDecimal(w.business_sales))
+            ),
+            color: "#10b981",
+          },
+          {
+            key: "ad_share",
+            label: "Ads %",
+            data: report.weekly.map((w) =>
+              ratioOf(parseDecimal(w.ad_sales), parseDecimal(w.business_sales))
+            ),
+            color: "#0a6fd6",
+          },
+        ];
+      }
+      const series = [
+        {
+          key: "organic_sales",
+          label: "Organic Sales",
+          data: report.weekly.map((w) => parseDecimal(w.organic_sales)),
+          color: "#10b981",
+        },
+        {
+          key: "ad_sales",
+          label: "Ad Sales",
+          data: report.weekly.map((w) => parseDecimal(w.ad_sales)),
+          color: "#0a6fd6",
+        },
+      ];
+      if (showTotalLine) {
+        series.push({
+          key: "total",
+          label: "Total Sales",
+          data: report.weekly.map((w) => parseDecimal(w.business_sales)),
+          color: "#0f172a",
+        });
+      }
+      return series;
+    }
+
+    // Brand vs Category view
+    if (chartMetric === "percent") {
+      return [
+        {
+          key: "brand_share",
+          label: "Brand %",
+          data: report.weekly.map((w) =>
+            ratioOf(parseDecimal(w.brand_sales), parseDecimal(w.ad_sales))
+          ),
+          color: "#7c3aed",
+        },
+        {
+          key: "category_share",
+          label: "Category %",
+          data: report.weekly.map((w) =>
+            ratioOf(parseDecimal(w.category_sales), parseDecimal(w.ad_sales))
+          ),
+          color: "#0a6fd6",
+        },
+        {
+          key: "unmapped_share",
+          label: "Unmapped %",
+          data: report.weekly.map((w) =>
+            ratioOf(parseDecimal(w.unmapped_ad_sales), parseDecimal(w.ad_sales))
+          ),
+          color: "#f59e0b",
+          dashed: true,
+        },
+      ];
+    }
     const series = [
       {
         key: "brand_sales",
@@ -270,7 +326,7 @@ export default function SalesMixScreen({ clientSlug, marketplaceCode }: Props) {
         dashed: true,
       },
     ];
-    if (showBrandTotal) {
+    if (showTotalLine) {
       series.push({
         key: "total",
         label: "Total Ad Sales",
@@ -279,7 +335,15 @@ export default function SalesMixScreen({ clientSlug, marketplaceCode }: Props) {
       });
     }
     return series;
-  }, [report, showBrandTotal]);
+  }, [chartMetric, chartView, report, showTotalLine]);
+
+  const chartTitle =
+    chartView === "ads_vs_organic" ? "Ads vs Organic" : "Brand vs Category";
+
+  const formatPercentChart = (value: number): string => {
+    if (!Number.isFinite(value)) return "0%";
+    return `${(value * 100).toFixed(1)}%`;
+  };
 
   const profileName = resolved.profile?.display_name ?? clientSlug;
   const profileMarket =
@@ -508,22 +572,77 @@ export default function SalesMixScreen({ clientSlug, marketplaceCode }: Props) {
         />
       </section>
 
-      <section className="grid gap-4 md:grid-cols-2">
+      <section className="space-y-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="inline-flex rounded-2xl border border-slate-200 bg-slate-50 p-1 text-xs font-semibold">
+            <button
+              type="button"
+              onClick={() => setChartView("ads_vs_organic")}
+              className={
+                chartView === "ads_vs_organic"
+                  ? "rounded-xl bg-white px-3 py-1.5 text-[#0a6fd6] shadow-sm"
+                  : "rounded-xl px-3 py-1.5 text-[#475569] hover:text-[#0f172a]"
+              }
+            >
+              Ads vs Organic
+            </button>
+            <button
+              type="button"
+              onClick={() => setChartView("brand_vs_category")}
+              className={
+                chartView === "brand_vs_category"
+                  ? "rounded-xl bg-white px-3 py-1.5 text-[#7c3aed] shadow-sm"
+                  : "rounded-xl px-3 py-1.5 text-[#475569] hover:text-[#0f172a]"
+              }
+            >
+              Brand vs Category
+            </button>
+          </div>
+
+          <div className="inline-flex rounded-2xl border border-slate-200 bg-slate-50 p-1 text-xs font-semibold">
+            <button
+              type="button"
+              onClick={() => setChartMetric("dollars")}
+              className={
+                chartMetric === "dollars"
+                  ? "rounded-xl bg-white px-3 py-1.5 text-[#0f172a] shadow-sm"
+                  : "rounded-xl px-3 py-1.5 text-[#475569] hover:text-[#0f172a]"
+              }
+            >
+              $
+            </button>
+            <button
+              type="button"
+              onClick={() => setChartMetric("percent")}
+              className={
+                chartMetric === "percent"
+                  ? "rounded-xl bg-white px-3 py-1.5 text-[#0f172a] shadow-sm"
+                  : "rounded-xl px-3 py-1.5 text-[#475569] hover:text-[#0f172a]"
+              }
+            >
+              %
+            </button>
+          </div>
+          {chartMetric === "percent" ? (
+            <span className="text-xs text-[#64748b]">
+              {chartView === "ads_vs_organic"
+                ? "Series shown as % of business sales (sums to 100% per week)."
+                : "Series shown as % of total ad sales (sums to 100% per week)."}
+            </span>
+          ) : null}
+        </div>
+
         <WbrTrendChart
-          title="Ads vs Organic"
+          title={chartTitle}
           weeks={report?.weekly.map((w) => ({ label: w.label })) ?? []}
-          series={adsVsOrganicSeries}
-          formatValue={formatCurrency}
-          showTotal={showAdsTotal}
-          onToggleTotal={() => setShowAdsTotal((value) => !value)}
-        />
-        <WbrTrendChart
-          title="Brand vs Category"
-          weeks={report?.weekly.map((w) => ({ label: w.label })) ?? []}
-          series={brandVsCategorySeries}
-          formatValue={formatCurrency}
-          showTotal={showBrandTotal}
-          onToggleTotal={() => setShowBrandTotal((value) => !value)}
+          series={chartSeries}
+          formatValue={chartMetric === "percent" ? formatPercentChart : formatCurrency}
+          showTotal={chartMetric === "dollars" && showTotalLine}
+          onToggleTotal={
+            chartMetric === "dollars"
+              ? () => setShowTotalLine((value) => !value)
+              : () => undefined
+          }
         />
       </section>
 

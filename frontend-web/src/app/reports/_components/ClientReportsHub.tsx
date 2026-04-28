@@ -123,7 +123,7 @@ export default function ClientReportsHub({ clientSlug }: Props) {
                     </div>
                   </div>
 
-                  <div className="mt-5 grid gap-4 xl:grid-cols-2">
+                  <div className="mt-5 grid gap-4 xl:grid-cols-3">
                     <div className="rounded-2xl border border-[#dbe4f0] bg-[#f7faff] p-5">
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div>
@@ -182,12 +182,6 @@ export default function ClientReportsHub({ clientSlug }: Props) {
                             >
                               Sync
                             </Link>
-                            <Link
-                              href={`/reports/${clientSlug}/${marketplaceSlug}/sales-mix`}
-                              className="text-sm font-semibold text-[#0a6fd6] hover:underline"
-                            >
-                              Sales Mix
-                            </Link>
                           </>
                         ) : (
                           <Link
@@ -243,6 +237,53 @@ export default function ClientReportsHub({ clientSlug }: Props) {
                         >
                           {pnlProfile ? "Open Amazon P&L" : "Open Amazon P&L Setup"}
                         </Link>
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl border border-[#e2d8f3] bg-[#f7f3ff] p-5">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[#7c3aed]">
+                            Sales Mix
+                          </p>
+                          <p className="mt-2 text-lg font-semibold text-[#0f172a]">
+                            Ads vs Organic · Brand vs Category
+                          </p>
+                          <p className="mt-2 text-sm text-[#4c576f]">
+                            Weekly sales splits with brand-vs-category attribution and date-range
+                            filters. Uses WBR data; admin-facing only.
+                          </p>
+                        </div>
+                        <span
+                          className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                            wbrProfile
+                              ? "bg-[#ede4ff] text-[#7c3aed]"
+                              : "bg-white text-[#64748b]"
+                          }`}
+                        >
+                          {wbrProfile ? "Available" : "Needs WBR"}
+                        </span>
+                      </div>
+
+                      {wbrProfile ? (
+                        <p className="mt-4 text-sm text-[#4c576f]">
+                          Filter by brand, ad type, and date range. Export to .xlsx.
+                        </p>
+                      ) : (
+                        <p className="mt-4 text-sm text-[#4c576f]">
+                          Sales Mix reads from WBR data; create the WBR profile first.
+                        </p>
+                      )}
+
+                      <div className="mt-4 flex flex-wrap items-center gap-3">
+                        {wbrProfile ? (
+                          <Link
+                            href={`/reports/${clientSlug}/${marketplaceSlug}/sales-mix`}
+                            className="rounded-xl bg-[#7c3aed] px-4 py-2 text-sm font-semibold text-white shadow-[0_15px_30px_rgba(124,58,237,0.25)] transition hover:bg-[#6d28d9]"
+                          >
+                            Open Sales Mix
+                          </Link>
+                        ) : null}
                       </div>
                     </div>
                   </div>
