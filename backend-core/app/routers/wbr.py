@@ -28,6 +28,8 @@ from ..config import settings
 from ..services.wbr.listing_imports import ListingImportService
 from ..services.wbr.pacvue_imports import PacvueImportService
 from ..services.wbr.pacvue_mappings import PacvueMappingService
+from ..services.wbr.sales_mix import SalesMixService
+from ..services.wbr.sales_mix_workbook import build_sales_mix_workbook
 from ..services.wbr.profiles import WBRNotFoundError, WBRValidationError, WBRProfileService
 from ..services.wbr.email_drafts import generate_email_draft, list_email_drafts, get_email_draft
 from ..services.wbr.report_snapshots import WBRSnapshotService
@@ -67,6 +69,10 @@ def _get_pacvue_service() -> PacvueImportService:
 
 def _get_pacvue_mapping_service() -> PacvueMappingService:
     return PacvueMappingService(_get_supabase())
+
+
+def _get_sales_mix_service() -> SalesMixService:
+    return SalesMixService(_get_supabase())
 
 
 def _get_listing_service() -> ListingImportService:
@@ -1117,6 +1123,106 @@ async def export_wbr_workbook(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception:
         raise HTTPException(status_code=500, detail="Failed to export WBR workbook")
+
+
+# ------------------------------------------------------------------
+# Sales Mix report
+# ------------------------------------------------------------------
+
+
+def _parse_csv_query(value: str | None) -> list[str]:
+    if not value:
+        return []
+    return [chunk.strip() for chunk in value.split(",") if chunk.strip()]
+
+
+def _parse_iso_date(field_name: str, value: str) -> date:
+    try:
+        return date.fromisoformat(value)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid {field_name} (expected YYYY-MM-DD)",
+        ) from exc
+
+
+@router.get("/profiles/{profile_id}/sales-mix")
+async def get_sales_mix_report(
+    profile_id: str,
+    date_from: str = Query(..., description="ISO date (YYYY-MM-DD), inclusive"),
+    date_to: str = Query(..., description="ISO date (YYYY-MM-DD), inclusive"),
+    parent_row_ids: str | None = Query(None, description="Comma-separated row IDs"),
+    ad_types: str | None = Query(
+        None,
+        description="Comma-separated subset of sponsored_products,sponsored_brands,sponsored_display",
+    ),
+    user=Depends(require_admin_user),
+):
+    parsed_from = _parse_iso_date("date_from", date_from)
+    parsed_to = _parse_iso_date("date_to", date_to)
+    svc = _get_sales_mix_service()
+    try:
+        return {
+            "ok": True,
+            **svc.build_report(
+                profile_id,
+                date_from=parsed_from,
+                date_to=parsed_to,
+                parent_row_ids=_parse_csv_query(parent_row_ids),
+                ad_types=_parse_csv_query(ad_types),
+            ),
+        }
+    except WBRNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except WBRValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to build Sales Mix report: {exc}",
+        )
+
+
+@router.get("/profiles/{profile_id}/sales-mix/export.xlsx")
+async def export_sales_mix_workbook(
+    profile_id: str,
+    date_from: str = Query(..., description="ISO date (YYYY-MM-DD), inclusive"),
+    date_to: str = Query(..., description="ISO date (YYYY-MM-DD), inclusive"),
+    parent_row_ids: str | None = Query(None),
+    ad_types: str | None = Query(None),
+    user=Depends(require_admin_user),
+):
+    parsed_from = _parse_iso_date("date_from", date_from)
+    parsed_to = _parse_iso_date("date_to", date_to)
+    svc = _get_sales_mix_service()
+    try:
+        report = svc.build_report(
+            profile_id,
+            date_from=parsed_from,
+            date_to=parsed_to,
+            parent_row_ids=_parse_csv_query(parent_row_ids),
+            ad_types=_parse_csv_query(ad_types),
+        )
+        profile = report.get("profile") or {}
+        workbook_path, filename = build_sales_mix_workbook(
+            report,
+            profile_display_name=str(profile.get("display_name") or "wbr"),
+            marketplace_code=str(profile.get("marketplace_code") or ""),
+        )
+        return FileResponse(
+            workbook_path,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            filename=filename,
+        )
+    except WBRNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except WBRValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to export Sales Mix workbook: {exc}",
+        )
 
 
 @router.put("/profiles/{profile_id}/child-asins/{child_asin}/mapping")
