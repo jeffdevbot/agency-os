@@ -151,8 +151,14 @@ export default function SalesMixScreen({ clientSlug, marketplaceCode }: Props) {
     [adTypes, dateFrom, dateTo, parentRowIds]
   );
 
+  const dateRangeInvalid = Boolean(dateFrom && dateTo && dateFrom > dateTo);
+
   const reload = useCallback(async () => {
     if (!resolved.profile?.id) return;
+    if (dateRangeInvalid) {
+      setErrorMessage("End date must be on or after start date.");
+      return;
+    }
     setLoading(true);
     setErrorMessage(null);
     try {
@@ -164,14 +170,21 @@ export default function SalesMixScreen({ clientSlug, marketplaceCode }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [buildQuery, getToken, resolved.profile?.id]);
+  }, [buildQuery, dateRangeInvalid, getToken, resolved.profile?.id]);
 
   useEffect(() => {
-    if (resolved.profile?.id && dateFrom && dateTo) {
+    if (resolved.profile?.id && dateFrom && dateTo && !dateRangeInvalid) {
       void reload();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resolved.profile?.id, dateFrom, dateTo, parentRowIds.join("|"), adTypes.join("|")]);
+  }, [
+    resolved.profile?.id,
+    dateFrom,
+    dateTo,
+    dateRangeInvalid,
+    parentRowIds.join("|"),
+    adTypes.join("|"),
+  ]);
 
   const handleExport = useCallback(async () => {
     if (!resolved.profile?.id || exporting) return;
@@ -208,7 +221,7 @@ export default function SalesMixScreen({ clientSlug, marketplaceCode }: Props) {
   const totalUnmappedAds = totals ? parseDecimal(totals.unmapped_ad_sales) : 0;
 
   const adsVsOrganicSeries = useMemo(() => {
-    if (!report) return [];
+    if (!report || report.weekly.length === 0) return [];
     const series = [
       {
         key: "organic_sales",
@@ -235,7 +248,7 @@ export default function SalesMixScreen({ clientSlug, marketplaceCode }: Props) {
   }, [report, showAdsTotal]);
 
   const brandVsCategorySeries = useMemo(() => {
-    if (!report) return [];
+    if (!report || report.weekly.length === 0) return [];
     const series = [
       {
         key: "brand_sales",
@@ -271,6 +284,10 @@ export default function SalesMixScreen({ clientSlug, marketplaceCode }: Props) {
   const profileName = resolved.profile?.display_name ?? clientSlug;
   const profileMarket =
     (resolved.profile?.marketplace_code ?? marketplaceCode).toUpperCase();
+  const hasWeeks = Boolean(report && report.weekly.length > 0);
+  const showEmptyWindow = Boolean(
+    report && !loading && report.weekly.length === 0 && !dateRangeInvalid
+  );
 
   const toggleParent = (id: string) => {
     setParentRowIds((prev) =>
@@ -308,7 +325,7 @@ export default function SalesMixScreen({ clientSlug, marketplaceCode }: Props) {
           <button
             type="button"
             onClick={() => void handleExport()}
-            disabled={exporting || loading || !resolved.profile?.id || !report}
+            disabled={exporting || loading || !resolved.profile?.id || !hasWeeks || dateRangeInvalid}
             className="rounded-2xl bg-[#0a6fd6] px-4 py-2 text-sm font-semibold text-white shadow-[0_15px_30px_rgba(10,111,214,0.35)] transition hover:bg-[#0959ab] disabled:cursor-not-allowed disabled:bg-[#b7cbea]"
           >
             {exporting ? "Exporting..." : "Export .xlsx"}
@@ -434,9 +451,22 @@ export default function SalesMixScreen({ clientSlug, marketplaceCode }: Props) {
         ) : null}
       </section>
 
+      {dateRangeInvalid ? (
+        <p className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+          End date must be on or after start date.
+        </p>
+      ) : null}
+
       {errorMessage ? (
         <p className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
           {errorMessage}
+        </p>
+      ) : null}
+
+      {showEmptyWindow ? (
+        <p className="rounded-2xl border border-amber-200 bg-amber-50/70 px-4 py-3 text-sm text-[#78350f]">
+          The selected window contains no fully-completed weeks. Pick an earlier start
+          date or use one of the presets above.
         </p>
       ) : null}
 
@@ -539,9 +569,15 @@ export default function SalesMixScreen({ clientSlug, marketplaceCode }: Props) {
                   const ads = parseDecimal(week.ad_sales);
                   const adsPct = business > 0 ? ads / business : 0;
                   const flagged = week.coverage.below_threshold || !week.coverage.data_present;
+                  const flagReason = !week.coverage.data_present
+                    ? "No ad-fact rows for this week"
+                    : week.coverage.below_threshold
+                      ? "Mapping coverage is below the warning threshold"
+                      : "";
                   return (
                     <tr
                       key={week.start}
+                      title={flagReason || undefined}
                       className={flagged ? "bg-amber-50/60 align-top" : "align-top"}
                     >
                       <td className="px-2 py-2 text-[#0f172a]">{week.label}</td>

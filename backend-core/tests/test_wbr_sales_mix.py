@@ -304,7 +304,7 @@ class TestBuildReport:
         with pytest.raises(WBRNotFoundError):
             svc.build_report("missing", date_from=date_from, date_to=date_to)
 
-    def test_excluded_campaign_does_not_inflate_unmapped(self):
+    def test_excluded_unmapped_campaign_dropped_entirely(self):
         date_from, date_to = _last_full_window(1)
         sample_day = date_to.isoformat()
         db = _build_db(
@@ -317,14 +317,36 @@ class TestBuildReport:
                     "spend": "5",
                     "sales": "777",
                     "orders": 1,
-                }
+                },
+                {
+                    "report_date": sample_day,
+                    "campaign_name": "Real Mapped",
+                    "campaign_type": "sponsored_products",
+                    "spend": "1",
+                    "sales": "100",
+                    "orders": 1,
+                },
             ],
+            rows=[
+                {"id": "leaf-1", "row_kind": "leaf", "active": True, "row_label": "Hero", "parent_row_id": None, "sort_order": 10}
+            ],
+            mappings=[{"campaign_name": "Real Mapped", "row_id": "leaf-1", "goal_code": "Perf"}],
         )
         report = SalesMixService(db).build_report(
             "p1", date_from=date_from, date_to=date_to
         )
+        # Excluded campaigns (when unmapped) are dropped entirely — they
+        # don't show up in any total. Matches Section 2 behavior.
         assert Decimal(report["totals"]["unmapped_ad_sales"]) == Decimal("0.00")
-        # Excluded sales are still counted in total ad sales (consistent with
-        # Section 2 — we drop them from the unmapped bucket but the spend/sales
-        # rolled into the ad-type tally before the exclusion check).
-        assert Decimal(report["totals"]["ad_sales"]) == Decimal("777.00")
+        assert Decimal(report["totals"]["ad_sales"]) == Decimal("100.00")
+        assert Decimal(report["totals"]["category_sales"]) == Decimal("100.00")
+
+    def test_window_capped_at_max_days(self):
+        db = _build_db()
+        svc = SalesMixService(db)
+        with pytest.raises(WBRValidationError, match="730 days"):
+            svc.build_report(
+                "p1",
+                date_from=date(2023, 1, 1),
+                date_to=date(2026, 1, 1),
+            )

@@ -182,6 +182,12 @@ export default function ClientReportsHub({ clientSlug }: Props) {
                             >
                               Sync
                             </Link>
+                            <Link
+                              href={`/reports/${clientSlug}/${marketplaceSlug}/sales-mix`}
+                              className="text-sm font-semibold text-[#0a6fd6] hover:underline"
+                            >
+                              Sales Mix
+                            </Link>
                           </>
                         ) : (
                           <Link

@@ -30,6 +30,7 @@ from .section2_report import _normalize_campaign_type
 
 BRAND_GOAL_CODE = "Def"
 COVERAGE_WARN_THRESHOLD = Decimal("0.80")
+MAX_WINDOW_DAYS = 730
 
 AD_TYPE_KEYS = ("sponsored_products", "sponsored_brands", "sponsored_display")
 AD_TYPE_LABEL_BY_KEY = {
@@ -112,6 +113,10 @@ class SalesMixService:
     ) -> dict[str, Any]:
         if date_to < date_from:
             raise WBRValidationError("date_to must be on or after date_from")
+        if (date_to - date_from).days + 1 > MAX_WINDOW_DAYS:
+            raise WBRValidationError(
+                f"Date window must be {MAX_WINDOW_DAYS} days or fewer"
+            )
 
         profile = self._get_profile(profile_id)
         week_buckets = _weeks_in_range(
@@ -202,6 +207,12 @@ class SalesMixService:
             mapping = mapping_by_campaign.get(campaign_name)
             mapped_leaf = mapping["row_id"] if mapping else ""
 
+            # Drop excluded *unmapped* campaigns entirely (Section 2 parity).
+            # Mapped campaigns are not subject to exclusions — exclusions
+            # are designed to silence noise that lands in the unmapped pile.
+            if not mapping and campaign_name in excluded_campaigns:
+                continue
+
             if scoped_leaf_ids is not None:
                 if not mapped_leaf or mapped_leaf not in scoped_leaf_ids:
                     # When a parent-row scope is active, drop facts that
@@ -224,8 +235,6 @@ class SalesMixService:
             ad_type_bucket["ad_orders"] += orders
 
             if not mapping:
-                if campaign_name in excluded_campaigns:
-                    continue
                 bucket["unmapped_ad_sales"] += sales
                 bucket["unmapped_ad_spend"] += spend
                 continue
@@ -537,6 +546,7 @@ class SalesMixService:
                 ("gte", "report_date", date_from.isoformat()),
                 ("lte", "report_date", date_to.isoformat()),
             ],
+            page_size=5000,
         )
 
     def _list_business_facts(
@@ -554,6 +564,7 @@ class SalesMixService:
                 ("gte", "report_date", date_from.isoformat()),
                 ("lte", "report_date", date_to.isoformat()),
             ],
+            page_size=5000,
         )
 
     def _select_all(
