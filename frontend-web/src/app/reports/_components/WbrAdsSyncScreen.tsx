@@ -7,6 +7,7 @@ import { useResolvedWbrProfile } from "../_lib/useResolvedWbrProfile";
 import { useWbrAdsSync } from "../_lib/useWbrAdsSync";
 import { useWbrSection2Report } from "../_lib/useWbrSection2Report";
 import { updateWbrProfile } from "../wbr/_lib/wbrApi";
+import PacvueMappingManager from "./PacvueMappingManager";
 import {
   getAmazonAdsConnectUrl,
   getAmazonAdsConnectionStatus,
@@ -476,27 +477,18 @@ export default function WbrAdsSyncScreen({ clientSlug, marketplaceCode }: Props)
             </div>
           </div>
 
-          {!section2ReportState.loading && (section2ReportState.report?.qa.unmapped_campaign_samples?.length ?? 0) > 0 ? (
-            <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50/70 p-5">
-              <p className="text-xs font-semibold uppercase tracking-wide text-[#92400e]">
-                Sample Unmapped Campaigns
-              </p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {section2ReportState.report?.qa.unmapped_campaign_samples.map((campaignName) => (
-                  <span
-                    key={campaignName}
-                    className="inline-flex rounded-full border border-amber-200 bg-white px-3 py-1 text-xs font-medium text-[#78350f]"
-                  >
-                    {campaignName}
-                  </span>
-                ))}
-              </div>
-            </div>
-          ) : !section2ReportState.loading ? (
+          {!section2ReportState.loading &&
+          (section2ReportState.report?.qa.unmapped_campaign_count ?? 0) === 0 ? (
             <p className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
               All ads campaign facts in the current 4-week window are matching Pacvue campaign mappings.
             </p>
           ) : null}
+
+          <PacvueMappingManager
+            profileId={resolved.profile.id}
+            weeks={4}
+            onMutated={() => void section2ReportState.loadReport(true)}
+          />
         </div>
 
         <div className="rounded-3xl bg-white/95 p-8 shadow-[0_30px_80px_rgba(10,59,130,0.15)] backdrop-blur">

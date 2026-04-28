@@ -27,6 +27,7 @@ from ..services.wbr.campaign_exclusions import CampaignExclusionService
 from ..config import settings
 from ..services.wbr.listing_imports import ListingImportService
 from ..services.wbr.pacvue_imports import PacvueImportService
+from ..services.wbr.pacvue_mappings import PacvueMappingService
 from ..services.wbr.profiles import WBRNotFoundError, WBRValidationError, WBRProfileService
 from ..services.wbr.email_drafts import generate_email_draft, list_email_drafts, get_email_draft
 from ..services.wbr.report_snapshots import WBRSnapshotService
@@ -62,6 +63,10 @@ def _get_service() -> WBRProfileService:
 
 def _get_pacvue_service() -> PacvueImportService:
     return PacvueImportService(_get_supabase())
+
+
+def _get_pacvue_mapping_service() -> PacvueMappingService:
+    return PacvueMappingService(_get_supabase())
 
 
 def _get_listing_service() -> ListingImportService:
@@ -418,6 +423,146 @@ async def import_pacvue_workbook(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception:
         raise HTTPException(status_code=500, detail="Failed to import Pacvue workbook")
+
+
+# ------------------------------------------------------------------
+# Pacvue mapping management (admin sync UI)
+# ------------------------------------------------------------------
+
+
+class PacvueManualMapPayload(BaseModel):
+    campaign_name: str
+    row_id: str
+    goal_code: str
+
+
+class PacvueDeactivateMapPayload(BaseModel):
+    campaign_name: str
+
+
+class PacvueExclusionPayload(BaseModel):
+    campaign_name: str
+    excluded: bool = True
+    reason: Optional[str] = None
+
+
+@router.get("/profiles/{profile_id}/pacvue/unmapped")
+async def list_pacvue_unmapped(
+    profile_id: str,
+    weeks: int = Query(4, ge=1, le=26),
+    user=Depends(require_admin_user),
+):
+    svc = _get_pacvue_mapping_service()
+    try:
+        return {"ok": True, **svc.list_unmapped(profile_id, weeks=weeks)}
+    except WBRNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except WBRValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to list unmapped campaigns")
+
+
+@router.get("/profiles/{profile_id}/pacvue/mappings")
+async def list_pacvue_mappings(
+    profile_id: str,
+    weeks: int = Query(4, ge=1, le=26),
+    user=Depends(require_admin_user),
+):
+    svc = _get_pacvue_mapping_service()
+    try:
+        return {"ok": True, **svc.list_mappings(profile_id, weeks=weeks)}
+    except WBRNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except WBRValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to list Pacvue mappings")
+
+
+@router.get("/profiles/{profile_id}/pacvue/leaf-rows")
+async def list_pacvue_leaf_rows(
+    profile_id: str,
+    user=Depends(require_admin_user),
+):
+    svc = _get_pacvue_mapping_service()
+    try:
+        return {"ok": True, "items": svc.list_leaf_rows(profile_id)}
+    except WBRNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except WBRValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to list leaf rows")
+
+
+@router.post("/profiles/{profile_id}/pacvue/manual-map")
+async def upsert_pacvue_manual_map(
+    profile_id: str,
+    payload: PacvueManualMapPayload,
+    user=Depends(require_admin_user),
+):
+    svc = _get_pacvue_mapping_service()
+    try:
+        item = svc.upsert_manual_mapping(
+            profile_id=profile_id,
+            campaign_name=payload.campaign_name,
+            row_id=payload.row_id,
+            goal_code=payload.goal_code,
+            user_id=_user_id(user),
+        )
+        return {"ok": True, "item": item}
+    except WBRNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except WBRValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to save manual mapping")
+
+
+@router.post("/profiles/{profile_id}/pacvue/deactivate-mapping")
+async def deactivate_pacvue_mapping(
+    profile_id: str,
+    payload: PacvueDeactivateMapPayload,
+    user=Depends(require_admin_user),
+):
+    svc = _get_pacvue_mapping_service()
+    try:
+        deactivated = svc.deactivate_mapping(
+            profile_id=profile_id,
+            campaign_name=payload.campaign_name,
+        )
+        return {"ok": True, "deactivated": deactivated}
+    except WBRNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except WBRValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to deactivate mapping")
+
+
+@router.post("/profiles/{profile_id}/pacvue/exclusion")
+async def set_pacvue_campaign_exclusion(
+    profile_id: str,
+    payload: PacvueExclusionPayload,
+    user=Depends(require_admin_user),
+):
+    svc = _get_pacvue_mapping_service()
+    try:
+        result = svc.set_exclusion(
+            profile_id=profile_id,
+            campaign_name=payload.campaign_name,
+            excluded=payload.excluded,
+            reason=payload.reason,
+            user_id=_user_id(user),
+        )
+        return {"ok": True, **result}
+    except WBRNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except WBRValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to update campaign exclusion")
 
 
 # ------------------------------------------------------------------

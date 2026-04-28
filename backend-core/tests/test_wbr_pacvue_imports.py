@@ -61,8 +61,12 @@ def _chain_table(response_data: list[dict] | None = None) -> MagicMock:
     table.update.return_value = table
     table.delete.return_value = table
     table.eq.return_value = table
+    table.in_.return_value = table
+    table.gte.return_value = table
+    table.lte.return_value = table
     table.order.return_value = table
     table.limit.return_value = table
+    table.range.return_value = table
     resp = MagicMock()
     resp.data = response_data if response_data is not None else []
     table.execute.return_value = resp
@@ -383,3 +387,62 @@ class TestPacvueImportService:
 
         with pytest.raises(WBRValidationError, match=".xlsx and .xlsm"):
             svc._validate_file_name("pacvue.csv")
+
+    def test_import_sticky_deactivate_scoped_to_incoming_campaigns(self):
+        """Pacvue import should only deactivate prior mappings for campaigns it
+        actually re-tags. Manual mappings for campaigns not in the new batch
+        must remain active so user-edited mappings survive future imports."""
+
+        file_bytes = _build_workbook_bytes(
+            [
+                ["Name", "CampaignTagNames"],
+                ["Campaign A", "Screen Shine | Pro / Perf"],
+            ]
+        )
+        profile = {"id": "p1"}
+        batch = {"id": "b1", "import_status": "running"}
+        finished_batch = {"id": "b1", "import_status": "success", "rows_read": 1, "rows_loaded": 1}
+        active_leaf = {"id": "r1", "row_label": "Screen Shine | Pro", "active": True, "sort_order": 10}
+
+        # The deactivate update step is the third call on the mappings table
+        # (after insert and before activate). Its call args are what we're
+        # asserting against.
+        deactivate_table = _chain_table([])
+
+        db = _multi_table_db(
+            {
+                "wbr_profiles": [_chain_table([profile])],
+                "wbr_pacvue_import_batches": [
+                    _chain_table([batch]),
+                    _chain_table([finished_batch]),
+                ],
+                "wbr_rows": [
+                    _chain_table([active_leaf]),
+                    _chain_table([active_leaf]),
+                ],
+                "wbr_pacvue_campaign_map": [
+                    _chain_table([{"id": "m1"}]),  # insert new (inactive) mappings
+                    deactivate_table,              # deactivate prior actives
+                    _chain_table([{"id": "m1"}]),  # activate new batch mappings
+                ],
+            }
+        )
+
+        svc = PacvueImportService(db)
+        result = svc.import_workbook(
+            profile_id="p1",
+            file_name="pacvue.xlsx",
+            file_bytes=file_bytes,
+            user_id="u1",
+        )
+
+        assert result["summary"]["rows_loaded"] == 1
+
+        # The deactivate step must scope to the incoming campaign names via
+        # `.in_("campaign_name", [...])`. Without this scoping, manual mappings
+        # for campaigns not in the new batch would also be deactivated.
+        in_calls = deactivate_table.in_.call_args_list
+        assert in_calls, "expected deactivate step to call .in_(...) on the table"
+        in_field, in_values = in_calls[0].args
+        assert in_field == "campaign_name"
+        assert list(in_values) == ["Campaign A"]
