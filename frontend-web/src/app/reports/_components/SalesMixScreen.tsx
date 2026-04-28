@@ -534,17 +534,6 @@ export default function SalesMixScreen({ clientSlug, marketplaceCode }: Props) {
         </p>
       ) : null}
 
-      {report?.coverage.warnings?.length ? (
-        <div className="rounded-2xl border border-amber-200 bg-amber-50/70 px-4 py-3 text-sm text-[#78350f]">
-          <p className="font-semibold">Coverage warnings</p>
-          <ul className="mt-1 list-disc space-y-1 pl-5">
-            {report.coverage.warnings.map((warning) => (
-              <li key={warning}>{warning}</li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <KpiTile label="Total Sales" value={formatCurrency(totalBusiness)} hint={`${report?.weekly.length ?? 0} weeks`} />
         <KpiTile
@@ -737,6 +726,19 @@ export default function SalesMixScreen({ clientSlug, marketplaceCode }: Props) {
           </div>
         ) : null}
       </section>
+
+      {report?.coverage.warnings?.length ? (
+        <details className="rounded-2xl border border-slate-200 bg-slate-50/60 px-4 py-2 text-xs text-[#475569]">
+          <summary className="cursor-pointer select-none font-semibold text-[#475569]">
+            Coverage notes ({report.coverage.warnings.length})
+          </summary>
+          <ul className="mt-2 list-disc space-y-1 pl-5">
+            {report.coverage.warnings.map((warning) => (
+              <li key={warning}>{warning}</li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
 
       {resolved.errorMessage ? (
         <p className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
