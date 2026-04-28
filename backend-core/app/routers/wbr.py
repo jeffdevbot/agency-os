@@ -516,8 +516,11 @@ async def upsert_pacvue_manual_map(
         raise HTTPException(status_code=404, detail=str(e))
     except WBRValidationError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    except Exception:
-        raise HTTPException(status_code=500, detail="Failed to save manual mapping")
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to save manual mapping: {exc}",
+        )
 
 
 @router.post("/profiles/{profile_id}/pacvue/deactivate-mapping")
