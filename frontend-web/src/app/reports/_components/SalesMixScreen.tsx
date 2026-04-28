@@ -105,15 +105,15 @@ const parseDecimal = (value: string): number => {
 export default function SalesMixScreen({ clientSlug, marketplaceCode }: Props) {
   const resolved = useResolvedWbrProfile(clientSlug, marketplaceCode);
   const supabase = useMemo(() => getBrowserSupabaseClient(), []);
-  const weekStartDay = resolved.profile?.week_start_day ?? "sunday";
+  // Hold off on a real value until the profile loads; otherwise we'd
+  // compute the preset window with a default `sunday` week-start which
+  // will silently disagree with a `monday` profile and trigger a stale
+  // fetch that races with the corrected one.
+  const weekStartDay = resolved.profile?.week_start_day ?? null;
 
   const [preset, setPreset] = useState<Preset>(DEFAULT_PRESET);
-  const initialRange = useMemo(
-    () => computePresetRange(DEFAULT_PRESET, weekStartDay)!,
-    [weekStartDay]
-  );
-  const [dateFrom, setDateFrom] = useState<string>(initialRange.dateFrom);
-  const [dateTo, setDateTo] = useState<string>(initialRange.dateTo);
+  const [dateFrom, setDateFrom] = useState<string>("");
+  const [dateTo, setDateTo] = useState<string>("");
   const [parentRowIds, setParentRowIds] = useState<string[]>([]);
   const [adTypes, setAdTypes] = useState<string[]>([]);
   const [report, setReport] = useState<SalesMixReport | null>(null);
@@ -127,9 +127,13 @@ export default function SalesMixScreen({ clientSlug, marketplaceCode }: Props) {
   const [showTotalLine, setShowTotalLine] = useState(false);
   const [tableExpanded, setTableExpanded] = useState(false);
 
-  // Re-snap dates when preset changes (or profile loads with a new week_start_day).
+  // Re-snap dates when preset changes or the profile resolves. We
+  // explicitly wait for `weekStartDay` to be non-null so the first
+  // computed window is already aligned to the profile's actual
+  // week-start day, instead of a default-sunday guess.
   useEffect(() => {
     if (preset === "custom") return;
+    if (!weekStartDay) return;
     const range = computePresetRange(preset, weekStartDay);
     if (!range) return;
     setDateFrom(range.dateFrom);
