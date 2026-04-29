@@ -333,6 +333,7 @@ class TransactionImportService:
                 )
 
             self.store.update_import_status(import_id, "success")
+            self.store.promote_profile_to_active_if_draft(profile_id)
             self._update_import_progress(
                 import_id,
                 prepared=prepared,

@@ -215,6 +215,19 @@ class TransactionImportStore:
             payload["error_message"] = error_message
         self.db.table("monthly_pnl_imports").update(payload).eq("id", import_id).execute()
 
+    def promote_profile_to_active_if_draft(self, profile_id: str) -> None:
+        """Flip a profile from 'draft' to 'active' on first successful import.
+
+        Mirrors the WBR auto-promote pattern. Idempotent — once 'active'
+        the profile stays put (we never demote back to draft)."""
+        (
+            self.db.table("monthly_pnl_profiles")
+            .update({"status": "active"})
+            .eq("id", profile_id)
+            .eq("status", "draft")
+            .execute()
+        )
+
     def create_import_month(
         self,
         *,
