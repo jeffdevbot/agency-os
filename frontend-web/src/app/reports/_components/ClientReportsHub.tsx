@@ -149,12 +149,7 @@ export default function ClientReportsHub({ clientSlug }: Props) {
                         </span>
                       </div>
 
-                      {wbrProfile ? (
-                        <p className="mt-4 text-sm text-[#4c576f]">
-                          {wbrProfile.display_name} • Week start: {wbrProfile.week_start_day} •
-                          Status: {wbrProfile.status}
-                        </p>
-                      ) : (
+                      {wbrProfile ? null : (
                         <p className="mt-4 text-sm text-[#4c576f]">
                           Create a WBR profile if this marketplace needs the weekly operating
                           surface.
@@ -219,11 +214,7 @@ export default function ClientReportsHub({ clientSlug }: Props) {
                         </span>
                       </div>
 
-                      {pnlProfile ? (
-                        <p className="mt-4 text-sm text-[#4c576f]">
-                          Status: {pnlProfile.status}
-                        </p>
-                      ) : (
+                      {pnlProfile ? null : (
                         <p className="mt-4 text-sm text-[#4c576f]">
                           Open Amazon P&amp;L to create the finance profile and upload transaction
                           data.
@@ -265,11 +256,7 @@ export default function ClientReportsHub({ clientSlug }: Props) {
                         </span>
                       </div>
 
-                      {wbrProfile ? (
-                        <p className="mt-4 text-sm text-[#4c576f]">
-                          Filter by brand, ad type, and date range. Export to .xlsx.
-                        </p>
-                      ) : (
+                      {wbrProfile ? null : (
                         <p className="mt-4 text-sm text-[#4c576f]">
                           Sales Mix reads from WBR data; create the WBR profile first.
                         </p>
