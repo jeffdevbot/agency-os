@@ -70,14 +70,9 @@ class TransactionImportService:
         user_id: str | None = None,
     ) -> dict[str, Any]:
         """Persist the file and queue import work for background processing."""
-        profile = self.store.get_profile(profile_id)
+        self.store.get_profile(profile_id)
         file_sha256 = hashlib.sha256(file_bytes).hexdigest()
         superseded_import = self._check_duplicate(profile_id, file_sha256)
-        prepared = self._prepare_import(
-            profile_id=profile_id,
-            marketplace_code=str(profile.get("marketplace_code", "US")),
-            file_bytes=file_bytes,
-        )
         queued_at = _utc_now_iso()
 
         storage_path = self._build_storage_path(profile_id, file_name, file_sha256)
@@ -89,10 +84,10 @@ class TransactionImportService:
                 source_type=SOURCE_TYPE,
                 file_name=file_name,
                 file_sha256=file_sha256,
-                period_start=prepared.period_start.isoformat(),
-                period_end=prepared.period_end.isoformat(),
-                import_scope=prepared.import_scope,
-                row_count=len(prepared.raw_rows),
+                period_start=None,
+                period_end=None,
+                import_scope=None,
+                row_count=None,
                 user_id=user_id,
                 supersedes_import_id=(
                     str(superseded_import["id"])
@@ -104,11 +99,9 @@ class TransactionImportService:
                     ASYNC_IMPORT_META_FLAG: True,
                     "queued_at": queued_at,
                     "file_size_bytes": len(file_bytes),
-                    ASYNC_IMPORT_PROGRESS_KEY: self._build_progress_payload(
-                        prepared=prepared,
-                        stage="queued",
-                        detail="Queued for worker-sync background processing",
-                        heartbeat_at=queued_at,
+                    ASYNC_IMPORT_PROGRESS_KEY: self._build_queue_progress_payload(
+                        file_size_bytes=len(file_bytes),
+                        queued_at=queued_at,
                     ),
                 },
             )
@@ -118,8 +111,11 @@ class TransactionImportService:
 
         return {
             "import": import_record,
-            "months": self._build_pending_month_summaries(prepared),
-            "summary": self._build_import_summary(prepared),
+            "months": [],
+            "summary": {
+                "file_size_bytes": len(file_bytes),
+                "queued_at": queued_at,
+            },
         }
 
     def import_file(
@@ -187,12 +183,19 @@ class TransactionImportService:
             self._update_import_progress(
                 import_id,
                 stage="preparing",
-                detail="Parsing the staged transaction export",
+                detail="Worker is parsing the staged transaction export",
             )
             prepared = self._prepare_import(
                 profile_id=profile_id,
                 marketplace_code=str(profile.get("marketplace_code", "US")),
                 file_bytes=file_bytes,
+            )
+            self.store.update_import_parsed_metadata(
+                import_id,
+                period_start=prepared.period_start,
+                period_end=prepared.period_end,
+                import_scope=prepared.import_scope,
+                row_count=len(prepared.raw_rows),
             )
         except Exception as exc:
             self.store.update_import_status(import_id, "error", error_message=str(exc))
@@ -423,6 +426,15 @@ class TransactionImportService:
                     f"This file has already been imported (import {running_import['id']})"
                 )
 
+            pending_import = next(
+                (row for row in filtered_rows if row.get("import_status") == "pending"),
+                None,
+            )
+            if pending_import:
+                raise PNLDuplicateFileError(
+                    f"This file is already queued for import (import {pending_import['id']})"
+                )
+
             successful_import = next(
                 (row for row in filtered_rows if row.get("import_status") == "success"),
                 None,
@@ -470,6 +482,11 @@ class TransactionImportService:
                 profile_id=profile_id,
                 raw_rows=month_slice.raw_rows,
             )
+            self._update_import_progress(
+                import_id,
+                stage="processing_month",
+                detail=f"Inserted raw rows for {entry_month.isoformat()}",
+            )
 
             # 3. Insert ledger entries
             self._insert_ledger_entries(
@@ -479,6 +496,11 @@ class TransactionImportService:
                 entry_month=entry_month,
                 entries=month_slice.ledger_entries,
             )
+            self._update_import_progress(
+                import_id,
+                stage="processing_month",
+                detail=f"Inserted ledger entries for {entry_month.isoformat()}",
+            )
 
             self._insert_bucket_totals(
                 import_id=import_id,
@@ -487,6 +509,11 @@ class TransactionImportService:
                 entry_month=entry_month,
                 entries=month_slice.ledger_entries,
             )
+            self._update_import_progress(
+                import_id,
+                stage="processing_month",
+                detail=f"Inserted bucket totals for {entry_month.isoformat()}",
+            )
 
             self._insert_sku_unit_totals(
                 import_id=import_id,
@@ -494,6 +521,11 @@ class TransactionImportService:
                 profile_id=profile_id,
                 entry_month=entry_month,
                 raw_rows=month_slice.raw_rows,
+            )
+            self._update_import_progress(
+                import_id,
+                stage="processing_month",
+                detail=f"Inserted SKU unit totals for {entry_month.isoformat()}",
             )
 
             self.store.activate_month_slice(
@@ -588,10 +620,21 @@ class TransactionImportService:
         )
 
     def _is_stale_running_import(self, row: dict[str, Any]) -> bool:
-        started_at = _parse_db_timestamp(row.get("started_at")) or _parse_db_timestamp(row.get("created_at"))
-        if started_at is None:
+        raw_meta = row.get("raw_meta") if isinstance(row.get("raw_meta"), dict) else None
+        progress = (raw_meta or {}).get(ASYNC_IMPORT_PROGRESS_KEY) if raw_meta else None
+        heartbeat_at = (
+            _parse_db_timestamp(progress.get("heartbeat_at"))
+            if isinstance(progress, dict)
+            else None
+        )
+        reference = (
+            heartbeat_at
+            or _parse_db_timestamp(row.get("started_at"))
+            or _parse_db_timestamp(row.get("created_at"))
+        )
+        if reference is None:
             return False
-        return (datetime.now(UTC) - started_at) >= STALE_RUNNING_IMPORT_AGE
+        return (datetime.now(UTC) - reference) >= STALE_RUNNING_IMPORT_AGE
 
     def _mark_import_stale_error(self, import_id: str) -> None:
         stale_message = (
@@ -628,6 +671,19 @@ class TransactionImportService:
         }
         payload.update(extra)
         return payload
+
+    def _build_queue_progress_payload(
+        self,
+        *,
+        file_size_bytes: int,
+        queued_at: str,
+    ) -> dict[str, Any]:
+        return {
+            "stage": "queued",
+            "detail": "Queued for the worker - usually starts within 60 seconds",
+            "heartbeat_at": queued_at,
+            "file_size_bytes": file_size_bytes,
+        }
 
     def _update_import_progress(
         self,

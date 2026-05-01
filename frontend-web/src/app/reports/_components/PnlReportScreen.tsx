@@ -430,10 +430,12 @@ export default function PnlReportScreen({ clientSlug, marketplaceCode }: Props) 
       const monthLabel = formatMonthList(result.months);
       setUploadSuccess(
         result.import.import_status === "pending"
-          ? `Queued ${selectedFile.name} for ${monthLabel}. Processing continues in the background.`
-          : `Imported ${selectedFile.name} for ${monthLabel}.`,
+          ? `Queued ${selectedFile.name}. Processing continues in the background.`
+          : `Imported ${selectedFile.name}${monthLabel ? ` for ${monthLabel}` : ""}.`,
       );
-      setProcessingImportLabel(`${selectedFile.name} for ${monthLabel}`);
+      setProcessingImportLabel(
+        monthLabel ? `${selectedFile.name} for ${monthLabel}` : selectedFile.name,
+      );
       setSelectedFile(null);
       setProcessingImport(result.import);
 

@@ -333,14 +333,11 @@ class TestTransactionUpload:
     def test_successful_upload(self, monkeypatch):
         fake_svc = MagicMock()
         fake_svc.enqueue_file.return_value = {
-            "import": {"id": "imp-1"},
-            "months": [{"entry_month": "2026-01-01", "raw_row_count": 1}],
+            "import": {"id": "imp-1", "import_status": "pending"},
+            "months": [],
             "summary": {
-                "total_raw_rows": 1,
-                "total_months": 1,
-                "period_start": "2026-01-01",
-                "period_end": "2026-01-01",
-                "import_scope": "single_month",
+                "file_size_bytes": len(SAMPLE_CSV),
+                "queued_at": "2026-03-16T12:00:00+00:00",
             },
         }
         monkeypatch.setattr(pnl, "_get_import_service", lambda: fake_svc)
@@ -358,7 +355,9 @@ class TestTransactionUpload:
         assert resp.status_code == 200
         data = resp.json()
         assert data["ok"] is True
-        assert data["summary"]["total_raw_rows"] == 1
+        assert data["months"] == []
+        assert data["summary"]["file_size_bytes"] == len(SAMPLE_CSV)
+        assert data["import"]["import_status"] == "pending"
 
     def test_duplicate_file_returns_409(self, monkeypatch):
         from app.services.pnl.profiles import PNLDuplicateFileError

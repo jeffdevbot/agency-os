@@ -81,7 +81,7 @@ class TransactionImportStore:
     ) -> list[dict[str, Any]]:
         response = (
             self.db.table("monthly_pnl_imports")
-            .select("id, import_status, created_at, started_at")
+            .select("id, import_status, created_at, started_at, raw_meta")
             .eq("profile_id", profile_id)
             .eq("source_type", source_type)
             .eq("source_file_sha256", file_sha256)
@@ -134,10 +134,10 @@ class TransactionImportStore:
         source_type: str,
         file_name: str,
         file_sha256: str,
-        period_start: str,
-        period_end: str,
-        import_scope: str,
-        row_count: int,
+        period_start: str | None,
+        period_end: str | None,
+        import_scope: str | None,
+        row_count: int | None,
         user_id: str | None,
         supersedes_import_id: str | None,
         storage_path: str | None = None,
@@ -148,12 +148,16 @@ class TransactionImportStore:
             "source_type": source_type,
             "source_filename": file_name,
             "source_file_sha256": file_sha256,
-            "period_start": period_start,
-            "period_end": period_end,
-            "import_scope": import_scope,
             "import_status": "pending",
-            "row_count": row_count,
         }
+        if period_start is not None:
+            payload["period_start"] = period_start
+        if period_end is not None:
+            payload["period_end"] = period_end
+        if import_scope is not None:
+            payload["import_scope"] = import_scope
+        if row_count is not None:
+            payload["row_count"] = row_count
         if supersedes_import_id:
             payload["supersedes_import_id"] = supersedes_import_id
         if user_id:
@@ -176,6 +180,29 @@ class TransactionImportStore:
         if not rows:
             raise PNLValidationError("Failed to create import record")
         return rows[0]
+
+    def update_import_parsed_metadata(
+        self,
+        import_id: str,
+        *,
+        period_start: date,
+        period_end: date,
+        import_scope: str,
+        row_count: int,
+    ) -> None:
+        (
+            self.db.table("monthly_pnl_imports")
+            .update(
+                {
+                    "period_start": period_start.isoformat(),
+                    "period_end": period_end.isoformat(),
+                    "import_scope": import_scope,
+                    "row_count": row_count,
+                }
+            )
+            .eq("id", import_id)
+            .execute()
+        )
 
     def clear_import_hash(self, import_id: str) -> None:
         (

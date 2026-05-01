@@ -6,7 +6,7 @@ expansion, month slicing, and the import orchestration service.
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import MagicMock
 
@@ -1244,11 +1244,16 @@ def _gateway_error() -> PostgrestAPIError:
 
 
 class TestTransactionImportService:
-    def test_enqueue_file_stages_source_and_returns_pending_months(self):
+    def test_enqueue_file_stages_source_without_parsing(self):
         profiles = _chain_table([{"id": "p1", "marketplace_code": "US"}])
         imports_no_dup = _chain_table([])
-        imports_insert = _chain_table([{"id": "imp-queued", "import_status": "pending"}])
-        rules = _chain_table([])
+        imports_insert = _chain_table(
+            [{
+                "id": "imp-queued",
+                "import_status": "pending",
+                "row_count": 0,
+            }]
+        )
 
         created_import_payloads: list[dict] = []
 
@@ -1265,8 +1270,6 @@ class TestTransactionImportService:
             call_counts[name] += 1
             if name == "monthly_pnl_profiles":
                 return profiles
-            if name == "monthly_pnl_mapping_rules":
-                return rules
             if name == "monthly_pnl_imports":
                 if call_counts[name] == 1:
                     return imports_no_dup
@@ -1290,19 +1293,26 @@ class TestTransactionImportService:
         db.storage = storage
 
         svc = TransactionImportService(db)
+        svc._prepare_import = MagicMock(side_effect=AssertionError("queue path should not parse"))
         result = svc.enqueue_file(profile_id="p1", file_name="test.csv", file_bytes=csv_data)
 
         assert result["import"]["import_status"] == "pending"
-        assert result["months"][0]["entry_month"] == "2026-01-01"
-        assert result["months"][0]["import_status"] == "pending"
+        assert result["months"] == []
+        assert result["summary"]["file_size_bytes"] == len(csv_data)
+        assert result["summary"]["queued_at"]
         storage_bucket.upload.assert_called_once()
         assert created_import_payloads[0]["storage_path"].endswith("test.csv")
+        assert "period_start" not in created_import_payloads[0]
+        assert "period_end" not in created_import_payloads[0]
+        assert "import_scope" not in created_import_payloads[0]
+        assert "row_count" not in created_import_payloads[0]
         assert created_import_payloads[0]["raw_meta"]["async_import_v1"] is True
         progress = created_import_payloads[0]["raw_meta"][ASYNC_IMPORT_PROGRESS_KEY]
         assert progress["stage"] == "queued"
-        assert progress["total_raw_rows"] == 1
-        assert progress["total_months"] == 1
-        assert progress["months_total"] == 1
+        assert progress["file_size_bytes"] == len(csv_data)
+        assert "total_raw_rows" not in progress
+        assert "total_months" not in progress
+        svc._prepare_import.assert_not_called()
 
     def test_rejects_running_duplicate_file(self):
         profiles = _chain_table([{"id": "p1", "marketplace_code": "US"}])
@@ -1316,6 +1326,16 @@ class TestTransactionImportService:
                 file_name="test.csv",
                 file_bytes=SAMPLE_CSV.encode("utf-8"),
             )
+
+    def test_rejects_pending_duplicate_file(self):
+        svc = TransactionImportService(MagicMock())
+        svc.store = MagicMock()
+        svc.store.list_duplicate_candidates.return_value = [
+            {"id": "queued-import", "import_status": "pending"}
+        ]
+
+        with pytest.raises(PNLDuplicateFileError, match="already queued"):
+            svc._check_duplicate("p1", "sha")
 
     def test_rejects_missing_profile(self):
         profiles = _chain_table([])
@@ -1554,6 +1574,38 @@ class TestTransactionImportService:
         assert result["summary"]["total_raw_rows"] == 1
         svc._mark_import_stale_error.assert_called_once_with("stale-imp")
 
+    def test_running_import_staleness_uses_heartbeat_before_started_at(self):
+        svc = TransactionImportService(MagicMock())
+        now = datetime.now(UTC)
+
+        assert svc._is_stale_running_import(
+            {
+                "id": "active-imp",
+                "import_status": "running",
+                "created_at": (now - timedelta(hours=2)).isoformat(),
+                "started_at": (now - timedelta(hours=2)).isoformat(),
+                "raw_meta": {
+                    ASYNC_IMPORT_PROGRESS_KEY: {
+                        "heartbeat_at": (now - timedelta(minutes=1)).isoformat(),
+                    }
+                },
+            }
+        ) is False
+
+        assert svc._is_stale_running_import(
+            {
+                "id": "abandoned-imp",
+                "import_status": "running",
+                "created_at": (now - timedelta(hours=2)).isoformat(),
+                "started_at": (now - timedelta(hours=2)).isoformat(),
+                "raw_meta": {
+                    ASYNC_IMPORT_PROGRESS_KEY: {
+                        "heartbeat_at": (now - timedelta(minutes=20)).isoformat(),
+                    }
+                },
+            }
+        ) is True
+
     def test_process_import_marks_pre_run_failure_as_error(self):
         svc = TransactionImportService(MagicMock())
         svc.store = MagicMock()
@@ -1577,6 +1629,94 @@ class TestTransactionImportService:
         last_meta_patch = svc.store.merge_import_raw_meta.call_args_list[-1].args[1]
         assert last_meta_patch[ASYNC_IMPORT_PROGRESS_KEY]["stage"] == "error"
         assert last_meta_patch[ASYNC_IMPORT_PROGRESS_KEY]["last_error"] == "download failed"
+
+    def test_process_import_persists_parsed_metadata_before_running_import(self):
+        svc = TransactionImportService(MagicMock())
+        svc.store = MagicMock()
+        svc.store.get_import.return_value = {
+            "id": "imp-1",
+            "profile_id": "p1",
+            "storage_path": "p1/upload.csv",
+            "import_status": "running",
+        }
+        svc.store.get_profile.return_value = {"id": "p1", "marketplace_code": "US"}
+        svc.store.load_mapping_rules.return_value = []
+        svc._download_source_file = MagicMock(return_value=SAMPLE_CSV.encode("utf-8"))
+        svc._run_import = MagicMock(return_value={"ok": True})
+
+        result = svc.process_import("imp-1")
+
+        assert result == {"ok": True}
+        svc.store.update_import_parsed_metadata.assert_called_once_with(
+            "imp-1",
+            period_start=date(2026, 1, 1),
+            period_end=date(2026, 2, 1),
+            import_scope="multi_month",
+            row_count=4,
+        )
+        svc._run_import.assert_called_once()
+        assert svc._run_import.call_args.kwargs["prepared"].period_start == date(
+            2026, 1, 1
+        )
+
+    def test_process_month_slice_emits_insert_phase_heartbeats(self):
+        svc = TransactionImportService(MagicMock())
+        svc.store = MagicMock()
+        svc.store.create_import_month.return_value = {"id": "im-1"}
+        svc.store.insert_raw_rows.return_value = None
+        svc.store.insert_ledger_entries.return_value = None
+        svc.store.insert_bucket_totals.return_value = None
+        svc.store.insert_sku_unit_totals.return_value = None
+        svc.store.activate_month_slice.return_value = None
+        svc.store.update_import_month_status.return_value = None
+
+        entry_month = date(2026, 1, 1)
+        raw_row = ParsedRawRow(
+            row_index=0,
+            posted_at=datetime(2026, 1, 15, tzinfo=UTC),
+            release_at=None,
+            order_id="111",
+            sku="SKU1",
+            raw_type="Order",
+            raw_description="Widget",
+            entry_month=entry_month,
+            amounts={"product_sales": Decimal("10.00")},
+            raw_payload={},
+            quantity=1,
+        )
+        ledger_entry = LedgerEntry(
+            entry_month=entry_month,
+            posted_at=datetime(2026, 1, 15, tzinfo=UTC),
+            order_id="111",
+            sku="SKU1",
+            raw_type="Order",
+            raw_description="Widget",
+            ledger_bucket="product_sales",
+            amount=Decimal("10.00"),
+            is_mapped=True,
+            mapping_rule_id=None,
+            source_row_index=0,
+        )
+        month_slice = MonthSlice(
+            entry_month=entry_month,
+            raw_rows=[raw_row],
+            ledger_entries=[ledger_entry],
+            mapped_amount=Decimal("10.00"),
+        )
+
+        svc._process_month_slice(import_id="imp-1", profile_id="p1", month_slice=month_slice)
+
+        progress_patches = [
+            call.args[1][ASYNC_IMPORT_PROGRESS_KEY]
+            for call in svc.store.merge_import_raw_meta.call_args_list
+        ]
+        assert [patch["detail"] for patch in progress_patches] == [
+            "Inserted raw rows for 2026-01-01",
+            "Inserted ledger entries for 2026-01-01",
+            "Inserted bucket totals for 2026-01-01",
+            "Inserted SKU unit totals for 2026-01-01",
+        ]
+        assert all(patch["stage"] == "processing_month" for patch in progress_patches)
 
     def test_allows_reimport_after_success_and_deactivates_stale_months(self):
         """A successful import can be replaced by re-uploading the same file."""
