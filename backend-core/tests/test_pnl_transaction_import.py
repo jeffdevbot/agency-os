@@ -1921,6 +1921,9 @@ class TestTransactionImportService:
         assert {"source_file_sha256": None} in cleared_hash_payloads
 
     def test_insert_ledger_entries_retries_and_splits_on_transient_gateway_errors(self, monkeypatch):
+        # Gateway fails on chunks larger than the MIN_CHUNK_SIZE floor (50),
+        # so we exercise the retry-then-recursive-split path until chunks
+        # reach the floor. Initial chunks come in at IMPORT_INSERT_CHUNK_SIZE (100).
         class FlakyLedgerInsertTable:
             def __init__(self):
                 self.chunk_sizes: list[int] = []
@@ -1932,7 +1935,7 @@ class TestTransactionImportService:
                 return self
 
             def execute(self):
-                if self.current_chunk_size > 100:
+                if self.current_chunk_size > 50:
                     raise _gateway_error()
                 return MagicMock(data=[{}])
 
@@ -1957,7 +1960,7 @@ class TestTransactionImportService:
                 mapping_rule_id=None,
                 source_row_index=index,
             )
-            for index in range(250)
+            for index in range(200)
         ]
 
         svc._insert_ledger_entries(
@@ -1968,8 +1971,10 @@ class TestTransactionImportService:
             entries=entries,
         )
 
-        assert flaky_table.chunk_sizes[:4] == [250, 250, 125, 125]
-        assert any(chunk_size <= 100 for chunk_size in flaky_table.chunk_sizes)
+        # First chunk of 100 retries once at 100, then splits to 50/50 which both pass.
+        assert flaky_table.chunk_sizes[:4] == [100, 100, 50, 50]
+        assert all(chunk_size <= 100 for chunk_size in flaky_table.chunk_sizes)
+        assert any(chunk_size == 50 for chunk_size in flaky_table.chunk_sizes)
 
     def test_import_month_starts_as_pending(self):
         """Import month should be created with 'pending', not 'success'."""

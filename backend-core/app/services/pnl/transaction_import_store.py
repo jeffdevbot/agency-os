@@ -15,8 +15,8 @@ from .profiles import PNLNotFoundError, PNLValidationError
 from .sku_units import SkuUnitSourceRow, summarize_sku_units
 from .transaction_import_models import LedgerEntry, MappingRule, ParsedRawRow
 
-IMPORT_INSERT_CHUNK_SIZE = 500
-IMPORT_INSERT_MIN_CHUNK_SIZE = 100
+IMPORT_INSERT_CHUNK_SIZE = 100
+IMPORT_INSERT_MIN_CHUNK_SIZE = 50
 IMPORT_INSERT_RETRY_ATTEMPTS = 2
 _TRANSIENT_INSERT_ERROR_MARKERS = (
     "JSON could not be generated",
