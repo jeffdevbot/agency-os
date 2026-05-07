@@ -275,6 +275,48 @@ class TestParsePacvueWorkbook:
         assert len(parsed.records) == 1
         assert parsed.records[0].campaign_name == "Mapped Campaign"
 
+    def test_accepts_new_pacvue_header_format(self):
+        # Pacvue 2026 export renamed columns: "Name" → "Campaign Name",
+        # "CampaignTagNames" → "Campaign Tag Name", "state" → "State".
+        file_bytes = _build_workbook_bytes(
+            [
+                ["Level", "Campaign"],
+                ["Compare Date", "03/09/2026 - 05/07/2026 vs 01/08/2026 - 03/08/2026"],
+                ["Download Time", "2026-05-07 13:42:08"],
+                [],
+                ["Campaign Name", "State", "Campaign Targeting Type", "Campaign Tag Name", "Spend", "Sales", "Orders"],
+                ["Campaign A", "enabled", "manual", "Screen Shine | Pro / Perf", 5428.4, 72289.79, 1535],
+                ["total:", None, None, None, 38109.86, 204675.96, 4483],
+            ]
+        )
+
+        parsed = parse_pacvue_workbook(file_bytes)
+
+        assert parsed.header_row_index == 4
+        assert parsed.rows_read == 1
+        assert len(parsed.records) == 1
+        assert parsed.records[0].campaign_name == "Campaign A"
+        assert parsed.records[0].leaf_row_label == "Screen Shine | Pro"
+        assert parsed.records[0].goal_code == "Perf"
+
+    def test_archived_zero_dedupe_handles_new_state_column_casing(self):
+        # New Pacvue format capitalizes "State" — the archived/zero duplicate
+        # detector must remain case-insensitive so live rows still win.
+        file_bytes = _build_workbook_bytes(
+            [
+                ["Campaign Name", "State", "Campaign Tag Name", "Spend", "Sales", "Orders"],
+                ["Campaign A", "enabled", "Screen Shine | Pro / Rsrch", 604.84, 3335.59, 15],
+                ["Campaign A", "archived", "Screen Shine | Pro / Perf", 0, 0, 0],
+            ]
+        )
+
+        parsed = parse_pacvue_workbook(file_bytes)
+
+        assert parsed.rows_read == 2
+        assert parsed.duplicate_rows_skipped == 1
+        assert len(parsed.records) == 1
+        assert parsed.records[0].goal_code == "Rsrch"
+
 
 class TestPacvueImportService:
     def test_import_reactivates_existing_leaf_and_refreshes_mappings(self):

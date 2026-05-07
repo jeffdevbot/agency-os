@@ -14,9 +14,9 @@ from supabase import Client
 
 from .profiles import WBRNotFoundError, WBRValidationError
 
-PACVUE_REQUIRED_HEADERS = {
-    "name": "campaign_name",
-    "campaigntagnames": "raw_tag",
+PACVUE_HEADER_ALIASES: dict[str, tuple[str, ...]] = {
+    "campaign_name": ("name", "campaignname"),
+    "raw_tag": ("campaigntagnames", "campaigntagname"),
 }
 PACVUE_ALLOWED_EXTENSIONS = (".xlsx", ".xlsm")
 PACVUE_GOAL_CODES = {
@@ -55,12 +55,22 @@ def _is_zero_metric_value(value: Any) -> bool:
         return False
 
 
+def _lookup_payload_value(payload: dict[str, Any], key: str) -> Any:
+    if key in payload:
+        return payload[key]
+    target = key.lower()
+    for payload_key, value in payload.items():
+        if isinstance(payload_key, str) and payload_key.lower() == target:
+            return value
+    return None
+
+
 def _record_is_archived_zero_duplicate(record: ParsedPacvueRecord) -> bool:
-    state = _as_cell_text(record.raw_payload.get("state")).lower()
+    state = _as_cell_text(_lookup_payload_value(record.raw_payload, "state")).lower()
     if state != "archived":
         return False
     for key in ("Impression", "Click", "Spend", "Sales", "Orders"):
-        if not _is_zero_metric_value(record.raw_payload.get(key)):
+        if not _is_zero_metric_value(_lookup_payload_value(record.raw_payload, key)):
             return False
     return True
 
@@ -133,7 +143,9 @@ def parse_pacvue_workbook(file_bytes: bytes) -> ParsedPacvueWorkbook:
         break
 
     if rows is None or header_row_index is None or header_map is None or header_values is None:
-        raise WBRValidationError('Pacvue workbook must contain "Name" and "CampaignTagNames" columns')
+        raise WBRValidationError(
+            'Pacvue workbook must contain "Campaign Name" and "Campaign Tag Name" columns'
+        )
 
     records: list[ParsedPacvueRecord] = []
     deduped_by_campaign: dict[str, ParsedPacvueRecord] = {}
@@ -220,16 +232,23 @@ def parse_pacvue_workbook(file_bytes: bytes) -> ParsedPacvueWorkbook:
 
 
 def _find_pacvue_header(rows: list[tuple[Any, ...]]) -> tuple[int, dict[str, int], list[str]]:
+    alias_to_field = {
+        alias: field
+        for field, aliases in PACVUE_HEADER_ALIASES.items()
+        for alias in aliases
+    }
     for idx, row in enumerate(rows):
         normalized = [_canonicalize_header(cell) for cell in row]
         header_positions: dict[str, int] = {}
         for col_idx, value in enumerate(normalized):
-            field_name = PACVUE_REQUIRED_HEADERS.get(value)
-            if field_name:
+            field_name = alias_to_field.get(value)
+            if field_name and field_name not in header_positions:
                 header_positions[field_name] = col_idx
-        if len(header_positions) == len(PACVUE_REQUIRED_HEADERS):
+        if len(header_positions) == len(PACVUE_HEADER_ALIASES):
             return idx, header_positions, [_as_cell_text(cell) for cell in row]
-    raise WBRValidationError('Pacvue workbook must contain "Name" and "CampaignTagNames" columns')
+    raise WBRValidationError(
+        'Pacvue workbook must contain "Campaign Name" and "Campaign Tag Name" columns'
+    )
 
 
 def _parse_tag(raw_tag: str) -> tuple[str, str]:
