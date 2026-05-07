@@ -46,6 +46,11 @@ export type RunWbrWindsorBusinessChunkResult = {
   run: WbrSyncRun;
   rows_fetched: number;
   rows_loaded: number;
+  attempts: number;
+  status: "success" | "error";
+  error_message: string | null;
+  date_from?: string;
+  date_to?: string;
 };
 
 export type RunWbrWindsorBusinessBackfillResult = {
@@ -55,6 +60,9 @@ export type RunWbrWindsorBusinessBackfillResult = {
   date_from: string;
   date_to: string;
   chunks: RunWbrWindsorBusinessChunkResult[];
+  successful_chunk_count: number;
+  failed_chunk_count: number;
+  total_retries: number;
 };
 
 export type Section3SyncStatus = {
@@ -310,10 +318,19 @@ const parseChunkResult = (value: unknown): RunWbrWindsorBusinessChunkResult => {
   if (!isRecord(value) || !isRecord(value.run)) {
     throw new Error("Invalid Windsor business sync chunk response");
   }
+  const rawStatus = typeof value.status === "string" ? value.status : "success";
+  const status: "success" | "error" = rawStatus === "error" ? "error" : "success";
+  const rawErrorMessage = value.error_message;
+  const errorMessage = typeof rawErrorMessage === "string" && rawErrorMessage.length > 0 ? rawErrorMessage : null;
   return {
     run: parseSyncRun(value.run),
     rows_fetched: asNumber(value.rows_fetched),
     rows_loaded: asNumber(value.rows_loaded),
+    attempts: asNumber(value.attempts) || 1,
+    status,
+    error_message: errorMessage,
+    date_from: typeof value.date_from === "string" ? value.date_from : undefined,
+    date_to: typeof value.date_to === "string" ? value.date_to : undefined,
   };
 };
 
@@ -510,13 +527,28 @@ export const runWbrWindsorBusinessBackfill = async (
     throw new Error("Invalid Windsor business backfill response");
   }
 
+  const chunks = payload.chunks.map(parseChunkResult);
+  const successFromPayload = payload.successful_chunk_count;
+  const failedFromPayload = payload.failed_chunk_count;
+  const retriesFromPayload = payload.total_retries;
+  const successful_chunk_count =
+    typeof successFromPayload === "number" ? successFromPayload : chunks.filter((c) => c.status === "success").length;
+  const failed_chunk_count =
+    typeof failedFromPayload === "number" ? failedFromPayload : chunks.filter((c) => c.status === "error").length;
+  const total_retries =
+    typeof retriesFromPayload === "number"
+      ? retriesFromPayload
+      : chunks.reduce((sum, c) => sum + Math.max(c.attempts - 1, 0), 0);
   return {
     profile_id: asString(payload.profile_id),
     job_type: "backfill",
     chunk_days: asNumber(payload.chunk_days),
     date_from: asString(payload.date_from),
     date_to: asString(payload.date_to),
-    chunks: payload.chunks.map(parseChunkResult),
+    chunks,
+    successful_chunk_count,
+    failed_chunk_count,
+    total_retries,
   };
 };
 

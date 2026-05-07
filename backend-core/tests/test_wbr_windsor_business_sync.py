@@ -233,7 +233,7 @@ def test_run_chunk_records_parent_conflict_summary_without_breaking_fact_load(mo
     recorded: list[dict[str, Any]] = []
 
     async def fake_fetch_rows(**kwargs):
-        return conflict_rows
+        return conflict_rows, 1
 
     monkeypatch.setattr(svc, "_fetch_rows", fake_fetch_rows)
     monkeypatch.setattr(svc, "_replace_fact_window", lambda **kwargs: None)
@@ -294,12 +294,15 @@ def test_run_backfill_chunks_requested_range(monkeypatch):
 
     calls: list[tuple[date, date, str]] = []
 
-    async def fake_run_chunk(*, profile_id, account_id, date_from, date_to, job_type, user_id):
+    async def fake_run_chunk(*, profile_id, account_id, date_from, date_to, job_type, user_id, raise_on_failure=True):
         calls.append((date_from, date_to, job_type))
         return {
             "run": {"id": f"{date_from.isoformat()}-{date_to.isoformat()}"},
             "rows_fetched": 1,
             "rows_loaded": 1,
+            "attempts": 1,
+            "status": "success",
+            "error_message": None,
         }
 
     monkeypatch.setattr(svc, "_run_chunk", fake_run_chunk)
@@ -316,6 +319,9 @@ def test_run_backfill_chunks_requested_range(monkeypatch):
 
     assert result["chunk_days"] == 7
     assert len(result["chunks"]) == 3
+    assert result["successful_chunk_count"] == 3
+    assert result["failed_chunk_count"] == 0
+    assert result["total_retries"] == 0
     assert calls == [
         (date(2026, 3, 1), date(2026, 3, 7), "backfill"),
         (date(2026, 3, 8), date(2026, 3, 14), "backfill"),
@@ -456,3 +462,133 @@ def test_refresh_snapshot_after_windsor_daily_refresh_creates_snapshot_without_a
             },
         }
     ]
+
+
+def test_fetch_rows_retries_on_transient_error(monkeypatch):
+    svc = WindsorBusinessSyncService(MagicMock())
+    svc.api_key = "test"
+    svc.seller_url = "https://example.test/connector"
+
+    monkeypatch.setattr(sync_module, "DEFAULT_FETCH_BACKOFF_SECONDS", 0)
+    attempts: list[int] = []
+
+    async def fake_once(**kwargs):
+        attempts.append(1)
+        if len(attempts) < 3:
+            raise sync_module._TransientWindsorError("503: temporarily unavailable")
+        return [{"row": "ok"}]
+
+    monkeypatch.setattr(svc, "_fetch_rows_once", fake_once)
+
+    rows, total_attempts = asyncio.run(
+        svc._fetch_rows(account_id="ACC-US", date_from=date(2026, 3, 1), date_to=date(2026, 3, 7))
+    )
+
+    assert rows == [{"row": "ok"}]
+    assert total_attempts == 3
+    assert len(attempts) == 3
+
+
+def test_fetch_rows_does_not_retry_permanent_error(monkeypatch):
+    svc = WindsorBusinessSyncService(MagicMock())
+    svc.api_key = "test"
+    svc.seller_url = "https://example.test/connector"
+
+    attempts: list[int] = []
+
+    async def fake_once(**kwargs):
+        attempts.append(1)
+        raise sync_module.WBRValidationError("400: bad request")
+
+    monkeypatch.setattr(svc, "_fetch_rows_once", fake_once)
+
+    with pytest.raises(sync_module.WBRValidationError, match="400: bad request"):
+        asyncio.run(
+            svc._fetch_rows(account_id="ACC-US", date_from=date(2026, 3, 1), date_to=date(2026, 3, 7))
+        )
+
+    assert len(attempts) == 1
+
+
+def test_fetch_rows_exhausts_retries_then_raises(monkeypatch):
+    svc = WindsorBusinessSyncService(MagicMock())
+    svc.api_key = "test"
+    svc.seller_url = "https://example.test/connector"
+
+    monkeypatch.setattr(sync_module, "DEFAULT_FETCH_BACKOFF_SECONDS", 0)
+    attempts: list[int] = []
+
+    async def fake_once(**kwargs):
+        attempts.append(1)
+        raise sync_module._TransientWindsorError("503: still unavailable")
+
+    monkeypatch.setattr(svc, "_fetch_rows_once", fake_once)
+
+    with pytest.raises(sync_module._WindsorFetchExhausted, match="after 3 attempts") as exc_info:
+        asyncio.run(
+            svc._fetch_rows(account_id="ACC-US", date_from=date(2026, 3, 1), date_to=date(2026, 3, 7))
+        )
+
+    assert exc_info.value.attempts == sync_module.DEFAULT_FETCH_MAX_ATTEMPTS
+    assert len(attempts) == sync_module.DEFAULT_FETCH_MAX_ATTEMPTS
+
+
+def test_run_backfill_continues_when_a_chunk_fails(monkeypatch):
+    svc = WindsorBusinessSyncService(MagicMock())
+
+    monkeypatch.setattr(svc, "_get_profile", lambda profile_id: {"id": profile_id, "windsor_account_id": "ACC-US"})
+    monkeypatch.setattr(svc, "_require_windsor_account_id", lambda profile: "ACC-US")
+
+    chunk_results = iter(
+        [
+            {
+                "run": {"id": "run-1"},
+                "rows_fetched": 5,
+                "rows_loaded": 5,
+                "attempts": 2,
+                "status": "success",
+                "error_message": None,
+            },
+            {
+                "run": {"id": "run-2"},
+                "rows_fetched": 0,
+                "rows_loaded": 0,
+                "attempts": 3,
+                "status": "error",
+                "error_message": "Windsor business request failed: 503 (after 3 attempts)",
+            },
+            {
+                "run": {"id": "run-3"},
+                "rows_fetched": 4,
+                "rows_loaded": 4,
+                "attempts": 1,
+                "status": "success",
+                "error_message": None,
+            },
+        ]
+    )
+
+    async def fake_run_chunk(*, profile_id, account_id, date_from, date_to, job_type, user_id, raise_on_failure=True):
+        # Backfill must opt in to continue-on-failure mode.
+        assert raise_on_failure is False
+        return next(chunk_results)
+
+    monkeypatch.setattr(svc, "_run_chunk", fake_run_chunk)
+
+    result = asyncio.run(
+        svc.run_backfill(
+            profile_id="profile-1",
+            date_from=date(2026, 3, 1),
+            date_to=date(2026, 3, 15),
+            chunk_days=7,
+            user_id="user-1",
+        )
+    )
+
+    assert result["successful_chunk_count"] == 2
+    assert result["failed_chunk_count"] == 1
+    # 2 successful chunk had 1 retry, the failed chunk had 2 retries: total = 3.
+    assert result["total_retries"] == 3
+    assert [chunk["status"] for chunk in result["chunks"]] == ["success", "error", "success"]
+    assert result["chunks"][1]["error_message"].startswith("Windsor business request failed")
+    assert all("date_from" in chunk and "date_to" in chunk for chunk in result["chunks"])

@@ -157,9 +157,30 @@ export function useWbrSync(profile: WbrProfile | null) {
         chunk_days: Number(chunkDays) || 7,
       });
       const totalRowsLoaded = result.chunks.reduce((sum, chunk) => sum + chunk.rows_loaded, 0);
-      setSuccessMessage(
-        `Backfill completed across ${result.chunks.length} chunk(s). Loaded ${totalRowsLoaded} daily ASIN facts.`
-      );
+      const failedChunks = result.chunks.filter((chunk) => chunk.status === "error");
+      const headline =
+        failedChunks.length === 0
+          ? `Backfill completed across ${result.chunks.length} chunk(s). Loaded ${totalRowsLoaded} daily ASIN facts.`
+          : `Backfill finished with ${result.successful_chunk_count}/${result.chunks.length} chunk(s) successful — ${result.failed_chunk_count} failed. Loaded ${totalRowsLoaded} daily ASIN facts.`;
+      const retryNote =
+        result.total_retries > 0
+          ? ` (${result.total_retries} chunk${result.total_retries === 1 ? "" : "s"} required a retry to succeed)`
+          : "";
+      const failureDetails = failedChunks.slice(0, 3).map((chunk) => {
+        const range =
+          chunk.date_from && chunk.date_to ? `${chunk.date_from} → ${chunk.date_to}` : "(unknown range)";
+        const reason = chunk.error_message ?? "unknown error";
+        return ` Failed ${range}: ${reason}`;
+      });
+      const moreFailures =
+        failedChunks.length > failureDetails.length ? ` (+${failedChunks.length - failureDetails.length} more)` : "";
+      const message = `${headline}${retryNote}${failureDetails.join(".")}${moreFailures}`;
+      if (failedChunks.length > 0) {
+        setErrorMessage(message);
+        setSuccessMessage(null);
+      } else {
+        setSuccessMessage(message);
+      }
       await loadRuns(true);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Failed to run Windsor business backfill");

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import csv
 import io
 import os
@@ -40,6 +41,29 @@ DEFAULT_TIMEOUT_SECONDS = 360
 MIN_TIMEOUT_SECONDS = 60
 DEFAULT_CHUNK_DAYS = 7
 DEFAULT_DAILY_LOOKBACK_DAYS = 14
+
+# Retry policy for a single Windsor HTTP fetch within one chunk. Long backfills
+# call Windsor sequentially per chunk; a transient blip on any chunk would
+# abort the whole job otherwise. Keep attempts modest so we don't blow past
+# the request handler's wall-clock budget.
+DEFAULT_FETCH_MAX_ATTEMPTS = 3
+DEFAULT_FETCH_BACKOFF_SECONDS = 2.0
+RETRYABLE_HTTP_STATUS = frozenset({408, 425, 429, 500, 502, 503, 504})
+
+
+class _TransientWindsorError(Exception):
+    """Internal: a Windsor fetch attempt failed in a way safe to retry."""
+
+
+class _WindsorFetchExhausted(Exception):
+    """Internal: Windsor fetch failed after exhausting all retries.
+
+    Carries the number of attempts so the caller can surface it for diagnostics.
+    """
+
+    def __init__(self, message: str, *, attempts: int) -> None:
+        super().__init__(message)
+        self.attempts = attempts
 
 
 @dataclass(frozen=True)
@@ -164,18 +188,31 @@ class WindsorBusinessSyncService:
         account_id = self._require_windsor_account_id(profile)
 
         chunks = _chunk_date_range(date_from, date_to, chunk_days)
-        results = []
+        results: list[dict[str, Any]] = []
+        successful_chunks = 0
+        failed_chunks = 0
+        total_retries = 0
         for chunk_start, chunk_end in chunks:
-            results.append(
-                await self._run_chunk(
-                    profile_id=profile_id,
-                    account_id=account_id,
-                    date_from=chunk_start,
-                    date_to=chunk_end,
-                    job_type="backfill",
-                    user_id=user_id,
-                )
+            chunk_result = await self._run_chunk(
+                profile_id=profile_id,
+                account_id=account_id,
+                date_from=chunk_start,
+                date_to=chunk_end,
+                job_type="backfill",
+                user_id=user_id,
+                raise_on_failure=False,
             )
+            chunk_result = {
+                **chunk_result,
+                "date_from": chunk_start.isoformat(),
+                "date_to": chunk_end.isoformat(),
+            }
+            results.append(chunk_result)
+            if chunk_result.get("status") == "success":
+                successful_chunks += 1
+            else:
+                failed_chunks += 1
+            total_retries += max(int(chunk_result.get("attempts") or 1) - 1, 0)
 
         return {
             "profile_id": profile_id,
@@ -184,6 +221,9 @@ class WindsorBusinessSyncService:
             "date_from": date_from.isoformat(),
             "date_to": date_to.isoformat(),
             "chunks": results,
+            "successful_chunk_count": successful_chunks,
+            "failed_chunk_count": failed_chunks,
+            "total_retries": total_retries,
         }
 
     async def run_daily_refresh(
@@ -256,6 +296,7 @@ class WindsorBusinessSyncService:
         date_to: date,
         job_type: str,
         user_id: str | None,
+        raise_on_failure: bool = True,
     ) -> dict[str, Any]:
         run = self._create_sync_run(
             profile_id=profile_id,
@@ -271,9 +312,12 @@ class WindsorBusinessSyncService:
         )
         run_id = str(run["id"])
         raw_rows: list[dict[str, Any]] = []
+        attempts = 0
 
         try:
-            raw_rows = await self._fetch_rows(account_id=account_id, date_from=date_from, date_to=date_to)
+            raw_rows, attempts = await self._fetch_rows(
+                account_id=account_id, date_from=date_from, date_to=date_to
+            )
             facts = self._aggregate_rows(raw_rows, expected_account_id=account_id)
             conflicts = self._extract_parent_asin_conflicts(facts)
             self._replace_fact_window(
@@ -283,21 +327,21 @@ class WindsorBusinessSyncService:
                 date_to=date_to,
                 facts=facts,
             )
+            meta_update: dict[str, Any] = {}
+            if attempts > 1:
+                meta_update["fetch_attempts"] = attempts
             if conflicts:
                 self._record_parent_asin_conflicts(
                     profile_id=profile_id,
                     sync_run_id=run_id,
                     conflicts=conflicts,
                 )
-                self._update_sync_run_request_meta(
-                    run_id=run_id,
-                    request_meta={
-                        "parent_asin_conflicts": {
-                            "count": len(conflicts),
-                            "child_asins": [conflict.child_asin for conflict in conflicts[:25]],
-                        }
-                    },
-                )
+                meta_update["parent_asin_conflicts"] = {
+                    "count": len(conflicts),
+                    "child_asins": [conflict.child_asin for conflict in conflicts[:25]],
+                }
+            if meta_update:
+                self._update_sync_run_request_meta(run_id=run_id, request_meta=meta_update)
             finished = self._finalize_sync_run(
                 run_id=run_id,
                 status="success",
@@ -309,27 +353,118 @@ class WindsorBusinessSyncService:
                 "run": finished,
                 "rows_fetched": len(raw_rows),
                 "rows_loaded": len(facts),
+                "attempts": attempts,
+                "status": "success",
+                "error_message": None,
             }
+        except _WindsorFetchExhausted as exc:
+            return self._finalize_chunk_failure(
+                run_id=run_id,
+                error_message=str(exc),
+                rows_fetched=len(raw_rows),
+                attempts=exc.attempts,
+                exc=exc,
+                raise_on_failure=raise_on_failure,
+                wrap_as_validation=True,
+            )
         except WBRValidationError as exc:
-            self._finalize_sync_run(
+            return self._finalize_chunk_failure(
                 run_id=run_id,
-                status="error",
-                rows_fetched=len(raw_rows),
-                rows_loaded=0,
                 error_message=str(exc),
+                rows_fetched=len(raw_rows),
+                attempts=attempts,
+                exc=exc,
+                raise_on_failure=raise_on_failure,
             )
-            raise
         except Exception as exc:  # noqa: BLE001
-            self._finalize_sync_run(
+            return self._finalize_chunk_failure(
                 run_id=run_id,
-                status="error",
+                error_message="Failed to sync Windsor business data",
                 rows_fetched=len(raw_rows),
-                rows_loaded=0,
-                error_message=str(exc),
+                attempts=attempts,
+                exc=exc,
+                raise_on_failure=raise_on_failure,
+                wrap_as_validation=True,
             )
-            raise WBRValidationError("Failed to sync Windsor business data") from exc
 
-    async def _fetch_rows(self, *, account_id: str, date_from: date, date_to: date) -> list[dict[str, Any]]:
+    def _finalize_chunk_failure(
+        self,
+        *,
+        run_id: str,
+        error_message: str,
+        rows_fetched: int,
+        attempts: int,
+        exc: BaseException,
+        raise_on_failure: bool,
+        wrap_as_validation: bool = False,
+    ) -> dict[str, Any]:
+        if attempts > 1:
+            try:
+                self._update_sync_run_request_meta(
+                    run_id=run_id, request_meta={"fetch_attempts": attempts}
+                )
+            except Exception:  # noqa: BLE001
+                pass
+        finished = self._finalize_sync_run(
+            run_id=run_id,
+            status="error",
+            rows_fetched=rows_fetched,
+            rows_loaded=0,
+            error_message=error_message,
+        )
+        if raise_on_failure:
+            if wrap_as_validation:
+                raise WBRValidationError(error_message) from exc
+            raise exc
+        return {
+            "run": finished,
+            "rows_fetched": rows_fetched,
+            "rows_loaded": 0,
+            "attempts": max(attempts, 1),
+            "status": "error",
+            "error_message": error_message,
+        }
+
+    async def _fetch_rows(
+        self,
+        *,
+        account_id: str,
+        date_from: date,
+        date_to: date,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Fetch rows from Windsor with retry on transient errors.
+
+        Returns (rows, attempts). `attempts` is always >= 1 and equals the
+        total number of HTTP attempts made (1 = success first try).
+        """
+        last_transient: _TransientWindsorError | None = None
+        for attempt in range(1, DEFAULT_FETCH_MAX_ATTEMPTS + 1):
+            try:
+                rows = await self._fetch_rows_once(
+                    account_id=account_id, date_from=date_from, date_to=date_to
+                )
+                return rows, attempt
+            except _TransientWindsorError as exc:
+                last_transient = exc
+                if attempt >= DEFAULT_FETCH_MAX_ATTEMPTS:
+                    break
+                await asyncio.sleep(DEFAULT_FETCH_BACKOFF_SECONDS * (2 ** (attempt - 1)))
+
+        # Exhausted retries — raise an internal exception that carries the
+        # attempt count so the caller can surface it for diagnostics.
+        message = str(last_transient) if last_transient else "Windsor business request failed"
+        raise _WindsorFetchExhausted(
+            f"{message} (after {DEFAULT_FETCH_MAX_ATTEMPTS} attempts)",
+            attempts=DEFAULT_FETCH_MAX_ATTEMPTS,
+        )
+
+    async def _fetch_rows_once(
+        self,
+        *,
+        account_id: str,
+        date_from: date,
+        date_to: date,
+    ) -> list[dict[str, Any]]:
         if not self.api_key:
             raise WBRValidationError("WINDSOR_API_KEY is not configured")
         if not self.seller_url:
@@ -344,9 +479,19 @@ class WindsorBusinessSyncService:
         }
 
         timeout = httpx.Timeout(timeout=self.timeout_seconds)
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.get(self.seller_url, params=params)
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                response = await client.get(self.seller_url, params=params)
+        except (httpx.TimeoutException, httpx.NetworkError) as exc:
+            raise _TransientWindsorError(
+                f"Windsor business request network error: {exc.__class__.__name__}"
+            ) from exc
 
+        if response.status_code in RETRYABLE_HTTP_STATUS:
+            body_preview = response.text.strip().replace("\n", " ")[:220]
+            raise _TransientWindsorError(
+                f"Windsor business request failed: {response.status_code} :: {body_preview}"
+            )
         if response.status_code >= 400:
             body_preview = response.text.strip().replace("\n", " ")[:220]
             raise WBRValidationError(
