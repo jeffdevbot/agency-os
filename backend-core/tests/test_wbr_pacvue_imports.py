@@ -488,3 +488,69 @@ class TestPacvueImportService:
         in_field, in_values = in_calls[0].args
         assert in_field == "campaign_name"
         assert list(in_values) == ["Campaign A"]
+
+    def test_deactivate_chunks_campaign_names_to_avoid_url_length_limit(self):
+        # Pacvue imports with many long campaign names previously sent a single
+        # `.in_(...)` filter, blowing past the Supabase gateway URL-length cap
+        # and surfacing as a generic "Bad Request" error. Confirm chunking.
+        from app.services.wbr.pacvue_imports import _DEACTIVATE_CHUNK_SIZE
+
+        n_campaigns = _DEACTIVATE_CHUNK_SIZE * 2 + 5  # forces 3 chunks
+        rows = [["Name", "CampaignTagNames"]]
+        for i in range(n_campaigns):
+            rows.append([f"Campaign {i:04d}", "Screen Shine | Pro / Perf"])
+        file_bytes = _build_workbook_bytes(rows)
+
+        profile = {"id": "p1"}
+        batch = {"id": "b1", "import_status": "running"}
+        finished_batch = {
+            "id": "b1",
+            "import_status": "success",
+            "rows_read": n_campaigns,
+            "rows_loaded": n_campaigns,
+        }
+        active_leaf = {"id": "r1", "row_label": "Screen Shine | Pro", "active": True, "sort_order": 10}
+
+        # Each deactivate chunk re-acquires a fresh table mock, so we need one
+        # _chain_table per chunk (3) in addition to insert + activate.
+        deactivate_tables = [_chain_table([]) for _ in range(3)]
+
+        db = _multi_table_db(
+            {
+                "wbr_profiles": [_chain_table([profile])],
+                "wbr_pacvue_import_batches": [
+                    _chain_table([batch]),
+                    _chain_table([finished_batch]),
+                ],
+                "wbr_rows": [
+                    _chain_table([active_leaf]),
+                    _chain_table([active_leaf]),
+                ],
+                "wbr_pacvue_campaign_map": [
+                    _chain_table([{"id": "m1"}]),
+                    *deactivate_tables,
+                    _chain_table([{"id": "m1"}]),
+                ],
+            }
+        )
+
+        svc = PacvueImportService(db)
+        svc.import_workbook(
+            profile_id="p1",
+            file_name="pacvue.xlsx",
+            file_bytes=file_bytes,
+            user_id="u1",
+        )
+
+        chunk_sizes = [
+            len(list(table.in_.call_args_list[0].args[1]))
+            for table in deactivate_tables
+            if table.in_.call_args_list
+        ]
+        assert len(chunk_sizes) == 3, (
+            f"expected 3 deactivate chunks for {n_campaigns} campaigns at "
+            f"chunk size {_DEACTIVATE_CHUNK_SIZE}, got {len(chunk_sizes)}"
+        )
+        for size in chunk_sizes:
+            assert size <= _DEACTIVATE_CHUNK_SIZE
+        assert sum(chunk_sizes) == n_campaigns

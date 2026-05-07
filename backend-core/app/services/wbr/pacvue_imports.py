@@ -32,7 +32,12 @@ PACVUE_GOAL_CODES = {
 PACVUE_EMPTY_TAG_PATTERN = re.compile(r"^[-\s\u2013\u2014]+$")
 PACVUE_FOOTER_LABELS = {"total", "total:"}
 
-_BATCH_SIZE = 500
+# Cap on names per `.in_()` filter call. PostgREST's `in.(...)` syntax goes in
+# the URL query string; with long Pacvue campaign names URL-encoded this can
+# blow past Supabase's gateway URL-length limit (~16 KB) and return a plain
+# "Bad Request" before the request reaches PostgREST. 50 keeps a single
+# deactivate URL well under the limit even for 90+ char campaign names.
+_DEACTIVATE_CHUNK_SIZE = 50
 
 
 @dataclass(frozen=True)
@@ -553,8 +558,8 @@ class PacvueImportService:
         # including manual entries (import_batch_id IS NULL).
         incoming_campaign_names = [record.campaign_name for record in records]
         if incoming_campaign_names:
-            for start in range(0, len(incoming_campaign_names), _BATCH_SIZE):
-                chunk = incoming_campaign_names[start:start + _BATCH_SIZE]
+            for start in range(0, len(incoming_campaign_names), _DEACTIVATE_CHUNK_SIZE):
+                chunk = incoming_campaign_names[start:start + _DEACTIVATE_CHUNK_SIZE]
                 (
                     self.db.table("wbr_pacvue_campaign_map")
                     .update({"active": False})
