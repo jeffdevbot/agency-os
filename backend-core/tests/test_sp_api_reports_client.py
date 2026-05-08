@@ -435,3 +435,64 @@ async def test_fetch_report_rows_json_preserves_nested_structure() -> None:
     assert asin_rows[0]["childAsin"] == "B000TEST01"
     assert asin_rows[0]["salesByAsin"]["orderedProductSales"]["amount"] == 10.5
     assert asin_rows[0]["trafficByAsin"]["pageViews"] == 120
+
+
+@pytest.mark.asyncio
+async def test_fetch_report_rows_gzipped_sales_and_traffic_json() -> None:
+    import json as _json
+
+    document = {
+        "reportSpecification": {
+            "reportType": "GET_SALES_AND_TRAFFIC_REPORT",
+            "marketplaceIds": ["A2EUQ1WTGCTBG2"],
+        },
+        "salesAndTrafficByAsin": [
+            {
+                "childAsin": "B000TEST01",
+                "salesByAsin": {
+                    "orderedProductSales": {"amount": 12.34, "currencyCode": "CAD"},
+                    "unitsOrdered": 2,
+                },
+                "trafficByAsin": {"pageViews": 99},
+            }
+        ],
+    }
+    gzipped_bytes = gzip.compress(_json.dumps(document).encode("utf-8"))
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST" and request.url.path == "/reports/2021-06-30/reports":
+            return httpx.Response(200, json={"reportId": "report-1"})
+        if request.url.path == "/reports/2021-06-30/reports/report-1":
+            return httpx.Response(
+                200,
+                json={"processingStatus": "DONE", "reportDocumentId": "doc-1"},
+            )
+        if request.url.path == "/reports/2021-06-30/documents/doc-1":
+            return httpx.Response(
+                200,
+                json={
+                    "url": "https://documents.example.test/report.json.gz",
+                    "compressionAlgorithm": "GZIP",
+                },
+            )
+        if request.url.host == "documents.example.test":
+            return httpx.Response(200, content=gzipped_bytes)
+        return httpx.Response(404)
+
+    client, http_client = _client(httpx.MockTransport(handler))
+    try:
+        rows = await client.fetch_report_rows(
+            "GET_SALES_AND_TRAFFIC_REPORT",
+            marketplace_ids=["A2EUQ1WTGCTBG2"],
+            data_start_time=START,
+            data_end_time=END,
+            format="json",
+        )
+    finally:
+        await http_client.aclose()
+
+    assert len(rows) == 1
+    asin_rows = rows[0]["salesAndTrafficByAsin"]
+    assert asin_rows[0]["childAsin"] == "B000TEST01"
+    assert asin_rows[0]["salesByAsin"]["orderedProductSales"]["amount"] == 12.34
+    assert asin_rows[0]["trafficByAsin"]["pageViews"] == 99
