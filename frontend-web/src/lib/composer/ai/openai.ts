@@ -51,7 +51,20 @@ export interface JsonObjectResponseFormat {
 
 export type ResponseFormat = JsonSchemaResponseFormat | JsonObjectResponseFormat;
 
-const MAX_RATE_LIMIT_RETRIES = 2;
+// Total attempts (1 initial + up to N-1 retries) for any transient OpenAI
+// failure: 429 rate limits, transient 5xx (including the Envoy-style 503
+// "upstream connect error" we've seen kill ngram-2 workbook runs), 408/425
+// timing errors, and network/abort errors. 3 attempts × ~7s of total backoff
+// is enough for a typical OpenAI edge blip without delaying the user
+// noticeably on a real outage.
+const MAX_TRANSIENT_RETRIES = 3;
+const RETRYABLE_HTTP_STATUS = new Set([408, 425, 429, 500, 502, 503, 504]);
+// Per-attempt wall-clock cap. OpenAI's structured-output calls for ngram-2
+// usually return in 5-30s; 90s gives plenty of headroom while still
+// converting a hung connection into a retryable timeout.
+const DEFAULT_REQUEST_TIMEOUT_MS = 90_000;
+const TRANSIENT_BACKOFF_BASE_MS = 1_000;
+const TRANSIENT_BACKOFF_MAX_MS = 8_000;
 
 const getDefaultModel = (): string => {
   const model = process.env.OPENAI_MODEL_PRIMARY || "gpt-5.1-nano";
@@ -79,6 +92,43 @@ const sleep = async (durationMs: number): Promise<void> =>
   new Promise((resolve) => {
     setTimeout(resolve, durationMs);
   });
+
+const exponentialBackoffMs = (attempt: number): number => {
+  // attempt is 1-indexed: 1st retry = 1s + jitter, 2nd = 2s + jitter, ...
+  const base = Math.min(
+    TRANSIENT_BACKOFF_MAX_MS,
+    TRANSIENT_BACKOFF_BASE_MS * 2 ** Math.max(0, attempt - 1),
+  );
+  // ±25% jitter to avoid thundering-herd retries when many parallel calls fail
+  // on the same upstream blip.
+  const jitter = base * 0.25 * (Math.random() * 2 - 1);
+  return Math.max(250, Math.round(base + jitter));
+};
+
+const isRetryableNetworkError = (error: unknown): boolean => {
+  if (error instanceof Error) {
+    // Node's undici-backed fetch surfaces network resets / DNS / connect errors
+    // as TypeErrors with names like "TypeError" / "FetchError", and aborts as
+    // AbortError. All are safe to retry — the request never reached the model.
+    if (error.name === "AbortError") return true;
+    if (error.name === "TypeError") return true;
+    if (error.name === "FetchError") return true;
+    const cause = (error as { cause?: { code?: string } }).cause;
+    if (cause?.code) {
+      const code = cause.code;
+      return (
+        code === "ECONNRESET" ||
+        code === "ECONNREFUSED" ||
+        code === "ETIMEDOUT" ||
+        code === "EPIPE" ||
+        code === "EAI_AGAIN" ||
+        code === "UND_ERR_SOCKET" ||
+        code === "UND_ERR_CONNECT_TIMEOUT"
+      );
+    }
+  }
+  return false;
+};
 
 const parseRateLimitDelayMs = (response: Response, errorBody: string): number | null => {
   const retryAfterMs = Number.parseFloat(response.headers.get("retry-after-ms") || "");
@@ -139,24 +189,55 @@ const callOpenAIHttp = async (
     requestBody.response_format = responseFormat;
   }
 
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${getApiKey()}`,
-    },
-    body: JSON.stringify(requestBody),
-  });
+  const controller = new AbortController();
+  const timeoutHandle = setTimeout(
+    () => controller.abort(),
+    DEFAULT_REQUEST_TIMEOUT_MS,
+  );
+
+  let response: Response;
+  try {
+    response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${getApiKey()}`,
+      },
+      body: JSON.stringify(requestBody),
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (isRetryableNetworkError(error) && retryCount < MAX_TRANSIENT_RETRIES - 1) {
+      await sleep(exponentialBackoffMs(retryCount + 1));
+      return callOpenAIHttp(
+        messages,
+        model,
+        temperature,
+        maxTokens,
+        tools,
+        responseFormat,
+        retryCount + 1,
+      );
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutHandle);
+  }
 
   const durationMs = Date.now() - startTime;
 
   if (!response.ok) {
     const errorBody = await response.text().catch(() => "");
-    if (response.status === 429 && retryCount < MAX_RATE_LIMIT_RETRIES) {
-      const retryDelayMs = Math.min(
-        15000,
-        Math.max(1000, Math.ceil((parseRateLimitDelayMs(response, errorBody) ?? 1000) + 250)),
-      );
+    if (
+      RETRYABLE_HTTP_STATUS.has(response.status) &&
+      retryCount < MAX_TRANSIENT_RETRIES - 1
+    ) {
+      const rateLimitDelayMs =
+        response.status === 429 ? parseRateLimitDelayMs(response, errorBody) : null;
+      const retryDelayMs =
+        rateLimitDelayMs != null
+          ? Math.min(15000, Math.max(1000, Math.ceil(rateLimitDelayMs + 250)))
+          : exponentialBackoffMs(retryCount + 1);
       await sleep(retryDelayMs);
       return callOpenAIHttp(
         messages,
