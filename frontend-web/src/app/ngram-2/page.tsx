@@ -429,7 +429,7 @@ export default function NgramTwoPage() {
         ? "border-[#f0d9b1] bg-[#fff8ee] text-[#8a5a15]"
         : "border-[#f3d0d0] bg-[#fff5f5] text-[#8f1d1d]";
   const campaignExclusionHelper = legacyExclusions
-    ? "Campaign names containing Ex., SDI, or SDV will be skipped."
+    ? "SPM | SKW | Ex., SPM | MKW | Ex., SDI, and SDV campaigns will be skipped."
     : "All campaign names in the selected window will be included.";
   const languageSelectionSummary = disableLanguageNegation
     ? "Language-based negation is disabled for this run."

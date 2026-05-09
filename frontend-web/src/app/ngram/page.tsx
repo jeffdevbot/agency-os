@@ -199,7 +199,7 @@ export default function NgramPage() {
                 Upload your Search Term Report to create the campaign workbook with mono/bi/tri tables and NE scratchpads.
               </p>
               <p className="mt-1 text-xs text-[#94a3b8]">
-                Campaigns containing &quot;Ex.&quot;, &quot;SDI&quot;, or &quot;SDV&quot; are automatically excluded.
+                Campaigns with SPM | SKW | Ex., SPM | MKW | Ex., SDI, or SDV are automatically excluded.
               </p>
             </div>
             <div

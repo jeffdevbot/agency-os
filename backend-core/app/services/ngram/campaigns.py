@@ -7,7 +7,33 @@ import pandas as pd
 
 from .analytics import build_ngram, derive_category
 
-LEGACY_EXCLUSION_MARKERS = ("Ex.", "SDI", "SDV")
+LEGACY_EXACT_KEYWORD_EXCLUSION_PATTERNS = (
+    ("SPM", "SKW", "Ex."),
+    ("SPM", "MKW", "Ex."),
+)
+LEGACY_DISPLAY_EXCLUSION_MARKERS = ("SDI", "SDV")
+
+
+def _campaign_segments(campaign_name: str) -> list[str]:
+    return [segment.strip() for segment in str(campaign_name or "").split("|")]
+
+
+def is_legacy_excluded_campaign(campaign_name: str) -> bool:
+    campaign_text = str(campaign_name or "")
+    segments = _campaign_segments(campaign_name)
+    segments_upper = [segment.upper() for segment in segments]
+
+    if any(marker in campaign_text for marker in LEGACY_DISPLAY_EXCLUSION_MARKERS):
+        return True
+
+    for pattern in LEGACY_EXACT_KEYWORD_EXCLUSION_PATTERNS:
+        pattern_upper = [segment.upper() for segment in pattern]
+        pattern_length = len(pattern_upper)
+        for idx in range(0, len(segments_upper) - pattern_length + 1):
+            if segments_upper[idx : idx + pattern_length] == pattern_upper:
+                return True
+
+    return False
 
 
 @dataclass(frozen=True)
@@ -26,7 +52,7 @@ def build_campaign_items(
 
     for camp, sub in df.groupby("Campaign Name"):
         cname = str(camp)
-        if respect_legacy_exclusions and any(marker in cname for marker in LEGACY_EXCLUSION_MARKERS):
+        if respect_legacy_exclusions and is_legacy_excluded_campaign(cname):
             campaigns_skipped += 1
             continue
 

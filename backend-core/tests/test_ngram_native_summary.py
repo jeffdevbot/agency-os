@@ -73,7 +73,7 @@ class _FakeNativeNgramService:
                     spend=91.5,
                 )
             ],
-            warnings=["1 campaign(s) will be skipped by the legacy Ex./SDI/SDV exclusions."],
+            warnings=["1 campaign(s) will be skipped by the keyword-exact or SDI/SDV exclusions."],
         )
 
 
@@ -115,7 +115,7 @@ def test_native_summary_route_returns_summary_payload(monkeypatch):
         }
     ]
     assert data["summary"]["warnings"] == [
-        "1 campaign(s) will be skipped by the legacy Ex./SDI/SDV exclusions."
+        "1 campaign(s) will be skipped by the keyword-exact or SDI/SDV exclusions."
     ]
     assert fake_service.calls == [
         {

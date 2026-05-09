@@ -305,6 +305,16 @@ describe("ngram2 aiPrefill helpers", () => {
     expect(campaigns[0]?.campaignName).toContain("Screen Shine - Pro");
     expect(campaigns[0]?.terms).toHaveLength(1);
     expect(isLegacyExcludedCampaign("Anything | SPM | MKW | Ex. | Rank")).toBe(true);
+    expect(isLegacyExcludedCampaign("Anything | SPM | SKW | Ex. | ice bath | Rank")).toBe(true);
+    expect(isLegacyExcludedCampaign("Anything | SPM | MKW | Ex. | Harv | 3 - gen | Perf")).toBe(true);
+    expect(isLegacyExcludedCampaign("Anything | SDI | Views")).toBe(true);
+    expect(isLegacyExcludedCampaign("Anything | SDV | Views")).toBe(true);
+    expect(isLegacyExcludedCampaign("Anything SDI Views")).toBe(true);
+    expect(isLegacyExcludedCampaign("Anything | SPM | PT | Ex. | Main | Perf")).toBe(false);
+    expect(isLegacyExcludedCampaign("Anything | SPM | STPP | Ex. | Perf")).toBe(false);
+    expect(isLegacyExcludedCampaign("Anything | SPM | CT | Ex. | Rsrch")).toBe(false);
+    expect(isLegacyExcludedCampaign("Anything | SB | PC-Store | MKW | Ex.")).toBe(false);
+    expect(isLegacyExcludedCampaign("Anything | SBV | PP | MKW | Ex.")).toBe(false);
   });
 
   it("builds ngrams and synthesizes conservative scratchpad suggestions", () => {

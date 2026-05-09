@@ -282,7 +282,7 @@ async def process_report(
     campaign_items = build_result.campaign_items
 
     if not campaign_items:
-        raise HTTPException(status_code=400, detail="No eligible campaigns after filters (Ex./SD*).")
+        raise HTTPException(status_code=400, detail="No eligible campaigns after keyword-exact or SDI/SDV filters.")
 
     workbook_path = build_workbook(campaign_items, settings.app_version)
     dl_name = (

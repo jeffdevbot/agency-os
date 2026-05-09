@@ -219,7 +219,11 @@ export type ValidatedPureModelTermTriageResponse = {
 export const AI_PREFILL_PREVIEW_MAX_CAMPAIGNS = 6;
 export const AI_PREFILL_PREVIEW_MAX_TERMS_PER_CAMPAIGN = 20;
 
-export const LEGACY_EXCLUSION_MARKERS = ["Ex.", "SDI", "SDV"] as const;
+export const LEGACY_EXACT_KEYWORD_EXCLUSION_PATTERNS = [
+  ["SPM", "SKW", "Ex."],
+  ["SPM", "MKW", "Ex."],
+] as const;
+export const LEGACY_DISPLAY_EXCLUSION_MARKERS = ["SDI", "SDV"] as const;
 export const ASIN_QUERY_RE = /^[a-z0-9]{10}$/i;
 
 const STOP_WORDS = new Set([
@@ -410,8 +414,24 @@ export const parseCampaignTheme = (campaignName: string): string | null => {
   return null;
 };
 
-export const isLegacyExcludedCampaign = (campaignName: string): boolean =>
-  LEGACY_EXCLUSION_MARKERS.some((marker) => String(campaignName || "").includes(marker));
+export const isLegacyExcludedCampaign = (campaignName: string): boolean => {
+  const campaignText = String(campaignName || "");
+  const segments = campaignText
+    .split("|")
+    .map((segment) => segment.trim().toUpperCase());
+
+  if (LEGACY_DISPLAY_EXCLUSION_MARKERS.some((marker) => campaignText.includes(marker))) {
+    return true;
+  }
+
+  return LEGACY_EXACT_KEYWORD_EXCLUSION_PATTERNS.some((pattern) => {
+    const normalizedPattern = pattern.map((segment) => segment.toUpperCase());
+    return segments.some((_, index) =>
+      segments.slice(index, index + normalizedPattern.length).join("\u0000") ===
+      normalizedPattern.join("\u0000"),
+    );
+  });
+};
 
 export const isAsinQuery = (query: string | null | undefined): boolean =>
   ASIN_QUERY_RE.test(String(query || "").trim());

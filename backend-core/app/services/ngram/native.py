@@ -9,7 +9,7 @@ import pandas as pd
 from supabase import Client
 
 from ..wbr.profiles import WBRNotFoundError
-from .campaigns import build_campaign_items
+from .campaigns import build_campaign_items, is_legacy_excluded_campaign
 from .parser import ASIN_RE
 from .workbook import build_workbook
 
@@ -188,7 +188,7 @@ class NativeNgramWorkbookService:
                 warnings.append("Imported rows exist, but none remain after removing blank terms and ASIN-only queries.")
             elif respect_legacy_exclusions and build_result and build_result.campaigns_skipped > 0:
                 warnings.append(
-                    f"{build_result.campaigns_skipped} campaign(s) will be skipped by the legacy Ex./SDI/SDV exclusions."
+                    f"{build_result.campaigns_skipped} campaign(s) will be skipped by the keyword-exact or SDI/SDV exclusions."
                 )
 
         return NativeNgramPreflightSummary(
@@ -346,7 +346,7 @@ class NativeNgramWorkbookService:
             campaign_name = str(row.get("Campaign Name") or "").strip()
             if not campaign_name:
                 continue
-            if respect_legacy_exclusions and any(marker in campaign_name for marker in ("Ex.", "SDI", "SDV")):
+            if respect_legacy_exclusions and is_legacy_excluded_campaign(campaign_name):
                 continue
             campaigns.append(
                 NativeNgramCampaignSummary(
